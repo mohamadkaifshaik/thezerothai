@@ -4761,6 +4761,286 @@ void main() {
       expect((await receiveRecord()).close, isNull);
     });
   });
+
+  group('a deferred message that is taken down, cleared or unreadable '
+      '(§7.3, §7.6, §8.1)', () {
+    /// Message [n] is deferred by a first pull (the since token is saved).
+    Future<pb.Message> deferOne(int n, {Duration at = Duration.zero}) async {
+      final m = await say(bobGroup(), n, at: at);
+      failNext(m, [internal]);
+      await rig.receiver.pullLive(_c1);
+      expect(await deferredIds(), contains(_mid(n)));
+      return m;
+    }
+
+    test('a removed state seen for a deferred id writes a removed row and '
+        'purges the item in one transaction', () async {
+      await setUpJoined();
+      final m1 = await deferOne(1);
+      rig.server.tombstone(_c1, _mid(1), MessageState.MESSAGE_STATE_REMOVED);
+      rig.changed.clear();
+      // One transaction: when the row cannot be written the item stays.
+      rig.device.cipher.failSeal = (label) =>
+          label.startsWith('vault_messages.');
+      await rig.receiver.pullLive(_c1);
+      expect(await deferredIds(), [_mid(1)]);
+      rig.device.cipher.failSeal = null;
+      expect(await row(_mid(1)), isNull);
+
+      await rig.receiver.pullLive(_c1);
+
+      final r = (await row(_mid(1)))!;
+      expect(r.state, StoredMessageState.removed);
+      expect(r.content, isNull);
+      expect(r.mine, isFalse);
+      expect(r.createdAtMicros, t0.microsecondsSinceEpoch);
+      expect(await deferredIds(), isEmpty);
+      expect(processedCount(m1.ciphertext), 1);
+      expect(
+        rig.contexts.of(_c1).tombstoned[_mid(1)],
+        StoredMessageState.removed,
+      );
+      expect(rig.changed, contains(_c1));
+    });
+
+    test('a deleted-account state seen for a deferred id writes that row, '
+        'and at or before cleared_at the item is only purged', () async {
+      await setUpJoined();
+      await deferOne(1);
+      await deferOne(2, at: seconds(10));
+      final s = await sync();
+      await rig.device.vault.transaction(
+        (tx) => tx.putConversationSync(
+          _c1,
+          s.copyWith(
+            clearedAtMicros: t0.add(seconds(5)).microsecondsSinceEpoch,
+          ),
+        ),
+      );
+      for (final n in [1, 2]) {
+        rig.server.tombstone(
+          _c1,
+          _mid(n),
+          MessageState.MESSAGE_STATE_DELETED_ACCOUNT,
+        );
+      }
+
+      await rig.receiver.pullLive(_c1);
+
+      expect(await row(_mid(1)), isNull);
+      expect((await row(_mid(2)))!.state, StoredMessageState.deletedAccount);
+      expect(await deferredIds(), isEmpty);
+    });
+
+    test('a tombstone on a probe page that is not processed still ends its '
+        'deferred message as a removed row', () async {
+      await setUpJoined();
+      final m1 = await deferOne(1);
+      rig.server.tombstone(_c1, _mid(1), MessageState.MESSAGE_STATE_REMOVED);
+      // A gapped page: never processed as a batch.
+      rig.server.rewriteLive = (r) => r..gapPageToken = 'gap';
+      rig.server.rewriteEpoch = (r) =>
+          r..messages.removeWhere((m) => m.id == _mid(1));
+
+      await rig.receiver.pullLive(_c1);
+
+      expect((await row(_mid(1)))!.state, StoredMessageState.removed);
+      expect(await deferredIds(), isEmpty);
+      expect(processedCount(m1.ciphertext), 1);
+    });
+
+    test('a tombstone for an id that is neither stored nor deferred writes '
+        'nothing and is remembered for the run', () async {
+      await setUpJoined();
+      await prime();
+      await say(bobGroup(), 1, at: seconds(1));
+      rig.server.tombstone(_c1, _mid(1), MessageState.MESSAGE_STATE_REMOVED);
+
+      await rig.receiver.pullLive(_c1);
+
+      expect(await row(_mid(1)), isNull);
+      expect(
+        rig.contexts.of(_c1).tombstoned[_mid(1)],
+        StoredMessageState.removed,
+      );
+    });
+
+    test('a replayed deferred record never stores a taken-down message as '
+        'visible', () async {
+      await setUpJoined();
+      final m1 = await deferOne(1);
+      final key = DeferredRecords.keyOf(_c1);
+      final held = (await rig.sealedSetting(key))!;
+      rig.server.tombstone(_c1, _mid(1), MessageState.MESSAGE_STATE_REMOVED);
+      await rig.receiver.pullLive(_c1);
+      expect((await row(_mid(1)))!.state, StoredMessageState.removed);
+
+      // Someone with the vault file puts the old record back, and the app
+      // starts again (the tombstones seen in the run are forgotten).
+      await rig.replaySealedSetting(key, held);
+      expect(await deferredIds(), [_mid(1)]);
+      await rig.restart();
+      rig.clock.advance(kDeferredRetrySpacing);
+      await rig.receiver.pullLive(_c1);
+
+      final r = (await row(_mid(1)))!;
+      expect(r.state, StoredMessageState.removed);
+      expect(r.content, isNull);
+      expect(await deferredIds(), isEmpty);
+      expect(processedCount(m1.ciphertext), 1);
+
+      // The same at the final attempt of its close walk.
+      await rig.replaySealedSetting(key, held);
+      await bobSelfUpdate();
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      expect((await row(_mid(1)))!.state, StoredMessageState.removed);
+      expect(await deferredIds(), isEmpty);
+      expect(processedCount(m1.ciphertext), 1);
+    });
+
+    test('cleared_at purges deferred items at or before it in the delete '
+        'transaction', () async {
+      await setUpJoined();
+      await say(bobGroup(), 9, at: seconds(-1));
+      await deferOne(1);
+      await deferOne(2, at: seconds(10));
+      expect((await row(_mid(9)))!.state, StoredMessageState.visible);
+      rig.clock.advance(seconds(30));
+      rig.server.clearedAt[_c1] = t0.add(seconds(5));
+      // One transaction: when the record cannot be written, no row is
+      // deleted either.
+      rig.device.cipher.failSeal = (label) =>
+          label.startsWith('vault_settings.');
+      await rig.receiver.applyClearedAtOnce(_c1);
+      rig.device.cipher.failSeal = null;
+      expect(await row(_mid(9)), isNotNull);
+      expect(await deferredIds(), [_mid(1), _mid(2)]);
+      rig.changed.clear();
+
+      await rig.receiver.applyClearedAtOnce(_c1);
+
+      expect(await row(_mid(9)), isNull);
+      expect(await deferredIds(), [_mid(2)]);
+      expect(rig.changed, contains(_c1));
+    });
+
+    test('purgeDeferredIn removes the items at or before a time in the '
+        "caller's transaction", () async {
+      await setUpJoined();
+      await deferOne(1);
+      await deferOne(2, at: seconds(10));
+      final v = rig.device.vault;
+
+      await v.transaction(
+        (tx) => rig.receiver.purgeDeferredIn(
+          v,
+          tx,
+          _c1,
+          t0.add(seconds(5)).microsecondsSinceEpoch,
+        ),
+      );
+
+      expect(await deferredIds(), [_mid(2)]);
+    });
+
+    test('deferredView lists ids and times newest first and hides those at '
+        'or before cleared_at', () async {
+      await setUpJoined();
+      expect(await rig.receiver.deferredView(_c1), isEmpty);
+      await deferOne(1);
+      await deferOne(2, at: seconds(10));
+      await deferOne(3, at: seconds(20));
+
+      final all = await rig.receiver.deferredView(_c1);
+      expect(
+        [for (final d in all) (d.id, d.atMicros)],
+        [
+          for (final (n, s) in [(3, 20), (2, 10), (1, 0)])
+            (_mid(n), t0.add(seconds(s)).microsecondsSinceEpoch),
+        ],
+      );
+
+      final s = await sync();
+      await rig.device.vault.transaction(
+        (tx) => tx.putConversationSync(
+          _c1,
+          s.copyWith(
+            clearedAtMicros: t0.add(seconds(10)).microsecondsSinceEpoch,
+          ),
+        ),
+      );
+      expect(
+        [for (final d in await rig.receiver.deferredView(_c1)) d.id],
+        [_mid(3)],
+      );
+    });
+
+    test('an unreadable deferred record resets every walk of the '
+        'conversation to its start', () async {
+      await setUpJoined();
+      final bytes = _content('lost with the record');
+      final m1 = await say(bobGroup(), 1, bytes: bytes);
+      await say(bobGroup(), 2, at: seconds(1));
+      failNext(m1, [internal]);
+      await rig.receiver.pullLive(_c1);
+      expect((await receiveRecord()).open!.end, isTrue);
+      final key = DeferredRecords.keyOf(_c1);
+      await rig.replaySealedSetting(key, Uint8List.fromList([1, 2, 3]));
+      rig.server.epochRequests.clear();
+
+      await rig.receiver.pullLive(_c1);
+
+      // Replaced by an empty record; the walk listed again from the start
+      // and the lost message, listed unstored, was processed as first
+      // sight.
+      expect(orderedTokens(const MlsPair(1, 1)).first, '');
+      final r = (await row(_mid(1)))!;
+      expect(r.state, StoredMessageState.visible);
+      expect(r.content, bytes);
+      expect(await deferredIds(), isEmpty);
+      expect(processedCount(m1.ciphertext), 2);
+      // Reported once, by its step name only.
+      expect(rig.unexpected, hasLength(1));
+      final e = rig.unexpected.single as E2eePipelineError;
+      expect(e.step, 'receive.deferred.read');
+      rig.unexpected.clear();
+
+      // Not reset again: the record reads now.
+      rig.server.epochRequests.clear();
+      await rig.receiver.pullLive(_c1);
+      expect(orderedTokens(const MlsPair(1, 1)), isNot(contains('')));
+      expect(rig.unexpected, isEmpty);
+    });
+
+    test('an unreadable deferred record resets a close walk too and nothing '
+        'is written by the body that met it', () async {
+      await setUpJoined();
+      await deferOne(1);
+      final key = DeferredRecords.keyOf(_c1);
+      await putReceiveRecord(
+        const ReceiveRecord(
+          close: WalkEntry(
+            pair: MlsPair(1, 1),
+            t: 'tok',
+            s: 'tok',
+            r: false,
+            end: true,
+          ),
+        ),
+      );
+      await rig.replaySealedSetting(key, Uint8List.fromList([1, 2, 3]));
+
+      await rig.receiver.pullLive(_c1);
+
+      final close = (await receiveRecord()).close!;
+      expect(rig.unexpected, hasLength(1));
+      rig.unexpected.clear();
+      // The reset walk listed again from the start and ended again.
+      expect(orderedTokens(const MlsPair(1, 1)).first, '');
+      expect(close.end, isTrue);
+      expect((await row(_mid(1)))!.state, StoredMessageState.visible);
+    });
+  });
 }
 
 /// A sink that returns without walking (a buggy sink): catch-up must not

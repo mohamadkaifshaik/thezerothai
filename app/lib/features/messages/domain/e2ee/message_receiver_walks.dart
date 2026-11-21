@@ -115,6 +115,14 @@ extension _Walks on MessageReceiver {
   ) async {
     final pass = await _start();
     if (pass == null) return ReceiveOutcome.stopped(_now().add(kWalkBackoff));
+    // §7.3: an unreadable deferred record is replaced, and the walks reset,
+    // before anything of this pass reads it.
+    final held0 = await _deferred.read(pass.vault, id);
+    if (held0.unreadable) {
+      await _locks.run(id, () => _repairDeferredLocked(pass, id));
+    } else {
+      _contexts.of(id).deferredEmpty = held0.record.items.isEmpty;
+    }
     // A provisional group only, or none: catch-up and the welcomes own the
     // current pair; an undecryptable (`u`) close or orphan walk left over
     // from a group that is gone is still finished, with no probe.
@@ -415,6 +423,7 @@ extension _Walks on MessageReceiver {
         // §8.2: the anchor and the armed reconcile entry (its listing is
         // step 2's); the page is not processed.
         await _armLocked(pass, id, since);
+        await _tombstonesSeenLocked(pass, id, page.messages);
         context.endToken = since.isEmpty
             ? null
             : (token: since, sentWith: '', seq: seq);
@@ -441,7 +450,9 @@ extension _Walks on MessageReceiver {
         )..waitingForWelcome = end.waitingForWelcome;
       }
       // Not processed: its messages come through the open walk, in order;
-      // its token is saved by rule 2 once that walk ends.
+      // its token is saved by rule 2 once that walk ends. A tombstone on it
+      // still ends a deferred copy of its message now (§8.1).
+      await _tombstonesSeenLocked(pass, id, page.messages);
       context.endToken = since.isEmpty
           ? null
           : (token: since, sentWith: token, seq: seq);

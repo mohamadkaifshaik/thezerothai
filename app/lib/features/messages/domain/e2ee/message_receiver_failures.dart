@@ -362,6 +362,122 @@ extension _Failures on MessageReceiver {
   }
 
   // -------------------------------------------------------------------------
+  // Tombstones for deferred messages (§8.1) and the unreadable record
+
+  /// Remembers a REMOVED / DELETED_ACCOUNT state seen this run (oldest
+  /// dropped past [_kTombstonedRemembered]; the tombstone ROW is what stops
+  /// a replayed record for good).
+  void _noteTombstone(ConversationContext context, String mid, String state) {
+    context.tombstoned.remove(mid);
+    context.tombstoned[mid] = state;
+    while (context.tombstoned.length > _kTombstonedRemembered) {
+      context.tombstoned.remove(context.tombstoned.keys.first);
+    }
+  }
+
+  /// §8.1 for a set of tombstones [states] (message id -> `removed` /
+  /// `deletedAccount`), inside a write body: what ONE transaction must
+  /// write so that every deferred message among them ends as its tombstone
+  /// row (none when the id is stored, or at or before `cleared_at`) and its
+  /// item goes. Null: none of them is deferred. Every id is remembered for
+  /// the run. The caller writes `deferred` and `rows` in its transaction
+  /// (step 2b's reconcile page calls this beside its own writes).
+  Future<({DeferredRecord deferred, List<StoredMessage> rows})?>
+  _tombstoneDeferred(
+    SecureVault v,
+    String id,
+    Map<String, String> states,
+  ) async {
+    final context = _contexts.of(id);
+    states.forEach((mid, state) => _noteTombstone(context, mid, state));
+    if (states.isEmpty) return null;
+    final held = await _deferredLookup(v, id);
+    final hit = [
+      for (final i in held.items)
+        if (states.containsKey(i.id)) i,
+    ];
+    if (hit.isEmpty) return null;
+    final cleared = (await v.conversation(id))?.sync.clearedAtMicros;
+    final rows = <StoredMessage>[];
+    for (final item in hit) {
+      final row = await _itemRow(v, id, cleared, item);
+      if (row != null) rows.add(row);
+    }
+    return (deferred: held.without([for (final i in hit) i.id]), rows: rows);
+  }
+
+  /// The tombstones of a probe page that is not processed as a batch
+  /// (§8.1 "in the probe"), with the lock held: one `runWrite`, ONE
+  /// transaction for the deferred messages among them. Stored rows are left
+  /// to the walk or the reconcile listing, as built.
+  Future<void> _tombstonesSeenLocked(
+    _Pass pass,
+    String id,
+    List<pb.Message> messages,
+  ) async {
+    final states = <String, String>{
+      for (final m in messages)
+        if (_messageIdShape.hasMatch(m.id) &&
+            (m.conversationId.isEmpty || m.conversationId == id))
+          if (m.state == MessageState.MESSAGE_STATE_REMOVED)
+            m.id: StoredMessageState.removed
+          else if (m.state == MessageState.MESSAGE_STATE_DELETED_ACCOUNT)
+            m.id: StoredMessageState.deletedAccount,
+    };
+    if (states.isEmpty) return;
+    try {
+      final wrote = await _session.runWrite((v) async {
+        pass.check(v);
+        final plan = await _tombstoneDeferred(v, id, states);
+        if (plan == null) return false;
+        await v.transaction((tx) async {
+          for (final row in plan.rows) {
+            await tx.putMessage(row);
+          }
+          await _deferred.putIn(tx, id, plan.deferred);
+        });
+        _contexts.of(id).deferredEmpty = plan.deferred.items.isEmpty;
+        return true;
+      });
+      if (wrote) _onChanged(id);
+    } on _Stopped {
+      return;
+    } on _DeferredUnreadable {
+      return;
+    } on Object catch (e, s) {
+      _reportIfBug(e, s, 'receive.deferred.tombstone');
+    }
+  }
+
+  /// §7.3: an unreadable deferred record is replaced by an empty one and,
+  /// in the SAME transaction, every walk of the conversation is reset to
+  /// its start, so the lost items' messages are listed again unstored and
+  /// processed as first sight. With the lock held; the record is read again
+  /// in the write body (nothing is written when it reads there).
+  Future<void> _repairDeferredLocked(_Pass pass, String id) async {
+    assert(_locks.isHeld(id), 'The caller must hold the conversation lock.');
+    if (!pass.live) return;
+    final context = _contexts.of(id);
+    final repaired = await _session.runWrite((v) async {
+      pass.check(v);
+      if (!(await _deferred.read(v, id)).unreadable) return false;
+      final record = await _readReceive(v, id);
+      await v.transaction((tx) async {
+        await _deferred.putIn(tx, id, DeferredRecord.empty);
+        await _records.putIn(tx, id, record.walksReset());
+      });
+      return true;
+    });
+    if (!repaired) return;
+    context.serial++;
+    context
+      ..deferredEmpty = true
+      ..endToken = null
+      ..unwitnessed.clear();
+    _onChanged(id);
+  }
+
+  // -------------------------------------------------------------------------
   // Retries (§7.4): step 6 of a pass
 
   /// Step 6 of a pass, after its fresh work (also after a pass that ended

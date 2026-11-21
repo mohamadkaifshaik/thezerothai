@@ -65,6 +65,10 @@ const Duration kOpenSettleEvery = Duration(minutes: 10);
 /// `undecryptable` row once its pair is behind the group.
 const int _kRowlessRemembered = 4096;
 
+/// How many tombstone states seen this run are remembered per conversation
+/// (§7.4 check 2).
+const int _kTombstonedRemembered = 4096;
+
 final RegExp _messageIdShape = RegExp(r'^[0-9a-f]{32}$');
 
 /// What one receive pass ended with (§2). `complete`: the since token is
@@ -231,6 +235,54 @@ class MessageReceiver implements EpochMessageSink {
     _deadlineThisRun = false;
   }
 
+  /// §10: what the screens need to draw the placeholder rows of
+  /// [conversationId]: the id and server time of every deferred message,
+  /// newest first, leaving out those at or before `cleared_at`. No bytes.
+  /// `onChanged(conversationId)` fires after every deferral and every item
+  /// removal. Never throws (empty when the vault is closed or the record
+  /// does not read).
+  Future<List<DeferredView>> deferredView(String conversationId) async {
+    final vault = _session.vault;
+    if (vault == null) return const [];
+    try {
+      final read = await _deferred.read(vault, conversationId);
+      final cleared = (await vault.conversation(conversationId))
+          ?.sync
+          .clearedAtMicros;
+      return read.record.view(clearedAtMicros: cleared);
+    } on Object catch (e, s) {
+      _reportIfBug(e, s, 'receive.deferred.view');
+      return const [];
+    }
+  }
+
+  /// §7.6 end 5: removes the deferred items of [conversationId] created at
+  /// or before [upToCreatedAtMicros] in the caller's transaction [tx], for
+  /// every vault-row delete that leaves settings behind (`cleared_at` here;
+  /// Task 13's `noteDeleted`). Call inside a `runWrite` body with that
+  /// body's [vault], at most once per transaction, with the conversation
+  /// lock held. No row is written. An unreadable record is left to the
+  /// next pass (which replaces it).
+  Future<void> purgeDeferredIn(
+    SecureVault vault,
+    VaultTx tx,
+    String conversationId,
+    int upToCreatedAtMicros,
+  ) async {
+    final read = await _deferred.read(vault, conversationId);
+    if (read.unreadable) return;
+    final gone = [
+      for (final i in read.record.items)
+        if (i.at <= upToCreatedAtMicros) i.id,
+    ];
+    if (gone.isEmpty) return;
+    final rest = read.record.without(gone);
+    await _deferred.putIn(tx, conversationId, rest);
+    final context = _contexts.of(conversationId);
+    context.deferredEmpty = rest.items.isEmpty ? null : false;
+    gone.forEach(context.unwitnessed.remove);
+  }
+
   static String _newRunId() {
     final random = Random.secure();
     return [
@@ -344,6 +396,8 @@ class MessageReceiver implements EpochMessageSink {
           final stored = sync.clearedAtMicros;
           await v.transaction((tx) async {
             await tx.deleteConversation(id, upToCreatedAtMicros: cleared);
+            // §7.6 end 5: the deferred copies go with the rows.
+            await purgeDeferredIn(v, tx, id, cleared);
             if (stored == null || cleared > stored) {
               await tx.putConversationSync(
                 id,
@@ -525,11 +579,26 @@ class MessageReceiver implements EpochMessageSink {
         // 1. A tombstone clears a stored copy and stores nothing new.
         if (m.state == MessageState.MESSAGE_STATE_REMOVED ||
             m.state == MessageState.MESSAGE_STATE_DELETED_ACCOUNT) {
-          if (!await v.hasMessage(id, mid)) return _Step.skipped;
           final state = m.state == MessageState.MESSAGE_STATE_REMOVED
               ? StoredMessageState.removed
               : StoredMessageState.deletedAccount;
-          return write.commit(tombstone: (mid, state));
+          // Seen this run: a deferred copy of it is never tried again.
+          _noteTombstone(context, mid, state);
+          if (await v.hasMessage(id, mid)) {
+            return write.commit(tombstone: (mid, state));
+          }
+          // §8.1: a deferred message that was taken down ends as its
+          // tombstone row (none at or before cleared_at), and its item goes
+          // in the same transaction; the row then stops a replayed record.
+          final held = await _deferredLookup(v, id);
+          final item = held.of(mid);
+          if (item == null) return _Step.skipped;
+          final rest = held.without([mid]);
+          context.deferredEmpty = rest.items.isEmpty;
+          return write.commit(
+            deferred: rest,
+            rows: [?await _itemRow(v, id, cleared, item)],
+          );
         }
 
         StoredMessage undecryptable({bool mine = false}) => StoredMessage(

@@ -28,6 +28,11 @@ extension _Sink on MessageReceiver {
     final pass = await _start();
     if (pass == null) throw const _Stopped();
     final context = _contexts.of(id);
+    // §7.3: an unreadable deferred record is replaced (and the walks reset)
+    // before this walk reads it.
+    if ((await _deferred.read(pass.vault, id)).unreadable) {
+      await _repairDeferredLocked(pass, id);
+    }
     final current = await _currentPair(pass.vault, id);
     // The pair the waiting commit is due at (the sink's own pair when the
     // group's is not known: never null, so the marker is never lost).
