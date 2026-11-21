@@ -186,8 +186,27 @@ class ReconcileEntry {
   final String l;
 }
 
-/// The receive record of one conversation (§3.1). Step 1 always writes
-/// `gf: null`. No `toString`.
+/// Group-level engine failures after which a failing message becomes a row
+/// and its group is rowed for the run (§7.2).
+const int kGroupFailuresMax = 3;
+
+/// The bound of the abandoned-walk count; a count above it is written as
+/// the bound.
+const int kAbandonedWalksMax = 9999;
+
+/// The group failure count (§3.1 `gf`): [n] group-level engine failures in
+/// a row at [pair], 1 to [kGroupFailuresMax]. No `toString`.
+class GroupFailures {
+  const GroupFailures(this.pair, this.n);
+
+  final MlsPair pair;
+  final int n;
+}
+
+/// The receive record of one conversation (§3.1), with [gf] (§7.2) and
+/// [abandoned]: how many undecryptable walks of this conversation were
+/// given up (a carry-over ruling after the design; `ab`, optional at
+/// decode). No `toString`.
 class ReceiveRecord {
   const ReceiveRecord({
     this.open,
@@ -195,6 +214,8 @@ class ReceiveRecord {
     this.orphan,
     this.rec,
     this.anchor = '',
+    this.gf,
+    this.abandoned = 0,
   });
 
   static const ReceiveRecord empty = ReceiveRecord();
@@ -204,6 +225,8 @@ class ReceiveRecord {
   final WalkEntry? orphan;
   final ReconcileEntry? rec;
   final String anchor;
+  final GroupFailures? gf;
+  final int abandoned;
 
   ReceiveRecord copyWith({
     Object? open = _keep,
@@ -211,12 +234,24 @@ class ReceiveRecord {
     Object? orphan = _keep,
     Object? rec = _keep,
     String? anchor,
+    Object? gf = _keep,
+    int? abandoned,
   }) => ReceiveRecord(
     open: identical(open, _keep) ? this.open : open as WalkEntry?,
     close: identical(close, _keep) ? this.close : close as WalkEntry?,
     orphan: identical(orphan, _keep) ? this.orphan : orphan as WalkEntry?,
     rec: identical(rec, _keep) ? this.rec : rec as ReconcileEntry?,
     anchor: anchor ?? this.anchor,
+    gf: identical(gf, _keep) ? this.gf : gf as GroupFailures?,
+    abandoned: abandoned ?? this.abandoned,
+  );
+
+  /// Every walk listed again from its start (an unreadable deferred record,
+  /// §7.3): `t = s = ''`, `r = c = true`, `end = false`, `f = l = null`.
+  ReceiveRecord walksReset() => copyWith(
+    open: open?.restarted().copyWith(end: false),
+    close: close?.restarted().copyWith(end: false),
+    orphan: orphan?.restarted().copyWith(end: false),
   );
 
   Uint8List encode() => Uint8List.fromList(
@@ -232,7 +267,18 @@ class ReceiveRecord {
             ? null
             : {'armed': rec!.armed, 't': rec!.t, 'n': rec!.n, 'l': rec!.l},
         'anchor': anchor,
-        'gf': null,
+        // Every value written is one the decoder accepts: counts are
+        // clamped into their bounds.
+        'gf': gf == null || gf!.n < 1
+            ? null
+            : {
+                'g': gf!.pair.generation,
+                'e': gf!.pair.epoch,
+                'n': gf!.n > kGroupFailuresMax ? kGroupFailuresMax : gf!.n,
+              },
+        'ab': abandoned < 0
+            ? 0
+            : (abandoned > kAbandonedWalksMax ? kAbandonedWalksMax : abandoned),
       }),
     ),
   );
@@ -267,8 +313,29 @@ class ReceiveRecord {
       reconcile = ReconcileEntry(armed: armed, t: _token(rec['t']), n: n, l: l);
     }
     final gf = m['gf'];
-    if (gf != null && gf is! Map<String, Object?>) {
-      throw const FormatException('gf');
+    GroupFailures? failures;
+    if (gf != null) {
+      if (gf is! Map<String, Object?>) throw const FormatException('gf');
+      final g = gf['g'];
+      final e = gf['e'];
+      final n = gf['n'];
+      if (g is! int ||
+          e is! int ||
+          n is! int ||
+          g < 0 ||
+          e < 0 ||
+          g > kMaxPairComponent ||
+          e > kMaxPairComponent ||
+          n < 1 ||
+          n > kGroupFailuresMax) {
+        throw const FormatException('gf');
+      }
+      failures = GroupFailures(MlsPair(g, e), n);
+    }
+    // Optional: a record written before the count existed has none.
+    final ab = m['ab'] ?? 0;
+    if (ab is! int || ab < 0 || ab > kAbandonedWalksMax) {
+      throw const FormatException('ab');
     }
     return ReceiveRecord(
       open: _walk(m['open'], close: false),
@@ -276,6 +343,8 @@ class ReceiveRecord {
       orphan: _walk(m['orphan'], close: false),
       rec: reconcile,
       anchor: _token(m['anchor']),
+      gf: failures,
+      abandoned: ab,
     );
   }
 
@@ -379,7 +448,8 @@ class ReceiveRecord {
   /// when that is for the pair); (3) `open` is null while a close or orphan
   /// slot holds the current pair, else it is for the current pair (created
   /// from the start when missing or for another pair); (4) an empty since
-  /// token with no reconcile entry creates an armed one; (5) `gf` is null.
+  /// token with no reconcile entry creates an armed one; (5) `gf` is null
+  /// unless its pair is a stored final group's.
   ReceiveRecord normalized({
     required ConversationSync sync,
     required List<GroupRecord> groups,
@@ -436,12 +506,22 @@ class ReceiveRecord {
     if (sync.sinceToken.isEmpty && rec == null) {
       rec = const ReconcileEntry(armed: true);
     }
+    // Rule 5: a failure count is kept only for a stored final group at its
+    // epoch (the current pair, or a kept older generation's last epoch,
+    // which the orphan walk decrypts on).
+    var gf = this.gf;
+    if (gf != null &&
+        byGeneration[gf.pair.generation]?.epoch != gf.pair.epoch) {
+      gf = null;
+    }
     return ReceiveRecord(
       open: open,
       close: close,
       orphan: orphan,
       rec: rec,
       anchor: anchor,
+      gf: gf,
+      abandoned: abandoned,
     );
   }
 }

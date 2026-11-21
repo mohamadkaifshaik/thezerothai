@@ -185,11 +185,36 @@ void main() {
       ('a number for gf', (r) => r['gf'] = 1, false),
       ('a list for gf', (r) => r['gf'] = <Object?>[], false),
       ('a string for gf', (r) => r['gf'] = 'x', false),
+      ('an empty object for gf', (r) => r['gf'] = <String, Object?>{}, false),
       (
-        'an object for gf (dropped)',
-        (r) => r['gf'] = <String, Object?>{},
+        'a group failure count',
+        (r) => r['gf'] = {'g': 1, 'e': 1, 'n': 2},
         true,
       ),
+      (
+        'a group failure count of 0',
+        (r) => r['gf'] = {'g': 1, 'e': 1, 'n': 0},
+        false,
+      ),
+      (
+        'a group failure count above the maximum',
+        (r) => r['gf'] = {'g': 1, 'e': 1, 'n': kGroupFailuresMax + 1},
+        false,
+      ),
+      (
+        'a group failure pair above 2^53 - 1',
+        (r) => r['gf'] = {'g': kMaxPairComponent + 1, 'e': 1, 'n': 1},
+        false,
+      ),
+      ('a group failure with no n', (r) => r['gf'] = {'g': 1, 'e': 1}, false),
+      ('an abandoned-walk count', (r) => r['ab'] = 3, true),
+      ('a negative abandoned-walk count', (r) => r['ab'] = -1, false),
+      (
+        'an abandoned-walk count above its bound',
+        (r) => r['ab'] = kAbandonedWalksMax + 1,
+        false,
+      ),
+      ('a string for the abandoned-walk count', (r) => r['ab'] = '1', false),
       (
         'an old orphan entry with lt',
         (r) => _slot(r, 'orphan')['lt'] = 9,
@@ -300,6 +325,69 @@ void main() {
       expect(again.open!.lt, 7);
       expect(again.close!.mode, WalkMode.decrypt);
       expect(again.rec!.armed, isTrue);
+    });
+  });
+
+  group('the group failure count and the abandoned-walk count', () {
+    GroupRecord group(int g, int e) => GroupRecord(
+      conversationId: _c1,
+      generation: g,
+      epoch: e,
+      state: Uint8List(1),
+    );
+
+    test('both round-trip, and a record without the abandoned-walk count '
+        'reads it as 0', () {
+      const r = ReceiveRecord(
+        gf: GroupFailures(MlsPair(1, 4), 2),
+        abandoned: 7,
+      );
+      final again = ReceiveRecord.decode(r.encode());
+      expect(again.gf!.pair, const MlsPair(1, 4));
+      expect(again.gf!.n, 2);
+      expect(again.abandoned, 7);
+      expect(ReceiveRecord.decode(_bytes(_record())).abandoned, 0);
+      expect(ReceiveRecord.decode(_bytes(_record())).gf, isNull);
+    });
+
+    test('a count past its bound is written as the bound, so the record '
+        'always decodes', () {
+      const r = ReceiveRecord(
+        gf: GroupFailures(MlsPair(1, 4), kGroupFailuresMax + 4),
+        abandoned: kAbandonedWalksMax + 4,
+      );
+      final again = ReceiveRecord.decode(r.encode());
+      expect(again.gf!.n, kGroupFailuresMax);
+      expect(again.abandoned, kAbandonedWalksMax);
+    });
+
+    test('normalization keeps the count of a stored final group at its epoch '
+        'and drops it for any other pair (§3.4 rule 5)', () {
+      const sync = ConversationSync(sinceToken: 's:1');
+      const r = ReceiveRecord(
+        gf: GroupFailures(MlsPair(1, 3), 2),
+        abandoned: 2,
+      );
+      final kept = r.normalized(sync: sync, groups: [group(1, 3)]);
+      expect(kept.gf!.n, 2);
+      expect(kept.abandoned, 2);
+      // A kept older generation's group at its last epoch (the orphan walk
+      // decrypts on it).
+      expect(
+        r.normalized(sync: sync, groups: [group(1, 3), group(2, 1)]).gf!.n,
+        2,
+      );
+      expect(r.normalized(sync: sync, groups: [group(1, 4)]).gf, isNull);
+      expect(r.normalized(sync: sync, groups: const []).gf, isNull);
+      final provisional = GroupRecord(
+        conversationId: _c1,
+        generation: 1,
+        epoch: 3,
+        state: Uint8List(1),
+        provisional: true,
+        provisionalCreatedAtMicros: 1,
+      );
+      expect(r.normalized(sync: sync, groups: [provisional]).gf, isNull);
     });
   });
 
