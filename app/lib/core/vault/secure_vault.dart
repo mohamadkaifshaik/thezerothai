@@ -141,7 +141,7 @@ class OutboxItem {
 
   final String idempotencyKey;
 
-  /// Stable across re-keying: the first idempotency key of this send.
+  /// The caller's stable local row id, preserved across re-keying.
   final String localId;
 
   /// The message id the server will give this send (`expectedMessageId`).
@@ -342,10 +342,10 @@ abstract interface class SecureVault {
   /// reads no sealed column.
   ///
   /// STATED LIMIT (R7 allows it): this is NOT the web persistence barrier.
-  /// The read goes through this vault's own connection, so on the web
-  /// (`sharedIndexedDb`, whose writes reach IndexedDB asynchronously after a
-  /// commit) a true answer does not prove the row has reached the persistent
-  /// store. A second, independent, read-only connection is what the barrier
+  /// The read uses this vault's own connection. Drift awaits the file system
+  /// flush after a statement that leaves SQLite in autocommit, including
+  /// COMMIT. Persistence at this point has not been verified in a browser.
+  /// A second, independent, read-only connection is what the barrier
   /// needs, and drift 2.35 cannot open one (see `vault_open_web.dart`). On
   /// Android a SQLite commit is durable when `transaction()` returns, so the
   /// answer is exact there.

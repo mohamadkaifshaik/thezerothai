@@ -111,6 +111,13 @@ void main() {
 
   int encrypts() => rig.device.engine.calls.where((c) => c == 'encrypt').length;
 
+  // Enqueue draws the report key and the plain row key. Entering _encrypt
+  // draws a third key even when its in-transaction check blocks encryption.
+  void expectBlockedBeforeEncrypt() => expect(
+    rig.device.engine.calls.where((c) => c == 'randomBytes'),
+    hasLength(2),
+  );
+
   /// Enqueues and waits for the drain `enqueue` started (no second trigger).
   Future<void> send(String localId, [String text = 'hello']) async {
     await rig.sender.enqueue(localId: localId, conversationId: _c1, text: text);
@@ -166,6 +173,164 @@ void main() {
       rig.server.onCall = (_) async => throw const NetworkException('offline');
 
   const lost = (error: NetworkException('timed out'), stored: false);
+
+  group('review round one', () {
+    test('discard uses a listing started after the last send', () async {
+      await setUpJoined();
+      rig.server.sendScript.addAll([lost, lost]);
+      await send('l1');
+      final listed = Completer<void>();
+      final release = Completer<void>();
+      rig.server.rewriteLive = (snapshot) async {
+        rig.server.rewriteLive = null;
+        listed.complete();
+        await release.future;
+        return snapshot;
+      };
+      final older = rig.receiver.pullLive(_c1);
+      await listed.future;
+      rig.server.sendScript.add((error: lost.error, stored: true));
+      await drain();
+      final discarding = rig.sender.discard('l1');
+      // Queue behind discard's outbox read before releasing the old snapshot.
+      await outbox();
+      release.complete();
+      await older;
+      await discarding;
+      expect((await stored()).single.content, isNotNull);
+      expect(await outbox(), isEmpty);
+    });
+
+    test('the local message id survives a conflicting response id', () async {
+      await setUpJoined();
+      await send('first');
+      final first = (await stored()).single;
+      rig.server.sendResponseId = first.messageId;
+      await send('second');
+      await send('third');
+      final reports = rig.unexpected.toList();
+      rig.unexpected.clear();
+      expect(
+        (await stored()).map((m) => m.messageId),
+        unorderedEquals([
+          for (final s in rig.server.sends) expectedMessageId('user-a', s.key),
+        ]),
+      );
+      expect(reports, hasLength(1));
+      expect((reports.single as E2eePipelineError).step, 'send.responseId');
+    });
+
+    test(
+      'an interrupted catch-up waits after a successful live pull',
+      () async {
+        await setUpJoined();
+        await rig.receiver.pullLive(_c1);
+        await bobSelfUpdate();
+        rig.contexts.of(_c1).syncedSinceStart = false;
+        rig.server.calls.clear();
+        rig.server.onCall = (call) async {
+          if (call == 'listConversationCommits') throw lost.error;
+        };
+        await send('l1');
+        expect(
+          rig.server.calls.where((call) => call == 'listMlsMessages'),
+          hasLength(1),
+        );
+        expect(encrypts(), 0);
+        expect(rig.server.sends, isEmpty);
+        rig.server.onCall = null;
+        await drain();
+        expect(rig.server.sends.single.pair, const MlsPair(1, 2));
+      },
+    );
+
+    test('a stale send joins the second-page welcome and sends on the new generation', () async {
+      await setUpJoined(locks: _ProbeLocks());
+      rig.server.beforeSend = (_) async {
+        rig.server.beforeSend = null;
+        for (var i = 0; i < 10; i++) {
+          rig.server.addWelcome(
+            rig.device.deviceIdString,
+            i.toRadixString(16).padLeft(32, '0'),
+            const MlsPair(1, kMaxPairComponent),
+            Uint8List(0),
+          );
+        }
+        await rig.offer(_c1, bob, generation: 2);
+      };
+      await send('l1');
+      expect(rig.server.sends.map((s) => s.pair), [
+        const MlsPair(1, 1),
+        const MlsPair(2, 1),
+      ]);
+      expect(rig.server.sends.last.key, isNot(rig.server.sends.first.key));
+      expect((await stored()).single.generation, 2);
+      expect((rig.locks as _ProbeLocks).reentered, 0);
+    });
+
+    test('a row with no group waits for a welcome', () async {
+      rig = await RigCrypto.create();
+      await rig.accept(_c1);
+      await send('l1');
+      expect(
+        (await rig.sender.outgoing(_c1)).single.waitingOn,
+        SendBlock.waitingForWelcome,
+      );
+      expect((await outbox()).single.stage, OutboxStage.plain);
+      expect(encrypts(), 0);
+      expect(rig.server.sends, isEmpty);
+    });
+
+    test(
+      'acceptance that changes the pair syncs again before the first reply',
+      () async {
+        await setUpJoined(accepted: false, folder: Folder.FOLDER_REQUESTS);
+        rig.onAcceptForReply = (id) async {
+          await acceptanceSteps(id);
+          await bobSelfUpdate();
+          rig.contexts.of(id).syncedSinceStart = false;
+        };
+        await send('l1');
+        expect(rig.acceptCalls, [_c1]);
+        expect(rig.server.sends.single.pair, const MlsPair(1, 2));
+      },
+    );
+
+    test(
+      'a refusal write failure leaves only one resend per trigger',
+      () async {
+        await setUpJoined();
+        rig.server.beforeSend = (_) async {
+          rig.device.cipher.failSeal = (label) =>
+              label.contains('vault_outbox');
+        };
+        rig.server.sendScript.add((
+          error: const ValidationException('invalid'),
+          stored: false,
+        ));
+        await send('l1');
+        expect((await outbox()).single.lastError, isNull);
+        rig.device.cipher.failSeal = null;
+        rig.server.beforeSend = null;
+        rig.server.sendScript.addAll([lost, lost]);
+        await drain();
+        expect(rig.server.sends, hasLength(2));
+      },
+    );
+
+    test(
+      'enqueue rejects a malformed conversation id before generating keys',
+      () async {
+        rig = await RigCrypto.create();
+        rig.device.engine.calls.clear();
+        await expectLater(
+          rig.sender.enqueue(localId: 'x', conversationId: 'bad', text: 'a'),
+          throwsArgumentError,
+        );
+        expect(rig.device.engine.calls, isEmpty);
+      },
+    );
+  });
 
   group('enqueue', () {
     test('enqueue stores a sealed plain row and makes no engine or network '
@@ -339,6 +504,7 @@ void main() {
     test('no encrypt while a member is unattributed', () async {
       await setUpJoined(attributed: false);
       await send('l1');
+      expectBlockedBeforeEncrypt();
       expect(
         (await rig.device.vault.members(_c1)).map((m) => m.side),
         contains(MemberSide.unattributed),
@@ -356,6 +522,7 @@ void main() {
       await setUpJoined();
       await updateSync((s) => s.copyWith(epochMustAdvance: true));
       await send('l1');
+      expectBlockedBeforeEncrypt();
       expect(encrypts(), 0);
       expect(rig.server.sends, isEmpty);
       expect(
@@ -381,6 +548,7 @@ void main() {
       rig.device.engine.calls.clear();
       await rig.sender.enqueue(localId: 'l1', conversationId: _c2, text: 'x');
       await rig.sender.settled(_c2);
+      expectBlockedBeforeEncrypt();
       expect(encrypts(), 0);
       expect(rig.server.sends, isEmpty);
       // Task 8 settles a provisional group: the sender starts no catch-up.
@@ -418,6 +586,7 @@ void main() {
       );
       await send('l1');
       // The gate holds the row: the engine is not even asked.
+      expectBlockedBeforeEncrypt();
       expect(encrypts(), 0);
       expect(rig.server.sends, isEmpty);
       expect(

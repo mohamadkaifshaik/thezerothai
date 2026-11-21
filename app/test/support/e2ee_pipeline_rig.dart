@@ -446,7 +446,8 @@ class RigServer {
   int refuseEpochPageTokens = 0;
 
   /// Replaces a ListMessages answer (to forge an empty or odd one).
-  pb.ListMessagesResponse Function(pb.ListMessagesResponse real)? rewriteLive;
+  FutureOr<pb.ListMessagesResponse> Function(pb.ListMessagesResponse real)?
+  rewriteLive;
 
   /// Replaces a ListEpochMessages answer (to reorder, forge or add).
   pb.ListEpochMessagesResponse Function(pb.ListEpochMessagesResponse real)?
@@ -562,6 +563,7 @@ class RigServer {
   /// Runs at the start of every `sendEncrypted` call, after it is recorded
   /// (a race: something happens while the request is in flight).
   Future<void> Function(RigSend send)? beforeSend;
+  String? sendResponseId;
 
   /// A repository for the user [user] (its commits come back `from_self`).
   RigMessaging viewFor(String user) => RigMessaging(this, user);
@@ -882,7 +884,7 @@ class RigMessaging implements MessagingRepository {
     }
     if (scripted != null) throw scripted.error;
     return pb.SendMessageResponse(
-      message: stored,
+      message: stored.deepCopy()..id = _server.sendResponseId ?? stored.id,
       conversation: _server.rows[conversationId],
     );
   }

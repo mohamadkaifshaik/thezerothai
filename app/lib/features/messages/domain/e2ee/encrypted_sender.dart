@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:fixnum/fixnum.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../../../../core/crypto/crypto_engine.dart';
 import '../../../../core/crypto/crypto_types.dart';
@@ -12,6 +13,7 @@ import '../../../../core/vault/secure_vault.dart';
 import '../../../../core/vault/vault_session.dart';
 import '../../../../gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import '../../data/messaging_repository.dart';
+import '../conversation_id.dart';
 import 'conversation_context.dart';
 import 'conversation_crypto.dart';
 import 'conversation_locks.dart';
@@ -27,8 +29,6 @@ const int kStaleEpochRoundsPerDrain = 3;
 /// The longest ciphertext an outbox row holds (`VaultTx.putOutbox`).
 const int _kMaxOutboxCiphertext = 8192;
 
-final RegExp _messageIdShape = RegExp(r'^[0-9a-f]{32}$');
-
 /// The largest whole second whose microseconds stay exact on the web.
 final Int64 _maxSeconds = Int64(9007199254);
 
@@ -38,8 +38,9 @@ final Int64 _maxSeconds = Int64(9007199254);
 ///
 /// A row is saved at stage `plain` ([enqueue]), encrypted only when every
 /// gate holds, saved at stage `encrypted` in the transaction that stores
-/// the group state the engine returned, checked with
-/// `SecureVault.confirmStored`, and only then sent. A stage-`encrypted` row
+/// the group state the engine returned, then checked with
+/// [SecureVault.confirmStored]. Android has a durable commit here. On the
+/// web, persistence before send remains a stated limit. A stage-`encrypted` row
 /// is resent byte for byte under the same key until the server answers; it
 /// goes back to stage `plain` only after a `STALE_EPOCH` whose catch-up
 /// moved this device's pair past the one it was encrypted for.
@@ -137,6 +138,7 @@ class EncryptedSender {
   /// Local ids whose outcome stayed unknown after the automatic resend:
   /// each later trigger makes one attempt.
   final Set<String> _unknown = {};
+  bool _reportedResponseId = false;
 
   /// Local id -> no send before this time (the server's retry time).
   final Map<String, DateTime> _notBefore = {};
@@ -154,6 +156,7 @@ class EncryptedSender {
     _again.clear();
     _errors.clear();
     _unknown.clear();
+    _reportedResponseId = false;
     _notBefore.clear();
     _sendCalls.clear();
     _held.clear();
@@ -166,8 +169,9 @@ class EncryptedSender {
   /// port's `send(localId:)`, a UUID from the composer), then starts
   /// [drain] without waiting for it. No engine state call (the CSPRNG only:
   /// the report key and the row's key) and no RPC. [ArgumentError] when an
-  /// unsent row already has that local id, or the content is over
-  /// [kMaxMessageContentBytes]; [StateError] when the vault is not ready.
+  /// unsent row already has that local id, the conversation id is invalid,
+  /// or the content is over [kMaxMessageContentBytes]; [StateError] when
+  /// the vault is not ready. A random-source failure propagates before a row is saved.
   Future<void> enqueue({
     required String localId,
     required String conversationId,
@@ -175,6 +179,9 @@ class EncryptedSender {
     String sharedPostId = '',
   }) async {
     if (localId.isEmpty) throw ArgumentError('A row needs a local id.');
+    if (!isConversationId(conversationId)) {
+      throw ArgumentError('Invalid conversation id.');
+    }
     final engine = _engine();
     // The report key and the exact bytes are fixed here, once.
     final content = encodeMessageContent(
@@ -239,6 +246,7 @@ class EncryptedSender {
 
   /// Completes when no drain of [conversationId] is running (at once when
   /// none is). Starts none.
+  @visibleForTesting
   Future<void> settled(String conversationId) =>
       _running[conversationId] ?? Future<void>.value();
 
@@ -273,6 +281,12 @@ class EncryptedSender {
       // The pull proves "no echo" only for the send calls made before it.
       int? calls;
       if (row.stage == OutboxStage.encrypted) {
+        final context = _contexts.of(id);
+        final previous = context.running;
+        if (previous != null) await previous;
+        // A different pass may have started while we waited. Its snapshot
+        // also predates our witness; leave the row for the next discard.
+        if (context.running != null) return;
         final before = _sendCalls[localId] ?? 0;
         final outcome = await _receiver.pullLive(
           id,
@@ -352,7 +366,25 @@ class EncryptedSender {
           // The live pull takes the conversation lock itself: it runs
           // between two holds, never inside one.
           if (next == _Next.pull) {
-            await _receiver.pullLive(id, priority: priority);
+            final context = _contexts.of(id);
+            if (run.catchUp == CatchUpResult.waitingForWelcome) {
+              final joined = await _crypto.processWelcomes(priority: priority);
+              if (joined.contains(id)) {
+                run.catchUp = await _locks.run(
+                  id,
+                  () => _crypto.catchUpLocked(id, priority: priority),
+                );
+              }
+            }
+            final pull = await _receiver.pullLive(id, priority: priority);
+            if (run.catchUp != CatchUpResult.current ||
+                pull.kind != ReceiveOutcomeKind.complete) {
+              await _locks.run(id, () async {
+                context.syncedSinceStart = false;
+                _stop(id, SendBlock.notSynced);
+              });
+              next = _Next.stop;
+            }
           }
         }
         // Scheduled here, outside the lock's zone: the resend it starts
@@ -366,6 +398,7 @@ class EncryptedSender {
       // With no await after the loop's last check: a trigger that comes
       // now starts a new drain, and none is lost.
       _running.remove(id);
+      _again.remove(id);
     }
   }
 
@@ -419,9 +452,9 @@ class EncryptedSender {
     if (!run.synced &&
         (!context.syncedSinceStart || context.attributionPending)) {
       // Once per drain: commits to the server's pair and attribution here,
-      // then one live pull; whatever they answer, the gates decide after.
+      // then one live pull. Both must complete before this run can encrypt.
       run.synced = true;
-      await _crypto.catchUpLocked(id, priority: run.priority);
+      run.catchUp = await _crypto.catchUpLocked(id, priority: run.priority);
       return _Next.pull;
     }
     if (gate.block != SendBlock.none) return _stop(id, gate.block);
@@ -439,6 +472,7 @@ class EncryptedSender {
       }
       // The acceptance steps ran: every gate is read again before the
       // encrypt.
+      run.synced = false;
       return _Next.again;
     }
     final encrypted = await _encrypt(op, id, row.idempotencyKey);
@@ -602,8 +636,8 @@ class EncryptedSender {
     final notBefore = _notBefore[row.localId];
     if (notBefore != null && _now().isBefore(notBefore)) return _stop(id);
     final key = row.idempotencyKey;
-    // R7: no network call before the row is confirmed stored. False or an
-    // error: the row stays as it is and is tried again at the next drain.
+    // See SecureVault.confirmStored: exact on Android. On the web this
+    // checks the row on the same connection; persistence remains a stated limit.
     var stored = false;
     try {
       stored = await op.vault.confirmStored(key);
@@ -636,12 +670,11 @@ class EncryptedSender {
         run
           ..staleRounds += 1
           ..staleKey = key;
-        await _crypto.catchUpLocked(id, priority: run.priority);
+        run.catchUp = await _crypto.catchUpLocked(id, priority: run.priority);
         return _Next.pull;
       } on AppException catch (e) {
         if (!_outcomeUnknown(e)) {
-          await _refused(op, id, key, row.localId, e);
-          return _stop(id);
+          return _refused(op, id, key, row.localId, e);
         }
         tries--;
         final wait = _retryAfterOf(e);
@@ -672,9 +705,16 @@ class EncryptedSender {
     pb.SendMessageResponse response,
   ) async {
     final message = response.message;
-    final messageId = _messageIdShape.hasMatch(message.id)
-        ? message.id
-        : row.expectedMessageId;
+    final messageId = row.expectedMessageId;
+    if (message.id.isNotEmpty &&
+        message.id != messageId &&
+        !_reportedResponseId) {
+      _reportedResponseId = true;
+      _onUnexpectedError?.call(
+        const E2eePipelineError('send.responseId'),
+        StackTrace.current,
+      );
+    }
     final at = _serverMicros(message) ?? _now().microsecondsSinceEpoch;
     try {
       await _session.runWrite((v) async {
@@ -721,7 +761,7 @@ class EncryptedSender {
 
   /// A refusal: the row keeps its bytes and its key, with one more attempt
   /// and the error's type name; the typed error stays in memory.
-  Future<void> _refused(
+  Future<_Next> _refused(
     _Op op,
     String id,
     String key,
@@ -747,8 +787,12 @@ class EncryptedSender {
       });
     } on Object catch (e, s) {
       _reportIfBug(e, s, 'send.refused');
+      _unknown.add(localId);
+      _onChanged(id);
+      return _stop(id, SendBlock.unavailable);
     }
     _onChanged(id);
+    return _stop(id);
   }
 
   /// After a `STALE_EPOCH` answer for the row [key], its catch-up and one
@@ -1005,6 +1049,7 @@ class _Run {
 
   /// The one catch-up and live pull of the sync gate ran.
   bool synced = false;
+  CatchUpResult? catchUp;
 
   /// The one accept call was made.
   bool accepted = false;
