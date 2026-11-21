@@ -207,6 +207,27 @@ void main() {
         false,
       ),
       ('a group failure with no n', (r) => r['gf'] = {'g': 1, 'e': 1}, false),
+      (
+        'a group failure with the time of its last counted strike at its '
+            'maximum',
+        (r) => r['gf'] = {'g': 1, 'e': 1, 'n': 2, 'at': kMaxPairComponent},
+        true,
+      ),
+      (
+        'a negative group failure time',
+        (r) => r['gf'] = {'g': 1, 'e': 1, 'n': 2, 'at': -1},
+        false,
+      ),
+      (
+        'a group failure time at 2^53',
+        (r) => r['gf'] = {'g': 1, 'e': 1, 'n': 2, 'at': kMaxPairComponent + 1},
+        false,
+      ),
+      (
+        'a string for the group failure time',
+        (r) => r['gf'] = {'g': 1, 'e': 1, 'n': 2, 'at': '1'},
+        false,
+      ),
       ('an abandoned-walk count', (r) => r['ab'] = 3, true),
       ('a negative abandoned-walk count', (r) => r['ab'] = -1, false),
       (
@@ -325,11 +346,12 @@ void main() {
           l: _hex,
         ),
         anchor: token,
-        // The group failure count and the abandoned-walk count at their
-        // maxima too.
+        // The group failure count, the time of its last counted strike and
+        // the abandoned-walk count at their maxima too.
         gf: const GroupFailures(
           MlsPair(kMaxPairComponent, kMaxPairComponent),
           kGroupFailuresMax,
+          at: kMaxPairComponent,
         ),
         abandoned: kAbandonedWalksMax,
       );
@@ -339,6 +361,7 @@ void main() {
       expect(again.anchor, token);
       expect(again.gf!.n, kGroupFailuresMax);
       expect(again.gf!.pair.epoch, kMaxPairComponent);
+      expect(again.gf!.at, kMaxPairComponent);
       expect(again.abandoned, kAbandonedWalksMax);
       for (final w in [again.open!, again.close!, again.orphan!]) {
         expect((w.mf, w.mfAt), (kWalkGiveUpAfter, kMaxPairComponent));
@@ -432,6 +455,30 @@ void main() {
       expect(again.abandoned, 7);
       expect(ReceiveRecord.decode(_bytes(_record())).abandoned, 0);
       expect(ReceiveRecord.decode(_bytes(_record())).gf, isNull);
+    });
+
+    test('the time of the last counted group failure round-trips, is clamped '
+        'into its bounds at encode, and a record without it reads 0', () {
+      const r = ReceiveRecord(gf: GroupFailures(MlsPair(1, 4), 2, at: 77));
+      final again = ReceiveRecord.decode(r.encode());
+      expect(
+        (again.gf!.pair, again.gf!.n, again.gf!.at),
+        (const MlsPair(1, 4), 2, 77),
+      );
+      // A record written before the time existed has none: the next strike
+      // counts.
+      final old = _record()..['gf'] = {'g': 1, 'e': 4, 'n': 2};
+      expect(ReceiveRecord.decode(_bytes(old)).gf!.at, 0);
+      for (final (written, read) in [
+        (-4, 0),
+        (kMaxPairComponent + 9, kMaxPairComponent),
+      ]) {
+        final clamped = ReceiveRecord.decode(
+          ReceiveRecord(gf: GroupFailures(const MlsPair(1, 4), 1, at: written))
+              .encode(),
+        );
+        expect(clamped.gf!.at, read);
+      }
     });
 
     test('a count past its bound is written as the bound, so the record '

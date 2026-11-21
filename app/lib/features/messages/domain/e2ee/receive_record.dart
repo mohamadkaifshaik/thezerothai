@@ -205,8 +205,9 @@ class ReconcileEntry {
   final String l;
 }
 
-/// Group-level engine failures after which a failing message becomes a row
-/// and its group is rowed for the run (§7.2).
+/// Counted group-level engine failures after which a failing message
+/// becomes a row; its group is rowed for the run only when `describe`
+/// itself fails for it (§7.2, as amended by fix round 2).
 const int kGroupFailuresMax = 3;
 
 /// An undecryptable walk whose own pages were refused this many times, each
@@ -220,12 +221,19 @@ const int kWalkGiveUpAfter = 5;
 const int kAbandonedWalksMax = 9999;
 
 /// The group failure count (§3.1 `gf`): [n] group-level engine failures in
-/// a row at [pair], 1 to [kGroupFailuresMax]. No `toString`.
+/// a row at [pair], 1 to [kGroupFailuresMax], and [at]: the local micros of
+/// the last COUNTED one (`at` inside `gf`; 0 to 2^53 - 1, optional at
+/// decode: a record written before it existed reads 0). A failure counts
+/// only when at least the engine backoff has passed since [at], whatever
+/// the app run (a ruling after the design, fix round 2), so app resumes,
+/// which clear the memory holds, never land three strikes within seconds.
+/// No `toString`.
 class GroupFailures {
-  const GroupFailures(this.pair, this.n);
+  const GroupFailures(this.pair, this.n, {this.at = 0});
 
   final MlsPair pair;
   final int n;
+  final int at;
 }
 
 /// The receive record of one conversation (§3.1), with [gf] (§7.2) and
@@ -300,6 +308,9 @@ class ReceiveRecord {
                 'g': gf!.pair.generation,
                 'e': gf!.pair.epoch,
                 'n': gf!.n > kGroupFailuresMax ? kGroupFailuresMax : gf!.n,
+                'at': gf!.at < 0
+                    ? 0
+                    : (gf!.at > kMaxPairComponent ? kMaxPairComponent : gf!.at),
               },
         'ab': abandoned < 0
             ? 0
@@ -344,18 +355,23 @@ class ReceiveRecord {
       final g = gf['g'];
       final e = gf['e'];
       final n = gf['n'];
+      // Optional: a record written before the time existed has none.
+      final at = gf['at'] ?? 0;
       if (g is! int ||
           e is! int ||
           n is! int ||
+          at is! int ||
           g < 0 ||
           e < 0 ||
           g > kMaxPairComponent ||
           e > kMaxPairComponent ||
           n < 1 ||
-          n > kGroupFailuresMax) {
+          n > kGroupFailuresMax ||
+          at < 0 ||
+          at > kMaxPairComponent) {
         throw const FormatException('gf');
       }
-      failures = GroupFailures(MlsPair(g, e), n);
+      failures = GroupFailures(MlsPair(g, e), n, at: at);
     }
     // Optional: a record written before the count existed has none.
     final ab = m['ab'] ?? 0;

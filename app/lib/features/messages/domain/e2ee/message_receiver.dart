@@ -235,9 +235,12 @@ class MessageReceiver implements EpochMessageSink {
   DateTime? _engineHeldUntil;
   Duration? _engineHoldBackoff;
 
-  /// When the receiver-wide engine hold ends (null: none set, or cleared).
-  /// A time only.
-  DateTime? get engineHeldUntil => _engineHeldUntil;
+  /// When the receiver-wide engine hold ends (null: none set, cleared, or
+  /// its time has passed: never a time in the past). A time only.
+  DateTime? get engineHeldUntil {
+    final until = _engineHeldUntil;
+    return until != null && _now().isBefore(until) ? until : null;
+  }
 
   int _deferredTotal = 0;
   int _evictedTotal = 0;

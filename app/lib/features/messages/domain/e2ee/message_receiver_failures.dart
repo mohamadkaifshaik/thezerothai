@@ -100,7 +100,8 @@ int _oldestFirst(DeferredItem a, DeferredItem b) {
 /// | `internal`, describe fails, the device probe answers | `gf.n`; this conversation's own hold, 1 min doubling with `gf.n` (amended) | a row at `gf.n` = 3; then the group is rowed for the run |
 /// | both probes fail, or `unavailable` on an `internal` | nothing durable; the RECEIVER-WIDE hold, 1 min doubling to 1 h, cleared by any engine success or a resume (amended: it was per conversation) | any engine success |
 /// | a 17th failure, describe answers, a `process` call on that group succeeded this run | `k` of the new item | evict the witnessed item with the most `k`, then the most `cc`, then the oldest; none witnessed: the new one is the row |
-/// | a 17th failure, describe answers, NO `process` success on that group this run (amended: it evicted) | `gf.n`; nothing evicted, nothing deferred | as the group-level row above |
+/// | a 17th failure, describe answers, NO `process` success on that group this run (amended: it evicted; amended again in fix round 2) | `gf.n`; nothing evicted, nothing deferred; this conversation's own hold | at the third counted strike ONLY that message is a row and `gf` is cleared in the same transaction; the group is NOT rowed for the run, so the next failure starts a new count (one row per three spaced strikes) |
+/// | any group-level strike less than [kEngineBackoff] after the last counted one for that group (fix round 2; the time is `gf.at`, durable) | nothing; this conversation's own hold | not counted, whatever the app run: resumes never land three strikes within seconds |
 /// | a 17th unwitnessed failure | nothing; the receiver-wide hold | no eviction, no deferral |
 /// | a retry in a pass whose probe was not answered for the stored, non-empty since token, or while that token is empty, or while the reconcile entry is armed (amended, fix round 2) | nothing | no engine call; the engine-free checks still run; the item ends by a tombstone, expiry, its lost group or its final attempt, or by a retry once step 2b's reconciliation has disarmed the entry |
 /// | a final attempt that answers `deadline` (amended) | its own `cc` (witnessed) or `cu`; the body makes no further engine attempt and the walk does not end in it | the next end: a `cc` item is a row with no engine call |
@@ -327,6 +328,9 @@ extension _Failures on MessageReceiver {
       );
     }
     final stamp = _okSeq;
+    // The receiver-wide hold's last wait, as it was before the device
+    // probe (its success clears it, as any engine success does).
+    final backoff = _engineHoldBackoff;
     bool? p2;
     try {
       await _counted(_engine().randomBytes(1));
@@ -336,7 +340,15 @@ extension _Failures on MessageReceiver {
     } on Object {
       p2 = false;
     }
-    if (crash) return (kind: _FailKind.unwitnessedCrash, stamp: stamp);
+    if (crash) {
+      // An unwitnessed crash sets the receiver-wide hold whatever the
+      // device probe answered. That probe's own success must not start the
+      // doubling again just before the hold is set (fix round 2): the
+      // earlier wait is kept, so consecutive unwitnessed crashes still
+      // double. The success itself stays counted (it promotes the item).
+      if (p2 == true) _engineHoldBackoff = backoff;
+      return (kind: _FailKind.unwitnessedCrash, stamp: stamp);
+    }
     if (p2 == null) return (kind: _FailKind.deviceDown, stamp: stamp);
     return (kind: p2 ? _FailKind.groupLevel : _FailKind.breaker, stamp: stamp);
   }
@@ -354,26 +366,54 @@ extension _Failures on MessageReceiver {
     }
   }
 
-  /// One more group-level failure at [p] in the receive record read fresh
-  /// with [v]: the record to write and whether the count reached
-  /// [kGroupFailuresMax] (then the failing message becomes a row and the
-  /// group is rowed for the run).
-  Future<({ReceiveRecord record, bool broken})> _groupFailure(
+  /// One more group-level failure at [p], against the receive record read
+  /// fresh with [v] (`fresh`). A ruling after the design (fix round 2):
+  /// strikes are spaced DURABLY. The failure is `counted` only when the
+  /// record holds no count for [p] or at least [kEngineBackoff] has passed
+  /// since its last counted strike (`gf.at`; either way, so a local clock
+  /// set back does not stop the count), whatever the app run: an app
+  /// resume clears the memory holds, and without this three strikes could
+  /// land within seconds. Not counted: `gf` is the stored count, the
+  /// caller writes NOTHING and still stops (and holds) as for a counted
+  /// strike below the maximum. Counted: `gf` is the count to write, with
+  /// now as its time, and `max` says it reached [kGroupFailuresMax]. What
+  /// the maximum does is the caller's: breaking the group
+  /// ([_breakGroup]) is for a group whose `describe` FAILS only (§7.2).
+  Future<({ReceiveRecord fresh, GroupFailures gf, bool counted, bool max})>
+  _groupFailure(SecureVault v, String id, MlsPair p) async {
+    final fresh = await _readReceive(v, id);
+    final had = fresh.gf?.pair == p ? fresh.gf : null;
+    final now = _now().microsecondsSinceEpoch;
+    _contexts.of(id).groupFailuresNull = false;
+    if (had != null && (now - had.at).abs() < kEngineBackoff.inMicroseconds) {
+      return (fresh: fresh, gf: had, counted: false, max: false);
+    }
+    final n = (had?.n ?? 0) + 1;
+    final max = n >= kGroupFailuresMax;
+    return (
+      fresh: fresh,
+      gf: GroupFailures(p, max ? kGroupFailuresMax : n, at: now),
+      counted: true,
+      max: max,
+    );
+  }
+
+  /// A group-level failure below the maximum (or one not counted): its
+  /// count [strike] is made durable when counted, in a transaction of its
+  /// own, and this conversation's hold is set. The caller stops.
+  Future<void> _groupStrikeHeld(
     SecureVault v,
     String id,
-    MlsPair p,
+    ({ReceiveRecord fresh, GroupFailures gf, bool counted, bool max}) strike,
   ) async {
-    final fresh = await _readReceive(v, id);
-    final n = (fresh.gf?.pair == p ? fresh.gf!.n : 0) + 1;
-    final broken = n >= kGroupFailuresMax;
-    final context = _contexts.of(id)..groupFailuresNull = false;
-    if (broken) _breakGroup(context, p);
-    return (
-      record: fresh.copyWith(
-        gf: GroupFailures(p, broken ? kGroupFailuresMax : n),
-      ),
-      broken: broken,
-    );
+    final context = _contexts.of(id);
+    if (strike.counted) {
+      await v.transaction(
+        (tx) => _records.putIn(tx, id, strike.fresh.copyWith(gf: strike.gf)),
+      );
+      context.serial++;
+    }
+    _holdGroup(context, strike.gf.n);
   }
 
   /// A process success in group [p]: the receive record to write so that
@@ -830,13 +870,16 @@ extension _Failures on MessageReceiver {
         _holdDevice();
         return _Retry.stop;
       case _FailKind.groupLevel:
+        // `describe` fails for this group: the design's group-level rule.
         final next = await _groupFailure(v, id, item.pair);
-        if (next.broken) {
-          return end(row: await undecryptable(), record: next.record);
+        if (next.max) {
+          _breakGroup(context, item.pair);
+          return end(
+            row: await undecryptable(),
+            record: next.fresh.copyWith(gf: next.gf),
+          );
         }
-        await v.transaction((tx) => _records.putIn(tx, id, next.record));
-        context.serial++;
-        _holdGroup(context, next.record.gf!.n);
+        await _groupStrikeHeld(v, id, next);
         return _Retry.stop;
       case _FailKind.witnessed:
       case _FailKind.witnessedCrash:
@@ -1031,14 +1074,14 @@ extension _Failures on MessageReceiver {
           _holdDevice();
           return null;
         case _FailKind.groupLevel:
+          // `describe` fails for this group: the design's group-level rule.
           final next = await _groupFailure(v, id, pair);
-          if (next.broken) {
-            plan.broken = next.record.gf;
+          if (next.max) {
+            _breakGroup(context, pair);
+            plan.broken = next.gf;
             await row();
           } else {
-            await v.transaction((tx) => _records.putIn(tx, id, next.record));
-            context.serial++;
-            _holdGroup(context, next.record.gf!.n);
+            await _groupStrikeHeld(v, id, next);
             return null;
           }
         case _FailKind.unwitnessedCrash:
@@ -1202,23 +1245,39 @@ extension _Failures on MessageReceiver {
       ru: _runId,
     );
 
-    /// A group-level result: the group failure count grows durably; at its
-    /// maximum the message becomes a row (and the group is rowed for the
-    /// run), below it the pass stops for this conversation.
-    Future<_Step> groupLevel() async {
+    /// A group-level result: a counted strike grows the group failure
+    /// count durably (strikes are spaced, [_groupFailure]). Below the
+    /// maximum, or not counted, the pass stops for this conversation; the
+    /// page's record is not written. At the maximum this message becomes a
+    /// row, and:
+    ///  - [describeFails] (§7.2, `describe` itself fails for the group):
+    ///    the group is rowed for the run and the count stays at its
+    ///    maximum;
+    ///  - otherwise (fix round 2: the failure reached the count only
+    ///    because the deferred record was full with no witness, while
+    ///    `describe` ANSWERS): ONLY this message is a row, the group is NOT
+    ///    broken, and the count is CLEARED in the same transaction. The
+    ///    next failure starts a new count, so the conversation keeps
+    ///    moving at one row per three spaced strikes and honest messages
+    ///    are never rowed wholesale; the sixteen held items keep their own
+    ///    retry rules.
+    Future<_Step> groupLevel({required bool describeFails}) async {
       final next = await _groupFailure(v, id, p);
-      if (next.broken) {
-        final riding = write.record;
-        return write.commit(
-          row: undecryptable(),
-          recordOverride: (riding ?? next.record).copyWith(gf: next.record.gf),
-        );
+      if (!next.max) {
+        await _groupStrikeHeld(v, id, next);
+        return _Step.stop;
       }
-      // Durable before the pass stops; the page's record is not written.
-      await v.transaction((tx) => _records.putIn(tx, id, next.record));
-      context.serial++;
-      _holdGroup(context, next.record.gf!.n);
-      return _Step.stop;
+      if (describeFails) _breakGroup(context, p);
+      final wrote = await write.commit(
+        row: undecryptable(),
+        recordOverride: (write.record ?? next.fresh).copyWith(
+          gf: describeFails ? next.gf : null,
+        ),
+      );
+      // A receive record written outside a page's own update.
+      if (write.record == null) context.serial++;
+      if (!describeFails) context.groupFailuresNull = true;
+      return wrote;
     }
 
     switch (fail.kind) {
@@ -1230,7 +1289,7 @@ extension _Failures on MessageReceiver {
         _holdDevice();
         return _Step.stop;
       case _FailKind.groupLevel:
-        return groupLevel();
+        return groupLevel(describeFails: true);
       case _FailKind.witnessed:
       case _FailKind.witnessedCrash:
         final crash = fail.kind == _FailKind.witnessedCrash;
@@ -1253,8 +1312,12 @@ extension _Failures on MessageReceiver {
         // GROUP-LEVEL result: nothing is evicted, this message is not
         // deferred and not rowed, the group failure count grows and the
         // pass stops for this conversation, so honest messages never
-        // become permanent rows wholesale, one per failure.
-        if (!_groupWorked(context, p)) return groupLevel();
+        // become permanent rows wholesale, one per failure. At the third
+        // spaced strike only this one message is a row and the count is
+        // cleared; the group is never broken on this branch (fix round 2).
+        if (!_groupWorked(context, p)) {
+          return groupLevel(describeFails: false);
+        }
         // §7.6 end 3: overflow never stops a walk while the group works.
         final victim = d.evictable();
         if (victim == null) {

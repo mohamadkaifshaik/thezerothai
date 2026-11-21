@@ -3928,10 +3928,93 @@ void main() {
       expect((await receiveRecord()).gf!.n, 2);
 
       await rig.restart();
+      // A strike counts only a minute or more after the last counted one,
+      // whatever the app run (fix round 2): at once it is not counted.
+      await rig.receiver.pullLive(_c1);
+      expect((await receiveRecord()).gf!.n, 2);
+      expect(await row(_mid(1)), isNull);
 
+      await rig.restart();
+      rig.clock.advance(kEngineBackoff);
       expect((await rig.receiver.pullLive(_c1)).kind, isNotNull);
       expect((await receiveRecord()).gf!.n, kGroupFailuresMax);
       expect((await row(_mid(1)))!.state, StoredMessageState.undecryptable);
+    });
+
+    test('three group failures within the same minute across three app '
+        'resumes count once', () async {
+      await setUpJoined();
+      // The walks' own records are written first, so that the dump shows
+      // only what a failure writes.
+      await prime();
+      final m1 = await say(bobGroup(), 1, at: seconds(1));
+      final state = await groupState();
+      engine().failState[RigEngine.key(state)] = internal;
+      final t1 = rig.clock.now();
+
+      final first = await rig.receiver.pullLive(_c1);
+      expect(first.kind, ReceiveOutcomeKind.stopped);
+      expect((await receiveRecord()).gf!.n, 1);
+
+      // Each resume clears the conversation's hold, so the engine is tried
+      // again at once; the strike is not counted and nothing is written.
+      for (var i = 0; i < 2; i++) {
+        resume();
+        rig.clock.advance(seconds(20));
+        final before = await rig.dump();
+        final out = await rig.receiver.pullLive(_c1);
+        expect(out.kind, ReceiveOutcomeKind.stopped);
+        expect(out.until, rig.clock.now().add(kEngineBackoff));
+        expect(await rig.dump(), before);
+      }
+      expect(processedCount(m1.ciphertext), 3);
+      final gf = (await receiveRecord()).gf!;
+      expect((gf.n, gf.at), (1, t1.microsecondsSinceEpoch));
+      expect(await row(_mid(1)), isNull);
+      expect(rig.contexts.of(_c1).groupBroken, isEmpty);
+
+      // A minute after the counted strike the next one counts.
+      resume();
+      rig.clock.advance(seconds(20));
+      await rig.receiver.pullLive(_c1);
+      expect((await receiveRecord()).gf!.n, 2);
+      expect(
+        (await receiveRecord()).gf!.at,
+        t1.add(kEngineBackoff).microsecondsSinceEpoch,
+      );
+      expect(await row(_mid(1)), isNull);
+    });
+
+    test('a group whose describe fails is still broken at the third '
+        'strike', () async {
+      await setUpJoined();
+      final m1 = await say(bobGroup(), 1);
+      final m2 = await say(bobGroup(), 2, at: seconds(1));
+      final state = await groupState();
+      // `describe` itself fails for this group state while the device
+      // probe answers: the design's group-level rule (§7.2), unchanged.
+      engine().failState[RigEngine.key(state)] = internal;
+
+      await rig.receiver.pullLive(_c1);
+      rig.clock.advance(kEngineBackoff);
+      await rig.receiver.pullLive(_c1);
+      expect((await receiveRecord()).gf!.n, 2);
+      expect(await rig.device.vault.messages(_c1, limit: 10), isEmpty);
+
+      rig.clock.advance(kEngineBackoff * 2);
+      final probes = count('describe');
+      final third = await rig.receiver.pullLive(_c1);
+
+      expect(third.kind, ReceiveOutcomeKind.complete);
+      expect((await receiveRecord()).gf!.n, kGroupFailuresMax);
+      expect(rig.contexts.of(_c1).groupBroken, hasLength(1));
+      // The group is rowed for the run: the next failing message is a row
+      // at once, with no probe.
+      expect((await row(_mid(1)))!.state, StoredMessageState.undecryptable);
+      expect((await row(_mid(2)))!.state, StoredMessageState.undecryptable);
+      expect(count('describe'), probes + 1);
+      expect(processedCount(m1.ciphertext), 3);
+      expect(processedCount(m2.ciphertext), 1);
     });
 
     test('a process success in the group clears its failure count', () async {
@@ -4286,18 +4369,87 @@ void main() {
       expect((await deferred()).encode(), held);
       expect(await rig.device.vault.messages(_c1, limit: 20), isEmpty);
 
-      // As for any group-level failure, the third makes the failing message
-      // itself a row and rows the group for the run; the sixteen held
-      // messages are still held, none of them evicted.
+      // The third spaced failure makes that ONE message a row and clears
+      // the count in the same transaction. The group is NOT rowed for the
+      // run (`describe` answers: it is not the group that is broken): the
+      // next message is not a row in this pass, it is the first strike of a
+      // new count, with its own probe, and the pass stops again. The
+      // sixteen held messages are still held, none of them evicted.
       rig.clock.advance(kEngineBackoff * 2);
-      await rig.receiver.pullLive(_c1);
-      expect((await receiveRecord()).gf!.n, kGroupFailuresMax);
+      final probes = count('describe');
+      final third = await rig.receiver.pullLive(_c1);
       expect((await row(_mid(1)))!.state, StoredMessageState.undecryptable);
+      expect(await row(_mid(2)), isNull);
+      expect(third.kind, ReceiveOutcomeKind.stopped);
+      expect(third.until, rig.clock.now().add(kEngineBackoff));
+      expect(processedCount(m2.ciphertext), 1);
+      expect(count('describe'), probes + 2);
+      expect((await receiveRecord()).gf!.n, 1);
+      expect(rig.contexts.of(_c1).groupBroken, isEmpty);
       expect((await deferred()).encode(), held);
       expect(rig.receiver.evictedCount, 0);
       for (var n = 101; n <= 100 + kDeferredMax; n++) {
         expect(await row(_mid(n)), isNull);
       }
+      expect(await rig.device.vault.messages(_c1, limit: 20), hasLength(1));
+    });
+
+    test('with a full deferred record and no witness, the third spaced '
+        'failure rows only that message and the group is not '
+        'broken', () async {
+      await setUpJoined();
+      await putDeferred(
+        DeferredRecord([
+          for (var n = 101; n <= 100 + kDeferredMax; n++) heldItem(n),
+        ]),
+      );
+      final held = (await deferred()).encode();
+      // The first message always fails, the second fails once, the third
+      // decrypts; `describe` answers throughout.
+      final m1 = await say(bobGroup(), 1);
+      final m2 = await say(bobGroup(), 2, at: seconds(1));
+      await say(bobGroup(), 3, at: seconds(2));
+      failAlways(m1, internal);
+      failNext(m2, [internal]);
+
+      // Two spaced strikes: counted durably with their time, nothing rowed.
+      final t1 = rig.clock.now();
+      await rig.receiver.pullLive(_c1);
+      expect((await receiveRecord()).gf!.n, 1);
+      expect((await receiveRecord()).gf!.at, t1.microsecondsSinceEpoch);
+      rig.clock.advance(kEngineBackoff);
+      await rig.receiver.pullLive(_c1);
+      expect((await receiveRecord()).gf!.n, 2);
+      expect(await rig.device.vault.messages(_c1, limit: 20), isEmpty);
+
+      // The third: that message alone is a row, and the count is cleared
+      // with it; the next failure of the group starts a new count.
+      rig.clock.advance(kEngineBackoff * 2);
+      final t3 = rig.clock.now();
+      final third = await rig.receiver.pullLive(_c1);
+      expect((await row(_mid(1)))!.state, StoredMessageState.undecryptable);
+      expect(third.kind, ReceiveOutcomeKind.stopped);
+      expect(await row(_mid(2)), isNull);
+      expect(await row(_mid(3)), isNull);
+      final gf = (await receiveRecord()).gf!;
+      expect(
+        (gf.pair, gf.n, gf.at),
+        (const MlsPair(1, 1), 1, t3.microsecondsSinceEpoch),
+      );
+      expect(rig.contexts.of(_c1).groupBroken, isEmpty);
+      expect((await deferred()).encode(), held);
+      expect(rig.receiver.evictedCount, 0);
+
+      // The group was never rowed for the run: its next messages reach the
+      // engine and decrypt, and that success clears the count.
+      rig.clock.advance(kEngineBackoff);
+      await rig.receiver.pullLive(_c1);
+      expect((await row(_mid(2)))!.state, StoredMessageState.visible);
+      expect((await row(_mid(3)))!.state, StoredMessageState.visible);
+      expect((await receiveRecord()).gf, isNull);
+      expect((await deferred()).encode(), held);
+      expect(processedCount(m1.ciphertext), 3);
+      expect(processedCount(m2.ciphertext), 2);
     });
 
     test('with a successful decrypt in the group this run, a seventeenth '
@@ -5274,6 +5426,47 @@ void main() {
         (await rig.device.vault.message(c2, _mid(2)))!.state,
         StoredMessageState.visible,
       );
+    });
+
+    test('an unwitnessed crash whose device probe answers still doubles the '
+        'receiver-wide hold', () async {
+      await setUpJoined();
+      final m1 = await say(bobGroup(), 1);
+      final m2 = await say(bobGroup(), 2, at: seconds(1));
+      // Each hangs, its describe probe fails and the device probe answers.
+      failNext(m1, [deadline]);
+      engine().failNext['describe'] = internal;
+
+      final first = await rig.receiver.pullLive(_c1);
+      expect(first.kind, ReceiveOutcomeKind.stopped);
+      expect(first.until, rig.clock.now().add(kEngineBackoff));
+      expect(count('randomBytes'), 1);
+
+      // The second in a row, with no other engine success between them:
+      // the device probe's own answer does not start the wait again.
+      rig.clock.advance(kEngineBackoff);
+      failNext(m2, [deadline]);
+      engine().failNext['describe'] = internal;
+      final second = await rig.receiver.pullLive(_c1);
+      expect(second.kind, ReceiveOutcomeKind.stopped);
+      expect(count('randomBytes'), 2);
+      expect(second.until, rig.clock.now().add(kEngineBackoff * 2));
+      expect(rig.receiver.engineHeldUntil, second.until);
+    });
+
+    test('the receiver-wide hold reads as none once its time has '
+        'passed', () async {
+      await setUpJoined();
+      await prime();
+      final m1 = await say(bobGroup(), 1, at: seconds(1));
+      failNext(m1, [unavailable]);
+      final first = await rig.receiver.pullLive(_c1);
+      expect(rig.receiver.engineHeldUntil, first.until);
+
+      rig.clock.advance(kEngineBackoff - seconds(1));
+      expect(rig.receiver.engineHeldUntil, first.until);
+      rig.clock.advance(seconds(1));
+      expect(rig.receiver.engineHeldUntil, isNull);
     });
 
     // The hold check INSIDE the retry's write body (fix round 2 replaced a
