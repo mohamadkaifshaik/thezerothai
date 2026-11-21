@@ -246,6 +246,8 @@ type RateLimitConfig struct {
 	// it for every well-formed target before the permission check, so a refusal says nothing about the target. Per
 	// instance, so the effective limit is x max-instances.
 	KeysClaimsPerTargetPerDay int64
+	// GetKeyDevices charges one unit per requested target to the caller's per-instance IST-day counter.
+	KeysDeviceLookupsPerDay, KeysNewAccountDeviceLookupsPerDay int64
 
 	// FollowRequestsRespondPerUserPerMinute is RespondToFollowRequest, env
 	// RATE_LIMIT_FOLLOW_REQUESTS_RESPOND_PER_MIN, default 60, per instance (180 with 3). ListFollowRequests shares the graph

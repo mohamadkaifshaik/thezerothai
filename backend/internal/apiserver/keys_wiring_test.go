@@ -70,7 +70,7 @@ func TestKeysPermission_SharesEncryptedConversation(t *testing.T) {
 // TestNewKeysModule_RequiresConversationID: a nil conversation id function fails the wiring (keys never imports messaging,
 // so the composition root injects messaging.ConversationID).
 func TestNewKeysModule_RequiresConversationID(t *testing.T) {
-	if _, err := newKeysModule(unusedKeysRepo{}, nil, stubMessagingPermission{}, nil, ratelimit.NewDailyCap(2), nil); err == nil {
+	if _, err := newKeysModule(unusedKeysRepo{}, nil, stubMessagingPermission{}, nil, ratelimit.NewDailyCap(2), keysLookupCap(4, 3, func(string) bool { return false }), nil); err == nil {
 		t.Fatal("a nil conversation id function was accepted")
 	}
 }
@@ -114,15 +114,58 @@ func TestKeysPermission_Adapter(t *testing.T) {
 // any call panics).
 type unusedKeysRepo struct{ keys.Repo }
 
+func TestKeysLookupDailyCap(t *testing.T) {
+	isNew := true
+	cap := keysLookupCap(4, 3, func(string) bool { return isNew })
+	mod, err := newKeysModule(unusedKeysRepo{}, nil, stubMessagingPermission{}, messaging.ConversationID, ratelimit.NewDailyCap(2), cap, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, caller string
+		targets      []string
+		newAccount   bool
+		want         commonv1.ErrorReason
+	}{
+		{"invalid costs nothing", "caller", []string{"peer", "peer"}, true, commonv1.ErrorReason_ERROR_REASON_VALIDATION},
+		{"two targets", "caller", []string{"caller", "peer"}, true, 0},
+		{"batch exceeds new tier", "caller", []string{"peer", "other"}, true, commonv1.ErrorReason_ERROR_REASON_RATE_LIMITED},
+		{"remaining unit", "caller", []string{"peer"}, true, 0},
+		{"new tier full", "caller", []string{"peer"}, true, commonv1.ErrorReason_ERROR_REASON_RATE_LIMITED},
+		{"caller ages out", "caller", []string{"peer"}, false, 0},
+		{"prior usage still counts", "caller", []string{"peer"}, false, commonv1.ErrorReason_ERROR_REASON_RATE_LIMITED},
+		{"another caller", "second", []string{"peer", "other"}, true, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			isNew = tc.newAccount
+			_, err := mod.svc.GetDevices(context.Background(), tc.caller, tc.targets)
+			if tc.want == 0 {
+				if err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+			var ae *apierr.Error
+			if !errors.As(err, &ae) || ae.Reason != tc.want {
+				t.Fatalf("got %v, want %v", err, tc.want)
+			}
+			if tc.want == commonv1.ErrorReason_ERROR_REASON_RATE_LIMITED && (ae.Code != connect.CodeResourceExhausted || ae.Metadata["limit"] != "keys_device_lookups_daily") {
+				t.Fatalf("unexpected quota refusal: %+v", ae)
+			}
+		})
+	}
+}
+
 // TestNewKeysModule_PerTargetClaimCapIsWired: the cap handed to newKeysModule is the one the service draws on (through
 // the real adapter), before the permission check: with a cap of 2 the third claim of one target is RATE_LIMITED
 // keys_claims_per_target_daily although every claim was refused; and a nil cap fails the wiring.
 func TestNewKeysModule_PerTargetClaimCapIsWired(t *testing.T) {
 	perm := stubMessagingPermission{err: messaging.ErrCannotMessage}
-	if _, err := newKeysModule(unusedKeysRepo{}, nil, perm, messaging.ConversationID, nil, nil); err == nil {
+	lookup := keysLookupCap(4, 3, func(string) bool { return false })
+	if _, err := newKeysModule(unusedKeysRepo{}, nil, perm, messaging.ConversationID, nil, lookup, nil); err == nil {
 		t.Fatal("a nil per-target claim cap was accepted")
 	}
-	mod, err := newKeysModule(unusedKeysRepo{}, nil, perm, messaging.ConversationID, ratelimit.NewDailyCap(2), nil)
+	mod, err := newKeysModule(unusedKeysRepo{}, nil, perm, messaging.ConversationID, ratelimit.NewDailyCap(2), lookup, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

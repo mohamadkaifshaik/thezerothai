@@ -26,12 +26,26 @@ type keysModule struct {
 //
 // convID is messaging.ConversationID, injected so keys never imports messaging (ClaimKeyPackagesResponse.conversation_id);
 // required, like the cap.
-func newKeysModule(repo keys.Repo, fc keys.FlagChecker, perm messaging.Permission, convID func(a, b string) string, claimCap *ratelimit.DailyCap, log *slog.Logger) (keysModule, error) {
-	if repo == nil || perm == nil || convID == nil || claimCap == nil {
-		return keysModule{}, errors.New("keys: nil repository, messaging permission, conversation id function or per-target claim cap")
+func newKeysModule(repo keys.Repo, fc keys.FlagChecker, perm messaging.Permission, convID func(a, b string) string, claimCap *ratelimit.DailyCap, chargeLookups func(context.Context, string, int) error, log *slog.Logger) (keysModule, error) {
+	if repo == nil || perm == nil || convID == nil || claimCap == nil || chargeLookups == nil {
+		return keysModule{}, errors.New("keys: missing repository, permission, conversation id function, claim cap or lookup cap")
 	}
-	svc := keys.New(keys.Deps{Repo: repo, Permission: keysPermission{m: perm}, Flags: fc, ClaimCap: claimCap, ConversationID: convID, Log: log})
+	svc := keys.New(keys.Deps{Repo: repo, Permission: keysPermission{m: perm}, Flags: fc, ClaimCap: claimCap, ChargeLookups: chargeLookups, ConversationID: convID, Log: log})
 	return keysModule{svc: svc, server: keys.NewServer(fc, svc)}, nil
+}
+
+func keysLookupCap(established, newAccount int64, isNew func(string) bool) func(context.Context, string, int) error {
+	cap := ratelimit.NewDailyCap(established)
+	return func(ctx context.Context, uid string, targets int) error {
+		limit := established
+		if isNew(uid) {
+			limit = newAccount
+		}
+		if !cap.AllowNUpTo(uid, int64(targets), limit) {
+			return cap.ExceededError(ctx, "keys_device_lookups_daily")
+		}
+		return nil
+	}
 }
 
 // keysPermission adapts messaging.Permission to keys.Permission: messaging's one refusal (messaging.ErrCannotMessage)
