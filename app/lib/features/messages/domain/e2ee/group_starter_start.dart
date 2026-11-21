@@ -1,0 +1,544 @@
+part of 'group_starter.dart';
+
+/// The start itself (R6 steps 1 to 3): the fresh lists and the claims under
+/// no lock, the checks of the claim's conversation id, then, under that
+/// conversation's lock, the provisional group in ONE `runWrite` body and
+/// ONE transaction.
+extension _Start on GroupStarter {
+  /// Steps 1 to 3 for [draft] to [peer]. `started`: the provisional group
+  /// and the stage-encrypted row are stored (the caller sends the init).
+  Future<StartOutcome> _begin(
+    String peer,
+    _Draft draft, {
+    bool rebuild = false,
+  }) async {
+    final op = await _op();
+    if (op == null) return _out(StartResult.unavailable);
+    // The key the init's ciphertext goes out under: made here, never one a
+    // row carried.
+    final key = _hexOf(await _random(16));
+    if (draft.replaces == null &&
+        (await op.vault.outbox()).items.any(
+          (r) => r.localId == draft.localId,
+        )) {
+      throw ArgumentError('An unsent row already has this local id.');
+    }
+
+    // 1. Both lists fresh. A deferred answer stands for the last readable
+    // list when there is one (H1); with none nothing can be checked.
+    final ownAnswer = await _directory.own(
+      fresh: true,
+      priority: BudgetPriority.user,
+    );
+    final peerAnswer = await _directory.peer(
+      peer,
+      fresh: true,
+      priority: BudgetPriority.user,
+    );
+    final own = _lastReadable(ownAnswer);
+    final theirs = _lastReadable(peerAnswer);
+    if (theirs == null) return _lookupFailed(peer);
+    if (own == null) return _out(StartResult.lookupFailed);
+    final active = [
+      for (final d in theirs.devices)
+        if (!d.inactive) d,
+    ];
+    if (active.isEmpty) {
+      // Decision: the routing lookup listed a device and this one lists
+      // none (or none active). Never plaintext on a changed answer: nothing
+      // is sent, and the next attempt routes on the new list.
+      return _out(
+        peerAnswer.readable
+            ? StartResult.peerHasNoDevice
+            : StartResult.lookupFailed,
+      );
+    }
+    // R3: a listed device whose claim came back empty today is not claimed
+    // again this IST day.
+    if (!await _anyUnclaimed(active)) {
+      return _out(StartResult.peerHasNoDevice);
+    }
+
+    final kpb.ClaimKeyPackagesResponse claimed;
+    try {
+      claimed = await _claim(peer, '');
+    } on RateLimitedException catch (e) {
+      final cap =
+          e.limitName == kLimitClaimsPerTargetDaily ||
+          e.limitName == kLimitClaimsDaily;
+      return _out(
+        cap ? StartResult.tryAgainTomorrow : StartResult.lookupFailed,
+        null,
+        e,
+      );
+    } on AppException catch (e) {
+      // Nothing is saved or sent: the caller may try again.
+      return _out(StartResult.lookupFailed, null, e);
+    }
+
+    // 2. The claim's id is not trusted blindly.
+    final id = claimed.conversationId;
+    if (!isConversationId(id)) return _out(StartResult.unavailable);
+    final asked = draft.conversationId;
+    // Decision: a draft addressed by a conversation id whose claim names
+    // another conversation is refused (the two cannot both be right).
+    if (asked != null && asked != id) return _out(StartResult.unavailable);
+    // (a) An id this vault knows as the conversation with someone else.
+    final knownPeer = _known.peerOf(id);
+    if (_known.contains(id) && knownPeer != null && knownPeer != peer) {
+      return _out(StartResult.unavailable);
+    }
+    // (b) Raw uids on both sides: the id is computed as the server does.
+    final me = _ownUserId();
+    if (_publicIdsOff()) {
+      // Decision: without the own uid the id cannot be checked: refused.
+      if (me == null || me.isEmpty || dmConversationId(me, peer) != id) {
+        return _out(StartResult.unavailable);
+      }
+    }
+
+    // The own side: only when the own list shows other active devices.
+    var mine = const <kpb.ClaimedKeyPackage>[];
+    final others = [
+      for (final d in own.devices)
+        if (!d.inactive && !_same(d.deviceId, op.deviceId)) d,
+    ];
+    if (me != null &&
+        me.isNotEmpty &&
+        others.isNotEmpty &&
+        await _anyUnclaimed(others)) {
+      try {
+        mine = (await _claim(me, utf8.decode(op.deviceId))).keyPackages;
+      } on AppException {
+        // Decision: the start goes on without the own devices (fewer
+        // readers, never more); they are added by a later commit (Task 9).
+      }
+    }
+    final inspectedTheirs = await _inspect(claimed.keyPackages);
+    final inspectedMine = await _inspect(mine);
+
+    final created = await _locks.run(
+      id,
+      () => _create(
+        op,
+        id,
+        peer,
+        draft,
+        key,
+        rebuild: rebuild,
+        own: own,
+        theirs: theirs,
+        claimedTheirs: claimed.keyPackages,
+        inspectedTheirs: inspectedTheirs,
+        claimedMine: mine,
+        inspectedMine: inspectedMine,
+      ),
+    );
+    // The ledger opens its own write: after the body, never inside it.
+    for (final deviceId in created.emptyFor) {
+      try {
+        await _ledger.markEmptyClaim(deviceId);
+      } on Object catch (e, s) {
+        _reportIfBug(e, s, 'start.emptyClaim');
+      }
+    }
+    switch (created.kind) {
+      case _CreatedKind.created:
+        if (created.knownGrew) {
+          // After the committing transaction, as every path that extends
+          // the known set.
+          try {
+            await _messaging.noteEverEncrypted(id, session: created.session);
+          } on Object catch (e, s) {
+            _reportIfBug(e, s, 'start.noteEverEncrypted');
+          }
+        }
+        return _out(StartResult.started, id);
+      case _CreatedKind.existing:
+        // Started meanwhile (the claimed packages are wasted, bounded by
+        // the claim caps): the row goes to the sender. A rebuilt row is
+        // already the sender's.
+        final text = draft.text;
+        if (text == null) return _out(StartResult.joinedExisting, id);
+        return _viaSender(
+          id,
+          localId: draft.localId,
+          text: text,
+          sharedPostId: draft.sharedPostId,
+        );
+      case _CreatedKind.noDevice:
+        return _out(StartResult.peerHasNoDevice);
+      case _CreatedKind.unavailable:
+        return _out(StartResult.unavailable);
+    }
+  }
+
+  /// A readable list as it is; a deferred one as the last readable list it
+  /// carries; null when there is none (unreadable, or never read).
+  DeviceList? _lastReadable(DeviceList list) {
+    if (list.readable) return list;
+    if (list.state == ListState.deferred && list.fetchedAt != null) {
+      return DeviceList(ListState.readable, list.devices, list.fetchedAt);
+    }
+    return null;
+  }
+
+  /// Whether any of [devices] had no empty claim recorded today.
+  Future<bool> _anyUnclaimed(List<DirectoryDevice> devices) async {
+    for (final d in devices) {
+      if (!await _ledger.emptyClaimTried(d.deviceId)) return true;
+    }
+    return false;
+  }
+
+  /// One `ClaimKeyPackages` call, under its own random key (a claim is not
+  /// replayable: nothing is retried here).
+  Future<kpb.ClaimKeyPackagesResponse> _claim(
+    String userId,
+    String excludeDeviceId,
+  ) async {
+    final key = _hexOf(await _random(16));
+    return _keys
+        .claim(
+          userId: userId,
+          excludeDeviceId: excludeDeviceId,
+          idempotencyKey: key,
+        )
+        .timeout(
+          kMlsRpcTimeout,
+          onTimeout: () => throw const NetworkException('timed out'),
+        );
+  }
+
+  /// The engine's reading of each claimed package (null: none, or one the
+  /// engine refuses). An engine that cannot answer now throws.
+  Future<List<KeyPackageInfo?>> _inspect(
+    List<kpb.ClaimedKeyPackage> claimed,
+  ) async {
+    final out = <KeyPackageInfo?>[];
+    for (final c in claimed) {
+      if (!c.hasKeyPackage_4 || c.keyPackage.isEmpty) {
+        out.add(null);
+        continue;
+      }
+      try {
+        out.add(
+          await _engine().inspectKeyPackage(Uint8List.fromList(c.keyPackage)),
+        );
+      } on MlsException catch (e) {
+        if (e.code != MlsErrorCode.badInput) rethrow;
+        out.add(null);
+      }
+    }
+    return out;
+  }
+
+  /// Step 3, with [id]'s lock held: ONE `runWrite` body (fresh reads, R3's
+  /// checks against the key history, the engine calls) and ONE transaction.
+  Future<_Created> _create(
+    _Op op,
+    String id,
+    String peer,
+    _Draft draft,
+    String key, {
+    required bool rebuild,
+    required DeviceList own,
+    required DeviceList theirs,
+    required List<kpb.ClaimedKeyPackage> claimedTheirs,
+    required List<KeyPackageInfo?> inspectedTheirs,
+    required List<kpb.ClaimedKeyPackage> claimedMine,
+    required List<KeyPackageInfo?> inspectedMine,
+  }) async {
+    // A conversation this vault knows of that has no group here waits for
+    // its welcome (C1): no second group is started for it. A rebuild is the
+    // one exception: the id is known from this device's own discarded init.
+    if (!rebuild && _known.contains(id)) {
+      return const _Created(_CreatedKind.existing);
+    }
+    final session = _messaging.cacheSession;
+    try {
+      return await _session.runWrite((v) async {
+        op.check(v);
+        if ((await v.groups(id)).isNotEmpty) {
+          return const _Created(_CreatedKind.existing);
+        }
+        final deviceState = await v.deviceState();
+        if (deviceState == null) {
+          return const _Created(_CreatedKind.unavailable);
+        }
+        final outbox = (await v.outbox()).items;
+        OutboxItem? old;
+        final replaces = draft.replaces;
+        if (replaces == null) {
+          if (outbox.any((r) => r.localId == draft.localId)) {
+            throw ArgumentError('An unsent row already has this local id.');
+          }
+        } else {
+          for (final r in outbox) {
+            if (r.idempotencyKey == replaces) old = r;
+          }
+          // Gone, or no longer a waiting row: nothing to rebuild.
+          if (old == null ||
+              old.stage != OutboxStage.plain ||
+              old.init != null) {
+            return const _Created(_CreatedKind.unavailable);
+          }
+        }
+        // Read fresh in this body: the pins, the former pins, the history.
+        final pins = await v.members(id);
+        final former = await GroupStarter._former.of(v, id);
+        final history = await _crypto.keyHistory.of(
+          v,
+          id,
+          currentPins: pins,
+          formerPins: former,
+        );
+        // An unreadable history refuses everyone: nothing is started.
+        if (history.unreadable) {
+          return const _Created(_CreatedKind.unavailable);
+        }
+        final pinned = [...pins, ...former];
+        final checkedTheirs = checkClaims(
+          side: ClaimSide.theirs,
+          claimed: claimedTheirs,
+          inspected: inspectedTheirs,
+          directory: theirs,
+          ownList: own,
+          members: pinned,
+          thisDeviceId: op.deviceId,
+          forNewGroup: true,
+          admissible: history.admissible,
+        );
+        final checkedMine = checkClaims(
+          side: ClaimSide.mine,
+          claimed: claimedMine,
+          inspected: inspectedMine,
+          directory: own,
+          ownList: own,
+          members: pinned,
+          thisDeviceId: op.deviceId,
+          forNewGroup: true,
+          admissible: history.admissible,
+        );
+        final emptyFor = [...checkedTheirs.emptyFor, ...checkedMine.emptyFor];
+        // A key or a device id claimed on both sides is on neither.
+        bool onBoth(UsableClaim a, List<UsableClaim> other) => other.any(
+          (b) =>
+              _same(a.signatureKey, b.signatureKey) ||
+              _same(a.deviceId, b.deviceId),
+        );
+        final usableTheirs = [
+          for (final c in checkedTheirs.usable)
+            if (!onBoth(c, checkedMine.usable)) c,
+        ];
+        final usableMine = [
+          for (final c in checkedMine.usable)
+            if (!onBoth(c, checkedTheirs.usable)) c,
+        ];
+        if (usableTheirs.isEmpty) {
+          return _Created(_CreatedKind.noDevice, emptyFor: emptyFor);
+        }
+        // At most 9 other devices: the own ones are dropped first.
+        const room = kMaxGroupMembers - 1;
+        final added = <UsableClaim>[...usableTheirs.take(room)];
+        added.addAll(usableMine.take(room - added.length));
+
+        // The engine: create, add, confirm (epoch 1), encrypt.
+        final CommitResult commit;
+        final GroupDescription description;
+        final EncryptResult encrypted;
+        try {
+          final engine = _engine();
+          final empty = await engine.createGroup(
+            deviceState,
+            mlsGroupId(id, 1),
+          );
+          commit = await engine.commitChange(
+            deviceState,
+            empty,
+            addKeyPackages: [for (final c in added) c.keyPackage],
+          );
+          final confirmed = await engine.confirmCommit(
+            deviceState,
+            commit.groupState,
+          );
+          description = await engine.describe(confirmed);
+          encrypted = await engine.encrypt(
+            deviceState,
+            confirmed,
+            draft.content,
+          );
+        } on MlsException {
+          // Nothing of it is stored (the claimed packages are wasted).
+          return _Created(_CreatedKind.unavailable, emptyFor: emptyFor);
+        }
+        final welcome = commit.welcome;
+        final thisHex = vaultDeviceIdHex(op.deviceId);
+        final inGroup = {
+          for (final m in description.members)
+            vaultDeviceIdHex(m.deviceId): m.signaturePublicKey,
+        };
+        final thisKey = inGroup[thisHex];
+        // Not the group that was asked for: nothing of it is stored.
+        if (welcome == null ||
+            welcome.isEmpty ||
+            commit.commit.isEmpty ||
+            commit.epoch != 0 ||
+            description.epoch != 1 ||
+            description.hasPendingCommit ||
+            !_same(description.groupId, mlsGroupId(id, 1)) ||
+            thisKey == null ||
+            description.members.length != added.length + 1 ||
+            inGroup.length != added.length + 1 ||
+            added.any((c) {
+              final k = inGroup[vaultDeviceIdHex(c.deviceId)];
+              return k == null || !_same(k, c.signatureKey);
+            }) ||
+            encrypted.epoch != 1 ||
+            encrypted.ciphertext.isEmpty ||
+            encrypted.ciphertext.length > _kMaxOutboxCiphertext) {
+          _reportOnce('start.group');
+          return _Created(_CreatedKind.unavailable, emptyFor: emptyFor);
+        }
+
+        const first = MlsPair(1, 1);
+        final welcomeDeviceIds = [
+          for (final c in added) utf8.decode(c.deviceId),
+        ];
+        final init = pb.MlsInit(
+          commit: commit.commit,
+          welcome: welcome,
+          welcomeDeviceIds: welcomeDeviceIds,
+        ).writeToBuffer();
+        final nowMicros = _now().microsecondsSinceEpoch;
+        // Strictly after every waiting row of the conversation.
+        var at = draft.createdAtMicros ?? nowMicros;
+        if (draft.createdAtMicros == null) {
+          for (final r in outbox) {
+            if (r.conversationId == id && r.createdAtMicros >= at) {
+              at = r.createdAtMicros + 1;
+            }
+          }
+        }
+        final recipient = draft.recipient;
+        final item = OutboxItem(
+          idempotencyKey: key,
+          localId: draft.localId,
+          expectedMessageId: expectedMessageId(v.uid, key),
+          // The recipient reference exactly as sent, else the conversation.
+          conversationId: recipient == null ? id : null,
+          recipientUserId: recipient,
+          generation: first.generation,
+          epoch: first.epoch,
+          ciphertext: encrypted.ciphertext,
+          reportCommitment: reportCommitment(draft.content),
+          content: draft.content,
+          createdAtMicros: at,
+          init: init,
+          // The sends made under THIS key: none yet (a rebuilt row starts
+          // again at 0, so its first send is a first attempt).
+        );
+        var grew = false;
+        try {
+          await v.transaction((tx) async {
+            await tx.putGroup(
+              GroupRecord(
+                conversationId: id,
+                generation: 1,
+                epoch: 1,
+                state: encrypted.groupState,
+                provisional: true,
+                provisionalCreatedAtMicros: nowMicros,
+                pending: PendingCommit(
+                  kind: PendingKind.init,
+                  builtOn: const MlsPair(1, 0),
+                  commit: commit.commit,
+                  welcome: welcome,
+                  welcomeDeviceIds: welcomeDeviceIds,
+                ),
+              ),
+            );
+            await tx.putMember(
+              MemberRecord(
+                conversationId: id,
+                deviceId: op.deviceId,
+                signatureKey: thisKey,
+                side: MemberSide.mine,
+                since: first,
+              ),
+            );
+            for (final c in added) {
+              // Admitted in this transaction; a pair the history refuses
+              // now (it was admissible a moment ago) ends the start.
+              if (history.admit(vaultDeviceIdHex(c.deviceId), c.signatureKey) !=
+                  KeyRefusal.none) {
+                throw const _Stopped();
+              }
+              await tx.putMember(
+                MemberRecord(
+                  conversationId: id,
+                  deviceId: c.deviceId,
+                  signatureKey: c.signatureKey,
+                  side: c.side == ClaimSide.mine
+                      ? MemberSide.mine
+                      : MemberSide.theirs,
+                  since: first,
+                ),
+              );
+            }
+            // C1: a provisional group is an encryption fact; the peer ref
+            // is the claim target the theirs-side pins were checked against
+            // (first write wins).
+            grew = await _known.addIn(tx, v, id, peerUserId: peer);
+            if (old != null) await tx.deleteOutbox(old.idempotencyKey);
+            await tx.putOutbox(item);
+            await tx.addSent(id, first, sentDigest(encrypted.ciphertext));
+            // The one history write, in the transaction that creates the
+            // provisional group row (written even when empty). No mark.
+            await _crypto.keyHistory.writeIn(tx, id, history);
+          });
+        } on Object {
+          _known.discardStaged();
+          rethrow;
+        }
+        _known.commitStaged();
+        return _Created(
+          _CreatedKind.created,
+          emptyFor: emptyFor,
+          knownGrew: grew,
+          session: session,
+        );
+      });
+    } on _Stopped {
+      return const _Created(_CreatedKind.unavailable);
+    } on ArgumentError {
+      rethrow;
+    } on Object catch (e, s) {
+      // A vault error or a closed vault: the transaction stored nothing.
+      _reportIfBug(e, s, 'start.create');
+      return const _Created(_CreatedKind.unavailable);
+    }
+  }
+}
+
+enum _CreatedKind { created, existing, noDevice, unavailable }
+
+/// What step 3 did. A class, not a record: it carries device ids. No
+/// `toString`.
+class _Created {
+  const _Created(
+    this.kind, {
+    this.emptyFor = const [],
+    this.knownGrew = false,
+    this.session = 0,
+  });
+
+  final _CreatedKind kind;
+
+  /// Listed devices whose claim carried no package (for the daily ledger).
+  final List<Uint8List> emptyFor;
+  final bool knownGrew;
+
+  /// The cache session captured before the write.
+  final int session;
+}

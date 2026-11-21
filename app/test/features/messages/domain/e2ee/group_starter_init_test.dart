@@ -1,0 +1,1329 @@
+import 'dart:async';
+import 'dart:typed_data';
+
+import 'package:dzeroth/core/crypto/crypto_types.dart';
+import 'package:dzeroth/core/crypto/mls_derivations.dart';
+import 'package:dzeroth/core/crypto/mls_pair.dart';
+import 'package:dzeroth/core/network/app_exception.dart';
+import 'package:dzeroth/core/vault/secure_vault.dart';
+import 'package:dzeroth/core/vault/vault_status.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/conversation_crypto.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/e2ee_types.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/group_starter.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/message_content_codec.dart';
+import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
+import 'package:dzeroth/gen/dzeroth/keys/v1/keys.pb.dart' as kpb;
+import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
+import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+import '../../../../support/e2ee_pipeline_rig.dart';
+
+const _c1 = '11111111111111111111111111111111';
+const _c2 = '22222222222222222222222222222222';
+const _c3 = '33333333333333333333333333333333';
+const _bob = 'ref-bob';
+const _me = 'user-a';
+
+final RegExp _keyShape = RegExp(r'^[0-9a-f]{32}$');
+
+/// Cuts `randomBytes` answers of [cutLength] bytes by one byte.
+class _CutRandomEngine extends RigEngine {
+  int? cutLength;
+
+  @override
+  Future<Uint8List> randomBytes(int length) async {
+    final bytes = await super.randomBytes(length);
+    return length == cutLength ? bytes.sublist(0, length - 1) : bytes;
+  }
+}
+
+void main() {
+  late RigCrypto rig;
+  late RigPeer bob;
+  late GroupStarter starter;
+  var publicIdsOff = false;
+
+  /// When set, a send that carries an init waits for it (the send is in
+  /// flight, under the conversation lock).
+  Completer<void>? gate;
+
+  GroupStarter build() => starter = GroupStarter(
+    crypto: rig.crypto,
+    sender: rig.sender,
+    receiver: rig.receiver,
+    session: rig.device.session,
+    engine: () => rig.device.engine,
+    messaging: rig.messaging,
+    keys: rig.keys,
+    directory: rig.directory,
+    ledger: rig.ledger,
+    known: rig.known,
+    syncBudget: rig.syncBudget,
+    locks: rig.locks,
+    contexts: rig.contexts,
+    now: rig.clock.now,
+    onChanged: rig.changed.add,
+    removedElsewhere: () => rig.removedElsewhere,
+    ownUserId: () => _me,
+    publicIdsOff: () => publicIdsOff,
+    schedule: (delay, run) => rig.scheduled.add((delay: delay, run: run)),
+    onUnexpectedError: (e, _) => rig.unexpected.add(e),
+  );
+
+  pb.Conversation header(
+    String id,
+    String ref, {
+    bool accepted = true,
+    bool encrypted = false,
+  }) => pb.Conversation(
+    id: id,
+    peer: common.AuthorSnapshot(userId: ref),
+    folder: Folder.FOLDER_INBOX,
+    canReply: true,
+    state: accepted
+        ? ConversationState.CONVERSATION_STATE_ACCEPTED
+        : ConversationState.CONVERSATION_STATE_REQUEST,
+    lastMessage: encrypted ? pb.MessagePreview(encrypted: true) : null,
+  );
+
+  Future<kpb.ClaimedKeyPackage> packageOf(RigPeer p, {Uint8List? key}) async =>
+      kpb.ClaimedKeyPackage(
+        deviceId: p.idString,
+        signaturePublicKey: key ?? p.key,
+        keyPackage: await p.keyPackage(),
+        hasKeyPackage_4: true,
+      );
+
+  /// [ref] is a user with the devices [devices], whose 1:1 conversation with
+  /// this user is [conversation]; every claim hands out one package each.
+  void person(
+    String ref,
+    String conversation,
+    List<RigPeer> devices, {
+    bool accepted = true,
+  }) {
+    rig.keys.peers[ref] = [
+      for (final d in devices) rigKeyDevice(d.idString, d.key),
+    ];
+    rig.keys.claims[ref] = () async => kpb.ClaimKeyPackagesResponse(
+      conversationId: conversation,
+      keyPackages: [for (final d in devices) await packageOf(d)],
+    );
+    rig.server.recipients[ref] = conversation;
+    rig.server.rows[conversation] = header(
+      conversation,
+      ref,
+      accepted: accepted,
+    );
+  }
+
+  /// An own sibling device, listed and claimable.
+  Future<RigPeer> sibling(String name) async {
+    final sib = await RigPeer.create(name);
+    rig.keys.own.add(rigKeyDevice(sib.idString, sib.key));
+    final earlier = rig.keys.claims[_me];
+    rig.keys.claims[_me] = () async {
+      final before = earlier == null ? null : await earlier();
+      return kpb.ClaimKeyPackagesResponse(
+        keyPackages: [...?before?.keyPackages, await packageOf(sib)],
+      );
+    };
+    return sib;
+  }
+
+  Future<void> newRig({RigEngine? engine}) async {
+    rig = await RigCrypto.create(engine: engine);
+    rig.server.beforeSend = (send) async {
+      final held = gate;
+      if (send.mlsInit != null && held != null) await held.future;
+    };
+    bob = await RigPeer.create('bob');
+    person(_bob, _c1, [bob]);
+    build();
+  }
+
+  setUp(() async {
+    publicIdsOff = false;
+    gate = null;
+    await newRig();
+  });
+
+  tearDown(() async {
+    if (!(gate?.isCompleted ?? true)) gate!.complete();
+    final refused = rig.server.refusedAcks.length;
+    final unexpected = [...rig.unexpected];
+    await rig.dispose();
+    expect(refused, 0, reason: 'the rig refused an AckWelcomes call');
+    expect(unexpected, isEmpty, reason: 'unexpected pipeline errors');
+  });
+
+  Future<({StartResult result, String? conversationId, AppException? cause})>
+  start({
+    String localId = 'local-1',
+    String peer = _bob,
+    String? conversationId,
+    String text = 'hello',
+  }) => starter.startOrRoute(
+    localId: localId,
+    peerUserId: peer,
+    conversationId: conversationId,
+    text: text,
+  );
+
+  /// Everything the start of [id] set going has ended.
+  Future<void> done([String id = _c1]) async {
+    await starter.settled(id);
+    await rig.sender.settled(id);
+  }
+
+  Future<List<OutboxItem>> rows() async =>
+      (await rig.device.vault.outbox()).items;
+
+  Future<GroupRecord?> groupOf([String id = _c1]) =>
+      rig.device.vault.group(id, 1);
+
+  List<RigSend> inits() => [
+    for (final s in rig.server.sends)
+      if (s.mlsInit != null) s,
+  ];
+
+  /// This device joins [id] from [owner]'s welcome, in an accepted
+  /// conversation (the vault is then not brand new).
+  Future<void> joined(
+    String id,
+    RigPeer owner, {
+    List<Uint8List>? others,
+  }) async {
+    await rig.accept(id);
+    await rig.offer(id, owner, others: others ?? const []);
+    expect(await rig.crypto.processWelcomes(), [id]);
+  }
+
+  const unknown = (error: NetworkException('timed out'), stored: false);
+
+  group('routing', () {
+    test('a claim answering a known conversation id of another peer is '
+        'refused, never enqueued there', () async {
+      expect(
+        dmConversationId('uid-alpha-0001', 'uid-bravo-0002'),
+        '5c4a01bed77c1e50f3e62a40d3fed130',
+        reason: 'the Go ConversationID of these two uids',
+      );
+      expect(
+        dmConversationId('uid-bravo-0002', 'uid-alpha-0001'),
+        '5c4a01bed77c1e50f3e62a40d3fed130',
+      );
+
+      // _c2 is known as the conversation with carol; the claim for bob
+      // answers it.
+      await rig.known.add(_c2, peerUserId: 'ref-carol');
+      rig.keys.claims[_bob] = () async => kpb.ClaimKeyPackagesResponse(
+        conversationId: _c2,
+        keyPackages: [await packageOf(bob)],
+      );
+      var r = await start();
+      expect(r.result, StartResult.unavailable);
+      expect(await rows(), isEmpty);
+      expect(await groupOf(_c2), isNull);
+      expect(await groupOf(), isNull);
+      expect(rig.server.sends, isEmpty);
+
+      // Public ids off: the client computes the id itself.
+      publicIdsOff = true;
+      person(_bob, _c1, [bob]);
+      r = await start();
+      expect(r.result, StartResult.unavailable);
+      expect(await rows(), isEmpty);
+      expect(await groupOf(), isNull);
+      expect(rig.server.sends, isEmpty);
+
+      final real = dmConversationId(_me, _bob);
+      person(_bob, real, [bob]);
+      r = await start();
+      expect(r.result, StartResult.started);
+      expect(r.conversationId, real);
+      await done(real);
+    });
+
+    test('flag off or unknown routes to plaintext and makes no key-directory '
+        'call', () async {
+      for (final flag in [E2eeFlag.off, E2eeFlag.unknown]) {
+        await rig.device.session.onFlagChanged(flag, uid: _me);
+        final r = await start();
+        expect(r.result, StartResult.plaintext, reason: '$flag');
+        expect(r.conversationId, isNull);
+      }
+      expect(rig.keys.getCalls, isEmpty);
+      expect(rig.keys.listCalls, 0);
+      expect(rig.keys.claimCalls, isEmpty);
+      expect(await rows(), isEmpty);
+      expect(rig.server.sends, isEmpty);
+    });
+
+    test('a peer with no listed device (a readable, empty list) routes to '
+        'plaintext and nothing is claimed', () async {
+      rig.keys.peers[_bob] = [];
+      final r = await start();
+      expect(r.result, StartResult.plaintext);
+      expect(rig.keys.claimCalls, isEmpty);
+      expect(await rows(), isEmpty);
+      expect(await groupOf(), isNull);
+    });
+
+    test('an unreadable lookup sends nothing and is retryable', () async {
+      rig.keys.peerFails = true;
+      var r = await start();
+      expect(r.result, StartResult.lookupFailed);
+      expect(r.cause, isNull);
+      expect(rig.keys.claimCalls, isEmpty);
+      expect(await rows(), isEmpty);
+      expect(rig.server.sends, isEmpty);
+
+      rig.keys.peerFails = false;
+      r = await start();
+      expect(r.result, StartResult.started);
+      await done();
+    });
+
+    test('a deferred lookup starts encryption from the last readable '
+        'non-empty list', () async {
+      rig.keys.peers['ref-dave'] = [];
+      await rig.directory.own();
+      await rig.directory.peer(_bob);
+      await rig.directory.peer('ref-dave');
+      rig.clock.advance(const Duration(minutes: 31));
+      rig.keys.peerError = const RateLimitedException(
+        'slow down',
+        retryAfter: Duration(minutes: 1),
+      );
+
+      // No readable list at all.
+      var r = await start(peer: 'ref-carol');
+      expect(r.result, StartResult.lookupFailed);
+      // The last readable list was empty: never plaintext on a deferral.
+      r = await start(peer: 'ref-dave');
+      expect(r.result, StartResult.lookupFailed);
+      expect(rig.keys.claimCalls, isEmpty);
+      expect(await rows(), isEmpty);
+      expect(rig.server.sends, isEmpty);
+
+      r = await start();
+      expect(r.result, StartResult.started);
+      expect(rig.keys.claimCalls.single.userId, _bob);
+      await done();
+      expect((await groupOf())!.provisional, isFalse);
+    });
+
+    test(
+      'a CANNOT_MESSAGE lookup is lookupFailed with the typed cause',
+      () async {
+        rig.keys.peerError = const CannotMessageException();
+        final r = await start();
+        expect(r.result, StartResult.lookupFailed);
+        expect(r.cause, isA<CannotMessageException>());
+        expect(rig.keys.claimCalls, isEmpty);
+        expect(await rows(), isEmpty);
+      },
+    );
+
+    test('startOrRoute resolves a recipient through the stored peer refs '
+        'before any lookup', () async {
+      await joined(_c1, bob);
+      await rig.known.add(_c1, peerUserId: _bob);
+      final lookups = rig.keys.getCalls.length;
+      rig.keys.peerFails = true;
+
+      final r = await start();
+
+      expect(r.result, StartResult.joinedExisting);
+      expect(r.conversationId, _c1);
+      expect(rig.keys.claimCalls, isEmpty);
+      await done();
+      // The lookups after the routing are the sender's own sync.
+      expect(lookups, lessThanOrEqualTo(rig.keys.getCalls.length));
+      expect(inits(), isEmpty);
+      expect((await groupOf())!.provisional, isFalse);
+    });
+
+    test('a conversation in the known set is never routed to plaintext, with '
+        'the flag off too', () async {
+      await rig.known.add(_c1);
+      await rig.device.session.onFlagChanged(E2eeFlag.off, uid: _me);
+
+      var r = await start(conversationId: _c1);
+      expect(r.result, StartResult.joinedExisting);
+      expect(r.conversationId, _c1);
+      await done();
+      var saved = (await rig.device.vault.outbox(conversationId: _c1)).items;
+      expect(saved.single.stage, OutboxStage.plain);
+
+      // A conversation the cache ever knew as encrypted.
+      rig.server.everEncrypted.add(_c2);
+      r = await start(localId: 'local-2', conversationId: _c2);
+      expect(r.result, StartResult.joinedExisting);
+      await done(_c2);
+      saved = (await rig.device.vault.outbox(conversationId: _c2)).items;
+      expect(saved.single.localId, 'local-2');
+
+      // R1: a recipient the stored refs do not resolve, whose cached row
+      // carries the encrypted marker.
+      rig.server.rows[_c3] = header(_c3, 'ref-carol', encrypted: true);
+      r = await start(localId: 'local-3', peer: 'ref-carol');
+      expect(r.result, StartResult.unavailable);
+      expect(await rows(), hasLength(2));
+
+      expect(rig.keys.getCalls, isEmpty);
+      expect(rig.keys.claimCalls, isEmpty);
+      expect(rig.server.sends, isEmpty);
+    });
+  });
+
+  group('the own-device alert', () {
+    test('an own-side device never pinned before gets the own-device alert '
+        'at init', () async {
+      final sib = await sibling('sib');
+      // 1. A brand-new vault: none.
+      var r = await start();
+      expect(r.result, StartResult.started);
+      await done();
+      expect((await groupOf())!.provisional, isFalse);
+      expect(await rig.lines(_c1), isEmpty);
+
+      // 2. A request: nothing now (Task 9 writes it at acceptance).
+      final carol = await RigPeer.create('carol');
+      final sib2 = await sibling('sib2');
+      person('ref-carol', _c2, [carol], accepted: false);
+      r = await start(localId: 'local-2', peer: 'ref-carol');
+      expect(r.result, StartResult.started);
+      await done(_c2);
+      expect((await groupOf(_c2))!.provisional, isFalse);
+      expect(
+        (await rig.device.vault.conversation(_c2))!.sync.requestAccepted,
+        isFalse,
+      );
+      expect(await rig.lines(_c2), isEmpty);
+
+      // 3. Accepted: written with the success, never while provisional, and
+      // only for the pair this vault never pinned mine before.
+      final dave = await RigPeer.create('dave');
+      person('ref-dave', _c3, [dave]);
+      gate = Completer<void>();
+      r = await start(localId: 'local-3', peer: 'ref-dave');
+      expect(r.result, StartResult.started);
+      expect((await groupOf(_c3))!.provisional, isTrue);
+      expect(await rig.lines(_c3), isEmpty);
+      gate!.complete();
+      await done(_c3);
+      final lines = await rig.lines(_c3);
+      expect(lines, hasLength(1));
+      expect(lines.single.line, SystemLine.deviceAdded);
+      expect(lines.single.side, MemberSide.mine);
+      expect(rigEq(lines.single.deviceId!, sib2.id), isTrue);
+      expect(rigEq(lines.single.deviceId!, sib.id), isFalse);
+    });
+
+    test('an ACCEPTED init does not count its own pins as seen', () async {
+      // Another accepted conversation pins another own device.
+      final old = await RigPeer.create('old');
+      rig.keys.own.add(rigKeyDevice(old.idString, old.key));
+      await joined(_c2, bob, others: [await old.keyPackage()]);
+      rig.keys.own.removeLast();
+      final sib = await sibling('sib');
+
+      expect((await start()).result, StartResult.started);
+      await done();
+
+      // sib is pinned mine in _c1 itself: that never counts as seen.
+      final pin = (await rig.device.vault.members(_c1))
+          .singleWhere((m) => rigEq(m.deviceId, sib.id));
+      expect(pin.side, MemberSide.mine);
+      final lines = await rig.lines(_c1);
+      expect(lines, hasLength(1));
+      expect(rigEq(lines.single.deviceId!, sib.id), isTrue);
+
+      // Settled once: a later resume writes nothing more.
+      await starter.resumeProvisional();
+      expect(await rig.lines(_c1), hasLength(1));
+    });
+
+    test('a single-device account gets the own-device alert for the first '
+        'own-side device met at init', () async {
+      // The vault already stored a group of another accepted conversation,
+      // with no other own device in it: it is not exempt.
+      await joined(_c2, bob);
+      final sib = await sibling('sib');
+
+      expect((await start()).result, StartResult.started);
+      await done();
+
+      final lines = await rig.lines(_c1);
+      expect(lines, hasLength(1));
+      expect(lines.single.line, SystemLine.deviceAdded);
+      expect(lines.single.side, MemberSide.mine);
+      expect(rigEq(lines.single.deviceId!, sib.id), isTrue);
+    });
+  });
+
+  group('start', () {
+    test('start claims for the peer and for my other devices, checks every '
+        'package and addresses the welcome to the usable ones', () async {
+      final sib = await sibling('sib');
+      gate = Completer<void>();
+      rig.device.engine.calls.clear();
+
+      final r = await start();
+
+      expect(r.result, StartResult.started);
+      expect(r.conversationId, _c1);
+      expect(
+        [for (final c in rig.keys.claimCalls) (c.userId, c.excludeDeviceId)],
+        [(_bob, ''), (_me, rig.device.deviceIdString)],
+      );
+      expect(_keyShape.hasMatch(rig.keys.claimCalls.first.key), isTrue);
+      expect(
+        rig.keys.claimCalls.first.key,
+        isNot(rig.keys.claimCalls.last.key),
+      );
+      expect(
+        rig.device.engine.calls.where((c) => c == 'inspectKeyPackage'),
+        hasLength(2),
+      );
+      final pending = (await groupOf())!.pending!;
+      expect(pending.welcomeDeviceIds.toSet(), {bob.idString, sib.idString});
+      final sides = {
+        for (final m in await rig.device.vault.members(_c1))
+          String.fromCharCodes(m.deviceId): m.side,
+      };
+      expect(sides, {
+        rig.device.deviceIdString: MemberSide.mine,
+        bob.idString: MemberSide.theirs,
+        sib.idString: MemberSide.mine,
+      });
+      gate!.complete();
+      await done();
+    });
+
+    test(
+      'the group id is mlsGroupId(conversation id from the claim, 1)',
+      () async {
+        gate = Completer<void>();
+        await start();
+        final description = await rig.device.engine.inner.describe(
+          (await groupOf())!.state,
+        );
+        expect(rigEq(description.groupId, mlsGroupId(_c1, 1)), isTrue);
+        expect(description.epoch, 1);
+        expect(description.hasPendingCommit, isFalse);
+        gate!.complete();
+        await done();
+      },
+    );
+
+    test('a package failing R3 is left out and the start goes on with the '
+        'rest', () async {
+      final bob2 = await RigPeer.create('bob2');
+      rig.keys.peers[_bob] = [
+        rigKeyDevice(bob.idString, bob.key),
+        rigKeyDevice(bob2.idString, bob2.key),
+      ];
+      // The claim names another key for bob2 than the directory lists.
+      rig.keys.claims[_bob] = () async => kpb.ClaimKeyPackagesResponse(
+        conversationId: _c1,
+        keyPackages: [
+          await packageOf(bob),
+          await packageOf(bob2, key: Uint8List.fromList(List.filled(32, 7))),
+        ],
+      );
+      gate = Completer<void>();
+
+      expect((await start()).result, StartResult.started);
+
+      expect((await groupOf())!.pending!.welcomeDeviceIds, [bob.idString]);
+      final pinned = await rig.device.vault.members(_c1);
+      expect(pinned.any((m) => rigEq(m.deviceId, bob2.id)), isFalse);
+      expect(pinned, hasLength(2));
+      gate!.complete();
+      await done();
+    });
+
+    test(
+      'no usable peer package is peerHasNoDevice and nothing is stored',
+      () async {
+        rig.keys.claims[_bob] = () async => kpb.ClaimKeyPackagesResponse(
+          conversationId: _c1,
+          keyPackages: [
+            await packageOf(bob, key: Uint8List.fromList(List.filled(32, 7))),
+          ],
+        );
+        final before = await rig.dump();
+
+        final r = await start();
+
+        expect(r.result, StartResult.peerHasNoDevice);
+        expect(await rig.dump(), before);
+        expect(rig.known.contains(_c1), isFalse);
+        expect(rig.server.sends, isEmpty);
+      },
+    );
+
+    test('the provisional group, its pending init, the pins and the encrypted '
+        'row are one transaction and no mark is written', () async {
+      // An engine failure after the group was built stores nothing of it.
+      final before = await rig.dump();
+      rig.device.engine.failNext['encrypt'] = const MlsException(
+        MlsErrorCode.internal,
+        'rig',
+      );
+      expect((await start()).result, StartResult.unavailable);
+      expect(await rig.dump(), before);
+      expect(rig.known.contains(_c1), isFalse);
+
+      gate = Completer<void>();
+      expect((await start()).result, StartResult.started);
+
+      final g = (await groupOf())!;
+      expect(g.provisional, isTrue);
+      expect(g.epoch, 1);
+      expect(
+        g.provisionalCreatedAtMicros,
+        rig.clock.now().microsecondsSinceEpoch,
+      );
+      final pending = g.pending!;
+      expect(pending.kind, PendingKind.init);
+      expect(pending.builtOn, const MlsPair(1, 0));
+      expect(pending.welcomeDeviceIds, [bob.idString]);
+      final row = (await rows()).single;
+      expect(row.stage, OutboxStage.encrypted);
+      expect((row.generation, row.epoch), (1, 1));
+      expect(row.localId, 'local-1');
+      expect(row.recipientUserId, _bob);
+      expect(row.conversationId, isNull);
+      expect(_keyShape.hasMatch(row.idempotencyKey), isTrue);
+      expect(row.expectedMessageId, expectedMessageId(_me, row.idempotencyKey));
+      expect(
+        rigEq(row.reportCommitment, reportCommitment(row.content)),
+        isTrue,
+      );
+      expect(decodeMessageContentLenient(row.content).text, 'hello');
+      final init = pb.MlsInit.fromBuffer(row.init!);
+      expect(rigEq(init.commit, pending.commit), isTrue);
+      expect(rigEq(init.welcome, pending.welcome!), isTrue);
+      expect(init.welcomeDeviceIds, [bob.idString]);
+      expect(
+        await rig.device.vault.hasSent(
+          _c1,
+          const MlsPair(1, 1),
+          sentDigest(row.ciphertext),
+        ),
+        isTrue,
+      );
+      final record = await rig.device.vault.conversation(_c1);
+      expect(record?.afterPair, isNull);
+      expect(record?.joinHighWater, isNull);
+      expect(rig.known.contains(_c1), isTrue);
+      expect(rig.known.peerOf(_c1), _bob);
+      // The key history is written with the provisional group.
+      expect((await rig.keyHistoryIds(_c1)).keys, [vaultDeviceIdHex(bob.id)]);
+      expect(rig.messaging.noted.map((n) => n.id), contains(_c1));
+      gate!.complete();
+      await done();
+
+      // A draft addressed by conversation id is stored under that id.
+      final carol = await RigPeer.create('carol');
+      person('ref-carol', _c2, [carol]);
+      gate = Completer<void>();
+      final r = await start(
+        localId: 'local-2',
+        peer: 'ref-carol',
+        conversationId: _c2,
+      );
+      expect(r.result, StartResult.started);
+      final second = (await rows()).single;
+      expect(second.conversationId, _c2);
+      expect(second.recipientUserId, isNull);
+      gate!.complete();
+      await done(_c2);
+    });
+
+    test(
+      'the request carries mls_init, pair (1, 1) and the stored bytes',
+      () async {
+        gate = Completer<void>();
+        await start();
+        final row = (await rows()).single;
+        gate!.complete();
+        await done();
+
+        final send = rig.server.sends.single;
+        expect(send.key, row.idempotencyKey);
+        expect(send.pair, const MlsPair(1, 1));
+        expect(send.recipientUserId, _bob);
+        expect(send.conversationId, isNull);
+        expect(rigEq(send.mlsInit!, row.init!), isTrue);
+        expect(rigEq(send.ciphertext, row.ciphertext), isTrue);
+        expect(rigEq(send.commitment, row.reportCommitment), isTrue);
+        expect(rig.device.confirmStoredCalls, contains(row.idempotencyKey));
+      },
+    );
+
+    test('success clears provisional and writes after-pair (1, 0)', () async {
+      gate = Completer<void>();
+      await start();
+      final row = (await rows()).single;
+      // The response's id is not the row's: stored under the expected id.
+      rig.server.sendResponseId = 'f' * 32;
+      gate!.complete();
+      await done();
+
+      final g = (await groupOf())!;
+      expect(g.provisional, isFalse);
+      expect(g.pending, isNull);
+      expect(g.epoch, 1);
+      final record = (await rig.device.vault.conversation(_c1))!;
+      expect(record.afterPair, const MlsPair(1, 0));
+      expect(record.joinHighWater, isNull);
+      expect(record.sync.requestAccepted, isTrue);
+      expect(await rows(), isEmpty);
+      final message = (await rig.device.vault.message(
+        _c1,
+        row.expectedMessageId,
+      ))!;
+      expect(message.mine, isTrue);
+      expect(message.state, StoredMessageState.visible);
+      expect(rigEq(message.content!, row.content), isTrue);
+      expect(await rig.device.vault.hasMessage(_c1, 'f' * 32), isFalse);
+      expect(rig.unexpected.map((e) => (e as E2eePipelineError).step), [
+        'start.responseId',
+      ]);
+      rig.unexpected.clear();
+    });
+
+    test('a group that appeared before the lock is used instead '
+        '(joinedExisting)', () async {
+      final answer = rig.keys.claims[_bob]!;
+      rig.keys.claims[_bob] = () async {
+        // Another device's start is joined while the claim is in flight.
+        await rig.offer(_c1, bob);
+        expect(await rig.crypto.processWelcomes(), [_c1]);
+        return answer();
+      };
+
+      final r = await start();
+
+      expect(r.result, StartResult.joinedExisting);
+      expect(r.conversationId, _c1);
+      await done();
+      expect((await groupOf())!.provisional, isFalse);
+      expect(inits(), isEmpty);
+      final left = await rows();
+      expect(
+        left.every((r) => r.init == null && r.conversationId == _c1),
+        isTrue,
+      );
+    });
+
+    test('a claimed device the key history refuses is never added, and an '
+        'unreadable history starts nothing', () async {
+      // Bob's device id was seen in this conversation with two keys.
+      await rig.putKeyHistory(_c1, changed: [bob.id]);
+      var before = await rig.dump();
+      expect((await start()).result, StartResult.peerHasNoDevice);
+      expect(await rig.dump(), before);
+
+      // A conversation with a mark and no key history: unreadable.
+      final carol = await RigPeer.create('carol');
+      person('ref-carol', _c2, [carol]);
+      await rig.device.vault.transaction(
+        (tx) => tx.setJoinHighWater(_c2, const MlsPair(1, 0)),
+      );
+      before = await rig.dump();
+      final r = await start(localId: 'local-2', peer: 'ref-carol');
+      expect(r.result, StartResult.unavailable);
+      expect(await rig.dump(), before);
+      expect(rig.server.sends, isEmpty);
+      expect(rig.keyHistoryErrors, ['keyHistory.read']);
+      rig.unexpected.clear();
+    });
+
+    test('the per-target claim cap is tryAgainTomorrow', () async {
+      for (final name in [
+        'keys_claims_per_target_daily',
+        'keys_claims_daily',
+      ]) {
+        rig.keys.claimErrors[_bob] = RateLimitedException(
+          'cap',
+          limitName: name,
+        );
+        final r = await start();
+        expect(r.result, StartResult.tryAgainTomorrow, reason: name);
+        expect(r.cause, isA<RateLimitedException>());
+      }
+      expect(await rows(), isEmpty);
+      expect(await groupOf(), isNull);
+      expect(rig.known.contains(_c1), isFalse);
+    });
+
+    test('an empty claim for a listed device is not repeated the same IST '
+        'day', () async {
+      rig.keys.claims[_bob] = () async => kpb.ClaimKeyPackagesResponse(
+        conversationId: _c1,
+        keyPackages: [
+          kpb.ClaimedKeyPackage(
+            deviceId: bob.idString,
+            signaturePublicKey: bob.key,
+            hasKeyPackage_4: false,
+          ),
+        ],
+      );
+
+      expect((await start()).result, StartResult.peerHasNoDevice);
+      expect(rig.keys.claimCalls, hasLength(1));
+      expect(await rig.ledger.emptyClaimTried(bob.id), isTrue);
+
+      expect((await start()).result, StartResult.peerHasNoDevice);
+      expect(rig.keys.claimCalls, hasLength(1));
+
+      rig.clock.advance(const Duration(hours: 24));
+      expect((await start()).result, StartResult.peerHasNoDevice);
+      expect(rig.keys.claimCalls, hasLength(2));
+      expect(await rows(), isEmpty);
+    });
+
+    test('a random answer of another length stores nothing', () async {
+      await rig.dispose();
+      final engine = _CutRandomEngine();
+      await newRig(engine: engine);
+      final before = await rig.dump();
+      for (final length in [16, kReportKeyBytes]) {
+        engine.cutLength = length;
+        expect((await start()).result, StartResult.unavailable);
+      }
+      expect(await rig.dump(), before);
+      expect(rig.server.sends, isEmpty);
+      expect(rig.unexpected.map((e) => (e as E2eePipelineError).step), [
+        'start.random',
+      ]);
+      rig.unexpected.clear();
+    });
+  });
+
+  group('the init send', () {
+    test('a timeout resends the identical request', () async {
+      rig.server.sendScript.add(unknown);
+
+      expect((await start()).result, StartResult.started);
+      await done();
+
+      expect(rig.server.sends, hasLength(2));
+      expect(rig.server.sends[0].mlsInit, isNotNull);
+      expect(rig.server.sends[0].same(rig.server.sends[1]), isTrue);
+      expect((await groupOf())!.provisional, isFalse);
+      expect(await rows(), isEmpty);
+    });
+
+    test('a restart with a provisional group resends the same bytes', () async {
+      rig.server.sendScript.addAll([unknown, unknown]);
+      await start();
+      await done();
+      expect((await groupOf())!.provisional, isTrue);
+      expect(rig.server.sends, hasLength(2));
+
+      await rig.restart();
+      build();
+      await starter.resumeProvisional();
+      await done();
+
+      expect(rig.server.sends, hasLength(3));
+      expect(rig.server.sends[0].same(rig.server.sends[2]), isTrue);
+      expect((await groupOf())!.provisional, isFalse);
+      expect(await rows(), isEmpty);
+    });
+
+    test('STALE_EPOCH deletes the provisional group, joins from the winner\'s '
+        'welcome and re-encrypts under a new key', () async {
+      // Bob's own start reached the server first.
+      await rig.offer(_c1, bob);
+      Uint8List? historyWhileProvisional;
+      rig.server.onCall = (call) async {
+        if (call == 'sendEncrypted') {
+          historyWhileProvisional ??= await rig.sealedSetting(
+            'messages.e2ee.keys.$_c1',
+          );
+        }
+      };
+
+      expect((await start()).result, StartResult.started);
+      await done();
+
+      final first = rig.server.sends.first;
+      expect(first.mlsInit, isNotNull);
+      final g = (await groupOf())!;
+      expect(g.provisional, isFalse);
+      expect(g.pending, isNull);
+      expect(rig.device.engine.calls, contains('joinFromWelcome'));
+      // The history written with the provisional group is still there, and
+      // bob's device is attributable in the joined group.
+      expect(historyWhileProvisional, isNotNull);
+      expect(
+        (await rig.keyHistoryIds(_c1)).keys,
+        contains(vaultDeviceIdHex(bob.id)),
+      );
+      expect(await rig.keyHistoryChanged(_c1), isEmpty);
+      final last = rig.server.sends.last;
+      expect(last.mlsInit, isNull);
+      expect(last.conversationId, _c1);
+      expect(last.key, isNot(first.key));
+      expect(last.pair, const MlsPair(1, 1));
+      expect(await rows(), isEmpty);
+      expect(
+        await rig.device.vault.hasMessage(
+          _c1,
+          expectedMessageId(_me, last.key),
+        ),
+        isTrue,
+      );
+      expect(
+        await rig.device.vault.hasMessage(
+          _c1,
+          expectedMessageId(_me, first.key),
+        ),
+        isFalse,
+      );
+    });
+
+    test('a replay check is not confused by the loser\'s own marks', () async {
+      final offer = await rig.offer(_c1, bob);
+      MlsPair? afterWhileProvisional = const MlsPair(9, 9);
+      MlsPair? highWhileProvisional = const MlsPair(9, 9);
+      rig.server.onCall = (call) async {
+        if (call == 'sendEncrypted' && rig.server.sends.isEmpty) {
+          final record = await rig.device.vault.conversation(_c1);
+          afterWhileProvisional = record?.afterPair;
+          highWhileProvisional = record?.joinHighWater;
+        }
+      };
+
+      await start();
+      await done();
+
+      // The provisional group wrote no mark, so the welcome labelled (1, 0)
+      // is above both marks and is joined.
+      expect(afterWhileProvisional, isNull);
+      expect(highWhileProvisional, isNull);
+      final record = (await rig.device.vault.conversation(_c1))!;
+      expect(record.joinHighWater, const MlsPair(1, 0));
+      expect(record.afterPair, const MlsPair(1, 0));
+      expect(rig.server.acks.expand((a) => a.ids), [offer.welcomeId]);
+      expect((await groupOf())!.provisional, isFalse);
+    });
+
+    test('a first-attempt CANNOT_MESSAGE deletes the provisional group and '
+        'fails the row', () async {
+      rig.server.sendScript.add((
+        error: const CannotMessageException(),
+        stored: false,
+      ));
+      Uint8List? history;
+      rig.server.onCall = (call) async {
+        if (call == 'sendEncrypted') {
+          history = await rig.sealedSetting('messages.e2ee.keys.$_c1');
+        }
+      };
+
+      expect((await start()).result, StartResult.started);
+      await done();
+
+      expect(rig.server.sends, hasLength(1));
+      expect(await groupOf(), isNull);
+      expect(await rig.device.vault.members(_c1), isEmpty);
+      final row = (await rows()).single;
+      expect(row.stage, OutboxStage.plain);
+      expect(row.init, isNull);
+      expect(row.ciphertext, isEmpty);
+      expect(row.lastError, 'CannotMessageException');
+      expect(row.conversationId, _c1);
+      expect(row.localId, 'local-1');
+      // The discard never touches the key history.
+      expect(
+        rigEq((await rig.sealedSetting('messages.e2ee.keys.$_c1'))!, history!),
+        isTrue,
+      );
+      final shown = (await rig.sender.outgoing(_c1)).single;
+      expect(shown.status, OutgoingStatus5a.failed);
+      expect(shown.error, isA<CannotMessageException>());
+      expect(shown.retryable, isFalse);
+    });
+
+    test('FEATURE_DISABLED on a retry with the expected id in ListMessages is '
+        'a success', () async {
+      rig.server.sendScript.addAll([
+        (error: const NetworkException('timed out'), stored: true),
+        (error: const FeatureDisabledException('off'), stored: false),
+      ]);
+      gate = Completer<void>();
+      await start();
+      final row = (await rows()).single;
+      gate!.complete();
+      await done();
+
+      expect(rig.server.sends, hasLength(2));
+      expect(rig.server.calls, contains('listMlsMessages'));
+      final g = (await groupOf())!;
+      expect(g.provisional, isFalse);
+      expect(
+        (await rig.device.vault.conversation(_c1))!.afterPair,
+        const MlsPair(1, 0),
+      );
+      expect(
+        await rig.device.vault.hasMessage(_c1, row.expectedMessageId),
+        isTrue,
+      );
+      expect(await rows(), isEmpty);
+    });
+
+    test('FEATURE_DISABLED on a retry without it is a refusal', () async {
+      rig.server.sendScript.addAll([
+        unknown,
+        (error: const FeatureDisabledException('off'), stored: false),
+      ]);
+
+      await start();
+      await done();
+
+      expect(rig.server.sends, hasLength(2));
+      expect(await groupOf(), isNull);
+      expect(await rig.device.vault.members(_c1), isEmpty);
+      final row = (await rows()).single;
+      expect(row.stage, OutboxStage.plain);
+      expect(row.lastError, 'FeatureDisabledException');
+      expect(row.init, isNull);
+    });
+
+    test('text typed while provisional waits at stage plain and goes out '
+        'after success', () async {
+      gate = Completer<void>();
+      expect((await start()).result, StartResult.started);
+
+      final r = await start(localId: 'local-2', text: 'second');
+      expect(r.result, StartResult.joinedExisting);
+      expect(r.conversationId, _c1);
+      expect(rig.keys.claimCalls, hasLength(1));
+      final waiting = (await rig.device.vault.outbox(conversationId: _c1))
+          .items;
+      expect(waiting.single.stage, OutboxStage.plain);
+      expect(waiting.single.localId, 'local-2');
+      final shown = await rig.sender.outgoing(_c1);
+      expect(shown.single.status, OutgoingStatus5a.waiting);
+      expect(shown.single.waitingOn, SendBlock.provisional);
+      expect(rig.server.sends.where((s) => s.mlsInit == null), isEmpty);
+
+      gate!.complete();
+      await done();
+
+      expect(await rows(), isEmpty);
+      expect(rig.server.sends, hasLength(2));
+      final second = rig.server.sends.last;
+      expect(second.mlsInit, isNull);
+      expect(second.conversationId, _c1);
+      expect(second.pair, const MlsPair(1, 1));
+      expect(
+        await rig.device.vault.hasMessage(
+          _c1,
+          expectedMessageId(_me, second.key),
+        ),
+        isTrue,
+      );
+    });
+
+    test('an init is not sent while a member is unattributed, the flag is '
+        'off or this device was removed elsewhere', () async {
+      rig.server.sendScript.addAll([unknown, unknown]);
+      await start();
+      await done();
+      expect(rig.server.sends, hasLength(2));
+
+      // Removed elsewhere.
+      rig.removedElsewhere = true;
+      await starter.resumeProvisional();
+      await done();
+      rig.removedElsewhere = false;
+      // The flag is not on.
+      await rig.device.session.onFlagChanged(E2eeFlag.off, uid: _me);
+      await starter.resumeProvisional();
+      await done();
+      await rig.device.session.onFlagChanged(E2eeFlag.on, uid: _me);
+      // A member is not attributable.
+      await rig.device.vault.transaction(
+        (tx) => tx.putMember(
+          MemberRecord(
+            conversationId: _c1,
+            deviceId: bob.id,
+            signatureKey: bob.key,
+            side: MemberSide.unattributed,
+            since: const MlsPair(1, 1),
+          ),
+        ),
+      );
+      await starter.resumeProvisional();
+      await done();
+
+      expect(rig.server.sends, hasLength(2));
+      expect((await groupOf())!.provisional, isTrue);
+      expect((await rows()).single.init, isNotNull);
+    });
+  });
+
+  group('resumeProvisional', () {
+    test('a provisional group older than 24 h whose init is the first stored '
+        'commit is cleared, not rebuilt', () async {
+      rig.server.sendScript.addAll([
+        (error: const NetworkException('timed out'), stored: true),
+        unknown,
+      ]);
+      gate = Completer<void>();
+      await start();
+      final row = (await rows()).single;
+      gate!.complete();
+      await done();
+      expect((await groupOf())!.provisional, isTrue);
+      rig.keys.claimCalls.clear();
+      rig.clock.advance(kProvisionalExpiry + const Duration(minutes: 1));
+
+      await starter.resumeProvisional();
+      await done();
+
+      final g = (await groupOf())!;
+      expect(g.provisional, isFalse);
+      expect(g.pending, isNull);
+      expect(
+        (await rig.device.vault.conversation(_c1))!.afterPair,
+        const MlsPair(1, 0),
+      );
+      expect(rig.keys.claimCalls, isEmpty);
+      // The message itself came back as an echo of the live pull.
+      expect(rig.server.sends, hasLength(2));
+      expect(await rows(), isEmpty);
+      expect(
+        await rig.device.vault.hasMessage(_c1, row.expectedMessageId),
+        isTrue,
+      );
+    });
+
+    test('a provisional group older than 24 h with another first commit is '
+        'discarded and rebuilt from fresh claims', () async {
+      rig.server.sendScript.addAll([unknown, unknown]);
+      await start();
+      await done();
+      final old = (await groupOf())!;
+      final oldRow = (await rows()).single;
+      expect(old.provisional, isTrue);
+      // Another device's init is the first stored commit.
+      rig.server.addCommit(
+        _c1,
+        const MlsPair(1, 0),
+        rigBytes('the init of another device'),
+        fromUser: 'user-b',
+      );
+      rig.keys.claimCalls.clear();
+      rig.clock.advance(kProvisionalExpiry + const Duration(minutes: 1));
+      // The rebuilt init's send stays unanswered.
+      rig.server.sendScript.addAll([unknown, unknown]);
+
+      await starter.resumeProvisional();
+      await done();
+
+      expect(rig.keys.claimCalls.single.userId, _bob);
+      final rebuilt = (await groupOf())!;
+      expect(rebuilt.provisional, isTrue);
+      expect(
+        rebuilt.provisionalCreatedAtMicros,
+        rig.clock.now().microsecondsSinceEpoch,
+      );
+      final row = (await rows()).single;
+      expect(row.localId, oldRow.localId);
+      expect(row.stage, OutboxStage.encrypted);
+      expect(row.init, isNotNull);
+      expect(row.idempotencyKey, isNot(oldRow.idempotencyKey));
+      expect(row.expectedMessageId, isNot(oldRow.expectedMessageId));
+      expect(rigEq(row.content, oldRow.content), isTrue);
+      expect(row.createdAtMicros, oldRow.createdAtMicros);
+      expect(rig.server.sends.last.key, row.idempotencyKey);
+    });
+
+    test(
+      'at the claim cap a rebuilt row fails with tryAgainTomorrow',
+      () async {
+        rig.server.sendScript.addAll([unknown, unknown]);
+        await start();
+        await done();
+        rig.clock.advance(kProvisionalExpiry + const Duration(minutes: 1));
+        rig.keys.claimErrors[_bob] = const RateLimitedException(
+          'cap',
+          limitName: 'keys_claims_per_target_daily',
+        );
+
+        await starter.resumeProvisional();
+        await done();
+
+        expect(await groupOf(), isNull);
+        final row = (await rows()).single;
+        expect(row.stage, OutboxStage.plain);
+        expect(row.conversationId, _c1);
+        expect(row.lastError, 'RateLimitedException');
+        final shown = (await rig.sender.outgoing(_c1)).single;
+        expect(shown.status, OutgoingStatus5a.failed);
+        expect(shown.tryTomorrow, isTrue);
+      },
+    );
+
+    test(
+      'settling ownStored leaves the key history readable and unchanged',
+      () async {
+        await rig.seedProvisional(_c1, [bob]);
+        final pending = (await groupOf())!.pending!;
+        final key = 'a' * 32;
+        await rig.device.vault.transaction(
+          (tx) => tx.putOutbox(
+            OutboxItem(
+              idempotencyKey: key,
+              localId: 'local-1',
+              expectedMessageId: expectedMessageId(_me, key),
+              recipientUserId: _bob,
+              generation: 1,
+              epoch: 1,
+              ciphertext: Uint8List.fromList([1, 2, 3]),
+              reportCommitment: Uint8List(32),
+              content: rigBytes('hello'),
+              createdAtMicros: rig.clock.now().microsecondsSinceEpoch,
+              init: Uint8List.fromList([9, 9]),
+            ),
+          ),
+        );
+        await rig.known.add(_c1, peerUserId: _bob);
+        final history = await rig.sealedSetting('messages.e2ee.keys.$_c1');
+        // The server stored this device's own init; a welcome of that
+        // generation is listed (the join code's own-init-already-stored path).
+        rig.server.addCommit(
+          _c1,
+          const MlsPair(1, 0),
+          pending.commit,
+          fromUser: _me,
+        );
+        final w = rig.server.addWelcome(
+          rig.device.deviceIdString,
+          _c1,
+          const MlsPair(1, 0),
+          Uint8List(4),
+        );
+
+        expect(await rig.crypto.processWelcomes(), isEmpty);
+
+        expect(rig.server.acks.expand((a) => a.ids), [w]);
+        final g = (await groupOf())!;
+        expect(g.provisional, isFalse);
+        expect(g.pending, isNull);
+        expect(
+          rigEq(
+            (await rig.sealedSetting('messages.e2ee.keys.$_c1'))!,
+            history!,
+          ),
+          isTrue,
+        );
+        expect(rig.keyHistoryErrors, isEmpty);
+        expect((await rig.keyHistoryIds(_c1)).keys, [vaultDeviceIdHex(bob.id)]);
+        // The shared success steps ran here too: the row is the sender's now
+        // (the same key and bytes, under the conversation id, without init).
+        final row = (await rows()).single;
+        expect(row.idempotencyKey, key);
+        expect(row.conversationId, _c1);
+        expect(row.recipientUserId, isNull);
+        expect(row.init, isNull);
+        expect(row.stage, OutboxStage.encrypted);
+        expect(row.ciphertext, [1, 2, 3]);
+        // No answer said ACCEPTED: nothing is inferred.
+        expect(
+          (await rig.device.vault.conversation(_c1))!.sync.requestAccepted,
+          isFalse,
+        );
+      },
+    );
+
+    test('an own-init settle deletes a lower generation that was walked and '
+        'kept', () async {
+      final v = rig.device.vault;
+      Future<void> seed(String id, {required bool walked}) => v.transaction((
+        tx,
+      ) async {
+        await tx.putGroup(
+          GroupRecord(
+            conversationId: id,
+            generation: 1,
+            epoch: 3,
+            state: rigBytes('the old generation'),
+          ),
+        );
+        await tx.setAfterPair(id, const MlsPair(1, 2));
+        await tx.putConversationSync(
+          id,
+          ConversationSync(
+            completedEpochs: walked ? const [MlsPair(1, 3)] : const [],
+          ),
+        );
+        await tx.putGroup(
+          GroupRecord(
+            conversationId: id,
+            generation: 2,
+            epoch: 1,
+            state: rigBytes('a provisional state'),
+            provisional: true,
+            provisionalCreatedAtMicros: rig.clock.now().microsecondsSinceEpoch,
+            pending: PendingCommit(
+              kind: PendingKind.reset,
+              builtOn: const MlsPair(2, 0),
+              commit: rigBytes('this device reset'),
+            ),
+          ),
+        );
+      });
+      await seed(_c1, walked: true);
+
+      final settled = await rig.locks.run(
+        _c1,
+        () => rig.crypto.settleOwnInitLocked(_c1, 2),
+      );
+
+      expect(settled, InitSettle.settled);
+      expect(await v.group(_c1, 1), isNull);
+      expect((await v.group(_c1, 2))!.provisional, isFalse);
+      final record = (await v.conversation(_c1))!;
+      expect(record.afterPair, const MlsPair(2, 0));
+      expect(record.sync.completedEpochs, isEmpty);
+    });
+
+    test(
+      'discarding a provisional group leaves the key history untouched',
+      () async {
+        await rig.seedProvisional(_c1, [bob]);
+        final history = await rig.sealedSetting('messages.e2ee.keys.$_c1');
+
+        final discarded = await rig.locks.run(
+          _c1,
+          () => rig.crypto.discardProvisionalLocked(_c1, 1),
+        );
+
+        expect(discarded, isTrue);
+        expect(await groupOf(), isNull);
+        expect(await rig.device.vault.members(_c1), isEmpty);
+        expect(
+          rigEq(
+            (await rig.sealedSetting('messages.e2ee.keys.$_c1'))!,
+            history!,
+          ),
+          isTrue,
+        );
+        expect(await rig.device.vault.conversation(_c1), isNull);
+      },
+    );
+  });
+}

@@ -18,6 +18,11 @@ bool _outcomeUnknown(AppException e) => switch (e) {
   _ => false,
 };
 
+/// [_outcomeUnknown] and [_errorName] for Task 8's init sends (the same
+/// classification and the same stored names; never a second copy).
+bool sendOutcomeUnknown(AppException e) => _outcomeUnknown(e);
+String sendErrorName(AppException e) => _errorName(e);
+
 /// The stored `lastError`: the type's name, written out (a runtime type
 /// name is minified on the web), never the server's text.
 String _errorName(AppException e) => switch (e) {

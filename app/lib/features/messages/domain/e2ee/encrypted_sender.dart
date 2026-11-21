@@ -180,6 +180,13 @@ class EncryptedSender {
     _held.clear();
   }
 
+  /// Task 8: the typed refusal of the row [localId], whose init the server
+  /// refused (the row is stored failed, at stage `plain`, under its
+  /// conversation id). Memory only, as every typed error here: [outgoing]
+  /// shows it while this run remembers it.
+  void rememberRefusal(String localId, AppException error) =>
+      _errors[localId] = error;
+
   // -------------------------------------------------------------------------
   // The public entries
 

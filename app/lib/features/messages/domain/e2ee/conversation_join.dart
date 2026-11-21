@@ -363,66 +363,23 @@ extension _WelcomeJoin on ConversationCrypto {
         return _Settled.unknown;
       }
       if (own) {
-        final stored = await v.conversation(id);
-        if (!MlsPair.above(pending.builtOn, stored?.afterPair)) {
+        // The same success steps as Task 8's send path (no answer for the
+        // message here: its row goes to the sender, without its init).
+        final settled = await _settleOwnInitIn(
+          v,
+          id,
+          group,
+          thisDevice: poll.deviceId,
+        );
+        if (!settled) {
           // The marks are already at or past this init (the marks cannot be
-          // written again): the welcome is a replay, for good. Clearing the
-          // provisional group is Task 8's.
+          // written again): the welcome is a replay, for good.
           return _Settled.replay;
         }
-        await v.transaction((tx) async {
-          await tx.clearProvisional(id, g, afterPair: pending.builtOn);
-          // The init is accepted: nothing of it is pending any more.
-          await tx.putGroup(
-            GroupRecord(
-              conversationId: id,
-              generation: g,
-              epoch: group.epoch,
-              state: group.state,
-            ),
-          );
-        });
+        _afterOwnInit(id);
         return _Settled.ownStored;
       }
-      final members = await v.members(id);
-      final outbox = await v.outbox();
-      final peerRef = _known.peerOf(id);
-      await v.transaction((tx) async {
-        await tx.deleteGroup(id, g);
-        for (final m in members) {
-          if (m.since.generation >= g) await tx.deleteMember(id, m.deviceId);
-        }
-        for (final item in outbox.items) {
-          final mine =
-              item.conversationId == id ||
-              (item.conversationId == null &&
-                  peerRef != null &&
-                  item.recipientUserId == peerRef);
-          if (!mine ||
-              item.stage != OutboxStage.encrypted ||
-              item.generation != g) {
-            continue;
-          }
-          await tx.putOutbox(
-            OutboxItem(
-              idempotencyKey: item.idempotencyKey,
-              localId: item.localId,
-              expectedMessageId: item.expectedMessageId,
-              conversationId: item.conversationId,
-              recipientUserId: item.recipientUserId,
-              generation: 0,
-              epoch: 0,
-              ciphertext: Uint8List(0),
-              reportCommitment: Uint8List(0),
-              content: item.content,
-              createdAtMicros: item.createdAtMicros,
-              stage: OutboxStage.plain,
-              attempts: item.attempts,
-              lastError: item.lastError,
-            ),
-          );
-        }
-      });
+      await _discardProvisionalIn(v, id, g);
       return _Settled.discarded;
     });
   }
