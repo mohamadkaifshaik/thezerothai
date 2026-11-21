@@ -782,6 +782,8 @@ func Load() (Config, error) {
 		{&rl.KeysClaimsPerDay, "KEYS_CLAIMS_PER_DAY", 300},
 		// ClaimKeyPackages per caller and target, limit_name "keys_claims_per_target_daily" (drawn on by the keys service).
 		{&rl.KeysClaimsPerTargetPerDay, "KEYS_CLAIMS_PER_TARGET_PER_DAY", 20},
+		{&rl.KeysDeviceLookupsPerDay, "KEYS_DEVICE_LOOKUPS_PER_DAY", 2000},
+		{&rl.KeysNewAccountDeviceLookupsPerDay, "KEYS_NEW_ACCOUNT_DEVICE_LOOKUPS_PER_DAY", 600},
 	} {
 		v, err := getInt(f.key, f.def)
 		if err != nil {

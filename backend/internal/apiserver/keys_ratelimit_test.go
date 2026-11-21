@@ -141,7 +141,7 @@ func TestKeysRateLimit_Buckets(t *testing.T) {
 }
 
 // TestKeysClaimsDailyCap: through the real interceptor the (cap+1)-th ClaimKeyPackages of a uid is RATE_LIMITED with
-// metadata limit=keys_claims_daily, another uid is untouched, and GetKeyDevices (no daily cap) still passes.
+// metadata limit=keys_claims_daily, another uid is untouched, and GetKeyDevices has a separate service-level cap.
 func TestKeysClaimsDailyCap(t *testing.T) {
 	const dailyCap = 3
 	claim := keysv1connect.KeyServiceClaimKeyPackagesProcedure
@@ -159,7 +159,7 @@ func TestKeysClaimsDailyCap(t *testing.T) {
 	wantCapRefusal(t, invoke("uid-claimer", claim), "keys_claims_daily")
 	for i := 0; i < dailyCap+2; i++ {
 		if err := invoke("uid-claimer", get); err != nil {
-			t.Fatalf("GetKeyDevices %d must pass (no daily cap): %v", i+1, err)
+			t.Fatalf("GetKeyDevices %d must pass the claims interceptor cap: %v", i+1, err)
 		}
 	}
 	if err := invoke("uid-other", claim); err != nil {
