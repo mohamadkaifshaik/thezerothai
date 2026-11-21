@@ -65,8 +65,9 @@ class _Vault implements SecureVault {
 void main() {
   group('the receive record codec bounds (§3.1)', () {
     // (row, change to a valid record, decodes). A row that does not decode
-    // throws FormatException, and ReceiveRecords.read returns the empty
-    // record for it (reported once as receive.read).
+    // throws FormatException, and ReceiveRecords.read returns the
+    // unreadable record for it (empty but for an armed reconcile entry;
+    // reported once as receive.read).
     final rows = <(String, void Function(Map<String, Object?> r), bool)>[
       ('a valid record', (_) {}, true),
       (
@@ -342,7 +343,7 @@ void main() {
     ];
 
     for (final (name, change, decodes) in rows) {
-      test('$name ${decodes ? 'decodes' : 'reads as empty'}', () async {
+      test('$name ${decodes ? 'decodes' : 'reads as unreadable'}', () async {
         final m = _record();
         change(m);
         final bytes = _bytes(m);
@@ -363,7 +364,7 @@ void main() {
           expect(read, isNot(same(ReceiveRecord.empty)));
           expect(reported, isEmpty);
         } else {
-          expect(read, same(ReceiveRecord.empty));
+          expect(read, same(ReceiveRecord.unreadable));
           expect(reported.single, isA<E2eePipelineError>());
           expect((reported.single as E2eePipelineError).step, 'receive.read');
           // Once per conversation per run.
@@ -373,13 +374,48 @@ void main() {
       });
     }
 
-    test('a seal that does not open reads as empty', () async {
+    test('a seal that does not open reads as unreadable', () async {
       final reported = <Object>[];
       final read = await ReceiveRecords(
         onUnexpectedError: (e, _) => reported.add(e),
       ).read(_Vault(null, error: const VaultCorruptException('x')), _c1);
-      expect(read, same(ReceiveRecord.empty));
+      expect(read, same(ReceiveRecord.unreadable));
       expect(reported, hasLength(1));
+    });
+
+    test('an unreadable receive record with a since token stored reads with '
+        'the reconcile armed', () async {
+      final stored = const ConversationSync().copyWith(sinceToken: 'token-a');
+      final reported = <Object>[];
+      final read = await ReceiveRecords(
+        onUnexpectedError: (e, _) => reported.add(e),
+      ).read(_Vault(Uint8List.fromList([1, 2, 3])), _c1);
+      expect(reported, hasLength(1));
+
+      // Whatever it held (an armed reconcile, perhaps), it reads with the
+      // entry armed from the top, also with a since token stored.
+      final rec = read.normalized(sync: stored, groups: const []).rec;
+      expect(rec, isNotNull);
+      expect((rec!.armed, rec.t, rec.n, rec.l, rec.f), (true, '', 0, '', 0));
+      // No walk, no anchor, no count: everything else is as an empty one.
+      expect(
+        (read.open, read.close, read.orphan, read.anchor, read.gf),
+        (null, null, null, '', null),
+      );
+      expect(read.abandoned, 0);
+
+      // A MISSING record keeps its rule: no entry while a token is stored,
+      // an armed one while none is.
+      final missing = await ReceiveRecords().read(_Vault(null), _c1);
+      expect(missing, same(ReceiveRecord.empty));
+      expect(missing.normalized(sync: stored, groups: const []).rec, isNull);
+      expect(
+        missing
+            .normalized(sync: const ConversationSync(), groups: const [])
+            .rec!
+            .armed,
+        isTrue,
+      );
     });
 
     test('a worst-case record (every token slot at 1,024 allowed characters) '

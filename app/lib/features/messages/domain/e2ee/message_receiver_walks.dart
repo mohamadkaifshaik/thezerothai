@@ -942,7 +942,9 @@ extension _Walks on MessageReceiver {
         pass,
         id,
         w.pair,
-        engine: true,
+        // As the walk's own end ([_endWalkLocked]): a walk in mode `u`
+        // never gives a message to the engine, its deferred items are rows.
+        engine: w.mode != WalkMode.undecryptable,
         generationEnds: true,
         // Read fresh in this body (the sink reaches this with no probe,
         // and then no item is given to the engine).

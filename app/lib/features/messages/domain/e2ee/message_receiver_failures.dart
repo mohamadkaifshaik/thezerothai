@@ -337,7 +337,10 @@ extension _Failures on MessageReceiver {
       p2 = true;
     } on MlsException catch (e) {
       p2 = e.code == MlsErrorCode.unavailable ? null : false;
-    } on Object {
+    } on Object catch (e, s) {
+      // Not an engine answer: a failed probe all the same, and a bug is
+      // reported by its step name.
+      _reportIfBug(e, s, 'receive.probe.device');
       p2 = false;
     }
     if (crash) {
@@ -361,7 +364,10 @@ extension _Failures on MessageReceiver {
       return true;
     } on MlsException catch (e) {
       return e.code == MlsErrorCode.unavailable ? false : null;
-    } on Object {
+    } on Object catch (e, s) {
+      // Not an engine answer: a failed probe all the same, and a bug is
+      // reported by its step name.
+      _reportIfBug(e, s, 'receive.probe.describe');
       return null;
     }
   }

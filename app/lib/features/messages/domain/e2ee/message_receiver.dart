@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:collection';
 import 'dart:math';
 import 'dart:typed_data';
@@ -34,8 +35,10 @@ part 'message_receiver_walks.dart';
 const int kEpochPageSize = 50;
 
 /// A ciphertext longer than this is never given to the engine: it is an
-/// undecryptable row (M1).
-const int kMaxCiphertextBytes = 8192;
+/// undecryptable row (M1). One number with the deferred record's bound
+/// ([kMaxDeferredCiphertextBytes]): what may reach the engine may be
+/// deferred, and nothing longer is ever held.
+const int kMaxCiphertextBytes = kMaxDeferredCiphertextBytes;
 
 /// Epoch pages the sink lists per conversation lock hold (§2, §9).
 const int kSinkPagesPerHold = 2;
@@ -373,9 +376,12 @@ class MessageReceiver implements EpochMessageSink {
     if (running != null) return running.then((o) => o! as ReceiveOutcome);
     final pass = _runPass(conversationId, priority);
     context.running = pass;
-    pass.then((_) {
+    // However the pass ended: one that threw (only its error reporter can
+    // make it) must not stay the running pass, or every later call would
+    // join it for good. The caller gets the pass itself, error included.
+    pass.whenComplete(() {
       if (identical(context.running, pass)) context.running = null;
-    });
+    }).ignore();
     return pass;
   }
 
@@ -435,8 +441,14 @@ class MessageReceiver implements EpochMessageSink {
   /// R8: once per app run per conversation, one ListEpochMessages call for
   /// the current pair (listed WITHOUT the lock); deletes local copies created
   /// at or before `cleared_at` under the lock. A `cleared_at` in the future
-  /// is ignored. Never throws.
-  Future<void> applyClearedAtOnce(String conversationId) async {
+  /// is ignored. The call takes one unit of the sync budget at [priority]
+  /// (user by default: the conversation is being opened), and a
+  /// rate-limited answer pauses that budget as every other listing does.
+  /// Never throws.
+  Future<void> applyClearedAtOnce(
+    String conversationId, {
+    BudgetPriority priority = BudgetPriority.user,
+  }) async {
     final id = conversationId;
     if (_contexts.of(id).clearedAtReadThisRun) return;
     try {
@@ -444,7 +456,7 @@ class MessageReceiver implements EpochMessageSink {
       if (pass == null) return;
       final pair = await _currentPair(pass.vault, id);
       if (pair == null || pair.epoch < 1) return;
-      if (!await _takeUnit(_syncBudget, BudgetPriority.user, id)) return;
+      if (!await _takeUnit(_syncBudget, priority, id)) return;
       final pb.ListEpochMessagesResponse page;
       try {
         page = await _messaging.listEpochMessages(
@@ -452,6 +464,11 @@ class MessageReceiver implements EpochMessageSink {
           pair: pair,
           pageSize: kEpochPageSize,
         );
+      } on RateLimitedException catch (e) {
+        // As every other listing: the budget is paused until the server's
+        // time. Not read: a later call of this run asks again.
+        _syncBudget.pauseUntil(_retryAt(e));
+        return;
       } on Object catch (e, s) {
         _reportIfBug(e, s, 'receive.clearedAt');
         return;

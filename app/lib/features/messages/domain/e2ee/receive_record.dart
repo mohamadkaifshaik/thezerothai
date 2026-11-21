@@ -326,6 +326,17 @@ class ReceiveRecord {
 
   static const ReceiveRecord empty = ReceiveRecord();
 
+  /// What a stored record that does not read stands for: nothing of it is
+  /// known, so no walk, no anchor and no count, and the reconcile entry
+  /// ARMED from the top, whatever since token is stored. The record that
+  /// could not be read may have held an armed reconcile (a listing owed
+  /// after a retirement); read as [empty] with a since token stored, that
+  /// reconcile would be dropped and deferred messages given to the engine
+  /// unchecked. A MISSING record still reads as [empty].
+  static const ReceiveRecord unreadable = ReceiveRecord(
+    rec: ReconcileEntry(armed: true),
+  );
+
   final WalkEntry? open;
   final WalkEntry? close;
   final WalkEntry? orphan;
@@ -710,9 +721,11 @@ class ReceiveRecord {
 
 /// Reads and writes the receive records (one sealed setting per
 /// conversation). An unreadable value (not §3.1's shape, over the bounds, or
-/// a seal that does not open) reads as empty, reported once per
-/// conversation per run as `E2eePipelineError('receive.read')`; the next
-/// write replaces it. Never logs.
+/// a seal that does not open) reads as [ReceiveRecord.unreadable] (empty,
+/// but with the reconcile entry armed from the top, whatever since token is
+/// stored), reported once per conversation per run as
+/// `E2eePipelineError('receive.read')`; the next write replaces it. A
+/// missing value reads as [ReceiveRecord.empty]. Never logs.
 class ReceiveRecords {
   ReceiveRecords({
     void Function(Object error, StackTrace stack)? onUnexpectedError,
@@ -724,7 +737,9 @@ class ReceiveRecords {
   static String keyOf(String conversationId) =>
       '$kVaultSettingReceivePrefix$conversationId';
 
-  /// The stored record as it is (not normalized), or empty.
+  /// The stored record as it is (not normalized); [ReceiveRecord.empty]
+  /// when none is stored, [ReceiveRecord.unreadable] when the stored one
+  /// does not read.
   Future<ReceiveRecord> read(SecureVault vault, String conversationId) async {
     try {
       final bytes = await vault.setting(keyOf(conversationId));
@@ -735,7 +750,7 @@ class ReceiveRecords {
     } on VaultCorruptException catch (_, stack) {
       _unreadable(conversationId, stack);
     }
-    return ReceiveRecord.empty;
+    return ReceiveRecord.unreadable;
   }
 
   /// Writes [record] in [tx] (call at most once per transaction).

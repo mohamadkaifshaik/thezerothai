@@ -1575,7 +1575,8 @@ void main() {
       rig.server.epochRequests.clear();
       await rig.receiver.pullLive(_c1);
       expect(orderedTokens(const MlsPair(1, 1)), isNotEmpty);
-      // An unreadable one: it reads as empty and re-lists from the start.
+      // An unreadable one: it reads with no walk (and the reconcile entry
+      // armed) and re-lists from the start.
       await rig.replaySealedSetting(key, Uint8List.fromList([1, 2, 3]));
       rig.server.epochRequests.clear();
       await rig.receiver.pullLive(_c1);
@@ -5647,6 +5648,108 @@ void main() {
       expect(await deferredIds(), isEmpty);
       expect((await receiveRecord()).close, isNull);
     });
+
+    test('an ended undecryptable close walk below the current generation '
+        'rows its deferred items with no engine call when its group is let '
+        'go', () async {
+      await setUpJoined();
+      await say(bobGroup(), 1, at: const Duration(minutes: -10));
+      await rig.receiver.pullLive(_c1);
+      await reconciled();
+      // A message of the pair is deferred; the close walk of (1, 1) is at
+      // its end in mode u (the epoch was marked undecryptable), with its
+      // group still stored; then the device moved on to generation 2.
+      final late = await say(bobGroup(), 2, at: seconds(-5));
+      rig.server.rewriteEpoch = (r) =>
+          r..messages.removeWhere((m) => m.id == _mid(2));
+      rig.server.rewriteLive = (r) =>
+          r..messages.removeWhere((m) => m.id == _mid(2));
+      await putDeferred(
+        DeferredRecord([
+          DeferredItem(
+            id: _mid(2),
+            pair: const MlsPair(1, 1),
+            at: late.createdAt.toDateTime().microsecondsSinceEpoch,
+            da: rig.clock.now().microsecondsSinceEpoch,
+            ct: Uint8List.fromList(late.ciphertext),
+            rc: Uint8List.fromList(late.reportCommitment),
+            fs: false,
+            k: 1,
+            la: rig.clock.now().microsecondsSinceEpoch,
+            ru: 'bbbbbbbbbbbbbbbb',
+          ),
+        ]),
+      );
+      await putReceiveRecord(
+        (await receiveRecord()).copyWith(
+          open: null,
+          close: const WalkEntry(
+            pair: MlsPair(1, 1),
+            end: true,
+            mode: WalkMode.undecryptable,
+          ),
+        ),
+      );
+      await keepBesideGeneration2();
+
+      await rig.receiver.pullLive(_c1);
+
+      // The slot's mode decides, as at the walk's own end: never the
+      // engine for a walk that was marked undecryptable.
+      expect(processedCount(late.ciphertext), 0);
+      final r = (await row(_mid(2)))!;
+      expect((r.state, r.content), (StoredMessageState.undecryptable, null));
+      expect(await deferredIds(), isEmpty);
+      expect(await rig.device.vault.group(_c1, 1), isNull);
+      expect((await receiveRecord()).close, isNull);
+    });
+  });
+
+  group('single flight', () {
+    test('a pass that throws does not stay the running pass', () async {
+      late _FailingMessaging messaging;
+      rig = await RigCrypto.create(
+        messaging: (server) => messaging = _FailingMessaging(server, 'user-a'),
+      );
+      bob = await RigPeer.create('bob');
+      rig.keys.peers['ref-bob'] = [rigKeyDevice(bob.idString, bob.key)];
+      await rig.accept(_c1);
+      rig.header(_c1, 'ref-bob');
+      offer = await rig.offer(_c1, bob);
+      expect(await rig.crypto.processWelcomes(), [_c1]);
+      t0 = rig.clock.now();
+      // A receiver whose error reporter itself throws: the one way a pass
+      // can end with an error (a pass reports a bug and goes on).
+      var reporterThrows = true;
+      final receiver = MessageReceiver(
+        crypto: rig.crypto,
+        session: rig.device.session,
+        engine: () => rig.device.engine,
+        messaging: rig.messaging,
+        syncBudget: rig.syncBudget,
+        readBudget: rig.readBudget,
+        locks: rig.locks,
+        contexts: rig.contexts,
+        now: rig.clock.now,
+        onChanged: rig.changed.add,
+        ledger: rig.ledger,
+        onUnexpectedError: (e, s) {
+          if (reporterThrows) throw StateError('the reporter failed');
+        },
+      );
+      messaging.failRead = true;
+
+      await expectLater(receiver.pullLive(_c1), throwsStateError);
+
+      // Not the running pass any more: the next call starts a new one
+      // instead of joining the failed one for good.
+      expect(rig.contexts.of(_c1).running, isNull);
+      messaging.failRead = false;
+      reporterThrows = false;
+      final out = await receiver.pullLive(_c1);
+      expect(out.kind, ReceiveOutcomeKind.complete);
+      expect(rig.contexts.of(_c1).running, isNull);
+    });
   });
 
   group('the engine holds (fix round 1: receiver-wide for device-level '
@@ -6906,6 +7009,19 @@ class _NoWalkSink implements EpochMessageSink {
   @override
   Future<bool> epochWalkDone(String conversationId, MlsPair pair) =>
       receiver.epochWalkDone(conversationId, pair);
+}
+
+/// The rig's repository with one fault: while [failRead] is set, asking for
+/// the read hold throws an [Error] (a bug in a dependency, as a pass sees
+/// it: outside every expected failure).
+class _FailingMessaging extends RigMessaging {
+  _FailingMessaging(super.server, super.user);
+
+  bool failRead = false;
+
+  @override
+  RateLimitedException? rateLimitedFor() =>
+      failRead ? throw UnimplementedError('rig') : super.rateLimitedFor();
 }
 
 Duration seconds(int n) => Duration(seconds: n);

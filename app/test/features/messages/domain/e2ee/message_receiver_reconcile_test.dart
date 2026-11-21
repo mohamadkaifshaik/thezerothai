@@ -50,8 +50,8 @@ void main() {
     expect(unexpected, isEmpty, reason: 'unexpected pipeline errors');
   });
 
-  Future<void> setUpJoined() async {
-    rig = await RigCrypto.create();
+  Future<void> setUpJoined({int pageSize = kEpochPageSize}) async {
+    rig = await RigCrypto.create(epochPageSize: pageSize);
     bob = await RigPeer.create('bob');
     rig.keys.peers['ref-bob'] = [rigKeyDevice(bob.idString, bob.key)];
     await rig.accept(_c1);
@@ -526,17 +526,20 @@ void main() {
       // down and a reconcile step passes its id.
       rig.server.rewriteLive = (r) => r..gapPageToken = 'gap';
       var raced = false;
+      // Read in the hook, asserted after the pass (the listing swallows
+      // whatever its hook throws).
+      ReceiveOutcome? alone;
       rig.server.afterEpochAnswer = () async {
         if (raced) return;
         raced = true;
         rig.server.tombstone(_c1, _mid(50), _removed);
-        final out = await rig.receiver.reconcile(_c1);
-        expect(out.kind, ReceiveOutcomeKind.complete);
+        alone = await rig.receiver.reconcile(_c1);
       };
 
       await pull();
 
       expect(raced, isTrue);
+      expect(alone?.kind, ReceiveOutcomeKind.complete);
       expect(await rec(), isNull);
       expect(rig.contexts.of(_c1).discardedPages, 1);
       expect(await row(50), isNull);
@@ -780,18 +783,23 @@ void main() {
       // flight, the message is taken down and a reconcile step lists it on
       // a last page that cannot disarm: no since token is stored.
       var raced = false;
+      // Read in the hook, asserted after the pass (the listing swallows
+      // whatever its hook throws).
+      String? tokenThen;
+      bool? armedThen;
       rig.server.afterEpochAnswer = () async {
         if (raced) return;
         raced = true;
         rig.server.tombstone(_c1, _mid(50), _removed);
         await rig.receiver.reconcile(_c1);
-        expect((await sync()).sinceToken, '');
-        expect((await rec())!.armed, isTrue);
+        tokenThen = (await sync()).sinceToken;
+        armedThen = (await rec())?.armed;
       };
 
       await pull();
 
       expect(raced, isTrue);
+      expect((tokenThen, armedThen), ('', true));
       expect(rig.contexts.of(_c1).discardedPages, 1);
       expect(await row(50), isNull);
       expect(processedCount(m.ciphertext), 0);
@@ -997,6 +1005,36 @@ void main() {
       await untilDisarmed();
       expect((await row(1))!.state, StoredMessageState.removed);
     });
+
+    test('a receive record that no longer reads does not drop an armed '
+        'reconcile: the listing runs from the top and clears the '
+        'row', () async {
+      await setUpJoined();
+      await say(1);
+      await pull();
+      expect((await sync()).sinceToken, isNotEmpty);
+      takeDownUnseen(1);
+      // A listing is owed (armed after a retirement), and the sealed record
+      // that says so stops reading.
+      await putRec(const ReconcileEntry(armed: true));
+      await rig.replaySealedSetting(
+        ReceiveRecords.keyOf(_c1),
+        Uint8List.fromList([1, 2, 3]),
+      );
+      requests().clear();
+
+      await pull();
+
+      expect(requests(), isNotEmpty);
+      expect(requests().first, '');
+      final r = (await row(1))!;
+      expect((r.state, r.content), (StoredMessageState.removed, null));
+      await untilDisarmed();
+      expect(rig.unexpected.whereType<E2eePipelineError>().map((e) => e.step), [
+        'receive.read',
+      ]);
+      rig.unexpected.clear();
+    });
   });
 
   group('a conversation with no final group (a ruling after the design)', () {
@@ -1165,6 +1203,46 @@ void main() {
       rig.clock.advance(const Duration(minutes: 3));
       await untilDisarmed();
       expect((await row(1))!.state, StoredMessageState.removed);
+    });
+
+    test('a rate-limited cleared_at read pauses the sync budget, and its '
+        'priority can be given', () async {
+      await setUpJoined();
+      final takes = <(BudgetPriority, Object?)>[];
+      rig.syncBudget = _SpyBudget(rig.clock.now, takes);
+      await rig.restart();
+      const wait = Duration(seconds: 30);
+      RateLimitedException? limited = const RateLimitedException(
+        'slow',
+        retryAfter: wait,
+      );
+      rig.server.onCall = (call) async {
+        final e = limited;
+        if (call == 'listEpochMessages' && e != null) throw e;
+      };
+
+      await rig.receiver.applyClearedAtOnce(_c1);
+
+      // As every other listing: the budget is paused until the server's
+      // time, so no walk or tombstone page is asked for meanwhile.
+      expect(rig.syncBudget.paused, isTrue);
+      expect(takes, [(BudgetPriority.user, _c1)]);
+      expect(rig.contexts.of(_c1).clearedAtReadThisRun, isFalse);
+      final calls = rig.server.calls.length;
+      await rig.receiver.applyClearedAtOnce(_c1);
+      expect(rig.server.calls, hasLength(calls));
+
+      // Not read yet: it runs again once the pause is over, at the priority
+      // the caller gives.
+      limited = null;
+      rig.clock.advance(wait);
+      expect(rig.syncBudget.paused, isFalse);
+      await rig.receiver.applyClearedAtOnce(
+        _c1,
+        priority: BudgetPriority.background,
+      );
+      expect(takes.last, (BudgetPriority.background, _c1));
+      expect(rig.contexts.of(_c1).clearedAtReadThisRun, isTrue);
     });
   });
 
@@ -1654,6 +1732,52 @@ void main() {
       expect(processedCount(m1.ciphertext), 2);
       expect((await row(1))!.state, StoredMessageState.visible);
       expect(await deferredIds(), isEmpty);
+    });
+
+    test('a final attempt behind a two-page close walk with no since token '
+        'is delivered by the next pass', () async {
+      // Pages of two: the close walk of (1, 1) has two pages.
+      await setUpJoined(pageSize: 2);
+      final m1 = await say(1);
+      await say(2, at: _seconds(1));
+      await say(3, at: _seconds(2));
+      rig.device.engine.failWire[RigEngine.key(m1.ciphertext)] = [internal];
+      await bobSelfUpdate();
+      // The close walk of the current pair, not begun (as the sink creates
+      // it), and no since token: the entry reads as armed.
+      await rig.device.vault.transaction(
+        (tx) => ReceiveRecords().putIn(
+          tx,
+          _c1,
+          const ReceiveRecord(
+            close: WalkEntry(pair: MlsPair(1, 1), mode: WalkMode.decrypt),
+          ),
+        ),
+      );
+
+      // The pass lists the tombstones to the end, then applies the walk's
+      // first page: that write of the record closes the gate this pass had
+      // opened for itself, so the last page's end waits.
+      final first = await pull();
+      expect(first.kind, ReceiveOutcomeKind.stopped);
+      expect(await deferredIds(), [_mid(1)]);
+      expect(processedCount(m1.ciphertext), 1);
+      expect(await row(1), isNull);
+      expect((await row(2))!.state, StoredMessageState.visible);
+      expect((await row(3))!.state, StoredMessageState.visible);
+      final close = (await record()).close!;
+      expect(close.end, isFalse);
+      expect(close.t, isNotEmpty);
+      expect(await epoch(), 1);
+
+      // The next pass has only the last page left: nothing writes the
+      // record between its listing's end and the walk's end.
+      await pull();
+      expect(processedCount(m1.ciphertext), 2);
+      expect((await row(1))!.state, StoredMessageState.visible);
+      expect(await epoch(), 2);
+      await pull();
+      await expectDelivered(m1, 1);
     });
 
     test('a catch-up outside a pass makes no final attempt on a null entry, '
