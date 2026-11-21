@@ -81,9 +81,13 @@ class _SpyBudget extends SyncBudget {
 
   final List<BudgetPriority> taken = [];
 
+  /// Runs at every `take` (it may throw: a call that fails unexpectedly).
+  void Function()? onTake;
+
   @override
   Future<void> take(BudgetPriority priority, {Object? lane}) {
     taken.add(priority);
+    onTake?.call();
     return super.take(priority, lane: lane);
   }
 }
@@ -1791,6 +1795,104 @@ void main() {
       await waitingRow();
       rig.device.owner!.steal();
       await expectLater(rig.sender.outgoing(_c1), throwsStateError);
+    });
+  });
+
+  group('the welcome poll between two holds', () {
+    /// A send that meets a new generation whose welcome is on the second
+    /// page: the drain's catch-up answers "waiting for a welcome".
+    void secondPageWelcomeAtSend() => rig.server.beforeSend = (_) async {
+      rig.server.beforeSend = null;
+      for (var i = 0; i < 10; i++) {
+        rig.server.addWelcome(
+          rig.device.deviceIdString,
+          i.toRadixString(16).padLeft(32, '0'),
+          const MlsPair(1, kMaxPairComponent),
+          Uint8List(0),
+        );
+      }
+      await rig.offer(_c1, bob, generation: 2);
+    };
+
+    test('a welcome poll that throws is reported once and the drain goes '
+        'on to the pull', () async {
+      late _SpyBudget budget;
+      await setUpJoined(syncBudget: (clock) => budget = _SpyBudget(clock));
+      secondPageWelcomeAtSend();
+      // The drain's unheld poll: its first unit outside the lock throws.
+      var thrown = 0;
+      budget.onTake = () {
+        if (rig.server.sends.isEmpty || rig.locks.isHeld(_c1)) return;
+        budget.onTake = null;
+        thrown = rig.server.calls.length;
+        throw UnsupportedError('rig: the poll failed');
+      };
+      await send('l1');
+      final reports = [
+        for (final e in rig.unexpected) (e as E2eePipelineError).step,
+      ];
+      rig.unexpected.clear();
+      expect(reports, ['send.welcomes']);
+      expect(thrown, greaterThan(0));
+      // The live pull still ran after the failed poll.
+      expect(rig.server.calls.skip(thrown), contains('listMlsMessages'));
+      expect((await outbox()).single.stage, OutboxStage.encrypted);
+      // The welcome is still unread. Once a later poll (a push, a resume)
+      // has joined, the next trigger sends on the new generation.
+      expect(await rig.crypto.processWelcomes(), [_c1]);
+      await drain();
+      expect(rig.server.sends.last.pair, const MlsPair(2, 1));
+      expect(await outbox(), isEmpty);
+    });
+
+    test('a join made by a poll running beside the drain\'s own is not '
+        'missed', () async {
+      await setUpJoined();
+      secondPageWelcomeAtSend();
+      // While the drain's unheld poll lists, another poll (a push) joins
+      // and acknowledges the welcome: the drain's own poll joins nothing.
+      var beside = <String>[];
+      rig.server.onCall = (call) async {
+        if (call != 'listWelcomes' || rig.locks.isHeld(_c1)) return;
+        rig.server.onCall = null;
+        beside = await rig.crypto.processWelcomes();
+      };
+      await send('l1');
+      expect(beside, [_c1]);
+      expect(rig.server.sends.map((s) => s.pair), [
+        const MlsPair(1, 1),
+        const MlsPair(2, 1),
+      ]);
+      expect(await outbox(), isEmpty);
+      expect((await stored()).single.generation, 2);
+    });
+  });
+
+  group('an unreadable outbox row', () {
+    test('stops the drain as unavailable, is reported once, and nothing is '
+        'sent past it', () async {
+      await setUpJoined();
+      await rig.receiver.pullLive(_c1);
+      rig.removedElsewhere = true;
+      await send('l1');
+      rig.removedElsewhere = false;
+      // The first row's sealed content no longer opens.
+      await rig.device.db.customStatement(
+        "UPDATE vault_outbox SET content = x'0102030405'",
+      );
+      expect((await rig.device.vault.outbox()).unreadableKeys, hasLength(1));
+      await send('l2', 'behind');
+      await drain();
+      expect(encrypts(), 0);
+      expect(rig.server.sends, isEmpty);
+      final out = (await rig.sender.outgoing(_c1)).single;
+      expect(out.localId, 'l2');
+      expect(out.waitingOn, SendBlock.unavailable);
+      final reports = [
+        for (final e in rig.unexpected) (e as E2eePipelineError).step,
+      ];
+      rig.unexpected.clear();
+      expect(reports, ['send.outbox.unreadable']);
     });
   });
 }

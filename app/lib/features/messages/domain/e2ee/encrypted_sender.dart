@@ -404,8 +404,15 @@ class EncryptedSender {
           if (next == _Next.pull) {
             final context = _contexts.of(id);
             if (run.catchUp == CatchUpResult.waitingForWelcome) {
-              final joined = await _crypto.processWelcomes(priority: priority);
-              if (joined.contains(id)) {
+              try {
+                await _crypto.processWelcomes(priority: priority);
+              } on Object catch (e, s) {
+                // As the receiver's own unheld poll: the pull still runs.
+                if (_isBug(e)) _reportOnce('send.welcomes', s);
+              }
+              // Joined by this poll or by one running beside it (whose
+              // answer this poll never sees): the vault says.
+              if (await _joinedAtServer(id)) {
                 run.catchUp = await _locks.run(
                   id,
                   () => _crypto.catchUpLocked(id, priority: priority),
@@ -461,7 +468,14 @@ class EncryptedSender {
   Future<_Next> _step(String id, _Run run) async {
     final op = await _start();
     if (op == null) return _stop(id, SendBlock.unavailable);
-    final rows = (await op.vault.outbox(conversationId: id)).items;
+    final read = await op.vault.outbox(conversationId: id);
+    if (read.unreadableKeys.isNotEmpty) {
+      // A row that no longer opens: its place in the order is not known,
+      // so nothing of the conversation is encrypted or sent past it.
+      _reportOnce('send.outbox.unreadable');
+      return _stop(id, SendBlock.unavailable);
+    }
+    final rows = read.items;
 
     // The catch-up and the live pull after a STALE_EPOCH answer are done.
     final staleKey = run.staleKey;
@@ -1037,18 +1051,29 @@ class EncryptedSender {
   }
 
   /// Reports [step] (a name only) the first time in this run.
-  void _reportOnce(String step) {
+  void _reportOnce(String step, [StackTrace? stack]) {
     if (_reported.add(step)) {
-      _onUnexpectedError?.call(E2eePipelineError(step), StackTrace.current);
+      _onUnexpectedError?.call(
+        E2eePipelineError(step),
+        stack ?? StackTrace.current,
+      );
     }
   }
 
   /// Reports a programming error (never an expected failure) by its step
   /// name only; the error itself is never passed on.
   void _reportIfBug(Object e, StackTrace s, String step) {
-    if (e is Error && e is! StateError) {
-      _onUnexpectedError?.call(E2eePipelineError(step), s);
-    }
+    if (_isBug(e)) _onUnexpectedError?.call(E2eePipelineError(step), s);
+  }
+
+  /// Whether a final group of [id] is stored at (or past) the generation
+  /// the last catch-up read from the server. A read only; no lock.
+  Future<bool> _joinedAtServer(String id) async {
+    final vault = _session.vault;
+    final server = _contexts.of(id).serverPair;
+    if (vault == null || server == null) return false;
+    final group = await _currentGroup(vault, id);
+    return group != null && group.generation >= server.generation;
   }
 }
 
@@ -1125,6 +1150,10 @@ SendBlock _owedReason(SendBlock gate) =>
 /// first); [b] when [a] is null.
 BudgetPriority _stronger(BudgetPriority? a, BudgetPriority b) =>
     a != null && a.index < b.index ? a : b;
+
+/// A programming error, never an expected failure (a closed vault is a
+/// [StateError]).
+bool _isBug(Object e) => e is Error && e is! StateError;
 
 String _hexOf(Uint8List b) =>
     b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
