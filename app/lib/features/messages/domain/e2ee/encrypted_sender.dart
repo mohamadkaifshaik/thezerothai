@@ -1,0 +1,1047 @@
+import 'dart:async';
+import 'dart:typed_data';
+
+import 'package:fixnum/fixnum.dart';
+
+import '../../../../core/crypto/crypto_engine.dart';
+import '../../../../core/crypto/crypto_types.dart';
+import '../../../../core/crypto/mls_derivations.dart';
+import '../../../../core/crypto/mls_pair.dart';
+import '../../../../core/network/app_exception.dart';
+import '../../../../core/vault/secure_vault.dart';
+import '../../../../core/vault/vault_session.dart';
+import '../../../../gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
+import '../../data/messaging_repository.dart';
+import 'conversation_context.dart';
+import 'conversation_crypto.dart';
+import 'conversation_locks.dart';
+import 'e2ee_types.dart';
+import 'message_content_codec.dart';
+import 'message_receiver.dart';
+import 'sync_budget.dart';
+
+/// `STALE_EPOCH` answers handled in one drain; then the row waits for the
+/// next trigger (Open question 4's default).
+const int kStaleEpochRoundsPerDrain = 3;
+
+/// The longest ciphertext an outbox row holds (`VaultTx.putOutbox`).
+const int _kMaxOutboxCiphertext = 8192;
+
+final RegExp _messageIdShape = RegExp(r'^[0-9a-f]{32}$');
+
+/// The largest whole second whose microseconds stay exact on the web.
+final Int64 _maxSeconds = Int64(9007199254);
+
+/// Sending encrypted messages (Task 7, R7; security reads M1, M3, M10): a
+/// durable outbox in the vault, the gates before an encrypt, the send, and
+/// what each answer does to the row.
+///
+/// A row is saved at stage `plain` ([enqueue]), encrypted only when every
+/// gate holds, saved at stage `encrypted` in the transaction that stores
+/// the group state the engine returned, checked with
+/// `SecureVault.confirmStored`, and only then sent. A stage-`encrypted` row
+/// is resent byte for byte under the same key until the server answers; it
+/// goes back to stage `plain` only after a `STALE_EPOCH` whose catch-up
+/// moved this device's pair past the one it was encrypted for.
+///
+/// Keys. Every ciphertext goes out under a key made for it at the encrypt
+/// (16 random bytes as 32 hex), never under the key its plain row was
+/// stored with: a row put back to `plain` by any code (this class, a join
+/// that discards a provisional group) can then never reuse a key that was
+/// on the wire. The local id never changes and is never sent.
+///
+/// Locking (plan "Global Constraints"). [drain] works in steps, each one
+/// hold of the conversation lock: the gates, the locked catch-up, the
+/// acceptance, the encrypt (ONE `runWrite` body: fresh reads, the engine
+/// call, ONE transaction) and the send RPC all run under it. The live pull
+/// takes that lock itself, so it runs BETWEEN two steps, never inside one;
+/// everything is read fresh again in the step after it. [enqueue] takes no
+/// conversation lock (it must not wait behind a send in flight): it adds a
+/// row under a new key in its own `runWrite` body.
+///
+/// A conversation this device has no group for: the row waits
+/// (`waitingForWelcome`). Whether a conversation that is not encrypted yet
+/// starts encryption or goes out in plaintext is decided before [enqueue]
+/// (Task 8's routing, used by Task 13b); nothing is enqueued here for it.
+///
+/// Rows that carry an `init` (the first message of a provisional group) are
+/// Task 8's: this class sends, retries and discards none of them, and
+/// nothing behind one.
+///
+/// Never logs; an unexpected failure is reported as [E2eePipelineError]
+/// with a step name only. Defines no `toString`.
+class EncryptedSender {
+  /// [acceptForReplyLocked] is Task 9's `acceptForReply` for a caller that
+  /// HOLDS the conversation lock (`AcceptMessageRequest`, then the
+  /// acceptance steps: `requestAccepted`, queued removals, attribution,
+  /// reconcile). It throws on any failure and has then changed nothing.
+  ///
+  /// [removedElsewhere] is Task 12's fact: this device was removed from the
+  /// account on another device (nothing is encrypted or sent while true).
+  ///
+  /// [schedule] runs a callback later (a timer in production): the one
+  /// automatic resend after a server-chosen retry time.
+  EncryptedSender({
+    required ConversationCrypto crypto,
+    required MessageReceiver receiver,
+    required VaultSession session,
+    required CryptoEngine Function() engine,
+    required MessagingRepository messaging,
+    required ConversationLocks locks,
+    required ConversationContexts contexts,
+    required DateTime Function() now,
+    required void Function(String conversationId) onChanged,
+    required Future<void> Function(String conversationId) acceptForReplyLocked,
+    required bool Function() removedElsewhere,
+    void Function(Duration delay, void Function() run)? schedule,
+    void Function(Object error, StackTrace stack)? onUnexpectedError,
+  }) : _crypto = crypto,
+       _receiver = receiver,
+       _session = session,
+       _engine = engine,
+       _messaging = messaging,
+       _locks = locks,
+       _contexts = contexts,
+       _now = now,
+       _onChanged = onChanged,
+       _acceptForReply = acceptForReplyLocked,
+       _removedElsewhere = removedElsewhere,
+       _schedule = schedule ?? ((delay, run) => Timer(delay, run)),
+       _onUnexpectedError = onUnexpectedError;
+
+  final ConversationCrypto _crypto;
+  final MessageReceiver _receiver;
+  final VaultSession _session;
+  final CryptoEngine Function() _engine;
+  final MessagingRepository _messaging;
+  final ConversationLocks _locks;
+  final ConversationContexts _contexts;
+  final DateTime Function() _now;
+  final void Function(String conversationId) _onChanged;
+  final Future<void> Function(String conversationId) _acceptForReply;
+  final bool Function() _removedElsewhere;
+  final void Function(Duration delay, void Function() run) _schedule;
+  final void Function(Object error, StackTrace stack)? _onUnexpectedError;
+
+  // Memory of this run, by conversation id or local id. Nothing here is a
+  // fact a write relies on: after a restart a row is only resent sooner.
+
+  /// The drain running per conversation (single flight), and the
+  /// conversations a trigger came for while theirs ran.
+  final Map<String, Future<void>> _running = {};
+  final Set<String> _again = {};
+
+  /// Local id -> the typed refusal of its last send.
+  final Map<String, AppException> _errors = {};
+
+  /// Local ids whose outcome stayed unknown after the automatic resend:
+  /// each later trigger makes one attempt.
+  final Set<String> _unknown = {};
+
+  /// Local id -> no send before this time (the server's retry time).
+  final Map<String, DateTime> _notBefore = {};
+
+  /// Local id -> the send calls made for it in this run (a discard's live
+  /// pull is only proof while no call was made after it began).
+  final Map<String, int> _sendCalls = {};
+
+  /// Conversation -> why its last drain stopped at a row no gate explains
+  /// (the barrier, a failed accept, the round cap).
+  final Map<String, SendBlock> _held = {};
+
+  /// Sign-out or a new vault: forgets this run's memory.
+  void reset() {
+    _again.clear();
+    _errors.clear();
+    _unknown.clear();
+    _notBefore.clear();
+    _sendCalls.clear();
+    _held.clear();
+  }
+
+  // -------------------------------------------------------------------------
+  // The public entries
+
+  /// Saves a stage-plain row in the vault under the caller's [localId] (the
+  /// port's `send(localId:)`, a UUID from the composer), then starts
+  /// [drain] without waiting for it. No engine state call (the CSPRNG only:
+  /// the report key and the row's key) and no RPC. [ArgumentError] when an
+  /// unsent row already has that local id, or the content is over
+  /// [kMaxMessageContentBytes]; [StateError] when the vault is not ready.
+  Future<void> enqueue({
+    required String localId,
+    required String conversationId,
+    required String text,
+    String sharedPostId = '',
+  }) async {
+    if (localId.isEmpty) throw ArgumentError('A row needs a local id.');
+    final engine = _engine();
+    // The report key and the exact bytes are fixed here, once.
+    final content = encodeMessageContent(
+      text: text,
+      sharedPostId: sharedPostId,
+      reportKey: await engine.randomBytes(kReportKeyBytes),
+    );
+    final key = _hexOf(await engine.randomBytes(16));
+    final op = await _start();
+    if (op == null) throw StateError('The vault is not ready.');
+    await _session.runWrite((v) async {
+      if (!op.owns(v)) throw StateError('The vault is not ready.');
+      final rows = (await v.outbox()).items;
+      if (rows.any((r) => r.localId == localId)) {
+        throw ArgumentError('An unsent row already has this local id.');
+      }
+      // Strictly after every waiting row of the conversation: rows go out
+      // in the order they were saved, whatever their keys.
+      var at = _now().microsecondsSinceEpoch;
+      for (final r in rows) {
+        if (r.conversationId == conversationId && r.createdAtMicros >= at) {
+          at = r.createdAtMicros + 1;
+        }
+      }
+      await v.transaction(
+        (tx) => tx.putOutbox(
+          OutboxItem(
+            idempotencyKey: key,
+            localId: localId,
+            expectedMessageId: expectedMessageId(v.uid, key),
+            conversationId: conversationId,
+            generation: 0,
+            epoch: 0,
+            ciphertext: Uint8List(0),
+            reportCommitment: Uint8List(0),
+            content: content,
+            createdAtMicros: at,
+            stage: OutboxStage.plain,
+          ),
+        ),
+      );
+    });
+    _onChanged(conversationId);
+    unawaited(drain(conversationId));
+  }
+
+  /// Encrypts and sends [conversationId]'s waiting rows in order. Returns
+  /// when the head row cannot go now. Single flight: a call while a drain
+  /// runs joins it, and that drain runs once more when it ends. Takes the
+  /// conversation lock (never call it with the lock held). Never throws.
+  Future<void> drain(
+    String conversationId, {
+    BudgetPriority priority = BudgetPriority.user,
+  }) {
+    final running = _running[conversationId];
+    if (running != null) {
+      _again.add(conversationId);
+      return running;
+    }
+    return _running[conversationId] = _drainAll(conversationId, priority);
+  }
+
+  /// Completes when no drain of [conversationId] is running (at once when
+  /// none is). Starts none.
+  Future<void> settled(String conversationId) =>
+      _running[conversationId] ?? Future<void>.value();
+
+  /// The user's retry of the row [localId]: a failed row is sent again with
+  /// the same bytes, a waiting row is encrypted when it now may. An unknown
+  /// id, and a thread that cannot be answered, are a no-op.
+  Future<void> retry(String localId) async {
+    final row = await _find(localId);
+    final id = row?.conversationId;
+    if (row == null || id == null || row.init != null) return;
+    if (!_contexts.of(id).canReply) return;
+    try {
+      if (row.lastError != null) {
+        await _locks.run(id, () => _clearFailure(id, localId));
+      }
+    } on Object catch (e, s) {
+      _reportIfBug(e, s, 'send.retry');
+    }
+    await drain(id);
+  }
+
+  /// Deletes the row [localId] when, as far as this device knows, the
+  /// server has not accepted it. A stage-`plain` row was never sent. A
+  /// stage-`encrypted` row may have been accepted: it goes only after one
+  /// live pull that completed and found no echo (an echo completes the row
+  /// instead; a pull that could not complete leaves it).
+  Future<void> discard(String localId) async {
+    final row = await _find(localId);
+    final id = row?.conversationId;
+    if (row == null || id == null || row.init != null) return;
+    try {
+      // The pull proves "no echo" only for the send calls made before it.
+      int? calls;
+      if (row.stage == OutboxStage.encrypted) {
+        final before = _sendCalls[localId] ?? 0;
+        final outcome = await _receiver.pullLive(
+          id,
+          priority: BudgetPriority.user,
+        );
+        if (outcome.kind == ReceiveOutcomeKind.complete) calls = before;
+      }
+      await _locks.run(id, () => _discardLocked(id, localId, calls));
+    } on Object catch (e, s) {
+      _reportIfBug(e, s, 'send.discard');
+    }
+    _onChanged(id);
+  }
+
+  /// The waiting rows of [conversationId], oldest first: `failed` (the
+  /// typed error only while this run remembers it), `sending` (stage
+  /// encrypted) or `waiting` with the gate that holds it. Reads only; empty
+  /// when the vault is closed.
+  Future<List<OutgoingRow>> outgoing(String conversationId) async {
+    final vault = _session.vault;
+    if (vault == null) return const [];
+    try {
+      final rows = (await vault.outbox(conversationId: conversationId)).items;
+      if (rows.isEmpty) return const [];
+      final gate = await _gate(vault, conversationId);
+      final waitingOn = gate.block != SendBlock.none
+          ? gate.block
+          : _held[conversationId] ?? SendBlock.none;
+      return [
+        for (final r in rows)
+          if (r.lastError != null)
+            _outgoing(r, OutgoingStatus5a.failed, SendBlock.none)
+          else if (r.stage == OutboxStage.encrypted)
+            _outgoing(r, OutgoingStatus5a.sending, SendBlock.none)
+          else
+            _outgoing(r, OutgoingStatus5a.waiting, waitingOn),
+      ];
+    } on Object catch (e, s) {
+      _reportIfBug(e, s, 'send.outgoing');
+      return const [];
+    }
+  }
+
+  OutgoingRow _outgoing(OutboxItem r, OutgoingStatus5a status, SendBlock on) {
+    final failed = status == OutgoingStatus5a.failed;
+    final error = failed ? _errors[r.localId] : null;
+    return OutgoingRow(
+      localId: r.localId,
+      conversationId: r.conversationId,
+      content: r.content,
+      createdAt: DateTime.fromMicrosecondsSinceEpoch(
+        r.createdAtMicros,
+        isUtc: true,
+      ),
+      status: status,
+      waitingOn: on,
+      error: error,
+      retryable: failed && r.lastError != 'CannotMessageException',
+      tryTomorrow:
+          (error is RateLimitedException && error.isDaily) ||
+          error is QuotaExceededException,
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // The drain
+
+  Future<void> _drainAll(String id, BudgetPriority priority) async {
+    try {
+      do {
+        _again.remove(id);
+        _held.remove(id);
+        final run = _Run(priority);
+        var next = _Next.again;
+        while (next != _Next.stop) {
+          next = await _locks.run(id, () => _step(id, run));
+          // The live pull takes the conversation lock itself: it runs
+          // between two holds, never inside one.
+          if (next == _Next.pull) {
+            await _receiver.pullLive(id, priority: priority);
+          }
+        }
+        // Scheduled here, outside the lock's zone: the resend it starts
+        // must not read as holding the lock.
+        final wait = run.resendAfter;
+        if (wait != null) _schedule(wait, () => unawaited(drain(id)));
+      } while (_again.contains(id));
+    } on Object catch (e, s) {
+      _reportIfBug(e, s, 'send.drain');
+    } finally {
+      // With no await after the loop's last check: a trigger that comes
+      // now starts a new drain, and none is lost.
+      _running.remove(id);
+    }
+  }
+
+  /// The row waits: [block] is what `outgoing` says when no gate explains.
+  _Next _stop(String id, [SendBlock block = SendBlock.none]) {
+    if (block == SendBlock.none) {
+      _held.remove(id);
+    } else {
+      _held[id] = block;
+    }
+    return _Next.stop;
+  }
+
+  /// One step, with the conversation lock held. Each step ends a row
+  /// (`again`), asks for the live pull (`pull`: at most once for the sync
+  /// and once per `STALE_EPOCH` answer), or stops the drain.
+  Future<_Next> _step(String id, _Run run) async {
+    final op = await _start();
+    if (op == null) return _stop(id, SendBlock.unavailable);
+    final rows = (await op.vault.outbox(conversationId: id)).items;
+
+    // The catch-up and the live pull after a STALE_EPOCH answer are done.
+    final staleKey = run.staleKey;
+    if (staleKey != null) {
+      run.staleKey = null;
+      return _afterStale(op, id, rows, staleKey, run);
+    }
+    if (rows.isEmpty) return _stop(id);
+    // Nothing goes past a failed head row; a row with an init is Task 8's.
+    final head = rows.first;
+    if (head.lastError != null) return _stop(id);
+    if (head.init != null) return _stop(id, SendBlock.provisional);
+    // Rows already encrypted are resent first, byte for byte.
+    var row = head;
+    for (final r in rows) {
+      if (r.lastError != null || r.init != null) break;
+      if (r.stage == OutboxStage.encrypted) {
+        row = r;
+        break;
+      }
+    }
+    if (row.stage == OutboxStage.encrypted) return _send(op, id, row, run);
+
+    // The gates of an encrypt, in order; the accept call is the last one.
+    final context = _contexts.of(id);
+    final gate = await _gate(op.vault, id);
+    if (gate.block == SendBlock.unavailable ||
+        gate.block == SendBlock.provisional) {
+      return _stop(id, gate.block);
+    }
+    if (!run.synced &&
+        (!context.syncedSinceStart || context.attributionPending)) {
+      // Once per drain: commits to the server's pair and attribution here,
+      // then one live pull; whatever they answer, the gates decide after.
+      run.synced = true;
+      await _crypto.catchUpLocked(id, priority: run.priority);
+      return _Next.pull;
+    }
+    if (gate.block != SendBlock.none) return _stop(id, gate.block);
+    if (gate.needsAccept) {
+      // M3: every other gate holds, and this run saw the server say REQUEST
+      // with this user as the recipient. Once per drain.
+      if (run.accepted) return _stop(id, SendBlock.notSynced);
+      run.accepted = true;
+      try {
+        await _acceptForReply(id);
+      } on Object catch (e, s) {
+        // Nothing changed: the row waits.
+        _reportIfBug(e, s, 'send.accept');
+        return _stop(id, SendBlock.notSynced);
+      }
+      // The acceptance steps ran: every gate is read again before the
+      // encrypt.
+      return _Next.again;
+    }
+    final encrypted = await _encrypt(op, id, row.idempotencyKey);
+    final item = encrypted.row;
+    if (item == null) return _stop(id, encrypted.block);
+    _onChanged(id);
+    return _send(op, id, item, run);
+  }
+
+  /// What holds an encrypt in [id] now (`none`: nothing; [needsAccept]: only
+  /// the acceptance of an incoming request is missing). Reads only.
+  Future<({SendBlock block, bool needsAccept})> _gate(
+    SecureVault vault,
+    String id,
+  ) async {
+    ({SendBlock block, bool needsAccept}) held(SendBlock block) =>
+        (block: block, needsAccept: false);
+    if (_removedElsewhere()) return held(SendBlock.unavailable);
+    final context = _contexts.of(id);
+    // No engine call while the receiver holds the engine back (device-level
+    // trouble, or this conversation's group).
+    final hold = context.engineHoldUntil;
+    if (_receiver.engineHeldUntil != null ||
+        (hold != null && _now().isBefore(hold))) {
+      return held(SendBlock.unavailable);
+    }
+    // The vault and the engine usable, the group ready and not provisional,
+    // synced since the start (M10), no member unattributed, the epoch not
+    // owed, the thread answerable.
+    final state = await _crypto.describeState(id);
+    if (state.sendBlock != SendBlock.none) return held(state.sendBlock);
+    if (state.phase != ConversationPhase.ready) {
+      return held(SendBlock.waitingForWelcome);
+    }
+    final group = await _currentGroup(vault, id);
+    // The core refuses an encrypt while this device's commit is pending.
+    if (group == null ||
+        group.hasPending ||
+        state.unattributedPresent ||
+        context.attributionPending) {
+      return held(SendBlock.notSynced);
+    }
+    if (!state.requestAccepted) {
+      final incoming = context.incomingRequest;
+      // The direction is not known in this run: the row waits.
+      if (incoming == null) return held(SendBlock.notSynced);
+      if (incoming) return (block: SendBlock.none, needsAccept: true);
+      // This user is the requester.
+    }
+    return held(SendBlock.none);
+  }
+
+  // -------------------------------------------------------------------------
+  // Encrypt
+
+  /// Encrypts the plain row [plainKey] in ONE `runWrite` body: the group,
+  /// the device state and the row read fresh, the engine call, and ONE
+  /// transaction with the group state after the encrypt, the row at stage
+  /// `encrypted` under a key made here, and the sent digest.
+  Future<({OutboxItem? row, SendBlock block})> _encrypt(
+    _Op op,
+    String id,
+    String plainKey,
+  ) async {
+    ({OutboxItem? row, SendBlock block}) held(SendBlock block) =>
+        (row: null, block: block);
+    try {
+      // The key this ciphertext goes out under: never one a row carried.
+      final key = _hexOf(await _engine().randomBytes(16));
+      return await _session.runWrite((v) async {
+        op.check(v);
+        final groups = await v.groups(id);
+        if (groups.any((g) => g.provisional)) {
+          return held(SendBlock.provisional);
+        }
+        final group = groups.isEmpty ? null : groups.last;
+        final sync =
+            (await v.conversation(id))?.sync ?? const ConversationSync();
+        final unattributed = (await v.members(id))
+            .any((m) => m.side == MemberSide.unattributed);
+        if (group == null ||
+            group.hasPending ||
+            sync.epochMustAdvance ||
+            unattributed ||
+            (!sync.requestAccepted &&
+                _contexts.of(id).incomingRequest != false)) {
+          return held(SendBlock.notSynced);
+        }
+        final row = await _rowOf(v, id, plainKey);
+        final deviceState = await v.deviceState();
+        if (row == null ||
+            row.stage != OutboxStage.plain ||
+            row.init != null ||
+            deviceState == null) {
+          return held(SendBlock.unavailable);
+        }
+        final pair = MlsPair(group.generation, group.epoch);
+        final result = await _engine().encrypt(
+          deviceState,
+          group.state,
+          row.content,
+        );
+        if (result.epoch != group.epoch ||
+            result.ciphertext.isEmpty ||
+            result.ciphertext.length > _kMaxOutboxCiphertext) {
+          // Not an answer for this group's pair: nothing of it is stored.
+          return held(SendBlock.unavailable);
+        }
+        final item = OutboxItem(
+          idempotencyKey: key,
+          localId: row.localId,
+          expectedMessageId: expectedMessageId(v.uid, key),
+          conversationId: id,
+          generation: pair.generation,
+          epoch: pair.epoch,
+          ciphertext: result.ciphertext,
+          reportCommitment: reportCommitment(row.content),
+          content: row.content,
+          createdAtMicros: row.createdAtMicros,
+          attempts: row.attempts,
+        );
+        await v.transaction((tx) async {
+          await tx.putGroup(
+            GroupRecord(
+              conversationId: id,
+              generation: group.generation,
+              epoch: group.epoch,
+              state: result.groupState,
+            ),
+          );
+          await tx.deleteOutbox(row.idempotencyKey);
+          await tx.putOutbox(item);
+          await tx.addSent(id, pair, sentDigest(result.ciphertext));
+        });
+        return (row: item, block: SendBlock.none);
+      });
+    } on _Stopped {
+      return held(SendBlock.unavailable);
+    } on MlsException catch (e) {
+      return held(
+        e.code == MlsErrorCode.pendingCommit
+            ? SendBlock.notSynced
+            : SendBlock.unavailable,
+      );
+    } on Object catch (e, s) {
+      // A vault error or a closed vault: the transaction stored nothing.
+      _reportIfBug(e, s, 'send.encrypt');
+      return held(SendBlock.unavailable);
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Send
+
+  /// Sends the stage-encrypted [row], with the lock held: the barrier, then
+  /// the identical request (once more at once when the outcome is unknown
+  /// and the server named no time).
+  Future<_Next> _send(_Op op, String id, OutboxItem row, _Run run) async {
+    if (_removedElsewhere()) return _stop(id, SendBlock.unavailable);
+    if (!_contexts.of(id).canReply) return _stop(id, SendBlock.cannotMessage);
+    final notBefore = _notBefore[row.localId];
+    if (notBefore != null && _now().isBefore(notBefore)) return _stop(id);
+    final key = row.idempotencyKey;
+    // R7: no network call before the row is confirmed stored. False or an
+    // error: the row stays as it is and is tried again at the next drain.
+    var stored = false;
+    try {
+      stored = await op.vault.confirmStored(key);
+    } on Object catch (e, s) {
+      _reportIfBug(e, s, 'send.confirmStored');
+    }
+    if (!stored) return _stop(id, SendBlock.unavailable);
+    var tries = _unknown.contains(row.localId) ? 1 : 2;
+    while (true) {
+      if (!op.live) return _stop(id, SendBlock.unavailable);
+      // Counted when it starts and when it ends: a discard's pull is no
+      // proof for a call in flight either.
+      void count() =>
+          _sendCalls[row.localId] = (_sendCalls[row.localId] ?? 0) + 1;
+      count();
+      final pb.SendMessageResponse response;
+      try {
+        response = await _messaging
+            .sendEncrypted(
+              idempotencyKey: key,
+              conversationId: id,
+              ciphertext: row.ciphertext,
+              pair: MlsPair(row.generation, row.epoch),
+              reportCommitment: row.reportCommitment,
+            )
+            .whenComplete(count);
+      } on StaleEpochException {
+        // M1: the server may have stored it all the same. Catch-up first,
+        // then the live pull, with the row still at stage encrypted.
+        run
+          ..staleRounds += 1
+          ..staleKey = key;
+        await _crypto.catchUpLocked(id, priority: run.priority);
+        return _Next.pull;
+      } on AppException catch (e) {
+        if (!_outcomeUnknown(e)) {
+          await _refused(op, id, key, row.localId, e);
+          return _stop(id);
+        }
+        tries--;
+        final wait = _retryAfterOf(e);
+        if (wait == null) {
+          if (tries > 0) continue;
+        } else {
+          _notBefore[row.localId] = _now().add(wait);
+          // The one automatic resend, at the server's time.
+          if (tries > 0) run.resendAfter = wait;
+        }
+        _unknown.add(row.localId);
+        return _stop(id);
+      } on Object catch (e, s) {
+        _reportIfBug(e, s, 'send.sendEncrypted');
+        _unknown.add(row.localId);
+        return _stop(id);
+      }
+      return _delivered(op, id, row, response);
+    }
+  }
+
+  /// The server accepted [row]: one transaction stores the message and
+  /// deletes the row.
+  Future<_Next> _delivered(
+    _Op op,
+    String id,
+    OutboxItem row,
+    pb.SendMessageResponse response,
+  ) async {
+    final message = response.message;
+    final messageId = _messageIdShape.hasMatch(message.id)
+        ? message.id
+        : row.expectedMessageId;
+    final at = _serverMicros(message) ?? _now().microsecondsSinceEpoch;
+    try {
+      await _session.runWrite((v) async {
+        op.check(v);
+        // Gone: its echo was stored by a pass meanwhile.
+        if (await _rowOf(v, id, row.idempotencyKey) == null) return;
+        final cleared = (await v.conversation(id))?.sync.clearedAtMicros;
+        // Never over a stored row (a tombstone), never at or before
+        // cleared_at.
+        final keep =
+            !(cleared != null && at <= cleared) &&
+            !await v.hasMessage(id, messageId);
+        await v.transaction((tx) async {
+          if (keep) {
+            await tx.putMessage(
+              StoredMessage(
+                conversationId: id,
+                messageId: messageId,
+                createdAtMicros: at,
+                mine: true,
+                state: StoredMessageState.visible,
+                generation: row.generation,
+                epoch: row.epoch,
+                content: row.content,
+                senderDeviceId: op.deviceId,
+              ),
+            );
+          }
+          await tx.deleteOutbox(row.idempotencyKey);
+        });
+      });
+    } on Object catch (e, s) {
+      // The row stays: the same request is sent again and answered alike.
+      _reportIfBug(e, s, 'send.delivered');
+      return _stop(id, SendBlock.unavailable);
+    }
+    if (response.hasConversation() && response.conversation.id == id) {
+      _contexts.note(response.conversation);
+    }
+    _forget(row.localId);
+    _onChanged(id);
+    return _Next.again;
+  }
+
+  /// A refusal: the row keeps its bytes and its key, with one more attempt
+  /// and the error's type name; the typed error stays in memory.
+  Future<void> _refused(
+    _Op op,
+    String id,
+    String key,
+    String localId,
+    AppException error,
+  ) async {
+    _errors[localId] = error;
+    if (error is CannotMessageException) _contexts.of(id).canReply = false;
+    try {
+      await _session.runWrite((v) async {
+        op.check(v);
+        final row = await _rowOf(v, id, key);
+        if (row == null || row.stage != OutboxStage.encrypted) return;
+        await v.transaction(
+          (tx) => tx.putOutbox(
+            _copy(
+              row,
+              attempts: row.attempts + 1,
+              lastError: _errorName(error),
+            ),
+          ),
+        );
+      });
+    } on Object catch (e, s) {
+      _reportIfBug(e, s, 'send.refused');
+    }
+    _onChanged(id);
+  }
+
+  /// After a `STALE_EPOCH` answer for the row [key], its catch-up and one
+  /// live pull (the lock is held again; everything is read fresh).
+  Future<_Next> _afterStale(
+    _Op op,
+    String id,
+    List<OutboxItem> rows,
+    String key,
+    _Run run,
+  ) async {
+    final capped = run.staleRounds >= kStaleEpochRoundsPerDrain;
+    OutboxItem? row;
+    for (final r in rows) {
+      if (r.idempotencyKey == key) row = r;
+    }
+    if (row == null) {
+      // Its echo was found (the same id and the same bytes): done, and
+      // nothing was encrypted again.
+      _onChanged(id);
+      return _Next.again;
+    }
+    final current = await _currentGroup(op.vault, id);
+    final advanced =
+        current != null &&
+        MlsPair(current.generation, current.epoch) !=
+            MlsPair(row.generation, row.epoch);
+    if (row.stage != OutboxStage.encrypted || !advanced) {
+      // The pair did not move: an unknown outcome. The row keeps its bytes
+      // and its key and is resent at the next trigger.
+      _unknown.add(row.localId);
+      return _stop(id, capped ? SendBlock.notSynced : SendBlock.none);
+    }
+    // Catch-up moved this device past the row's pair (a commit applied, or
+    // another generation), and the walk of that pair found no echo: back to
+    // plain under a NEW key and a new expected id, in one transaction.
+    try {
+      final next = _hexOf(await _engine().randomBytes(16));
+      await _session.runWrite((v) async {
+        op.check(v);
+        final fresh = await _rowOf(v, id, key);
+        if (fresh == null || fresh.stage != OutboxStage.encrypted) return;
+        await v.transaction((tx) async {
+          await tx.deleteOutbox(key);
+          await tx.putOutbox(
+            OutboxItem(
+              idempotencyKey: next,
+              localId: fresh.localId,
+              expectedMessageId: expectedMessageId(v.uid, next),
+              conversationId: id,
+              generation: 0,
+              epoch: 0,
+              ciphertext: Uint8List(0),
+              reportCommitment: Uint8List(0),
+              content: fresh.content,
+              createdAtMicros: fresh.createdAtMicros,
+              stage: OutboxStage.plain,
+              attempts: fresh.attempts,
+            ),
+          );
+        });
+      });
+    } on Object catch (e, s) {
+      // The row stays encrypted: the next drain meets the refusal again.
+      _reportIfBug(e, s, 'send.stale');
+      return _stop(id, SendBlock.unavailable);
+    }
+    _forget(row.localId);
+    _onChanged(id);
+    return capped ? _stop(id, SendBlock.notSynced) : _Next.again;
+  }
+
+  // -------------------------------------------------------------------------
+  // Retry and discard (the lock is held)
+
+  Future<void> _clearFailure(String id, String localId) async {
+    final op = await _start();
+    if (op == null) return;
+    await _session.runWrite((v) async {
+      op.check(v);
+      for (final r in (await v.outbox(conversationId: id)).items) {
+        if (r.localId != localId || r.lastError == null) continue;
+        await v.transaction((tx) => tx.putOutbox(_copy(r, lastError: null)));
+      }
+    });
+    _errors.remove(localId);
+  }
+
+  /// [pulled]: a live pull completed after the row was seen encrypted.
+  Future<void> _discardLocked(String id, String localId, int? calls) async {
+    final op = await _start();
+    if (op == null) return;
+    await _session.runWrite((v) async {
+      op.check(v);
+      for (final r in (await v.outbox(conversationId: id)).items) {
+        if (r.localId != localId || r.init != null) continue;
+        // An encrypted row stays unless a pull completed with no send call
+        // for it since that pull began.
+        if (r.stage == OutboxStage.encrypted &&
+            (calls == null || (_sendCalls[localId] ?? 0) != calls)) {
+          return;
+        }
+        await v.transaction((tx) => tx.deleteOutbox(r.idempotencyKey));
+        _forget(localId);
+      }
+    });
+  }
+
+  // -------------------------------------------------------------------------
+
+  void _forget(String localId) {
+    _errors.remove(localId);
+    _unknown.remove(localId);
+    _notBefore.remove(localId);
+    _sendCalls.remove(localId);
+  }
+
+  /// The unsent row [localId] of any conversation, or null.
+  Future<OutboxItem?> _find(String localId) async {
+    final vault = _session.vault;
+    if (vault == null) return null;
+    try {
+      for (final r in (await vault.outbox()).items) {
+        if (r.localId == localId) return r;
+      }
+    } on Object catch (e, s) {
+      _reportIfBug(e, s, 'send.find');
+    }
+    return null;
+  }
+
+  Future<OutboxItem?> _rowOf(SecureVault v, String id, String key) async {
+    for (final r in (await v.outbox(conversationId: id)).items) {
+      if (r.idempotencyKey == key) return r;
+    }
+    return null;
+  }
+
+  /// The highest stored non-provisional group, or null.
+  Future<GroupRecord?> _currentGroup(SecureVault vault, String id) async {
+    GroupRecord? current;
+    for (final group in await vault.groups(id)) {
+      if (!group.provisional) current = group; // ascending generation
+    }
+    return current;
+  }
+
+  Future<_Op?> _start() async {
+    final vault = _session.vault;
+    if (vault == null) return null;
+    try {
+      final deviceId = await vault.deviceId();
+      if (deviceId == null) return null;
+      return _Op(_session, vault, vault.uid, deviceId);
+    } on Object catch (e, s) {
+      _reportIfBug(e, s, 'send.start');
+      return null;
+    }
+  }
+
+  /// The server's retry time of an unknown outcome, capped at
+  /// [kMaxServerRetryWait] (security read L1); null when it named none.
+  Duration? _retryAfterOf(AppException e) {
+    final wait = e is ScreeningUnavailableException ? e.retryAfter : null;
+    if (wait == null || wait <= Duration.zero) return null;
+    return wait > kMaxServerRetryWait ? kMaxServerRetryWait : wait;
+  }
+
+  /// Reports a programming error (never an expected failure) by its step
+  /// name only; the error itself is never passed on.
+  void _reportIfBug(Object e, StackTrace s, String step) {
+    if (e is Error && e is! StateError) {
+      _onUnexpectedError?.call(E2eePipelineError(step), s);
+    }
+  }
+}
+
+/// An answer that does not say whether the server stored the message: no
+/// connection, the 30 s timeout, UNAVAILABLE (with or without a retry
+/// time), an answer the client cannot read, or a call that was not let
+/// through (the session, App Check, a paused service). The same request is
+/// sent again; nothing is encrypted again.
+bool _outcomeUnknown(AppException e) => switch (e) {
+  NetworkException() ||
+  ScreeningUnavailableException() ||
+  UnknownApiException() ||
+  UnauthenticatedException() ||
+  AppCheckRequiredException() ||
+  ServicePausedException() => true,
+  _ => false,
+};
+
+/// The stored `lastError`: the type's name, written out (a runtime type
+/// name is minified on the web), never the server's text.
+String _errorName(AppException e) => switch (e) {
+  CannotMessageException() => 'CannotMessageException',
+  FeatureDisabledException() => 'FeatureDisabledException',
+  EmailNotVerifiedException() => 'EmailNotVerifiedException',
+  LimitReachedException() => 'LimitReachedException',
+  RateLimitedException() => 'RateLimitedException',
+  QuotaExceededException() => 'QuotaExceededException',
+  DegradedModeException() => 'DegradedModeException',
+  ValidationException() => 'ValidationException',
+  AccountRestrictedException() => 'AccountRestrictedException',
+  EncryptionRequiredException() => 'EncryptionRequiredException',
+  NotFoundException() => 'NotFoundException',
+  _ => 'AppException',
+};
+
+/// [r] with its attempts or its error changed; every other field as it is.
+OutboxItem _copy(OutboxItem r, {int? attempts, required String? lastError}) =>
+    OutboxItem(
+      idempotencyKey: r.idempotencyKey,
+      localId: r.localId,
+      expectedMessageId: r.expectedMessageId,
+      conversationId: r.conversationId,
+      recipientUserId: r.recipientUserId,
+      generation: r.generation,
+      epoch: r.epoch,
+      ciphertext: r.ciphertext,
+      reportCommitment: r.reportCommitment,
+      content: r.content,
+      createdAtMicros: r.createdAtMicros,
+      stage: r.stage,
+      init: r.init,
+      attempts: attempts ?? r.attempts,
+      lastError: lastError,
+    );
+
+/// The answer's `created_at` in microseconds; null when it is unset or not
+/// a time this client holds exactly.
+int? _serverMicros(pb.Message m) {
+  if (!m.hasCreatedAt()) return null;
+  final seconds = m.createdAt.seconds;
+  final nanos = m.createdAt.nanos;
+  if (seconds.isNegative || seconds > _maxSeconds) return null;
+  if (nanos < 0 || nanos > 999999999) return null;
+  final micros = seconds.toInt() * 1000000 + nanos ~/ 1000;
+  return micros > kMaxPairComponent ? null : micros;
+}
+
+String _hexOf(Uint8List b) =>
+    b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
+
+/// What a step asks of the drain: stop, take the next step, or run the live
+/// pull and then take the next step.
+enum _Next { stop, again, pull }
+
+/// One drain's own counters.
+class _Run {
+  _Run(this.priority);
+
+  final BudgetPriority priority;
+
+  /// The one catch-up and live pull of the sync gate ran.
+  bool synced = false;
+
+  /// The one accept call was made.
+  bool accepted = false;
+  int staleRounds = 0;
+
+  /// The key of the row a `STALE_EPOCH` answer came for, until the step
+  /// after its live pull.
+  String? staleKey;
+
+  /// The server's retry time of an unknown outcome: one resend is
+  /// scheduled when the drain's steps have ended.
+  Duration? resendAfter;
+}
+
+/// The vault the operation started with is no longer the session's.
+class _Stopped implements Exception {
+  const _Stopped();
+}
+
+/// One step's vault, user and device; no `toString`.
+class _Op {
+  _Op(this.session, this.vault, this.uid, this.deviceId);
+
+  final VaultSession session;
+  final SecureVault vault;
+  final String uid;
+  final Uint8List deviceId;
+
+  bool get live {
+    final v = session.vault;
+    return identical(v, vault) && v?.uid == uid;
+  }
+
+  bool owns(SecureVault v) => identical(v, vault) && v.uid == uid && live;
+
+  /// The first thing every runWrite body does.
+  void check(SecureVault v) {
+    if (!owns(v)) throw const _Stopped();
+  }
+}

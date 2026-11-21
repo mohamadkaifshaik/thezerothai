@@ -1,0 +1,1166 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:dzeroth/core/crypto/crypto_types.dart';
+import 'package:dzeroth/core/crypto/mls_derivations.dart';
+import 'package:dzeroth/core/crypto/mls_pair.dart';
+import 'package:dzeroth/core/network/app_exception.dart';
+import 'package:dzeroth/core/vault/secure_vault.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/conversation_locks.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/e2ee_types.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/encrypted_sender.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/message_content_codec.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/sync_budget.dart';
+import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
+import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
+import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+import '../../../../support/e2ee_pipeline_rig.dart';
+
+const _c1 = '11111111111111111111111111111111';
+const _c2 = '22222222222222222222222222222222';
+
+final RegExp _keyShape = RegExp(r'^[0-9a-f]{32}$');
+
+String _hex(List<int> b) =>
+    b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
+
+/// Conversation locks that refuse a second acquisition by code that already
+/// holds the lock (the real ones would deadlock there).
+class _ProbeLocks extends ConversationLocks {
+  int acquired = 0;
+  int reentered = 0;
+
+  @override
+  Future<T> run<T>(String conversationId, Future<T> Function() body) {
+    if (isHeld(conversationId)) {
+      reentered++;
+      throw StateError('the conversation lock was taken twice');
+    }
+    acquired++;
+    return super.run(conversationId, body);
+  }
+}
+
+/// Records the length of every `randomBytes` call and its 16-byte answers.
+class _RandomEngine extends RigEngine {
+  final List<int> lengths = [];
+  final List<Uint8List> sixteens = [];
+
+  @override
+  Future<Uint8List> randomBytes(int length) async {
+    final bytes = await super.randomBytes(length);
+    lengths.add(length);
+    if (length == 16) sixteens.add(bytes);
+    return bytes;
+  }
+}
+
+void main() {
+  late RigCrypto rig;
+  late RigPeer bob;
+  late RigOffer offer;
+
+  tearDown(() async {
+    final refused = rig.server.refusedAcks.length;
+    final unexpected = [...rig.unexpected];
+    await rig.dispose();
+    expect(refused, 0, reason: 'the rig refused an AckWelcomes call');
+    expect(unexpected, isEmpty, reason: 'unexpected pipeline errors');
+  });
+
+  pb.Conversation headerRow({
+    Folder? folder = Folder.FOLDER_INBOX,
+    bool canReply = true,
+  }) => pb.Conversation(
+    id: _c1,
+    peer: common.AuthorSnapshot(userId: 'ref-bob'),
+    folder: folder,
+    canReply: canReply,
+  );
+
+  /// This device joins [_c1] from bob's welcome. [accepted]: the stored sync
+  /// record says so; [folder]: what the server's header row says (null: no
+  /// folder, so the direction stays unknown); [attributed]: bob's device is
+  /// in his key list.
+  Future<void> setUpJoined({
+    bool accepted = true,
+    Folder? folder = Folder.FOLDER_INBOX,
+    bool attributed = true,
+    ConversationLocks? locks,
+    RigEngine? engine,
+  }) async {
+    rig = await RigCrypto.create(locks: locks, engine: engine);
+    bob = await RigPeer.create('bob');
+    if (attributed) {
+      rig.keys.peers['ref-bob'] = [rigKeyDevice(bob.idString, bob.key)];
+    }
+    if (accepted) await rig.accept(_c1);
+    rig.server.rows[_c1] = headerRow(folder: folder);
+    offer = await rig.offer(_c1, bob);
+    expect(await rig.crypto.processWelcomes(), [_c1]);
+    // Call counts in a test start after the join.
+    rig.device.engine.calls.clear();
+    rig.server.calls.clear();
+  }
+
+  Future<List<OutboxItem>> outbox([String c = _c1]) async =>
+      (await rig.device.vault.outbox(conversationId: c)).items;
+
+  int encrypts() => rig.device.engine.calls.where((c) => c == 'encrypt').length;
+
+  /// Enqueues and waits for the drain `enqueue` started (no second trigger).
+  Future<void> send(String localId, [String text = 'hello']) async {
+    await rig.sender.enqueue(localId: localId, conversationId: _c1, text: text);
+    await rig.sender.settled(_c1);
+  }
+
+  /// One more trigger (a resume, a push, a poll).
+  Future<void> drain() => rig.sender.drain(_c1);
+
+  Future<ConversationSync> sync() async =>
+      (await rig.device.vault.conversation(_c1))?.sync ??
+      const ConversationSync();
+
+  Future<void> updateSync(
+    ConversationSync Function(ConversationSync s) change,
+  ) async {
+    final next = change(await sync());
+    await rig.device.vault.transaction(
+      (tx) => tx.putConversationSync(_c1, next),
+    );
+  }
+
+  /// What Task 9's acceptance steps leave behind (the part the sender's
+  /// gates read).
+  Future<void> acceptanceSteps(String id) async {
+    await updateSync((s) => s.copyWith(requestAccepted: true));
+    rig.contexts.of(id).incomingRequest = false;
+  }
+
+  /// Bob commits a self-update on the server's current pair.
+  Future<void> bobSelfUpdate() async {
+    final g = offer.add.group;
+    final at = rig.server.current(_c1);
+    final c = await bob.engine.selfUpdate(bob.state, g.state);
+    g.state = await bob.engine.confirmCommit(bob.state, c.groupState);
+    rig.server.addCommit(_c1, at, c.commit, fromUser: 'user-b');
+  }
+
+  Future<int> sentLog() async =>
+      (await rig.device.db
+              .customSelect('SELECT COUNT(*) AS n FROM vault_sent')
+              .getSingle())
+          .read<int>('n');
+
+  Future<List<StoredMessage>> stored() async => [
+    for (final m in await rig.device.vault.messages(_c1, limit: 500))
+      if (m.kind == StoredMessageKind.message) m,
+  ];
+
+  String textOf(Uint8List content) => decodeMessageContentLenient(content).text;
+
+  void offline() =>
+      rig.server.onCall = (_) async => throw const NetworkException('offline');
+
+  const lost = (error: NetworkException('timed out'), stored: false);
+
+  group('enqueue', () {
+    test('enqueue stores a sealed plain row and makes no engine or network '
+        'call', () async {
+      await setUpJoined();
+      // The drain enqueue starts waits for the lock: what enqueue itself
+      // did is all there is to see.
+      final release = Completer<void>();
+      final held = rig.locks.run(_c1, () => release.future);
+      await rig.sender.enqueue(
+        localId: 'local-1',
+        conversationId: _c1,
+        text: 'hello sealed text',
+        sharedPostId: 'post-9',
+      );
+      final row = (await outbox()).single;
+      expect(row.stage, OutboxStage.plain);
+      expect(row.localId, 'local-1');
+      expect(row.conversationId, _c1);
+      expect(row.recipientUserId, isNull);
+      expect((row.generation, row.epoch), (0, 0));
+      expect(row.ciphertext, isEmpty);
+      expect(row.reportCommitment, isEmpty);
+      expect(row.init, isNull);
+      expect(row.attempts, 0);
+      expect(row.lastError, isNull);
+      final content = decodeMessageContentLenient(row.content);
+      expect(content.text, 'hello sealed text');
+      expect(content.sharedPostId, 'post-9');
+      expect(content.reportKey, hasLength(kReportKeyBytes));
+      // Sealed: the stored bytes hold none of the text.
+      final raw = await rig.device.db
+          .customSelect('SELECT content FROM vault_outbox')
+          .getSingle();
+      expect(
+        latin1.decode(raw.read<Uint8List>('content')),
+        isNot(contains('hello sealed')),
+      );
+      // The CSPRNG only: no state call of the engine, no network call.
+      expect(rig.device.engine.calls.toSet(), {'randomBytes'});
+      expect(rig.server.calls, isEmpty);
+      expect(rig.server.sends, isEmpty);
+      // An unsent row already has that local id.
+      await expectLater(
+        rig.sender.enqueue(
+          localId: 'local-1',
+          conversationId: _c1,
+          text: 'again',
+        ),
+        throwsArgumentError,
+      );
+      expect(await outbox(), hasLength(1));
+      release.complete();
+      await held;
+      await rig.sender.settled(_c1);
+    });
+
+    test('the idempotency key is 32 hex characters from 16 random '
+        'bytes', () async {
+      final engine = _RandomEngine();
+      await setUpJoined(engine: engine);
+      engine.lengths.clear();
+      engine.sixteens.clear();
+      rig.device.onConfirmStored = (_, _) async => false;
+      await send('l1');
+      // The report key (32) and the row's key (16) at enqueue; the key the
+      // ciphertext goes out under (16) at encrypt.
+      expect(engine.lengths, [32, 16, 16]);
+      final row = (await outbox()).single;
+      expect(row.stage, OutboxStage.encrypted);
+      expect(row.idempotencyKey, matches(_keyShape));
+      expect(row.idempotencyKey, _hex(engine.sixteens[1]));
+      expect(_hex(engine.sixteens[0]), matches(_keyShape));
+      expect(engine.sixteens[0], isNot(engine.sixteens[1]));
+      rig.device.onConfirmStored = null;
+      await drain();
+      expect(rig.server.sends.single.key, row.idempotencyKey);
+    });
+
+    test('the expected id equals expectedMessageId(uid, key)', () async {
+      await setUpJoined();
+      final release = Completer<void>();
+      final held = rig.locks.run(_c1, () => release.future);
+      await rig.sender.enqueue(localId: 'l1', conversationId: _c1, text: 'a');
+      final plain = (await outbox()).single;
+      expect(
+        plain.expectedMessageId,
+        expectedMessageId('user-a', plain.idempotencyKey),
+      );
+      rig.device.onConfirmStored = (_, _) async => false;
+      release.complete();
+      await held;
+      await rig.sender.settled(_c1);
+      final encrypted = (await outbox()).single;
+      expect(encrypted.stage, OutboxStage.encrypted);
+      expect(
+        encrypted.expectedMessageId,
+        expectedMessageId('user-a', encrypted.idempotencyKey),
+      );
+      rig.device.onConfirmStored = null;
+      await drain();
+      expect((await stored()).single.messageId, encrypted.expectedMessageId);
+    });
+
+    test('content over 4096 bytes is refused before anything is '
+        'stored', () async {
+      await setUpJoined();
+      await expectLater(
+        rig.sender.enqueue(
+          localId: 'l1',
+          conversationId: _c1,
+          text: 'x' * (kMaxMessageContentBytes + 1),
+        ),
+        throwsArgumentError,
+      );
+      await rig.sender.settled(_c1);
+      expect(await outbox(), isEmpty);
+      expect(rig.server.calls, isEmpty);
+      expect(encrypts(), 0);
+    });
+  });
+
+  group('sync before encrypt', () {
+    test('nothing is encrypted before catch-up reached the server pair and '
+        'attribution finished', () async {
+      await setUpJoined();
+      // The server moved on; this device's state is stale and it is offline.
+      await bobSelfUpdate();
+      offline();
+      await send('l1');
+      expect(encrypts(), 0);
+      expect(rig.server.sends, isEmpty);
+      expect((await outbox()).single.stage, OutboxStage.plain);
+      expect(
+        (await rig.sender.outgoing(_c1)).single.waitingOn,
+        SendBlock.notSynced,
+      );
+      // Online: the commit is applied first, then the message is encrypted
+      // on the server's pair, never on the stale one.
+      rig.server.onCall = null;
+      await drain();
+      expect(rig.server.sends.single.pair, const MlsPair(1, 2));
+      expect(await outbox(), isEmpty);
+    });
+
+    test('nothing is encrypted before one live pull completed, even with '
+        'commits current', () async {
+      await setUpJoined();
+      rig.server.onCall = (call) async {
+        if (call == 'listMlsMessages') throw const NetworkException('offline');
+      };
+      await send('l1');
+      final context = rig.contexts.of(_c1);
+      // Commits are current and attribution is done...
+      expect(context.serverPair, const MlsPair(1, 1));
+      expect(context.attributionPending, isFalse);
+      // ...and still nothing is encrypted (M10).
+      expect(context.syncedSinceStart, isFalse);
+      expect(encrypts(), 0);
+      expect(rig.server.sends, isEmpty);
+      expect(
+        (await rig.sender.outgoing(_c1)).single.waitingOn,
+        SendBlock.notSynced,
+      );
+      rig.server.onCall = null;
+      await drain();
+      expect(rig.server.sends, hasLength(1));
+      expect(await outbox(), isEmpty);
+    });
+
+    test('no encrypt while a member is unattributed', () async {
+      await setUpJoined(attributed: false);
+      await send('l1');
+      expect(
+        (await rig.device.vault.members(_c1)).map((m) => m.side),
+        contains(MemberSide.unattributed),
+      );
+      expect(encrypts(), 0);
+      expect(rig.server.sends, isEmpty);
+      expect(
+        (await rig.sender.outgoing(_c1)).single.waitingOn,
+        isIn({SendBlock.notSynced, SendBlock.unknownDevice}),
+      );
+    });
+
+    test('no encrypt while epoch must advance, and the row goes out after '
+        'any commit', () async {
+      await setUpJoined();
+      await updateSync((s) => s.copyWith(epochMustAdvance: true));
+      await send('l1');
+      expect(encrypts(), 0);
+      expect(rig.server.sends, isEmpty);
+      expect(
+        (await rig.sender.outgoing(_c1)).single.waitingOn,
+        SendBlock.epochMustAdvance,
+      );
+      // Another trigger changes nothing while the epoch stands.
+      await drain();
+      expect(encrypts(), 0);
+      // Any commit (here the peer's) moves the epoch on.
+      await bobSelfUpdate();
+      expect(await rig.crypto.catchUp(_c1), isNotNull);
+      expect((await sync()).epochMustAdvance, isFalse);
+      await drain();
+      expect(rig.server.sends.single.pair, const MlsPair(1, 2));
+      expect(await outbox(), isEmpty);
+    });
+
+    test('no encrypt on a provisional group', () async {
+      rig = await RigCrypto.create();
+      bob = await RigPeer.create('bob');
+      await rig.seedProvisional(_c2, [bob]);
+      rig.device.engine.calls.clear();
+      await rig.sender.enqueue(localId: 'l1', conversationId: _c2, text: 'x');
+      await rig.sender.settled(_c2);
+      expect(encrypts(), 0);
+      expect(rig.server.sends, isEmpty);
+      // Task 8 settles a provisional group: the sender starts no catch-up.
+      expect(rig.server.calls, isEmpty);
+      expect((await outbox(_c2)).single.stage, OutboxStage.plain);
+      expect(
+        (await rig.sender.outgoing(_c2)).single.waitingOn,
+        SendBlock.provisional,
+      );
+    });
+
+    test('no encrypt while this device\'s commit is pending, and the row '
+        'goes out once it is settled', () async {
+      await setUpJoined();
+      final v = rig.device.vault;
+      final group = (await v.group(_c1, 1))!;
+      final commit = await rig.device.engine.inner.selfUpdate(
+        (await v.deviceState())!,
+        group.state,
+      );
+      await v.transaction(
+        (tx) => tx.putGroup(
+          GroupRecord(
+            conversationId: _c1,
+            generation: 1,
+            epoch: group.epoch,
+            state: commit.groupState,
+            pending: PendingCommit(
+              kind: PendingKind.selfUpdate,
+              builtOn: MlsPair(1, group.epoch),
+              commit: commit.commit,
+            ),
+          ),
+        ),
+      );
+      await send('l1');
+      // The gate holds the row: the engine is not even asked.
+      expect(encrypts(), 0);
+      expect(rig.server.sends, isEmpty);
+      expect(
+        (await rig.sender.outgoing(_c1)).single.waitingOn,
+        SendBlock.notSynced,
+      );
+      // The server stored the commit: catch-up settles it.
+      rig.server.addCommit(
+        _c1,
+        MlsPair(1, group.epoch),
+        commit.commit,
+        fromUser: 'user-a',
+      );
+      await rig.crypto.catchUp(_c1);
+      expect((await v.group(_c1, 1))!.hasPending, isFalse);
+      await drain();
+      expect(rig.server.sends.single.pair, MlsPair(1, group.epoch + 1));
+      expect(await outbox(), isEmpty);
+    });
+
+    test('removed elsewhere: nothing is encrypted and nothing is '
+        'sent', () async {
+      await setUpJoined();
+      rig.removedElsewhere = true;
+      await send('l1');
+      expect(encrypts(), 0);
+      expect(rig.server.calls, isEmpty);
+      expect(
+        (await rig.sender.outgoing(_c1)).single.waitingOn,
+        SendBlock.unavailable,
+      );
+      rig.removedElsewhere = false;
+      await drain();
+      expect(rig.server.sends, hasLength(1));
+    });
+  });
+
+  group('encrypt and send', () {
+    test('encrypt, the outbox row and the sent digest are one '
+        'transaction', () async {
+      await setUpJoined();
+      final groupBefore = (await rig.device.vault.group(_c1, 1))!.state;
+      var fail = false;
+      rig.device.cipher.failSeal = (label) =>
+          fail &&
+          label.contains('vault_outbox') &&
+          label.contains('ciphertext');
+      final release = Completer<void>();
+      final held = rig.locks.run(_c1, () => release.future);
+      await rig.sender.enqueue(localId: 'l1', conversationId: _c1, text: 'a');
+      final plain = (await outbox()).single;
+      // From here the encrypted row's write fails part-way through the
+      // transaction.
+      fail = true;
+      release.complete();
+      await held;
+      await rig.sender.settled(_c1);
+      expect(encrypts(), 1, reason: 'the engine was asked');
+      expect((await rig.device.vault.group(_c1, 1))!.state, groupBefore);
+      final after = (await outbox()).single;
+      expect(after.stage, OutboxStage.plain);
+      expect(after.idempotencyKey, plain.idempotencyKey);
+      expect(await sentLog(), 0);
+      expect(rig.server.sends, isEmpty);
+      // With the write working, all three are stored together.
+      fail = false;
+      rig.device.onConfirmStored = (_, _) async => false;
+      await drain();
+      final row = (await outbox()).single;
+      expect(row.stage, OutboxStage.encrypted);
+      expect((row.generation, row.epoch), (1, 1));
+      expect(row.localId, 'l1');
+      expect(row.reportCommitment, reportCommitment(row.content));
+      expect(row.content, plain.content);
+      expect((await rig.device.vault.group(_c1, 1))!.state, isNot(groupBefore));
+      expect(
+        await rig.device.vault.hasSent(
+          _c1,
+          const MlsPair(1, 1),
+          sentDigest(row.ciphertext),
+        ),
+        isTrue,
+      );
+      expect(await sentLog(), 1);
+      rig.device.onConfirmStored = null;
+      await drain();
+      expect(await outbox(), isEmpty);
+    });
+
+    test('the network call waits for confirmStored and is not made when it '
+        'is false', () async {
+      await setUpJoined();
+      final events = <String>[];
+      final reached = Completer<void>();
+      final answer = Completer<bool>();
+      rig.device.onConfirmStored = (key, real) async {
+        events.add('confirm');
+        if (!reached.isCompleted) reached.complete();
+        return answer.future;
+      };
+      rig.server.beforeSend = (_) async => events.add('send');
+      await rig.sender.enqueue(localId: 'l1', conversationId: _c1, text: 'a');
+      await reached.future;
+      // The row is saved and confirmStored has not answered: no call yet.
+      final row = (await outbox()).single;
+      expect(row.stage, OutboxStage.encrypted);
+      expect(rig.device.confirmStoredCalls, [row.idempotencyKey]);
+      expect(rig.server.sends, isEmpty);
+      answer.complete(true);
+      await rig.sender.settled(_c1);
+      expect(events, ['confirm', 'send']);
+      expect(rig.server.sends.single.key, row.idempotencyKey);
+
+      // False: no network call; the row stays encrypted and is not
+      // encrypted again for it.
+      rig.device.onConfirmStored = (_, _) async => false;
+      await send('l2');
+      final kept = (await outbox()).single;
+      expect(kept.stage, OutboxStage.encrypted);
+      expect(rig.server.sends, hasLength(1));
+      expect(encrypts(), 2);
+      // An error is no confirmation either.
+      rig.device.onConfirmStored = (_, _) async =>
+          throw StateError('the read failed');
+      await drain();
+      expect(rig.server.sends, hasLength(1));
+      expect(encrypts(), 2);
+      expect((await outbox()).single.ciphertext, kept.ciphertext);
+      // Confirmed at the next drain: the same bytes go out.
+      rig.device.onConfirmStored = null;
+      await drain();
+      expect(rig.server.sends, hasLength(2));
+      expect(rig.server.sends[1].key, kept.idempotencyKey);
+      expect(rig.server.sends[1].ciphertext, kept.ciphertext);
+      expect(encrypts(), 2);
+      expect(await outbox(), isEmpty);
+    });
+
+    test('success stores the message with the server id and removes the '
+        'row', () async {
+      await setUpJoined();
+      // The answer's conversation row is taken (it says "cannot reply").
+      rig.server.beforeSend = (_) async =>
+          rig.server.rows[_c1] = headerRow(canReply: false);
+      rig.clock.advance(const Duration(seconds: 3));
+      await send('l1', 'the text');
+      expect(await outbox(), isEmpty);
+      final sent = rig.server.sends.single;
+      expect(sent.conversationId, _c1);
+      expect(sent.pair, const MlsPair(1, 1));
+      final m = (await stored()).single;
+      expect(m.messageId, expectedMessageId('user-a', sent.key));
+      expect(m.state, StoredMessageState.visible);
+      expect(m.mine, isTrue);
+      expect(m.check, StoredMessageCheck.ok);
+      expect(textOf(m.content!), 'the text');
+      expect(sent.commitment, reportCommitment(m.content!));
+      expect(m.senderDeviceId, rig.device.deviceId);
+      expect((m.generation, m.epoch), (1, 1));
+      expect(m.createdAtMicros, rig.clock.now().microsecondsSinceEpoch);
+      expect(rig.contexts.of(_c1).canReply, isFalse);
+      expect(rig.changed, contains(_c1));
+    });
+
+    test('a timeout resends the identical bytes once and then waits at '
+        'stage encrypted', () async {
+      await setUpJoined();
+      rig.server.sendScript.addAll([lost, lost]);
+      await send('l1');
+      expect(rig.server.sends, hasLength(2));
+      expect(rig.server.sends[0].same(rig.server.sends[1]), isTrue);
+      final row = (await outbox()).single;
+      expect(row.stage, OutboxStage.encrypted);
+      expect(row.idempotencyKey, rig.server.sends[0].key);
+      expect(row.ciphertext, rig.server.sends[0].ciphertext);
+      expect(row.lastError, isNull);
+      expect(
+        (await rig.sender.outgoing(_c1)).single.status,
+        OutgoingStatus5a.sending,
+      );
+      // The next trigger: one more attempt, byte for byte.
+      rig.server.sendScript.add(lost);
+      await drain();
+      expect(rig.server.sends, hasLength(3));
+      expect(rig.server.sends[2].same(rig.server.sends[0]), isTrue);
+      expect((await outbox()).single.stage, OutboxStage.encrypted);
+      await drain();
+      expect(rig.server.sends, hasLength(4));
+      expect(rig.server.sends[3].same(rig.server.sends[0]), isTrue);
+      expect(await outbox(), isEmpty);
+      expect(encrypts(), 1);
+      expect((await stored()).single.mine, isTrue);
+    });
+
+    test('an unknown outcome with a retry time is resent once, not before '
+        'that time, capped at 24 hours', () async {
+      await setUpJoined();
+      rig.server.sendScript.add((
+        error: const ScreeningUnavailableException(
+          'busy',
+          retryAfter: Duration(hours: 48),
+        ),
+        stored: false,
+      ));
+      await send('l1');
+      expect(rig.server.sends, hasLength(1));
+      expect(rig.scheduled.single.delay, kMaxServerRetryWait);
+      // A trigger before the server's time makes no call.
+      await drain();
+      expect(rig.server.sends, hasLength(1));
+      rig.clock.advance(kMaxServerRetryWait);
+      rig.scheduled.single.run();
+      await rig.sender.settled(_c1);
+      expect(rig.server.sends, hasLength(2));
+      expect(rig.server.sends[1].same(rig.server.sends[0]), isTrue);
+      expect(await outbox(), isEmpty);
+      expect(encrypts(), 1);
+      expect(rig.scheduled, hasLength(1));
+    });
+
+    test('after a restart a stage-encrypted row is resent byte for byte '
+        'with the same key', () async {
+      await setUpJoined();
+      rig.server.sendScript.addAll([lost, lost]);
+      await send('l1', 'first');
+      // A second message is still plain behind it.
+      rig.server.sendScript.add(lost);
+      await send('l2', 'second');
+      expect((await outbox()).map((r) => r.stage), [
+        OutboxStage.encrypted,
+        OutboxStage.plain,
+      ]);
+      final before = rig.server.sends.length;
+      await rig.restart();
+      final encryptsAtSend = <int>[];
+      rig.server.beforeSend = (_) async => encryptsAtSend.add(encrypts());
+      await drain();
+      final resent = rig.server.sends[before];
+      expect(resent.same(rig.server.sends[0]), isTrue);
+      // Resent before anything was encrypted in this run.
+      expect(encryptsAtSend.first, 1);
+      expect(rig.server.sends.last.key, isNot(resent.key));
+      expect(await outbox(), isEmpty);
+      expect(encrypts(), 2);
+      expect(
+        {for (final m in await stored()) textOf(m.content!)},
+        {'first', 'second'},
+      );
+    });
+
+    test('rows are sent in order and stop at a failed head row', () async {
+      await setUpJoined();
+      final release = Completer<void>();
+      final held = rig.locks.run(_c1, () => release.future);
+      for (final (id, text) in [
+        ('l1', 'one'),
+        ('l2', 'two'),
+        ('l3', 'three'),
+      ]) {
+        await rig.sender.enqueue(localId: id, conversationId: _c1, text: text);
+      }
+      // The second message is refused. (Each send a second later, so the
+      // stored messages sort by time.)
+      rig.server.beforeSend = (_) async {
+        rig.clock.advance(const Duration(seconds: 1));
+        if (rig.server.sends.length == 2) {
+          rig.server.sendScript.add((
+            error: const ValidationException('no'),
+            stored: false,
+          ));
+        }
+      };
+      release.complete();
+      await held;
+      await rig.sender.settled(_c1);
+      expect(rig.server.sends, hasLength(2));
+      expect([for (final m in await stored()) textOf(m.content!)], ['one']);
+      final left = await outbox();
+      expect(left.map((r) => r.localId), ['l2', 'l3']);
+      expect(left.map((r) => r.stage), [
+        OutboxStage.encrypted,
+        OutboxStage.plain,
+      ]);
+      // Nothing goes past the failed head row, whatever the trigger.
+      await drain();
+      expect(rig.server.sends, hasLength(2));
+      expect(encrypts(), 2);
+      await rig.sender.retry('l2');
+      await rig.sender.settled(_c1);
+      expect(rig.server.sends, hasLength(4));
+      expect(await outbox(), isEmpty);
+      final messages = await stored();
+      messages.sort((a, b) => a.sortKey.compareTo(b.sortKey));
+      expect(
+        [for (final m in messages) textOf(m.content!)],
+        ['one', 'two', 'three'],
+      );
+    });
+  });
+
+  group('STALE_EPOCH (M1)', () {
+    test('STALE_EPOCH after which catch-up advanced the pair returns the row '
+        'to plain and re-encrypts under a new key and a new expected '
+        'id', () async {
+      await setUpJoined();
+      // A commit lands while the first send is in flight; the re-encrypt
+      // that follows fails once, so the row can be seen back at plain.
+      rig.server.beforeSend = (_) async {
+        if (rig.server.sends.length != 1) return;
+        await bobSelfUpdate();
+        rig.device.engine.failNext['encrypt'] = const MlsException(
+          MlsErrorCode.internal,
+          'rig',
+        );
+      };
+      await send('l1', 'again');
+      final first = rig.server.sends.single;
+      expect(first.pair, const MlsPair(1, 1));
+      final plain = (await outbox()).single;
+      expect(plain.stage, OutboxStage.plain);
+      expect(plain.localId, 'l1');
+      expect((plain.generation, plain.epoch), (0, 0));
+      expect(plain.ciphertext, isEmpty);
+      expect(plain.reportCommitment, isEmpty);
+      expect(textOf(plain.content), 'again');
+      expect(plain.idempotencyKey, isNot(first.key));
+      expect(plain.idempotencyKey, matches(_keyShape));
+      expect(
+        plain.expectedMessageId,
+        expectedMessageId('user-a', plain.idempotencyKey),
+      );
+      expect(
+        plain.expectedMessageId,
+        isNot(expectedMessageId('user-a', first.key)),
+      );
+      await drain();
+      expect(rig.server.sends, hasLength(2));
+      final second = rig.server.sends[1];
+      expect(second.pair, const MlsPair(1, 2));
+      expect(second.key, isNot(first.key));
+      expect(second.ciphertext, isNot(first.ciphertext));
+      expect(await outbox(), isEmpty);
+      final m = (await stored()).single;
+      expect(m.messageId, expectedMessageId('user-a', second.key));
+      expect(textOf(m.content!), 'again');
+      expect((m.generation, m.epoch), (1, 2));
+    });
+
+    test('STALE_EPOCH with an unchanged pair keeps the bytes and never '
+        're-encrypts', () async {
+      await setUpJoined();
+      rig.server.sendScript.add((
+        error: const StaleEpochException('stale', generation: 1, epoch: 1),
+        stored: false,
+      ));
+      await send('l1');
+      expect(rig.server.sends, hasLength(1));
+      // Catch-up and the live pull ran first.
+      expect(rig.server.calls.last, isNot('sendEncrypted'));
+      final row = (await outbox()).single;
+      expect(row.stage, OutboxStage.encrypted);
+      expect(row.idempotencyKey, rig.server.sends[0].key);
+      expect(row.ciphertext, rig.server.sends[0].ciphertext);
+      expect(row.lastError, isNull);
+      expect(encrypts(), 1);
+      expect(
+        (await rig.sender.outgoing(_c1)).single.status,
+        OutgoingStatus5a.sending,
+      );
+      await drain();
+      expect(rig.server.sends, hasLength(2));
+      expect(rig.server.sends[1].same(rig.server.sends[0]), isTrue);
+      expect(await outbox(), isEmpty);
+      expect(encrypts(), 1);
+    });
+
+    test('STALE_EPOCH whose echo is found by the live pull completes the row '
+        'without re-encrypting', () async {
+      await setUpJoined();
+      // The server stored the message and answered STALE_EPOCH for it.
+      rig.server.sendScript.add((
+        error: const StaleEpochException('stale', generation: 1, epoch: 1),
+        stored: true,
+      ));
+      await send('l1', 'kept once');
+      expect(rig.server.sends, hasLength(1));
+      expect(await outbox(), isEmpty);
+      expect(encrypts(), 1);
+      final m = (await stored()).single;
+      expect(m.messageId, expectedMessageId('user-a', rig.server.sends[0].key));
+      expect(m.mine, isTrue);
+      expect(textOf(m.content!), 'kept once');
+      await drain();
+      expect(rig.server.sends, hasLength(1));
+    });
+
+    test('at most kStaleEpochRoundsPerDrain rounds in one drain', () async {
+      await setUpJoined();
+      expect(kStaleEpochRoundsPerDrain, 3);
+      // Every send meets a commit that landed just before it.
+      rig.server.beforeSend = (_) => bobSelfUpdate();
+      await send('l1');
+      expect(rig.server.sends, hasLength(kStaleEpochRoundsPerDrain));
+      expect(encrypts(), kStaleEpochRoundsPerDrain);
+      expect((await outbox()).single.stage, OutboxStage.plain);
+      expect(
+        (await rig.sender.outgoing(_c1)).single.waitingOn,
+        SendBlock.notSynced,
+      );
+      rig.server.beforeSend = null;
+      await drain();
+      expect(await outbox(), isEmpty);
+    });
+
+    test('only STALE_EPOCH re-encrypts: a refusal keeps the bytes', () async {
+      await setUpJoined();
+      final refusals = <(AppException, String)>[
+        (
+          const RateLimitedException('slow', retryAfter: Duration(seconds: 2)),
+          'RateLimitedException',
+        ),
+        (const ValidationException('bad'), 'ValidationException'),
+        (const FeatureDisabledException('off'), 'FeatureDisabledException'),
+        (const LimitReachedException('cap'), 'LimitReachedException'),
+        (const EmailNotVerifiedException('mail'), 'EmailNotVerifiedException'),
+        (const DegradedModeException('down'), 'DegradedModeException'),
+      ];
+      rig.server.sendScript.add((error: refusals[0].$1, stored: false));
+      await send('l1');
+      for (var i = 0; i < refusals.length; i++) {
+        final (error, name) = refusals[i];
+        expect(rig.server.sends, hasLength(i + 1));
+        final row = (await outbox()).single;
+        expect(row.stage, OutboxStage.encrypted);
+        expect(row.idempotencyKey, rig.server.sends[0].key);
+        expect(row.ciphertext, rig.server.sends[0].ciphertext);
+        expect(row.attempts, i + 1);
+        expect(row.lastError, name);
+        final out = (await rig.sender.outgoing(_c1)).single;
+        expect(out.status, OutgoingStatus5a.failed);
+        expect(out.error, same(error));
+        // A trigger does not resend a failed row; retry does, same bytes.
+        await drain();
+        expect(rig.server.sends, hasLength(i + 1));
+        if (i + 1 < refusals.length) {
+          rig.server.sendScript.add((error: refusals[i + 1].$1, stored: false));
+        }
+        await rig.sender.retry('l1');
+        await rig.sender.settled(_c1);
+        expect(rig.server.sends[i + 1].same(rig.server.sends[0]), isTrue);
+      }
+      expect(await outbox(), isEmpty);
+      expect(encrypts(), 1);
+    });
+
+    test('CANNOT_MESSAGE fails the row with the typed error and marks the '
+        'thread read-only', () async {
+      await setUpJoined();
+      rig.server.sendScript.add((
+        error: const CannotMessageException(),
+        stored: false,
+      ));
+      await send('l1');
+      final row = (await outbox()).single;
+      expect(row.stage, OutboxStage.encrypted);
+      expect(row.attempts, 1);
+      expect(row.lastError, 'CannotMessageException');
+      final out = (await rig.sender.outgoing(_c1)).single;
+      expect(out.status, OutgoingStatus5a.failed);
+      expect(out.error, isA<CannotMessageException>());
+      expect(out.retryable, isFalse);
+      expect(rig.contexts.of(_c1).canReply, isFalse);
+      // Read-only: a retry makes no call while the thread cannot be
+      // answered.
+      await rig.sender.retry('l1');
+      await rig.sender.settled(_c1);
+      expect(rig.server.sends, hasLength(1));
+      expect(encrypts(), 1);
+    });
+  });
+
+  group('an unaccepted incoming request (M3)', () {
+    test('no accept call while another gate holds the row', () async {
+      await setUpJoined(accepted: false, folder: Folder.FOLDER_REQUESTS);
+      rig.onAcceptForReply = acceptanceSteps;
+      await updateSync((s) => s.copyWith(epochMustAdvance: true));
+      await send('l1');
+      expect(rig.contexts.of(_c1).incomingRequest, isTrue);
+      expect(rig.contexts.of(_c1).syncedSinceStart, isTrue);
+      expect(rig.acceptCalls, isEmpty);
+      expect(encrypts(), 0);
+      // The thread cannot be answered: no accept either.
+      await updateSync((s) => s.copyWith(epochMustAdvance: false));
+      rig.contexts.note(
+        headerRow(folder: Folder.FOLDER_REQUESTS, canReply: false),
+      );
+      await drain();
+      expect(rig.acceptCalls, isEmpty);
+      expect(encrypts(), 0);
+      // With every other gate open the reply accepts and goes out.
+      rig.contexts.note(headerRow(folder: Folder.FOLDER_REQUESTS));
+      await drain();
+      expect(rig.acceptCalls, [_c1]);
+      expect(rig.server.sends, hasLength(1));
+    });
+
+    test('no accept call while the direction is unknown', () async {
+      await setUpJoined(accepted: false, folder: null);
+      rig.onAcceptForReply = acceptanceSteps;
+      await send('l1');
+      expect(rig.contexts.of(_c1).incomingRequest, isNull);
+      expect(rig.contexts.of(_c1).syncedSinceStart, isTrue);
+      expect(rig.acceptCalls, isEmpty);
+      expect(encrypts(), 0);
+      expect(rig.server.sends, isEmpty);
+      expect((await outbox()).single.stage, OutboxStage.plain);
+    });
+
+    test('a failed accept leaves requestAccepted false', () async {
+      await setUpJoined(accepted: false, folder: Folder.FOLDER_REQUESTS);
+      for (final Object failure in [
+        const NotFoundException('gone'),
+        const NetworkException('offline'),
+        const CannotMessageException(),
+      ]) {
+        rig.acceptCalls.clear();
+        rig.onAcceptForReply = (_) async => throw failure;
+        if ((await outbox()).isEmpty) {
+          await send('l1');
+        } else {
+          await drain();
+        }
+        // One call per drain, and nothing changed.
+        expect(rig.acceptCalls, [_c1]);
+        expect((await sync()).requestAccepted, isFalse);
+        expect(rig.contexts.of(_c1).incomingRequest, isTrue);
+        expect(encrypts(), 0);
+        expect(rig.server.sends, isEmpty);
+        expect((await outbox()).single.stage, OutboxStage.plain);
+      }
+    });
+
+    test('an incoming unaccepted request whose reply can otherwise go out '
+        'accepts as the last gate, then runs the acceptance steps before the '
+        'first reply is encrypted', () async {
+      await setUpJoined(accepted: false, folder: Folder.FOLDER_REQUESTS);
+      final events = <String>[];
+      rig.onAcceptForReply = (id) async {
+        // Synced first: catch-up and the live pull came before the accept.
+        events.add(
+          'accept synced=${rig.contexts.of(id).syncedSinceStart} '
+          'encrypts=${encrypts()}',
+        );
+        await acceptanceSteps(id);
+        events.add('steps done encrypts=${encrypts()}');
+      };
+      rig.server.beforeSend = (_) async =>
+          events.add('send encrypts=${encrypts()}');
+      await send('l1');
+      expect(events, [
+        'accept synced=true encrypts=0',
+        'steps done encrypts=0',
+        'send encrypts=1',
+      ]);
+      expect(rig.acceptCalls, [_c1]);
+      expect(await outbox(), isEmpty);
+      // An accept that reports success without accepting sends nothing.
+      await updateSync((s) => s.copyWith(requestAccepted: false));
+      rig.contexts.of(_c1).incomingRequest = true;
+      rig.onAcceptForReply = (_) async {};
+      await send('l2');
+      expect(rig.acceptCalls, [_c1, _c1]);
+      expect(rig.server.sends, hasLength(1));
+      expect(encrypts(), 1);
+    });
+
+    test('drain that needs catch-up and acceptance completes without taking '
+        'the conversation lock twice', () async {
+      final locks = _ProbeLocks();
+      await setUpJoined(
+        accepted: false,
+        folder: Folder.FOLDER_REQUESTS,
+        locks: locks,
+      );
+      // The server moved on: the drain needs a real catch-up.
+      await bobSelfUpdate();
+      var lockedCatchUps = 0;
+      rig.onAcceptForReply = (id) async {
+        // Task 9's steps run under the drain's lock and use the locked
+        // entries (reconcile, catch-up).
+        expect(locks.isHeld(id), isTrue);
+        await acceptanceSteps(id);
+        await rig.crypto.catchUpLocked(id, priority: BudgetPriority.user);
+        lockedCatchUps++;
+      };
+      locks.acquired = 0;
+      await send('l1');
+      expect(locks.reentered, 0);
+      expect(locks.acquired, greaterThan(1));
+      expect(lockedCatchUps, 1);
+      expect(rig.acceptCalls, [_c1]);
+      expect(rig.server.calls, contains('listConversationCommits'));
+      expect(rig.server.calls, contains('listMlsMessages'));
+      expect(rig.server.sends.single.pair, const MlsPair(1, 2));
+      expect(await outbox(), isEmpty);
+    });
+  });
+
+  group('discard and outgoing', () {
+    test('discard removes an unsent row and refuses one the server '
+        'accepted', () async {
+      await setUpJoined();
+      // A plain row was never sent: it goes at once, with no network call.
+      offline();
+      await send('l1');
+      rig.server.calls.clear();
+      await rig.sender.discard('l1');
+      expect(await outbox(), isEmpty);
+      expect(rig.server.calls, isEmpty);
+      rig.server.onCall = null;
+
+      // An unknown outcome the server did store: the live pull finds the
+      // echo, the message is kept and nothing is discarded.
+      const kept = (error: NetworkException('timed out'), stored: true);
+      rig.server.sendScript.addAll([kept, kept]);
+      await send('l2', 'accepted');
+      expect((await outbox()).single.stage, OutboxStage.encrypted);
+      await rig.sender.discard('l2');
+      expect(await outbox(), isEmpty);
+      expect(
+        [for (final m in await stored()) textOf(m.content!)],
+        ['accepted'],
+      );
+
+      // An unknown outcome the server did not store: one live pull found no
+      // echo, the row goes.
+      rig.server.sendScript.addAll([lost, lost]);
+      await send('l3', 'never arrived');
+      final row = (await outbox()).single;
+      expect(row.stage, OutboxStage.encrypted);
+      // While the pull cannot complete the row stays.
+      offline();
+      await rig.sender.discard('l3');
+      expect((await outbox()).single.idempotencyKey, row.idempotencyKey);
+      rig.server.onCall = null;
+      await rig.sender.discard('l3');
+      expect(await outbox(), isEmpty);
+      expect(
+        await rig.device.vault.hasMessage(_c1, row.expectedMessageId),
+        isFalse,
+      );
+      expect(await stored(), hasLength(1));
+      // An unknown local id is a no-op.
+      await rig.sender.discard('nope');
+      await rig.sender.retry('nope');
+    });
+
+    test('discard keeps a row whose send was in flight during its live '
+        'pull', () async {
+      await setUpJoined();
+      rig.server.sendScript.addAll([lost, lost]);
+      await send('l1', 'in flight');
+      // The next send is in flight (the lock is held) while discard pulls;
+      // the server stores the message and the answer is lost.
+      final inFlight = Completer<void>();
+      final go = Completer<void>();
+      rig.server.beforeSend = (_) async {
+        inFlight.complete();
+        await go.future;
+      };
+      rig.server.sendScript.add((
+        error: const NetworkException('timed out'),
+        stored: true,
+      ));
+      final draining = drain();
+      await inFlight.future;
+      rig.server.beforeSend = null;
+      // The pull's listing is answered first; only then is the send stored.
+      rig.server.rewriteLive = (real) {
+        if (!go.isCompleted) go.complete();
+        return real;
+      };
+      final discarding = rig.sender.discard('l1');
+      await draining;
+      await discarding;
+      // Not discarded: the pull began before that send ended.
+      expect((await outbox()).single.stage, OutboxStage.encrypted);
+      // Asked again, the pull finds the echo and the message is kept.
+      await rig.sender.discard('l1');
+      expect(await outbox(), isEmpty);
+      expect(
+        [for (final m in await stored()) textOf(m.content!)],
+        ['in flight'],
+      );
+    });
+
+    test('outgoing reports waiting with its reason, sending and '
+        'failed', () async {
+      await setUpJoined();
+      expect(await rig.sender.outgoing(_c1), isEmpty);
+      offline();
+      await send('l1', 'shown');
+      var out = (await rig.sender.outgoing(_c1)).single;
+      expect(out.localId, 'l1');
+      expect(out.conversationId, _c1);
+      expect(textOf(out.content), 'shown');
+      expect(out.createdAt, rig.clock.now());
+      expect(out.status, OutgoingStatus5a.waiting);
+      expect(out.waitingOn, SendBlock.notSynced);
+      expect(out.error, isNull);
+      expect(out.retryable, isFalse);
+      expect(out.tryTomorrow, isFalse);
+
+      rig.server.onCall = null;
+      rig.server.sendScript.addAll([lost, lost]);
+      await drain();
+      out = (await rig.sender.outgoing(_c1)).single;
+      expect(out.status, OutgoingStatus5a.sending);
+      expect(out.waitingOn, SendBlock.none);
+      expect(out.error, isNull);
+
+      rig.server.sendScript.add((
+        error: const RateLimitedException(
+          'cap',
+          limitName: 'messaging_send_daily',
+        ),
+        stored: false,
+      ));
+      await drain();
+      out = (await rig.sender.outgoing(_c1)).single;
+      expect(out.status, OutgoingStatus5a.failed);
+      expect(out.error, isA<RateLimitedException>());
+      expect(out.retryable, isTrue);
+      expect(out.tryTomorrow, isTrue);
+      // After a restart the row is still failed; the typed error was in
+      // memory only.
+      await rig.restart();
+      out = (await rig.sender.outgoing(_c1)).single;
+      expect(out.status, OutgoingStatus5a.failed);
+      expect(out.error, isNull);
+      expect(out.retryable, isTrue);
+      await drain();
+      expect(rig.server.calls.where((c) => c == 'sendEncrypted'), hasLength(3));
+    });
+  });
+}

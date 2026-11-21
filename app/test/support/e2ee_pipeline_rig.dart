@@ -21,6 +21,7 @@ import 'package:dzeroth/features/messages/domain/e2ee/daily_ledger.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/message_receiver.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/device_directory.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/e2ee_types.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/encrypted_sender.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/known_conversations.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/sync_budget.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
@@ -548,6 +549,20 @@ class RigServer {
     return [for (final s in list) s.message.deepCopy()];
   }
 
+  // --- sends (SendMessage with a ciphertext) -------------------------------
+
+  /// Every `sendEncrypted` call, in order (a scripted or refused one too).
+  final List<RigSend> sends = [];
+
+  /// The answers of the next `sendEncrypted` calls, in order: `error` is
+  /// thrown instead of an answer; with `stored` the message is stored first
+  /// (an error answered for a message the server kept, or a lost answer).
+  final List<({Object error, bool stored})> sendScript = [];
+
+  /// Runs at the start of every `sendEncrypted` call, after it is recorded
+  /// (a race: something happens while the request is in flight).
+  Future<void> Function(RigSend send)? beforeSend;
+
   /// A repository for the user [user] (its commits come back `from_self`).
   RigMessaging viewFor(String user) => RigMessaging(this, user);
 
@@ -568,6 +583,31 @@ const Duration _kResumeTrail = Duration(seconds: 60);
 int _cmpPos((int, String) a, (int, String) b) {
   final c = a.$1.compareTo(b.$1);
   return c != 0 ? c : a.$2.compareTo(b.$2);
+}
+
+/// One `sendEncrypted` request as the rig server received it.
+class RigSend {
+  RigSend({
+    required this.key,
+    required this.conversationId,
+    required this.ciphertext,
+    required this.pair,
+    required this.commitment,
+  });
+
+  final String key;
+  final String? conversationId;
+  final Uint8List ciphertext;
+  final MlsPair pair;
+  final Uint8List commitment;
+
+  /// Byte for byte the same request.
+  bool same(RigSend other) =>
+      key == other.key &&
+      conversationId == other.conversationId &&
+      pair == other.pair &&
+      rigEq(ciphertext, other.ciphertext) &&
+      rigEq(commitment, other.commitment);
 }
 
 class _Stored {
@@ -781,6 +821,72 @@ class RigMessaging implements MessagingRepository {
     );
   }
 
+  /// The contract for a send addressed by conversation id: the message id
+  /// is `expectedMessageId(user, key)`; a key seen before answers with the
+  /// stored message; a pair that is not the conversation's current one is
+  /// STALE_EPOCH with the current pair. [RigServer.sendScript] replaces the
+  /// answer of a call.
+  @override
+  Future<pb.SendMessageResponse> sendEncrypted({
+    required String idempotencyKey,
+    String? conversationId,
+    String? recipientUserId,
+    required Uint8List ciphertext,
+    required MlsPair pair,
+    required Uint8List reportCommitment,
+    Uint8List? mlsInit,
+  }) async {
+    await _server._enter('sendEncrypted');
+    final send = RigSend(
+      key: idempotencyKey,
+      conversationId: conversationId,
+      ciphertext: Uint8List.fromList(ciphertext),
+      pair: pair,
+      commitment: Uint8List.fromList(reportCommitment),
+    );
+    _server.sends.add(send);
+    await _server.beforeSend?.call(send);
+    if (conversationId == null) {
+      throw UnimplementedError('rig: a send addressed by recipient');
+    }
+    final scripted = _server.sendScript.isEmpty
+        ? null
+        : _server.sendScript.removeAt(0);
+    if (scripted != null && !scripted.stored) throw scripted.error;
+    final id = expectedMessageId(user, idempotencyKey);
+    pb.Message? stored;
+    for (final s in _server._messages[conversationId] ?? const <_Stored>[]) {
+      if (s.message.id == id) stored = s.message.deepCopy();
+    }
+    if (stored == null) {
+      final current = _server.current(conversationId);
+      if (pair != current && scripted == null) {
+        throw StaleEpochException(
+          'stale',
+          generation: current.generation,
+          epoch: current.epoch,
+        );
+      }
+      stored = pb.Message(
+        id: id,
+        conversationId: conversationId,
+        fromSelf: true,
+        state: MessageState.MESSAGE_STATE_VISIBLE,
+        createdAt: ts.Timestamp.fromDateTime(_server.clock.now()),
+        ciphertext: ciphertext,
+        mlsGeneration: Int64(pair.generation),
+        mlsEpoch: Int64(pair.epoch),
+        reportCommitment: reportCommitment,
+      );
+      _server.addMessage(stored);
+    }
+    if (scripted != null) throw scripted.error;
+    return pb.SendMessageResponse(
+      message: stored,
+      conversation: _server.rows[conversationId],
+    );
+  }
+
   /// RATE_LIMITED hold of the list reads (the rig's [RigServer.readHold]).
   @override
   RateLimitedException? rateLimitedFor() => _server.readHold;
@@ -975,6 +1081,80 @@ class _RigVaultSession extends VaultSession {
   }
 }
 
+/// The real vault with one hook: [confirm] replaces the answer of
+/// `confirmStored` (the real answer is passed in). Everything else is the
+/// real vault's, unchanged.
+class _RigVault implements SecureVault {
+  _RigVault(this._inner, this._confirm);
+
+  final SecureVault _inner;
+  final Future<bool> Function(String key, Future<bool> Function() real)
+  _confirm;
+
+  @override
+  Future<bool> confirmStored(String idempotencyKey) =>
+      _confirm(idempotencyKey, () => _inner.confirmStored(idempotencyKey));
+
+  @override
+  String get uid => _inner.uid;
+  @override
+  String get storageName => _inner.storageName;
+  @override
+  bool get createdThisOpen => _inner.createdThisOpen;
+  @override
+  Future<T> transaction<T>(Future<T> Function(VaultTx tx) body) =>
+      _inner.transaction(body);
+  @override
+  Future<Uint8List?> deviceId() => _inner.deviceId();
+  @override
+  Future<Uint8List?> deviceState() => _inner.deviceState();
+  @override
+  Future<GroupRecord?> group(String conversationId, int generation) =>
+      _inner.group(conversationId, generation);
+  @override
+  Future<List<GroupRecord>> groups(String conversationId) =>
+      _inner.groups(conversationId);
+  @override
+  Future<List<String>> groupConversationIds() => _inner.groupConversationIds();
+  @override
+  Future<ConversationRecord?> conversation(String conversationId) =>
+      _inner.conversation(conversationId);
+  @override
+  Future<List<MemberRecord>> members(String conversationId) =>
+      _inner.members(conversationId);
+  @override
+  Future<bool> hasOutboxExpecting(String expectedMessageId) =>
+      _inner.hasOutboxExpecting(expectedMessageId);
+  @override
+  Future<bool> hasSent(String conversationId, MlsPair pair, String digestHex) =>
+      _inner.hasSent(conversationId, pair, digestHex);
+  @override
+  Future<List<StoredMessage>> messages(
+    String conversationId, {
+    int limit = 50,
+    String? beforeSortKey,
+  }) => _inner.messages(
+    conversationId,
+    limit: limit,
+    beforeSortKey: beforeSortKey,
+  );
+  @override
+  Future<StoredMessage?> message(String conversationId, String messageId) =>
+      _inner.message(conversationId, messageId);
+  @override
+  Future<bool> hasMessage(String conversationId, String messageId) =>
+      _inner.hasMessage(conversationId, messageId);
+  @override
+  Future<OutboxRead> outbox({String? conversationId}) =>
+      _inner.outbox(conversationId: conversationId);
+  @override
+  Future<Uint8List?> setting(String key) => _inner.setting(key);
+  @override
+  Future<void> wipe() => _inner.wipe();
+  @override
+  Future<void> close() => _inner.close();
+}
+
 /// One user device of the rig: a real vault in a temp file, an engine, a
 /// session that is ready.
 class RigDevice {
@@ -1025,6 +1205,20 @@ class RigDevice {
   /// How many writes [failNextWriteAsked] refused.
   int writesRefused = 0;
 
+  /// Replaces the answer of the vault's `confirmStored` (`real` asks the
+  /// real vault); null: the real answer.
+  Future<bool> Function(String key, Future<bool> Function() real)?
+  onConfirmStored;
+
+  /// The key of every `confirmStored` call, in order.
+  final List<String> confirmStoredCalls = [];
+
+  Future<bool> _confirmStored(String key, Future<bool> Function() real) {
+    confirmStoredCalls.add(key);
+    final hook = onConfirmStored;
+    return hook == null ? real() : hook(key, real);
+  }
+
   bool _refuseWrite() {
     if (!failNextWriteAsked) return false;
     failNextWriteAsked = false;
@@ -1071,12 +1265,16 @@ class RigDevice {
       onWriteAsked: () => onWriteAsked?.call(),
       refuseWrite: _refuseWrite,
       openCipher: (u, {required create}) async => cipher,
-      openVault: ({
-        required uid,
-        required cipher,
-        String? expectedStorage,
-        required create,
-      }) => openVaultOnDatabase(_db, uid: uid, cipher: cipher),
+      openVault:
+          ({
+            required uid,
+            required cipher,
+            String? expectedStorage,
+            required create,
+          }) async => _RigVault(
+            await openVaultOnDatabase(_db, uid: uid, cipher: cipher),
+            _confirmStored,
+          ),
       wipeVaultFile: ({required alias, String? expectedStorage}) async {},
       deleteVaultKey: ({required alias}) async {},
       createOwner: () => owner = FakeVaultOwner(world),
@@ -1266,10 +1464,29 @@ class RigCrypto {
   final List<String> changed = [];
   final List<Object> unexpected = [];
 
-  /// [messaging] replaces the repository view of user `user-a`.
+  /// The sender (Task 7), over this rig's receiver and crypto.
+  late EncryptedSender sender;
+
+  /// Task 9's acceptance (the sender's `acceptForReplyLocked` seam): every
+  /// call is recorded in [acceptCalls]; with no script the call fails.
+  Future<void> Function(String conversationId)? onAcceptForReply;
+  final List<String> acceptCalls = [];
+
+  /// Task 12's "removed elsewhere" fact, as the sender reads it.
+  bool removedElsewhere = false;
+
+  /// What the sender asked to run later (its `schedule` seam): never run by
+  /// the rig; a test runs an entry itself.
+  final List<({Duration delay, void Function() run})> scheduled = [];
+
+  /// [messaging] replaces the repository view of user `user-a`; [locks]
+  /// the first run's conversation locks (a test that watches them);
+  /// [engine] the device's engine.
   static Future<RigCrypto> create({
     RigMessaging Function(RigServer server)? messaging,
     int epochPageSize = kEpochPageSize,
+    ConversationLocks? locks,
+    RigEngine? engine,
   }) async {
     final clock = RigClock();
     final rig = RigCrypto._(
@@ -1277,7 +1494,12 @@ class RigCrypto {
       clock,
       RigServer(clock),
     )..epochPageSize = epochPageSize;
-    rig.device = await RigDevice.create(dir: rig.dir, clock: clock);
+    if (locks != null) rig.locks = locks;
+    rig.device = await RigDevice.create(
+      dir: rig.dir,
+      clock: clock,
+      engine: engine,
+    );
     rig.messaging = messaging == null
         ? rig.server.viewFor('user-a')
         : messaging(rig.server);
@@ -1344,6 +1566,26 @@ class RigCrypto {
       epochPageSize: epochPageSize,
     );
     crypto.sink = receiver;
+    sender = EncryptedSender(
+      crypto: crypto,
+      receiver: receiver,
+      session: device.session,
+      engine: () => device.engine,
+      messaging: messaging,
+      locks: locks,
+      contexts: contexts,
+      now: clock.now,
+      onChanged: changed.add,
+      acceptForReplyLocked: (id) async {
+        acceptCalls.add(id);
+        final accept = onAcceptForReply;
+        if (accept == null) throw StateError('rig: no acceptance scripted');
+        await accept(id);
+      },
+      removedElsewhere: () => removedElsewhere,
+      schedule: (delay, run) => scheduled.add((delay: delay, run: run)),
+      onUnexpectedError: (e, _) => unexpected.add(e),
+    );
   }
 
   /// An app restart: the vault file is opened again; memory starts again.
