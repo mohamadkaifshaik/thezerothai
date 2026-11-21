@@ -921,11 +921,14 @@ class RigMessaging implements MessagingRepository {
       throw UnimplementedError('${invocation.memberName}');
 }
 
-/// The real [VaultSession] with one observer: [onWriteAsked] runs when
-/// `runWrite` is called, then the real `runWrite` does everything else.
+/// The real [VaultSession] with one observer and one strict hook:
+/// [onWriteAsked] runs when `runWrite` is called; then, when [refuseWrite]
+/// answers true, the write fails BEFORE its body runs (a write that never
+/// starts); otherwise the real `runWrite` does everything else.
 class _RigVaultSession extends VaultSession {
   _RigVaultSession({
     required this.onWriteAsked,
+    required this.refuseWrite,
     required super.openCipher,
     required super.openVault,
     required super.wipeVaultFile,
@@ -939,10 +942,12 @@ class _RigVaultSession extends VaultSession {
   });
 
   final void Function() onWriteAsked;
+  final bool Function() refuseWrite;
 
   @override
   Future<T> runWrite<T>(Future<T> Function(SecureVault vault) body) {
     onWriteAsked();
+    if (refuseWrite()) throw StateError('rig: this write was refused');
     return super.runWrite(body);
   }
 }
@@ -988,6 +993,22 @@ class RigDevice {
   /// the write itself is the real session's, unchanged.
   void Function()? onWriteAsked;
 
+  /// Strict hook: when true, the NEXT `session.runWrite` asked for fails
+  /// before its body runs (a [StateError], as a write that never starts),
+  /// once; the flag is cleared and [writesRefused] counts it. Every other
+  /// write is the real session's.
+  bool failNextWriteAsked = false;
+
+  /// How many writes [failNextWriteAsked] refused.
+  int writesRefused = 0;
+
+  bool _refuseWrite() {
+    if (!failNextWriteAsked) return false;
+    failNextWriteAsked = false;
+    writesRefused++;
+    return true;
+  }
+
   Uint8List get deviceId => rigBytes(deviceIdString);
 
   /// The signature key of this device (the fake derives it from the id).
@@ -1025,6 +1046,7 @@ class RigDevice {
     cipher = FakeVaultCipher();
     session = _RigVaultSession(
       onWriteAsked: () => onWriteAsked?.call(),
+      refuseWrite: _refuseWrite,
       openCipher: (u, {required create}) async => cipher,
       openVault: ({
         required uid,

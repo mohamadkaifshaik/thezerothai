@@ -4453,6 +4453,57 @@ void main() {
       expect(processedCount(m2.ciphertext), 2);
     });
 
+    test('an uncounted group strike writes nothing, whatever its '
+        'kind', () async {
+      await setUpJoined();
+      // The walks' own records are written first (the since token is
+      // stored, the reconcile entry disarmed), so that the dump shows only
+      // what a strike writes.
+      await prime();
+      await putDeferred(
+        DeferredRecord([
+          for (var n = 101; n <= 100 + kDeferredMax; n++) heldItem(n),
+        ]),
+      );
+      final m1 = await say(bobGroup(), 1, at: seconds(1));
+      // A counted strike of the describe-failed kind.
+      final state = await groupState();
+      engine().failState[RigEngine.key(state)] = internal;
+      final t1 = rig.clock.now();
+      await rig.receiver.pullLive(_c1);
+      var gf = (await receiveRecord()).gf!;
+      expect(
+        (gf.n, gf.kind, gf.at),
+        (1, GroupFailureKind.describeFailed, t1.microsecondsSinceEpoch),
+      );
+
+      // Less than a minute later, a strike of each kind: `describe` fails
+      // again (the same kind), then `describe` answers while the record is
+      // full with no witness (the full-record kind). Neither is counted,
+      // and the pass writes NOTHING: the vault is byte-identical.
+      for (final describeFails in [true, false]) {
+        if (!describeFails) {
+          engine().failState.clear();
+          failAlways(m1, internal);
+        }
+        resume();
+        rig.clock.advance(seconds(20));
+        final attempts = processedCount(m1.ciphertext);
+        final before = await rig.dump();
+        final out = await rig.receiver.pullLive(_c1);
+        expect(out.kind, ReceiveOutcomeKind.stopped);
+        expect(out.until, rig.clock.now().add(kEngineBackoff));
+        expect(processedCount(m1.ciphertext), attempts + 1);
+        expect(await rig.dump(), before);
+      }
+      gf = (await receiveRecord()).gf!;
+      expect(
+        (gf.n, gf.kind, gf.at),
+        (1, GroupFailureKind.describeFailed, t1.microsecondsSinceEpoch),
+      );
+      expect(await row(_mid(1)), isNull);
+    });
+
     test('two full-record strikes then one describe failure do not break the '
         'group', () async {
       await setUpJoined();
@@ -6274,30 +6325,22 @@ void main() {
       // for after it was listed (the one for its tombstones) fails before
       // its body runs.
       var listed = false;
-      var refuse = false;
-      var refusals = 0;
       rig.server.rewriteLive = (r) {
-        if (!listed) refuse = true;
+        // The rig's strict hook: the next write asked for never starts.
+        if (!listed) rig.device.failNextWriteAsked = true;
         listed = true;
         return r..gapPageToken = 'gap';
       };
       rig.server.rewriteEpoch = (r) =>
           r..messages.removeWhere((m) => m.id == _mid(1));
-      rig.device.onWriteAsked = () {
-        if (!refuse) return;
-        refuse = false;
-        refusals++;
-        throw StateError('refused');
-      };
 
       await rig.receiver.pullLive(_c1);
-      rig.device.onWriteAsked = null;
 
       // The probe was answered with the stored token, so the due retry was
       // allowed: only the note keeps the stored ciphertext from the engine
       // (it would decrypt, and a removed message would be stored as
       // visible).
-      expect(refusals, 1);
+      expect(rig.device.writesRefused, 1);
       expect(
         rig.contexts.of(_c1).tombstoned[_mid(1)],
         StoredMessageState.removed,
@@ -6305,6 +6348,30 @@ void main() {
       expect(processedCount(m1.ciphertext), 1);
       expect((await row(_mid(1)))!.state, StoredMessageState.removed);
       expect(await deferredIds(), isEmpty);
+    });
+
+    test('a tombstone on the page of a probe with no since token is noted for '
+        'the run even when the write that arms the reconcile entry never '
+        'starts', () async {
+      await setUpJoined();
+      await say(bobGroup(), 1);
+      rig.server.tombstone(_c1, _mid(1), MessageState.MESSAGE_STATE_REMOVED);
+      var listed = false;
+      rig.server.rewriteLive = (r) {
+        // The first write asked for after the page was listed is the one
+        // that arms the entry.
+        if (!listed) rig.device.failNextWriteAsked = true;
+        listed = true;
+        return r;
+      };
+
+      await rig.receiver.pullLive(_c1);
+
+      expect(rig.device.writesRefused, 1);
+      expect(
+        rig.contexts.of(_c1).tombstoned[_mid(1)],
+        StoredMessageState.removed,
+      );
     });
 
     test('a tombstone for an id that is neither stored nor deferred writes '

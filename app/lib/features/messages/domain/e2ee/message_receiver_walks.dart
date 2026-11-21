@@ -487,7 +487,13 @@ extension _Walks on MessageReceiver {
       }
       if (token.isEmpty) {
         // §8.2: the anchor and the armed reconcile entry (its listing is
-        // step 2's); the page is not processed.
+        // step 2's); the page is not processed. Its tombstones are
+        // remembered for the run BEFORE the arming write is asked for: when
+        // that write never starts, nothing below runs.
+        _tombstoneStates(
+          id,
+          page.messages,
+        ).forEach((mid, state) => _noteTombstone(context, mid, state));
         await _armLocked(pass, id, since);
         await _tombstonesSeenLocked(pass, id, page.messages);
         context.endToken = since.isEmpty
