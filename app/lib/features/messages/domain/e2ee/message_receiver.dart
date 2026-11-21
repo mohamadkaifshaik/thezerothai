@@ -1,4 +1,5 @@
 import 'dart:collection';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:fixnum/fixnum.dart';
@@ -17,11 +18,13 @@ import 'conversation_context.dart';
 import 'conversation_crypto.dart';
 import 'conversation_locks.dart';
 import 'daily_ledger.dart';
+import 'deferred_record.dart';
 import 'e2ee_types.dart';
 import 'message_content_codec.dart';
 import 'receive_record.dart';
 import 'sync_budget.dart';
 
+part 'message_receiver_failures.dart';
 part 'message_receiver_sink.dart';
 part 'message_receiver_walks.dart';
 
@@ -149,6 +152,7 @@ class MessageReceiver implements EpochMessageSink {
        _onChanged = onChanged,
        ledger = ledger,
        _records = ReceiveRecords(onUnexpectedError: onUnexpectedError),
+       _deferred = DeferredRecords(onUnexpectedError: onUnexpectedError),
        _onUnexpectedError = onUnexpectedError;
 
   /// The ordered walks' page size ([kEpochPageSize] in production; tests
@@ -188,6 +192,52 @@ class MessageReceiver implements EpochMessageSink {
   /// Own-leaf results without `from_self` (C3), counted once per message per
   /// run; never shown.
   int get forgeriesSkipped => _forgeries;
+
+  // --- the failure rule (§7; memory of this run) ---------------------------
+
+  final DeferredRecords _deferred;
+
+  /// Every engine success of the receiver this run, in any conversation,
+  /// probes included (§7.1): the device-level witness.
+  int _okSeq = 0;
+
+  /// The run id (§7.3): 64 random bits as 16 hex, new at every
+  /// [onAppResumed]. A deferred item is attempted at most once per run.
+  String _runId = _newRunId();
+
+  /// A crash-class retry ran this run (§7.4: at most one, device-wide).
+  bool _crashRetryUsed = false;
+
+  /// The engine answered `deadline` this run: no crash-class retry after.
+  bool _deadlineThisRun = false;
+
+  int _deferredTotal = 0;
+  int _evictedTotal = 0;
+  int _breakerOpen = 0;
+
+  /// Counters of this run (never shown): messages deferred, deferred
+  /// messages evicted to a row by an overflow, and passes the device-level
+  /// breaker stopped.
+  int get deferredCount => _deferredTotal;
+  int get evictedCount => _evictedTotal;
+  int get breakerOpened => _breakerOpen;
+
+  /// The app resumed (call right after the engine's own `onAppResumed`): a
+  /// new run. Each deferred item may be attempted once more, and one
+  /// crash-class retry is allowed again.
+  void onAppResumed() {
+    _runId = _newRunId();
+    _crashRetryUsed = false;
+    _deadlineThisRun = false;
+  }
+
+  static String _newRunId() {
+    final random = Random.secure();
+    return [
+      for (var i = 0; i < 8; i++)
+        random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ].join();
+  }
 
   // -------------------------------------------------------------------------
   // The pass
@@ -455,8 +505,11 @@ class MessageReceiver implements EpochMessageSink {
     final at = _createdMicros(m);
     final ciphertext = Uint8List.fromList(m.ciphertext);
     final rowlessKey = '${pass.uid}|$id|$mid';
+    final context = _contexts.of(id);
+    // An item was deferred by a transaction of its own (the pass stops).
+    var notify = false;
     try {
-      return await _session.runWrite((v) async {
+      final step = await _session.runWrite<_Step>((v) async {
         pass.check(v);
         final stored = await v.conversation(id);
         final sync = stored?.sync ?? const ConversationSync();
@@ -509,33 +562,31 @@ class MessageReceiver implements EpochMessageSink {
         }
         // 3. Stored (any state): no engine call.
         if (await v.hasMessage(id, mid)) return _Step.skipped;
+        // Deferred (§7.3): its retries own it; a walk never gives it to the
+        // engine twice. The cursor passes it.
+        if ((await _deferredLookup(v, id)).of(mid) != null) {
+          return write.commit();
+        }
         // Met before this run without a row (forgery, own message sent).
         if (_rowless.contains(rowlessKey)) return _Step.skipped;
 
         // 4. The echo of an outbox row: the same id AND the same bytes.
-        if (ciphertext.isNotEmpty && await v.hasOutboxExpecting(mid)) {
-          for (final item in (await v.outbox()).items) {
-            if (item.expectedMessageId != mid ||
-                item.stage != OutboxStage.encrypted ||
-                (item.conversationId != null && item.conversationId != id) ||
-                !_sameBytes(item.ciphertext, ciphertext)) {
-              continue;
-            }
-            return write.commit(
-              row: StoredMessage(
-                conversationId: id,
-                messageId: mid,
-                createdAtMicros: at,
-                mine: true,
-                state: StoredMessageState.visible,
-                generation: item.generation,
-                epoch: item.epoch,
-                content: item.content,
-                senderDeviceId: pass.deviceId,
-              ),
-              deleteOutbox: item.idempotencyKey,
-            );
-          }
+        final echo = await _echoOf(v, id, mid, ciphertext);
+        if (echo != null) {
+          return write.commit(
+            row: StoredMessage(
+              conversationId: id,
+              messageId: mid,
+              createdAtMicros: at,
+              mine: true,
+              state: StoredMessageState.visible,
+              generation: echo.generation,
+              epoch: echo.epoch,
+              content: echo.content,
+              senderDeviceId: pass.deviceId,
+            ),
+            deleteOutbox: echo.idempotencyKey,
+          );
         }
         // M2: this device's own send (its digest is in the sent log): never
         // given to the engine; no row.
@@ -583,92 +634,56 @@ class MessageReceiver implements EpochMessageSink {
         // 7. The engine, and ONE transaction with its result.
         final deviceState = await v.deviceState();
         if (deviceState == null) return _Step.stop;
-        final ProcessResult result;
-        try {
-          result = await _engine().process(
-            deviceState,
-            group.state,
-            ciphertext,
+        final commitment = Uint8List.fromList(m.reportCommitment);
+        final a = await _attempt(
+          v,
+          pass,
+          id,
+          group,
+          deviceState,
+          mid: mid,
+          at: at,
+          ciphertext: ciphertext,
+          commitment: commitment,
+          fromSelf: m.fromSelf,
+        );
+        final code = a.code;
+        if (code != null) {
+          // §7.2: `internal`, `deadline` or `unavailable`.
+          return _firstSightFailure(
+            v,
+            id,
+            write,
+            group,
+            code,
+            mid: mid,
+            at: at,
+            ciphertext: ciphertext,
+            commitment: commitment,
+            fromSelf: m.fromSelf,
+            onDeferred: () => notify = true,
           );
-        } on MlsException catch (err) {
-          switch (err.code) {
-            case MlsErrorCode.ownLeaf:
-              if (!m.fromSelf) {
-                // C3: unauthenticated; a forgery. Counted, never shown.
-                if (_remember(rowlessKey)) _forgeries++;
-                return write.commit();
-              }
-              if (await v.hasOutboxExpecting(mid) ||
-                  await v.hasSent(id, p, sentDigest(ciphertext))) {
-                // Sent by this device (its echo comes, or came, by bytes).
-                _remember(rowlessKey);
-                return write.commit();
-              }
-              // R7: a lost send. The epoch must advance before the next
-              // encrypt.
-              return write.commit(
-                row: undecryptable(mine: true),
-                epochMustAdvance: true,
-              );
-            case MlsErrorCode.internal:
-            case MlsErrorCode.deadline:
-            case MlsErrorCode.unavailable:
-              // Transient: nothing stored; the next pass retries.
-              return _Step.stop;
-            case MlsErrorCode.duplicate:
-            case MlsErrorCode.badInput:
-            case MlsErrorCode.wrongEpoch:
-            case MlsErrorCode.evicted:
-            case MlsErrorCode.corruptState:
-            case MlsErrorCode.pendingCommit:
-            case MlsErrorCode.noPendingCommit:
-              // The group state is not changed.
-              return write.commit(row: undecryptable());
-          }
         }
-        final event = result.event;
-        if (event is! MlsMessageEvent) {
-          // A commit in a message slot: never applied outside catch-up.
-          return write.commit(row: undecryptable());
-        }
-        MemberRecord? sender;
-        for (final pin in await v.members(id)) {
-          if (_sameBytes(pin.deviceId, event.senderDeviceId)) sender = pin;
-        }
-        if (sender == null) {
-          // Not a pinned member: not believed; the group state is kept.
-          return write.commit(row: undecryptable());
-        }
-        final plaintext = event.plaintext;
-        final check = checkMessageContentDetail(
-          plaintext,
-          Uint8List.fromList(m.reportCommitment),
+        final advanced = a.group;
+        final cleared0 = advanced == null
+            ? null
+            : await _groupFailuresCleared(v, id, p, write.record);
+        final wrote = await write.commit(
+          group: advanced,
+          row: a.row,
+          epochMustAdvance: a.epochMustAdvance,
+          recordOverride: cleared0,
         );
-        return write.commit(
-          group: GroupRecord(
-            conversationId: id,
-            generation: group.generation,
-            epoch: group.epoch,
-            state: result.groupState,
-            pending: group.pending,
-          ),
-          row: StoredMessage(
-            conversationId: id,
-            messageId: mid,
-            createdAtMicros: at,
-            // Direction from the sender device's pinned side, never from
-            // the server's from_self.
-            mine: sender.side == MemberSide.mine,
-            state: StoredMessageState.visible,
-            generation: p.generation,
-            epoch: p.epoch,
-            content: plaintext,
-            check: check.storedName,
-            senderDeviceId: event.senderDeviceId,
-          ),
-        );
+        // A receive record written outside a page's own update.
+        if (cleared0 != null && write.record == null) context.serial++;
+        return wrote;
       });
+      if (notify) _onChanged(id);
+      return step;
     } on _Stopped {
+      return _Step.stop;
+    } on _DeferredUnreadable {
+      // Nothing written: the next pass replaces the record (§7.3).
       return _Step.stop;
     } on Object catch (err, s) {
       // A vault error or a closed vault: nothing stored; retried later.
@@ -876,14 +891,24 @@ class _Write {
   final ReceiveRecord? record;
   final int? deleteGroup;
 
+  /// [deferred]: the deferred record to write (an item added or removed
+  /// with this message); [rows]: rows of other messages that end with this
+  /// transaction (an evicted deferred item; the caller already left out any
+  /// that is stored or hidden); [recordOverride]: the receive record to
+  /// write instead of [record] (the same record with its group failure
+  /// count changed). Each sealed setting is written at most once.
   Future<_Step> commit({
     StoredMessage? row,
     GroupRecord? group,
     String? deleteOutbox,
     (String, String)? tombstone,
     bool epochMustAdvance = false,
+    DeferredRecord? deferred,
+    List<StoredMessage> rows = const [],
+    ReceiveRecord? recordOverride,
   }) async {
     final keptRow = hidden ? null : row;
+    final newRecord = recordOverride ?? record;
     // An answer without a since token keeps the stored one.
     final newToken = token != null && token!.isNotEmpty ? token : null;
     final needSync =
@@ -893,20 +918,28 @@ class _Write {
         group == null &&
         deleteOutbox == null &&
         tombstone == null &&
-        record == null &&
+        newRecord == null &&
+        deferred == null &&
+        rows.isEmpty &&
         !needSync) {
       return _Step.skipped;
     }
     await vault.transaction((tx) async {
       if (group != null) await tx.putGroup(group);
       if (keptRow != null) await tx.putMessage(keptRow);
+      for (final other in rows) {
+        await tx.putMessage(other);
+      }
       if (tombstone != null) {
         await tx.setMessageState(id, tombstone.$1, tombstone.$2);
       }
       if (deleteOutbox != null) await tx.deleteOutbox(deleteOutbox);
       if (deleteGroup != null) await tx.deleteGroup(id, deleteGroup!);
-      if (record != null) {
-        await tx.putSetting(ReceiveRecords.keyOf(id), record!.encode());
+      if (deferred != null) {
+        await tx.putSetting(DeferredRecords.keyOf(id), deferred.encode());
+      }
+      if (newRecord != null) {
+        await tx.putSetting(ReceiveRecords.keyOf(id), newRecord.encode());
       }
       if (needSync) {
         await tx.putConversationSync(

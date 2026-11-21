@@ -89,6 +89,7 @@ extension _Sink on MessageReceiver {
       if (fresh.end) return;
       final backoff = context.walkBackoffUntil;
       if ((backoff != null && _now().isBefore(backoff)) ||
+          _engineHoldOf(context) != null ||
           used >= kSinkPagesPerHold ||
           !_syncBudget.tryTake(priority)) {
         throw pending();

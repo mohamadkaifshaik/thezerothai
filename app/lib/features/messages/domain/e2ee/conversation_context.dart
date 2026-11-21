@@ -128,6 +128,46 @@ class ConversationContext {
   int orderMissing = 0;
   int orderViolation = 0;
   int discardedPages = 0;
+
+  // --- the receiver's failure rule (design rev 3 §7; memory only) ---------
+
+  /// No engine call of the receiver for this conversation before this time
+  /// (a device-down answer, the device-level breaker, an unwitnessed crash
+  /// or a group-level failure stopped a pass). [breakerBackoff] is the
+  /// breaker's last wait (1 min doubling to 1 h, reset by a process
+  /// success).
+  DateTime? engineHoldUntil;
+  Duration? breakerBackoff;
+
+  /// Message id -> state (`removed` / `deletedAccount`) of every tombstone
+  /// seen this run, oldest first, bounded: a deferred message whose id is
+  /// here is never given to the engine again (§7.4 check 2, §8.1).
+  final Map<String, String> tombstoned = {};
+
+  /// `generation:epoch` -> the receiver's run id in which that group
+  /// reached the group failure maximum: for the rest of that run its
+  /// `internal` / `deadline` answers become rows with no probe (§7.2).
+  final Map<String, String> groupBroken = {};
+
+  /// Message id -> the receiver's count of engine successes when that
+  /// message was deferred unwitnessed this run (§7.2): once the count has
+  /// grown, the end of a pass promotes it.
+  final Map<String, int> unwitnessed = {};
+
+  /// A hint, never a fact a write relies on: the deferred record was read
+  /// or written empty by this run's last pass (then a walk does not open
+  /// it again for every message). Null: not known.
+  bool? deferredEmpty;
+
+  /// A hint: the receive record's group failure count was read or written
+  /// null this run (then a process success does not read it again). Null:
+  /// not known.
+  bool? groupFailuresNull;
+
+  /// How many times in a row a walk step failed while the walk backoff was
+  /// already at its maximum (reset by an applied page): an undecryptable
+  /// walk is abandoned at `kWalkGiveUpAfter`.
+  int walkMaxFails = 0;
 }
 
 /// The [ConversationContext] of every conversation, by id.

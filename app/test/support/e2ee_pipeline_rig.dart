@@ -80,12 +80,48 @@ class RigEngine implements CryptoEngine {
   /// Runs before every call of the named method (for ordering asserts).
   final List<String> calls = [];
 
+  /// The key of [bytes] in [failWire], [failWireAlways] and [failState].
+  static String key(List<int> bytes) => base64Encode(bytes);
+
+  /// Wire bytes ([key]) -> the errors of the next `process` calls with
+  /// exactly those bytes, one per call, in order (a message that fails).
+  final Map<String, List<MlsException>> failWire = {};
+
+  /// Wire bytes ([key]) -> the error of every `process` call with exactly
+  /// those bytes (after [failWire]'s queue for them is used up).
+  final Map<String, MlsException> failWireAlways = {};
+
+  /// Group state ([key]) -> the error of every `process` and `describe`
+  /// call given exactly that state (a group state that fails).
+  final Map<String, MlsException> failState = {};
+
+  /// As the guarded engine on the web: a `deadline` answer is a crash that
+  /// replaces the worker, and from the second one since the last
+  /// [onAppResumed] every call answers `unavailable`.
+  bool webLike = false;
+  int _crashes = 0;
+
+  /// The guarded engine's resume: one replacement is allowed again.
+  void onAppResumed() => _crashes = 0;
+
+  static const MlsException _unavailable = MlsException(
+    MlsErrorCode.unavailable,
+    'rig: the engine is unavailable',
+  );
+
+  /// Throws [e] as the guarded engine would (a crash is counted first).
+  Never _fail(MlsException e) {
+    if (webLike && e.code == MlsErrorCode.deadline) _crashes++;
+    throw e;
+  }
+
   void _enter(String name) {
     calls.add(name);
+    if (webLike && _crashes >= 2) throw _unavailable;
     final once = failNext.remove(name);
-    if (once != null) throw once;
+    if (once != null) _fail(once);
     final always = failAlways[name];
-    if (always != null) throw always;
+    if (always != null) _fail(always);
   }
 
   @override
@@ -196,9 +232,16 @@ class RigEngine implements CryptoEngine {
     final scripted = failProcessCall.remove(processed.length);
     if (scripted != null) {
       calls.add('process');
-      throw scripted;
+      if (webLike && _crashes >= 2) throw _unavailable;
+      _fail(scripted);
     }
     _enter('process');
+    final queue = failWire[key(wire)];
+    if (queue != null && queue.isNotEmpty) _fail(queue.removeAt(0));
+    final byWire = failWireAlways[key(wire)];
+    if (byWire != null) _fail(byWire);
+    final byState = failState[key(groupState)];
+    if (byState != null) _fail(byState);
     final hook = onProcessCall.remove(processed.length);
     if (hook != null) await hook();
     final hold = holdNextProcess;
@@ -210,6 +253,8 @@ class RigEngine implements CryptoEngine {
   @override
   Future<GroupDescription> describe(Uint8List groupState) async {
     _enter('describe');
+    final byState = failState[key(groupState)];
+    if (byState != null) _fail(byState);
     final real = await inner.describe(groupState);
     final rewrite = describeMembers;
     if (rewrite == null) return real;
@@ -237,7 +282,10 @@ class RigEngine implements CryptoEngine {
       inner.open(key, aad, sealed);
 
   @override
-  Future<Uint8List> randomBytes(int length) => inner.randomBytes(length);
+  Future<Uint8List> randomBytes(int length) async {
+    _enter('randomBytes');
+    return inner.randomBytes(length);
+  }
 }
 
 /// A device that exists only as engine state (no vault): a peer, or an own

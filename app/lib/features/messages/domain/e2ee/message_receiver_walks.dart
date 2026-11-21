@@ -83,6 +83,14 @@ extension _Walks on MessageReceiver {
       _reportIfBug(e, s, 'receive.live');
       outcome = ReceiveOutcome.stopped(_now().add(kWalkBackoff));
     }
+    // 6. The deferred retries, after the pass's fresh work (§7.4). The
+    // engine is left alone after a pass that was stopped or held.
+    await _retryDeferred(
+      id,
+      engine:
+          outcome.kind == ReceiveOutcomeKind.complete ||
+          outcome.kind == ReceiveOutcomeKind.more,
+    );
     // Catch-up's held poll stops at a page that lacks the welcome: a welcome
     // it did not find is looked for by an unheld poll, after the lock is
     // released (never a public entry under a held lock).
@@ -114,11 +122,19 @@ extension _Walks on MessageReceiver {
       return _walkWithoutGroup(pass, id, priority);
     }
     final context = _contexts.of(id);
+    // §7.2: an engine answer stopped a pass (the device is down, the
+    // breaker, an unwitnessed crash, a group-level failure): no engine call
+    // for this conversation before the hold ends.
+    final held = _engineHoldOf(context);
+    if (held != null) return ReceiveOutcome.stopped(held);
 
     // 1. The probe.
     final probe = await _probe(pass, id, priority);
     if (probe.waitingForWelcome) onWelcomes();
     if (probe.outcome != null) return probe.outcome!;
+    // The fast path's batch stopped on an engine answer.
+    final stopped = _engineHoldOf(context);
+    if (stopped != null) return ReceiveOutcome.stopped(stopped);
 
     // 2. The reconcile walk: step 2 (an armed entry waits durably).
 
@@ -844,9 +860,12 @@ extension _Walks on MessageReceiver {
       );
       if (step == _Step.stop) {
         if (changed) _onChanged(id);
-        // As built: nothing stored for this message, the cursor kept.
+        // Nothing stored for this message, the cursor kept (§7.2: the hold
+        // an engine answer set; otherwise as built).
         return _StepEnd.stop(
-          ReceiveOutcome.stopped(_now().add(kEngineBackoff)),
+          ReceiveOutcome.stopped(
+            _engineHoldOf(context) ?? _now().add(kEngineBackoff),
+          ),
         );
       }
       if (step == _Step.wrote) {

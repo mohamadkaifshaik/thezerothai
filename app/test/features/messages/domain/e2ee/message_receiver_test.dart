@@ -7,6 +7,7 @@ import 'package:dzeroth/core/crypto/mls_pair.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/vault/secure_vault.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_crypto.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/deferred_record.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/e2ee_types.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/message_content_codec.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/message_receiver.dart';
@@ -68,6 +69,8 @@ void main() {
     );
     expect(await rig.crypto.processWelcomes(), [_c1]);
     t0 = rig.clock.now();
+    // Engine call counts in a test start after the join.
+    rig.device.engine.calls.clear();
   }
 
   RigGroup bobGroup() => offer.add.group;
@@ -737,13 +740,13 @@ void main() {
       expect(await groupState(), before);
     });
 
-    test('a deadline stops the batch and the same message is processed on the '
-        'next pull', () async {
+    test('an unavailable engine stops the batch and the same message is '
+        'processed on the next pull', () async {
       await setUpJoined();
       final m1 = await say(bobGroup(), 1);
       await say(bobGroup(), 2, at: seconds(1));
       rig.device.engine.failNext['process'] = const MlsException(
-        MlsErrorCode.deadline,
+        MlsErrorCode.unavailable,
         'x',
       );
 
@@ -753,6 +756,7 @@ void main() {
       expect(await row(_mid(2)), isNull);
       expect((await sync()).sinceToken, '');
 
+      rig.clock.advance(kEngineBackoff);
       await rig.receiver.pullLive(_c1);
 
       expect(processedCount(m1.ciphertext), 2);
@@ -1195,7 +1199,7 @@ void main() {
       expect(context.syncedSinceStart, isFalse);
       await say(bobGroup(), 1);
       rig.device.engine.failNext['process'] = const MlsException(
-        MlsErrorCode.deadline,
+        MlsErrorCode.unavailable,
         'x',
       );
 
@@ -1204,6 +1208,7 @@ void main() {
       expect(context.livePulledAt, isNull);
       expect(context.syncedSinceStart, isFalse);
 
+      rig.clock.advance(kEngineBackoff);
       await rig.receiver.pullLive(_c1);
 
       expect(context.livePulledAt, const MlsPair(1, 1));
@@ -1218,11 +1223,12 @@ void main() {
       rig.server.livePageSize = 1;
       rig.device.engine.failProcessCall[rig.device.engine.processed.length +
           1] = const MlsException(
-        MlsErrorCode.deadline,
+        MlsErrorCode.unavailable,
         'x',
       );
       await rig.receiver.pullLive(_c1);
       expect(context.livePulledAt, isNull);
+      rig.clock.advance(kEngineBackoff);
       await rig.receiver.pullLive(_c1);
       expect(context.livePulledAt, const MlsPair(1, 1));
 
@@ -1238,11 +1244,12 @@ void main() {
       await say(bobGroup(), 9, at: seconds(9));
       rig.device.engine.failProcessCall[rig.device.engine.processed.length +
           1] = const MlsException(
-        MlsErrorCode.deadline,
+        MlsErrorCode.unavailable,
         'x',
       );
       await rig.receiver.pullLive(_c1);
       expect(context.livePulledAt, isNull);
+      rig.clock.advance(kEngineBackoff);
       await rig.receiver.pullLive(_c1);
       expect(context.livePulledAt, const MlsPair(1, 2));
       expect(context.syncedSinceStart, isTrue);
@@ -1535,12 +1542,13 @@ void main() {
       await setUpJoined();
       final sent = await sayMany(1, 120, start: const Duration(minutes: -10));
       rig.device.engine.failProcessCall[51] = const MlsException(
-        MlsErrorCode.deadline,
+        MlsErrorCode.unavailable,
         'x',
       );
       await rig.receiver.pullLive(_c1);
       final key = ReceiveRecords.keyOf(_c1);
       final older = (await rig.sealedSetting(key))!;
+      rig.clock.advance(kEngineBackoff);
       await rig.receiver.pullLive(_c1);
       expect(await rig.receiver.pullLive(_c1), ReceiveOutcome.complete);
       final processed = rig.device.engine.processed.length;
@@ -1795,7 +1803,7 @@ void main() {
         expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
         rig.device.engine.failProcessCall[rig.device.engine.processed.length +
             1] = const MlsException(
-          MlsErrorCode.deadline,
+          MlsErrorCode.unavailable,
           'x',
         );
       };
@@ -1806,6 +1814,7 @@ void main() {
       expect((await sync()).sinceToken, token);
       expect(await row(_mid(3)), isNull);
       for (var i = 0; i < 3; i++) {
+        rig.clock.advance(kEngineBackoff);
         await rig.receiver.pullLive(_c1);
       }
       expect((await row(_mid(3)))!.state, StoredMessageState.visible);
@@ -3639,6 +3648,837 @@ void main() {
           StoredMessageState.undecryptable,
         );
       }
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // Step 2a: the failure rule (§7), the deferred record, the placeholder.
+
+  const internal = MlsException(MlsErrorCode.internal, 'x');
+  const deadline = MlsException(MlsErrorCode.deadline, 'x');
+  const unavailable = MlsException(MlsErrorCode.unavailable, 'x');
+
+  RigEngine engine() => rig.device.engine;
+
+  /// The stored deferred record.
+  Future<DeferredRecord> deferred() async =>
+      (await DeferredRecords().read(rig.device.vault, _c1)).record;
+
+  Future<List<String>> deferredIds() async => [
+    for (final i in (await deferred()).items) i.id,
+  ];
+
+  /// Stores [r] as the deferred record (as a transaction would leave it).
+  Future<void> putDeferred(DeferredRecord r) =>
+      rig.device.vault.transaction((tx) => DeferredRecords().putIn(tx, _c1, r));
+
+  /// Every `process` call with [m]'s bytes fails with [e].
+  void failAlways(pb.Message m, MlsException e) =>
+      engine().failWireAlways[RigEngine.key(m.ciphertext)] = e;
+
+  /// The next `process` calls with [m]'s bytes fail with [errors], in order.
+  void failNext(pb.Message m, List<MlsException> errors) =>
+      engine().failWire[RigEngine.key(m.ciphertext)] = [...errors];
+
+  int count(String name) => engine().calls.where((c) => c == name).length;
+
+  /// A new app run in the same process: the engine and the receiver resume.
+  void resume() {
+    engine().onAppResumed();
+    rig.receiver.onAppResumed();
+  }
+
+  group('the failure rule on a fresh message (§7.2)', () {
+    test('internal whose describe probe succeeds defers the message with a '
+        'strike and the walk goes on', () async {
+      await setUpJoined();
+      final m1 = await say(bobGroup(), 1);
+      await say(bobGroup(), 2, at: seconds(1));
+      failNext(m1, [internal]);
+      final before = await groupState();
+
+      final out = await rig.receiver.pullLive(_c1);
+
+      expect(out.kind, ReceiveOutcomeKind.complete);
+      expect(await row(_mid(1)), isNull);
+      expect((await row(_mid(2)))!.state, StoredMessageState.visible);
+      final item = (await deferred()).items.single;
+      expect(item.id, _mid(1));
+      expect(item.pair, const MlsPair(1, 1));
+      expect(item.at, t0.microsecondsSinceEpoch);
+      expect(item.da, rig.clock.now().microsecondsSinceEpoch);
+      expect(item.la, item.da);
+      expect(item.ct, m1.ciphertext);
+      expect(item.rc, m1.reportCommitment);
+      expect(item.fs, isFalse);
+      expect((item.k, item.cc, item.cu), (1, 0, 0));
+      expect(item.ru, matches(RegExp(r'^[0-9a-f]{16}$')));
+      // The probe ran on the group state the failure left untouched.
+      expect(count('describe'), 1);
+      expect(count('randomBytes'), 0);
+      expect(await groupState(), isNot(before));
+      expect((await sync()).sinceToken, isNotEmpty);
+      expect(rig.changed, contains(_c1));
+      expect(rig.receiver.deferredCount, 1);
+
+      // A walk never gives a deferred id to the engine again.
+      await say(bobGroup(), 3, at: seconds(2));
+      await rig.receiver.pullLive(_c1);
+      expect(processedCount(m1.ciphertext), 1);
+      expect((await row(_mid(3)))!.state, StoredMessageState.visible);
+    });
+
+    test('two adjacent internal failures with succeeding probes are both '
+        'deferred and the walk goes on', () async {
+      await setUpJoined();
+      final m1 = await say(bobGroup(), 1);
+      final m2 = await say(bobGroup(), 2, at: seconds(1));
+      await say(bobGroup(), 3, at: seconds(2));
+      failAlways(m1, internal);
+      failAlways(m2, internal);
+
+      final out = await rig.receiver.pullLive(_c1);
+
+      expect(out.kind, ReceiveOutcomeKind.complete);
+      expect(await deferredIds(), [_mid(1), _mid(2)]);
+      expect(await row(_mid(1)), isNull);
+      expect(await row(_mid(2)), isNull);
+      expect((await row(_mid(3)))!.state, StoredMessageState.visible);
+      expect(count('describe'), 2);
+      expect(rig.contexts.of(_c1).walkBackoffUntil, isNull);
+    });
+
+    test('internal whose describe and device probes fail stops the pass with '
+        'no strike, no deferral and no row', () async {
+      await setUpJoined();
+      // The walks' own records are written first, so that the dump shows
+      // only what the failure writes.
+      await prime();
+      final m1 = await say(bobGroup(), 1, at: seconds(1));
+      await say(bobGroup(), 2, at: seconds(2));
+      failAlways(m1, internal);
+      engine().failAlways['describe'] = internal;
+      engine().failAlways['randomBytes'] = internal;
+      final before = await rig.dump();
+
+      final out = await rig.receiver.pullLive(_c1);
+
+      expect(out.kind, ReceiveOutcomeKind.stopped);
+      expect(out.until, rig.clock.now().add(kEngineBackoff));
+      expect(await rig.dump(), before);
+      expect(rig.receiver.breakerOpened, 1);
+      // Not before the backoff; then the backoff doubles.
+      final again = await rig.receiver.pullLive(_c1);
+      expect(again.kind, ReceiveOutcomeKind.stopped);
+      expect(processedCount(m1.ciphertext), 1);
+      rig.clock.advance(kEngineBackoff);
+      final third = await rig.receiver.pullLive(_c1);
+      expect(third.until, rig.clock.now().add(kEngineBackoff * 2));
+      expect(processedCount(m1.ciphertext), 2);
+      expect(await rig.dump(), before);
+
+      // Once the engine works again everything decrypts: nothing was lost.
+      engine().failAlways.clear();
+      engine().failWireAlways.clear();
+      rig.clock.advance(kEngineBackoff * 2);
+      await rig.receiver.pullLive(_c1);
+      expect((await row(_mid(1)))!.state, StoredMessageState.visible);
+      expect((await row(_mid(2)))!.state, StoredMessageState.visible);
+      expect(await deferredIds(), isEmpty);
+    });
+
+    test('unavailable stops the pass and counts no attempt', () async {
+      await setUpJoined();
+      await prime();
+      final m1 = await say(bobGroup(), 1, at: seconds(1));
+      await say(bobGroup(), 2, at: seconds(2));
+      failNext(m1, [unavailable]);
+      final before = await rig.dump();
+
+      final out = await rig.receiver.pullLive(_c1);
+
+      expect(out.kind, ReceiveOutcomeKind.stopped);
+      expect(out.until, rig.clock.now().add(kEngineBackoff));
+      expect(await rig.dump(), before);
+      // No probe either: the device is down.
+      expect(count('describe'), 0);
+      expect(count('randomBytes'), 0);
+
+      // An unavailable answer from the describe probe is device-down too.
+      failNext(m1, [internal]);
+      engine().failNext['describe'] = unavailable;
+      rig.clock.advance(kEngineBackoff);
+      final second = await rig.receiver.pullLive(_c1);
+      expect(second.kind, ReceiveOutcomeKind.stopped);
+      expect(await rig.dump(), before);
+      expect(count('randomBytes'), 0);
+
+      rig.clock.advance(kEngineBackoff);
+      await rig.receiver.pullLive(_c1);
+      expect((await row(_mid(1)))!.state, StoredMessageState.visible);
+      expect(await deferredIds(), isEmpty);
+    });
+
+    test('a deadline whose describe probe fails is deferred unwitnessed and '
+        'stops the pass, and the next pass goes on past it', () async {
+      await setUpJoined();
+      final m1 = await say(bobGroup(), 1);
+      await say(bobGroup(), 2, at: seconds(1));
+      failNext(m1, [deadline]);
+      engine().failNext['describe'] = internal;
+      engine().failNext['randomBytes'] = internal;
+
+      final out = await rig.receiver.pullLive(_c1);
+
+      expect(out.kind, ReceiveOutcomeKind.stopped);
+      expect(out.until, rig.clock.now().add(kEngineBackoff));
+      final item = (await deferred()).items.single;
+      expect((item.id, item.k, item.cc, item.cu), (_mid(1), 0, 0, 1));
+      expect(await row(_mid(1)), isNull);
+      expect(await row(_mid(2)), isNull);
+      expect((await sync()).sinceToken, '');
+      expect(rig.changed, contains(_c1));
+      // The cursor passed nothing: the next pass lists the page again,
+      // skips the deferred id and goes on.
+      rig.clock.advance(kEngineBackoff);
+      await rig.receiver.pullLive(_c1);
+      expect(processedCount(m1.ciphertext), 1);
+      expect((await row(_mid(2)))!.state, StoredMessageState.visible);
+    });
+
+    test('three group failures with a working engine make the message a row '
+        'and the group is rowed for the run', () async {
+      await setUpJoined();
+      final m1 = await say(bobGroup(), 1);
+      final m2 = await say(bobGroup(), 2, at: seconds(1));
+      final m3 = await say(bobGroup(), 3, at: seconds(2));
+      final state = await groupState();
+      // The engine works (the device probe answers), this group state does
+      // not.
+      engine().failState[RigEngine.key(state)] = internal;
+
+      final first = await rig.receiver.pullLive(_c1);
+      expect(first.kind, ReceiveOutcomeKind.stopped);
+      expect(first.until, rig.clock.now().add(kEngineBackoff));
+      expect((await receiveRecord()).gf!.n, 1);
+      expect((await receiveRecord()).gf!.pair, const MlsPair(1, 1));
+      expect(await row(_mid(1)), isNull);
+      expect(await deferredIds(), isEmpty);
+      expect(count('randomBytes'), 1);
+
+      rig.clock.advance(kEngineBackoff);
+      final second = await rig.receiver.pullLive(_c1);
+      expect(second.kind, ReceiveOutcomeKind.stopped);
+      expect((await receiveRecord()).gf!.n, 2);
+      expect(await row(_mid(1)), isNull);
+
+      rig.clock.advance(kEngineBackoff);
+      final probes = count('describe');
+      final third = await rig.receiver.pullLive(_c1);
+      expect(third.kind, ReceiveOutcomeKind.complete);
+      expect((await receiveRecord()).gf!.n, kGroupFailuresMax);
+      for (final n in [1, 2, 3]) {
+        final r = (await row(_mid(n)))!;
+        expect(r.state, StoredMessageState.undecryptable);
+        expect(r.mine, isFalse);
+      }
+      // Rowed for the run: the later failures of the group got no probe.
+      expect(count('describe'), probes + 1);
+      expect(processedCount(m1.ciphertext), 3);
+      expect(processedCount(m2.ciphertext), 1);
+      expect(processedCount(m3.ciphertext), 1);
+      expect(await deferredIds(), isEmpty);
+      expect(await groupState(), state);
+    });
+
+    test('a group failure count survives a restart', () async {
+      await setUpJoined();
+      await say(bobGroup(), 1);
+      final state = await groupState();
+      engine().failState[RigEngine.key(state)] = internal;
+      await rig.receiver.pullLive(_c1);
+      rig.clock.advance(kEngineBackoff);
+      await rig.receiver.pullLive(_c1);
+      expect((await receiveRecord()).gf!.n, 2);
+
+      await rig.restart();
+
+      expect((await rig.receiver.pullLive(_c1)).kind, isNotNull);
+      expect((await receiveRecord()).gf!.n, kGroupFailuresMax);
+      expect((await row(_mid(1)))!.state, StoredMessageState.undecryptable);
+    });
+
+    test('a process success in the group clears its failure count', () async {
+      await setUpJoined();
+      final m1 = await say(bobGroup(), 1);
+      final state = await groupState();
+      engine().failState[RigEngine.key(state)] = internal;
+      await rig.receiver.pullLive(_c1);
+      expect((await receiveRecord()).gf!.n, 1);
+      engine().failState.clear();
+
+      rig.clock.advance(kEngineBackoff);
+      expect(
+        (await rig.receiver.pullLive(_c1)).kind,
+        ReceiveOutcomeKind.complete,
+      );
+
+      expect((await receiveRecord()).gf, isNull);
+      expect((await row(_mid(1)))!.state, StoredMessageState.visible);
+      expect(processedCount(m1.ciphertext), 2);
+    });
+
+    test('a failing message on the fast path is deferred and the since token '
+        'is saved past it', () async {
+      await setUpJoined();
+      final token = await prime();
+      final m1 = await say(bobGroup(), 1, at: seconds(1));
+      await say(bobGroup(), 2, at: seconds(2));
+      failNext(m1, [internal]);
+      final calls = epochCalls();
+
+      final out = await rig.receiver.pullLive(_c1);
+
+      expect(out.kind, ReceiveOutcomeKind.complete);
+      expect(epochCalls(), calls);
+      expect(await deferredIds(), [_mid(1)]);
+      expect((await row(_mid(2)))!.state, StoredMessageState.visible);
+      expect((await sync()).sinceToken, isNot(token));
+    });
+
+    test('a report commitment longer than the record holds is deferred as '
+        'empty, so the record stays readable', () async {
+      await setUpJoined();
+      final m1 = await say(
+        bobGroup(),
+        1,
+        commitment: Uint8List(kMaxDeferredCommitmentBytes + 1),
+      );
+      failNext(m1, [internal]);
+
+      await rig.receiver.pullLive(_c1);
+
+      expect((await deferred()).items.single.rc, isEmpty);
+      expect(rig.unexpected, isEmpty);
+    });
+  });
+
+  /// An item as another run left it: not attempted in this run; its last
+  /// attempt [ago] before now.
+  DeferredItem heldItem(
+    int n, {
+    List<int> ct = const [9, 9, 9],
+    MlsPair pair = const MlsPair(1, 1),
+    int k = 1,
+    int cc = 0,
+    int cu = 0,
+    Duration ago = Duration.zero,
+    int? at,
+    int? da,
+  }) {
+    final now = rig.clock.now().microsecondsSinceEpoch;
+    return DeferredItem(
+      id: _mid(n),
+      pair: pair,
+      at: at ?? now,
+      da: da ?? now,
+      ct: Uint8List.fromList(ct),
+      rc: Uint8List.fromList(List.filled(32, 1)),
+      fs: false,
+      k: k,
+      cc: cc,
+      cu: cu,
+      la: now - ago.inMicroseconds,
+      ru: 'bbbbbbbbbbbbbbbb',
+    );
+  }
+
+  /// A later run, past the retry spacing.
+  void nextRun() {
+    resume();
+    rig.clock.advance(kDeferredRetrySpacing);
+  }
+
+  group('deferred retries (§7.4-§7.6)', () {
+    test('a deferred message is decrypted on a later run from the sealed '
+        'record', () async {
+      await setUpJoined();
+      final bytes = _content('kept for later');
+      final m1 = await say(bobGroup(), 1, bytes: bytes);
+      await say(bobGroup(), 2, at: seconds(1));
+      failNext(m1, [internal]);
+      await rig.receiver.pullLive(_c1);
+      expect(await deferredIds(), [_mid(1)]);
+      final before = await groupState();
+      rig.changed.clear();
+
+      await rig.restart();
+      rig.clock.advance(kDeferredRetrySpacing);
+      expect(
+        (await rig.receiver.pullLive(_c1)).kind,
+        ReceiveOutcomeKind.complete,
+      );
+
+      final r = (await row(_mid(1)))!;
+      expect(r.state, StoredMessageState.visible);
+      expect(r.content, bytes);
+      expect(r.check, StoredMessageCheck.ok);
+      expect(r.mine, isFalse);
+      expect(rigEq(r.senderDeviceId!, bob.id), isTrue);
+      expect(r.createdAtMicros, t0.microsecondsSinceEpoch);
+      expect((r.generation, r.epoch), (1, 1));
+      expect(await deferredIds(), isEmpty);
+      expect(processedCount(m1.ciphertext), 2);
+      expect(await groupState(), isNot(before));
+      expect(rig.changed, contains(_c1));
+    });
+
+    test('a deferred item is attempted at most once per run and not before '
+        'the retry spacing', () async {
+      await setUpJoined();
+      final m1 = await say(bobGroup(), 1);
+      failAlways(m1, internal);
+      await rig.receiver.pullLive(_c1);
+      // The run that deferred it never retries it.
+      rig.clock.advance(kDeferredRetrySpacing);
+      await rig.receiver.pullLive(_c1);
+      expect(processedCount(m1.ciphertext), 1);
+      // A new run, but the spacing is counted from the last attempt.
+      await putDeferred(DeferredRecord([heldItem(1, ct: m1.ciphertext)]));
+      resume();
+      rig.clock.advance(kDeferredRetrySpacing - seconds(1));
+      await rig.receiver.pullLive(_c1);
+      expect(processedCount(m1.ciphertext), 1);
+      rig.clock.advance(seconds(1));
+      await rig.receiver.pullLive(_c1);
+      expect(processedCount(m1.ciphertext), 2);
+      // Not again in the same run.
+      rig.clock.advance(kDeferredRetrySpacing);
+      await rig.receiver.pullLive(_c1);
+      expect(processedCount(m1.ciphertext), 2);
+      final item = (await deferred()).items.single;
+      expect(item.k, 2);
+      expect(item.ru, isNot('bbbbbbbbbbbbbbbb'));
+    });
+
+    test('a deferred item becomes a row after three witnessed '
+        'strikes', () async {
+      await setUpJoined();
+      final m1 = await say(bobGroup(), 1);
+      failAlways(m1, internal);
+      await rig.receiver.pullLive(_c1);
+      expect((await deferred()).items.single.k, 1);
+
+      nextRun();
+      await rig.receiver.pullLive(_c1);
+      expect((await deferred()).items.single.k, 2);
+      expect(await row(_mid(1)), isNull);
+
+      nextRun();
+      rig.changed.clear();
+      await rig.receiver.pullLive(_c1);
+
+      expect(await deferredIds(), isEmpty);
+      final r = (await row(_mid(1)))!;
+      expect(r.state, StoredMessageState.undecryptable);
+      expect(r.mine, isFalse);
+      expect(r.createdAtMicros, t0.microsecondsSinceEpoch);
+      expect(processedCount(m1.ciphertext), kDeferredStrikes);
+      expect(rig.changed, contains(_c1));
+    });
+
+    test('a deferred retry that answers bad_input becomes an undecryptable '
+        'row', () async {
+      await setUpJoined();
+      final m1 = await say(bobGroup(), 1);
+      failNext(m1, [
+        internal,
+        const MlsException(MlsErrorCode.badInput, 'too late'),
+      ]);
+      await rig.receiver.pullLive(_c1);
+      final state = await groupState();
+
+      nextRun();
+      await rig.receiver.pullLive(_c1);
+
+      expect((await row(_mid(1)))!.state, StoredMessageState.undecryptable);
+      expect(await deferredIds(), isEmpty);
+      expect(await groupState(), state);
+    });
+
+    test('a deadline whose describe probe succeeds is a witnessed crash and '
+        'the second crash makes a row', () async {
+      await setUpJoined();
+      final m1 = await say(bobGroup(), 1);
+      await say(bobGroup(), 2, at: seconds(1));
+      failAlways(m1, deadline);
+
+      final out = await rig.receiver.pullLive(_c1);
+
+      // Witnessed: the walk went on.
+      expect(out.kind, ReceiveOutcomeKind.complete);
+      expect((await row(_mid(2)))!.state, StoredMessageState.visible);
+      final item = (await deferred()).items.single;
+      expect((item.k, item.cc, item.cu), (1, 1, 0));
+      expect(count('describe'), 1);
+
+      nextRun();
+      await rig.receiver.pullLive(_c1);
+
+      expect(processedCount(m1.ciphertext), kDeferredCrashStrikes);
+      expect((await row(_mid(1)))!.state, StoredMessageState.undecryptable);
+      expect(await deferredIds(), isEmpty);
+    });
+
+    test('a deadline whose describe probe fails is deferred unwitnessed, is '
+        'promoted after a later success in the run, and is never rowed while '
+        'nothing succeeds', () async {
+      await setUpJoined();
+      final m1 = await say(bobGroup(), 1);
+      final m2 = await say(bobGroup(), 2, at: seconds(1));
+      await say(bobGroup(), 3, at: seconds(2));
+      // A hung engine: nothing answers.
+      engine().failAlways['process'] = deadline;
+      engine().failAlways['describe'] = deadline;
+      engine().failAlways['randomBytes'] = deadline;
+
+      for (var i = 0; i < 3; i++) {
+        final out = await rig.receiver.pullLive(_c1);
+        expect(out.kind, ReceiveOutcomeKind.stopped);
+        rig.clock.advance(kEngineBackoff);
+      }
+
+      // One new unwitnessed deferral per pass; no row, ever.
+      expect(await deferredIds(), [_mid(1), _mid(2), _mid(3)]);
+      for (final i in (await deferred()).items) {
+        expect((i.k, i.cc, i.cu), (0, 0, 1));
+      }
+      expect(await rig.device.vault.messages(_c1, limit: 10), isEmpty);
+      expect(processedCount(m1.ciphertext), 1);
+      expect(processedCount(m2.ciphertext), 1);
+
+      // The engine works again: a later success in the same run promotes
+      // them (in one transaction at the end of the pass).
+      engine().failAlways.clear();
+      await say(bobGroup(), 4, at: seconds(3));
+      await rig.receiver.pullLive(_c1);
+
+      expect((await row(_mid(4)))!.state, StoredMessageState.visible);
+      for (final i in (await deferred()).items) {
+        expect((i.k, i.cc, i.cu), (1, 1, 0));
+      }
+      // Still no row: a promoted item waits for its one retry.
+      expect(await row(_mid(1)), isNull);
+    });
+
+    test('a seventeenth unwitnessed failure is neither deferred nor evicts '
+        'and stops the pass', () async {
+      await setUpJoined();
+      await putDeferred(
+        DeferredRecord([
+          for (var n = 101; n <= 100 + kDeferredMax; n++)
+            heldItem(n, k: 0, cu: 1),
+        ]),
+      );
+      final m1 = await say(bobGroup(), 1);
+      failNext(m1, [deadline]);
+      engine().failNext['describe'] = internal;
+      engine().failNext['randomBytes'] = internal;
+      final held = await deferredIds();
+
+      final out = await rig.receiver.pullLive(_c1);
+
+      expect(out.kind, ReceiveOutcomeKind.stopped);
+      expect(await deferredIds(), held);
+      expect(await rig.device.vault.messages(_c1, limit: 10), isEmpty);
+      expect(rig.receiver.evictedCount, 0);
+      // The cursor is at the message: it is tried again.
+      rig.clock.advance(kEngineBackoff);
+      await rig.receiver.pullLive(_c1);
+      expect((await row(_mid(1)))!.state, StoredMessageState.visible);
+    });
+
+    test('a seventeenth witnessed failure evicts the witnessed item with the '
+        'most strikes to a row and the walk goes on', () async {
+      await setUpJoined();
+      await putDeferred(
+        DeferredRecord([
+          for (var n = 101; n <= 100 + kDeferredMax; n++)
+            heldItem(n, k: n == 107 ? 2 : (n == 103 ? 1 : 0), cu: 1),
+        ]),
+      );
+      final m1 = await say(bobGroup(), 1);
+      final m2 = await say(bobGroup(), 2, at: seconds(1));
+      final m3 = await say(bobGroup(), 3, at: seconds(2));
+      for (final m in [m1, m2, m3]) {
+        failAlways(m, internal);
+      }
+      await say(bobGroup(), 4, at: seconds(3));
+
+      final out = await rig.receiver.pullLive(_c1);
+
+      // Never stops the walk while the engine works.
+      expect(out.kind, ReceiveOutcomeKind.complete);
+      expect((await row(_mid(4)))!.state, StoredMessageState.visible);
+      final ids = await deferredIds();
+      expect(ids, hasLength(kDeferredMax));
+      // Most strikes first (107, then 103); the third eviction takes the
+      // oldest of the two fresh one-strike items.
+      for (final n in [107, 103, 1]) {
+        expect(ids, isNot(contains(_mid(n))));
+        final r = (await row(_mid(n)))!;
+        expect(r.state, StoredMessageState.undecryptable);
+        expect(r.mine, isFalse);
+      }
+      expect(ids, containsAll([_mid(2), _mid(3)]));
+      expect(await row(_mid(2)), isNull);
+      expect(rig.receiver.evictedCount, 3);
+    });
+
+    test('a seventeenth witnessed failure with no witnessed item held '
+        'becomes a row itself and evicts nothing', () async {
+      await setUpJoined();
+      await putDeferred(
+        DeferredRecord([
+          for (var n = 101; n <= 100 + kDeferredMax; n++)
+            heldItem(n, k: 0, cu: 1),
+        ]),
+      );
+      final held = await deferredIds();
+      final m1 = await say(bobGroup(), 1);
+      failAlways(m1, internal);
+
+      final out = await rig.receiver.pullLive(_c1);
+
+      expect(out.kind, ReceiveOutcomeKind.complete);
+      expect((await row(_mid(1)))!.state, StoredMessageState.undecryptable);
+      expect(await deferredIds(), held);
+      expect(rig.receiver.evictedCount, 0);
+    });
+
+    test('a crash-class item is retried at most once per run, never in the '
+        "run it crashed, and after the pass's fresh work", () async {
+      await setUpJoined();
+      final m1 = await say(bobGroup(), 1);
+      final m2 = await say(bobGroup(), 2, at: seconds(1));
+      failNext(m1, [deadline]);
+      failNext(m2, [deadline]);
+      await rig.receiver.pullLive(_c1);
+      expect(await deferredIds(), [_mid(1), _mid(2)]);
+
+      // Never in the run it crashed.
+      rig.clock.advance(kDeferredRetrySpacing);
+      await rig.receiver.pullLive(_c1);
+      expect(processedCount(m1.ciphertext), 1);
+
+      // A new run: fresh work first, then ONE crash-class retry.
+      nextRun();
+      final m3 = await say(bobGroup(), 3, at: seconds(2));
+      await rig.receiver.pullLive(_c1);
+      final order = [
+        for (final w in engine().processed)
+          if (rigEq(w, m3.ciphertext))
+            3
+          else if (rigEq(w, m1.ciphertext))
+            1
+          else if (rigEq(w, m2.ciphertext))
+            2,
+      ];
+      expect(order, [1, 2, 3, 1]);
+      expect((await row(_mid(1)))!.state, StoredMessageState.visible);
+      expect(await deferredIds(), [_mid(2)]);
+
+      // Not a second one in the same run.
+      rig.clock.advance(kDeferredRetrySpacing);
+      await rig.receiver.pullLive(_c1);
+      expect(processedCount(m2.ciphertext), 1);
+
+      nextRun();
+      await rig.receiver.pullLive(_c1);
+      expect((await row(_mid(2)))!.state, StoredMessageState.visible);
+      expect(await deferredIds(), isEmpty);
+    });
+
+    test('no crash-class retry runs after a deadline answer in the same '
+        'run', () async {
+      await setUpJoined();
+      final m1 = await say(bobGroup(), 1);
+      failNext(m1, [deadline]);
+      await rig.receiver.pullLive(_c1);
+      expect((await deferred()).items.single.cc, 1);
+
+      nextRun();
+      final m2 = await say(bobGroup(), 2, at: seconds(1));
+      failNext(m2, [deadline]);
+      await rig.receiver.pullLive(_c1);
+
+      // The fresh message crashed in this run: the held one is not tried.
+      expect(processedCount(m1.ciphertext), 1);
+      expect(await deferredIds(), [_mid(1), _mid(2)]);
+      // An item that never crashed is still retried in such a run.
+      await putDeferred(
+        (await deferred()).put(
+          heldItem(9, ct: [1, 2, 3], ago: kDeferredRetrySpacing),
+        ),
+      );
+      await rig.receiver.pullLive(_c1);
+      expect(processedCount([1, 2, 3]), 1);
+    });
+
+    test('an unavailable answer stops every retry of the pass and counts no '
+        'attempt', () async {
+      await setUpJoined();
+      await putDeferred(
+        DeferredRecord([
+          heldItem(1, ct: [1, 1, 1], ago: kDeferredRetrySpacing),
+          heldItem(2, ct: [2, 2, 2], ago: kDeferredRetrySpacing),
+        ]),
+      );
+      final before = (await deferred()).encode();
+      engine().failAlways['process'] = unavailable;
+
+      await rig.receiver.pullLive(_c1);
+
+      expect(engine().processed, hasLength(1));
+      expect((await deferred()).encode(), before);
+      expect(rig.contexts.of(_c1).engineHoldUntil, isNotNull);
+    });
+
+    test('a deferred item past 30 days from the earlier of its server time '
+        'and its local time becomes a row', () async {
+      await setUpJoined();
+      final now = rig.clock.now().microsecondsSinceEpoch;
+      final d = kCiphertextRetention.inMicroseconds;
+      await putDeferred(
+        DeferredRecord([
+          // The server's time is the earlier one.
+          heldItem(1, ct: [1, 1, 1], at: now - d, da: now),
+          // The local deferred-at time is the earlier one.
+          heldItem(2, ct: [2, 2, 2], at: now, da: now - d),
+          // One second short on both.
+          heldItem(3, ct: [3, 3, 3], at: now - d + 1000000, da: now),
+        ]),
+      );
+
+      await rig.receiver.pullLive(_c1);
+
+      expect((await row(_mid(1)))!.state, StoredMessageState.undecryptable);
+      expect((await row(_mid(1)))!.createdAtMicros, now - d);
+      expect((await row(_mid(2)))!.state, StoredMessageState.undecryptable);
+      expect(await row(_mid(3)), isNull);
+      expect(await deferredIds(), [_mid(3)]);
+      expect(engine().processed, isEmpty);
+    });
+
+    test('the deferred items of a generation whose group is gone become rows '
+        'with no engine call', () async {
+      await setUpJoined();
+      await putDeferred(
+        DeferredRecord([
+          heldItem(1),
+          // Its group moved past its epoch: its keys are gone too.
+          heldItem(2, pair: const MlsPair(1, 0)),
+        ]),
+      );
+      await rig.receiver.pullLive(_c1);
+      expect((await row(_mid(2)))!.state, StoredMessageState.undecryptable);
+      expect(await deferredIds(), [_mid(1)]);
+
+      // A reset: the generation's group is gone.
+      await rig.device.vault.transaction((tx) => tx.deleteGroup(_c1, 1));
+      await rig.receiver.pullLive(_c1);
+
+      final r = (await row(_mid(1)))!;
+      expect(r.state, StoredMessageState.undecryptable);
+      expect((r.generation, r.epoch), (1, 1));
+      expect(await deferredIds(), isEmpty);
+      expect(processedCount([9, 9, 9]), 0);
+    });
+
+    test('a retry checks the stored row, then the tombstone seen this run, '
+        'then the engine', () async {
+      await setUpJoined();
+      final m3 = await say(bobGroup(), 3);
+      failNext(m3, [internal]);
+      await rig.receiver.pullLive(_c1);
+      final v = rig.device.vault;
+      // Item 1 has a stored row AND a tombstone seen this run; item 2 has a
+      // tombstone only; item 3 has neither.
+      await v.transaction(
+        (tx) => tx.putMessage(
+          StoredMessage(
+            conversationId: _c1,
+            messageId: _mid(1),
+            createdAtMicros: t0.microsecondsSinceEpoch,
+            mine: false,
+            state: StoredMessageState.undecryptable,
+            generation: 1,
+            epoch: 1,
+            content: null,
+          ),
+        ),
+      );
+      await putDeferred(
+        (await deferred())
+            .put(heldItem(1, ct: [1, 1, 1], ago: kDeferredRetrySpacing))
+            .put(heldItem(2, ct: [2, 2, 2], ago: kDeferredRetrySpacing)),
+      );
+      nextRun();
+      rig.contexts.of(_c1).tombstoned
+        ..[_mid(1)] = StoredMessageState.removed
+        ..[_mid(2)] = StoredMessageState.deletedAccount;
+      engine().processed.clear();
+
+      await rig.receiver.pullLive(_c1);
+
+      // 1: the stored row wins (it is not replaced by the tombstone row).
+      expect((await row(_mid(1)))!.state, StoredMessageState.undecryptable);
+      // 2: the tombstone, before any engine call.
+      final r2 = (await row(_mid(2)))!;
+      expect(r2.state, StoredMessageState.deletedAccount);
+      expect(r2.content, isNull);
+      // 3: the engine.
+      expect((await row(_mid(3)))!.state, StoredMessageState.visible);
+      expect(engine().processed, hasLength(1));
+      expect(rigEq(engine().processed.single, m3.ciphertext), isTrue);
+      expect(await deferredIds(), isEmpty);
+    });
+
+    test('a deferred echo of an own outbox row completes it with no engine '
+        'call, and one whose digest is in the sent log is dropped', () async {
+      await setUpJoined();
+      final own = await sayOwn(1, text: 'sent by me');
+      await putOutbox(
+        expectedId: _mid(1),
+        ciphertext: Uint8List.fromList(own.ciphertext),
+        content: _content('sent by me'),
+      );
+      await rig.device.vault.transaction(
+        (tx) => tx.addSent(
+          _c1,
+          const MlsPair(1, 1),
+          sentDigest(Uint8List.fromList([7, 7, 7])),
+        ),
+      );
+      await putDeferred(
+        DeferredRecord([
+          heldItem(1, ct: own.ciphertext),
+          heldItem(2, ct: [7, 7, 7]),
+        ]),
+      );
+      rig.server.rewriteLive = (r) => r..messages.clear();
+      rig.server.rewriteEpoch = (r) => r..messages.clear();
+
+      await rig.receiver.pullLive(_c1);
+
+      final r = (await row(_mid(1)))!;
+      expect(r.mine, isTrue);
+      expect(r.state, StoredMessageState.visible);
+      expect(r.content, _content('sent by me'));
+      expect((await rig.device.vault.outbox()).items, isEmpty);
+      expect(await row(_mid(2)), isNull);
+      expect(await deferredIds(), isEmpty);
+      expect(engine().processed, isEmpty);
     });
   });
 }
