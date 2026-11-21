@@ -486,8 +486,13 @@ class EncryptedSender {
     if (op == null) return _stop(id, SendBlock.unavailable);
     final read = await op.vault.outbox(conversationId: id);
     if (read.unreadableKeys.isNotEmpty) {
-      // A row that no longer opens: its place in the order is not known,
-      // so nothing of the conversation is encrypted or sent past it.
+      // A row that no longer opens: its stage, init and error are not
+      // known (only its place in the order is), so nothing of the
+      // conversation is encrypted or sent past it. Decision: stop, not
+      // skip, because skipping could send a later message ahead of an
+      // earlier one the user still expects to go out. Known cost: the
+      // conversation's sends stay blocked until the row is deleted by
+      // key, which Task 13b must offer (a gate before the flag goes on).
       _reportOnce('send.outbox.unreadable');
       return _stop(id, SendBlock.unavailable);
     }
@@ -728,7 +733,9 @@ class EncryptedSender {
     if (_removedElsewhere()) return _stop(id, SendBlock.unavailable);
     if (!_contexts.of(id).canReply) return _stop(id, SendBlock.cannotMessage);
     // Audit M2: these bytes are not handed over, for the first time or
-    // again, while a member is not attributable.
+    // again, while a member is not attributable. The step that calls
+    // this already checks the same thing; this second check is kept as
+    // defence in depth for a future caller.
     if (await _attributionOwed(op.vault, id)) {
       return _stop(id, SendBlock.notSynced);
     }
