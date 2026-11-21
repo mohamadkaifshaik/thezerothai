@@ -18,7 +18,10 @@ import 'package:dzeroth/features/messages/domain/e2ee/sync_budget.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
+import 'package:fixnum/fixnum.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:protobuf/well_known_types/google/protobuf/timestamp.pb.dart'
+    as ts;
 
 import '../../../../support/e2ee_pipeline_rig.dart';
 
@@ -226,6 +229,7 @@ void main() {
         await release.future;
         return snapshot;
       };
+      rig.server.calls.clear();
       final older = rig.receiver.pullLive(_c1);
       await listed.future;
       rig.server.sendScript.add((error: lost.error, stored: true));
@@ -233,9 +237,16 @@ void main() {
       final discarding = rig.sender.discard('l1');
       // Queue behind discard's outbox read before releasing the old snapshot.
       await outbox();
+      // The older pass is still running: discard waits for it, then starts
+      // a pull of its own (a second listing), which is its proof.
+      expect(rig.contexts.of(_c1).running, isNotNull);
       release.complete();
       await older;
       await discarding;
+      expect(
+        rig.server.calls.where((call) => call == 'listMlsMessages'),
+        hasLength(2),
+      );
       expect((await stored()).single.content, isNotNull);
       expect(await outbox(), isEmpty);
     });
@@ -552,7 +563,7 @@ void main() {
       expect(rig.server.sends, isEmpty);
       expect(
         (await rig.sender.outgoing(_c1)).single.waitingOn,
-        isIn({SendBlock.notSynced, SendBlock.unknownDevice}),
+        SendBlock.notSynced,
       );
     });
 
@@ -764,7 +775,7 @@ void main() {
       expect(await outbox(), isEmpty);
     });
 
-    test('success stores the message with the server id and removes the '
+    test('success stores the message under the expected id and removes the '
         'row', () async {
       await setUpJoined();
       // The answer's conversation row is taken (it says "cannot reply").
@@ -1900,7 +1911,13 @@ void main() {
     test('a refusal met after the vault was lost changes nothing in '
         'memory', () async {
       await setUpJoined();
-      rig.server.beforeSend = (_) async => rig.device.owner!.steal();
+      rig.server.beforeSend = (_) async {
+        rig.device.owner!.steal();
+        // The session has taken the loss in before the server answers.
+        while (rig.device.session.vault != null) {
+          await Future<void>.delayed(Duration.zero);
+        }
+      };
       rig.server.sendScript.add((
         error: const CannotMessageException(),
         stored: false,
@@ -1913,6 +1930,339 @@ void main() {
       expect(row.stage, OutboxStage.encrypted);
       expect(row.lastError, isNull);
       expect(row.attempts, 0);
+    });
+  });
+
+  group('rows with an init are left to Task 8', () {
+    /// An outbox row with an init, as the first message of a provisional
+    /// group is stored: stage encrypted, with bytes this class never made.
+    Future<OutboxItem> seedInitRow(
+      String c, {
+      String? lastError,
+      Duration after = Duration.zero,
+    }) async {
+      final content = encodeMessageContent(
+        text: 'the first message',
+        reportKey: Uint8List(kReportKeyBytes),
+      );
+      final key = 'ab' * 16;
+      final item = OutboxItem(
+        idempotencyKey: key,
+        localId: 'init-1',
+        expectedMessageId: expectedMessageId('user-a', key),
+        conversationId: c,
+        generation: 1,
+        epoch: 1,
+        ciphertext: Uint8List.fromList(List.filled(40, 7)),
+        reportCommitment: reportCommitment(content),
+        content: content,
+        createdAtMicros: rig.clock.now().add(after).microsecondsSinceEpoch,
+        init: Uint8List.fromList([1, 2, 3, 4]),
+        attempts: lastError == null ? 0 : 1,
+        lastError: lastError,
+      );
+      await rig.device.vault.transaction((tx) => tx.putOutbox(item));
+      return item;
+    }
+
+    Future<void> setUpProvisional() async {
+      rig = await RigCrypto.create();
+      bob = await RigPeer.create('bob');
+      await rig.seedProvisional(_c2, [bob]);
+      rig.device.engine.calls.clear();
+    }
+
+    test('an init row at the head: nothing is sent or encrypted, and the '
+        'row behind it waits as provisional', () async {
+      await setUpProvisional();
+      await seedInitRow(_c2);
+      rig.clock.advance(const Duration(seconds: 1));
+      await rig.sender.enqueue(localId: 'l2', conversationId: _c2, text: 'x');
+      await rig.sender.settled(_c2);
+      await rig.sender.drain(_c2);
+      expect(rig.server.sends, isEmpty);
+      expect(encrypts(), 0);
+      expect(rig.server.calls, isEmpty);
+      final out = await rig.sender.outgoing(_c2);
+      expect(out.map((r) => r.localId), ['init-1', 'l2']);
+      expect(out.last.status, OutgoingStatus5a.waiting);
+      expect(out.last.waitingOn, SendBlock.provisional);
+    });
+
+    test('retry and discard of an init row leave it byte-identical', () async {
+      await setUpProvisional();
+      await seedInitRow(_c2, lastError: 'ValidationException');
+      final before = await rig.dump();
+      rig.changed.clear();
+      await rig.sender.retry('init-1');
+      await rig.sender.settled(_c2);
+      expect(await rig.dump(), before, reason: 'retry');
+      await rig.sender.discard('init-1');
+      expect(await rig.dump(), before, reason: 'discard');
+      // Neither made a call (a discard's live pull) or announced a change.
+      expect(rig.server.calls, isEmpty);
+      expect(rig.changed, isEmpty);
+    });
+
+    test('an init row behind a waiting plain row is not sent past '
+        'it', () async {
+      await setUpProvisional();
+      await rig.sender.enqueue(localId: 'l1', conversationId: _c2, text: 'x');
+      await rig.sender.settled(_c2);
+      await seedInitRow(_c2, after: const Duration(seconds: 1));
+      expect((await outbox(_c2)).map((r) => r.localId), ['l1', 'init-1']);
+      final before = await rig.dump();
+      await rig.sender.drain(_c2);
+      expect(rig.server.sends, isEmpty);
+      expect(encrypts(), 0);
+      expect(await rig.dump(), before);
+    });
+
+    test('an init row behind an encrypted row: only the first is '
+        'sent', () async {
+      await setUpJoined();
+      rig.device.onConfirmStored = (_, _) async => false;
+      await send('l1');
+      rig.device.onConfirmStored = null;
+      final first = (await outbox()).single;
+      expect(first.stage, OutboxStage.encrypted);
+      final init = await seedInitRow(_c1, after: const Duration(seconds: 1));
+      await drain();
+      await drain();
+      expect(rig.server.sends.single.key, first.idempotencyKey);
+      final left = (await outbox()).single;
+      expect(left.idempotencyKey, init.idempotencyKey);
+      expect(left.init, init.init);
+      expect(left.ciphertext, init.ciphertext);
+      expect(encrypts(), 1);
+    });
+
+    test('a row that became an init row during discard\'s live pull is '
+        'kept', () async {
+      await setUpJoined();
+      rig.device.onConfirmStored = (_, _) async => false;
+      await send('l1');
+      rig.device.onConfirmStored = null;
+      final row = (await outbox()).single;
+      // While the pull lists, the row is replaced by one with an init.
+      rig.server.rewriteLive = (real) async {
+        rig.server.rewriteLive = null;
+        await rig.device.vault.transaction(
+          (tx) => tx.putOutbox(
+            OutboxItem(
+              idempotencyKey: row.idempotencyKey,
+              localId: row.localId,
+              expectedMessageId: row.expectedMessageId,
+              conversationId: _c1,
+              generation: row.generation,
+              epoch: row.epoch,
+              ciphertext: row.ciphertext,
+              reportCommitment: row.reportCommitment,
+              content: row.content,
+              createdAtMicros: row.createdAtMicros,
+              init: Uint8List.fromList([1, 2, 3, 4]),
+            ),
+          ),
+        );
+        return real;
+      };
+      await rig.sender.discard('l1');
+      expect((await outbox()).single.init, isNotNull);
+    });
+  });
+
+  group('contracts later tasks build on', () {
+    test('this conversation\'s engine hold stops an encrypt', () async {
+      await setUpJoined();
+      await rig.receiver.pullLive(_c1);
+      final context = rig.contexts.of(_c1);
+      expect(context.syncedSinceStart, isTrue);
+      context.engineHoldUntil = rig.clock.now().add(const Duration(minutes: 1));
+      await send('l1');
+      expect(encrypts(), 0);
+      expect(rig.server.sends, isEmpty);
+      expect(
+        (await rig.sender.outgoing(_c1)).single.waitingOn,
+        SendBlock.unavailable,
+      );
+      rig.clock.advance(const Duration(minutes: 1));
+      await drain();
+      expect(rig.server.sends, hasLength(1));
+    });
+
+    test('the receiver-wide engine hold stops an encrypt', () async {
+      await setUpJoined();
+      await rig.receiver.pullLive(_c1);
+      final context = rig.contexts.of(_c1);
+      // A device-level engine answer met by a receive pass.
+      final content = encodeMessageContent(
+        text: 'from bob',
+        reportKey: Uint8List(kReportKeyBytes),
+      );
+      final g = offer.add.group;
+      final r = await bob.engine.encrypt(bob.state, g.state, content);
+      g.state = r.groupState;
+      rig.server.addMessage(
+        pb.Message(
+          id: 'c' * 32,
+          conversationId: _c1,
+          state: MessageState.MESSAGE_STATE_VISIBLE,
+          createdAt: ts.Timestamp.fromDateTime(rig.clock.now()),
+          ciphertext: r.ciphertext,
+          mlsGeneration: Int64(1),
+          mlsEpoch: Int64(r.epoch),
+          reportCommitment: reportCommitment(content),
+        ),
+      );
+      rig.device.engine.failAlways['process'] = const MlsException(
+        MlsErrorCode.unavailable,
+        'rig',
+      );
+      await rig.receiver.pullLive(_c1);
+      rig.device.engine.failAlways.clear();
+      expect(rig.receiver.engineHeldUntil, isNotNull);
+      expect(context.engineHoldUntil, isNull);
+      expect(context.syncedSinceStart, isTrue);
+      rig.device.engine.calls.clear();
+      await send('l1');
+      expect(encrypts(), 0);
+      expect(rig.server.sends, isEmpty);
+      expect(
+        (await rig.sender.outgoing(_c1)).single.waitingOn,
+        SendBlock.unavailable,
+      );
+      rig.clock.advance(const Duration(hours: 2));
+      expect(rig.receiver.engineHeldUntil, isNull);
+      await drain();
+      expect(rig.server.sends, hasLength(1));
+      expect(await outbox(), isEmpty);
+    });
+
+    test('a message at or before cleared_at is not stored, and its row '
+        'still goes', () async {
+      await setUpJoined();
+      await rig.receiver.pullLive(_c1);
+      final cleared = rig.clock.now().microsecondsSinceEpoch;
+      await updateSync((s) => s.copyWith(clearedAtMicros: cleared));
+      await send('l1', 'cleared');
+      expect(rig.server.sends, hasLength(1));
+      expect(await outbox(), isEmpty);
+      expect(await stored(), isEmpty);
+      // One made after it is stored as ever.
+      rig.clock.advance(const Duration(seconds: 1));
+      await send('l2', 'after');
+      expect(await outbox(), isEmpty);
+      expect([for (final m in await stored()) textOf(m.content!)], ['after']);
+    });
+
+    test('a vault lost while a send is in flight: the drain stops and '
+        'nothing is written to the vault opened next', () async {
+      await setUpJoined();
+      final old = rig.sender;
+      var before = '';
+      rig.server.beforeSend = (_) async {
+        rig.server.beforeSend = null;
+        before = await rig.dump();
+        rig.device.owner!.steal();
+        // The session has taken the loss in before the server answers.
+        while (rig.device.session.vault != null) {
+          await Future<void>.delayed(Duration.zero);
+        }
+      };
+      // The server stores the message and answers; the answer meets a
+      // session whose vault is gone.
+      await send('l1', 'kept');
+      await old.settled(_c1);
+      expect(rig.server.sends, hasLength(1));
+      await rig.restart();
+      expect(await rig.dump(), before);
+      final row = (await outbox()).single;
+      expect(row.stage, OutboxStage.encrypted);
+      expect(await stored(), isEmpty);
+      // The same request again is answered alike, and the row completes.
+      await drain();
+      expect(rig.server.sends, hasLength(2));
+      expect(rig.server.sends[1].same(rig.server.sends[0]), isTrue);
+      expect(await outbox(), isEmpty);
+      expect([for (final m in await stored()) textOf(m.content!)], ['kept']);
+    });
+
+    test('reset forgets every memory of the run', () async {
+      await setUpJoined(accepted: false, folder: Folder.FOLDER_REQUESTS);
+      Future<OutgoingRow> row() async =>
+          (await rig.sender.outgoing(_c1)).single;
+      // Why the last drain stopped (a failed accept; no gate explains it).
+      rig.onAcceptForReply = (_) async =>
+          throw const NetworkException('offline');
+      await send('l1');
+      expect((await row()).waitingOn, SendBlock.notSynced);
+      rig.sender.reset();
+      expect((await row()).waitingOn, SendBlock.none);
+
+      // A retry time, an unknown outcome and the send count.
+      rig.onAcceptForReply = acceptanceSteps;
+      rig.server.sendScript.add((
+        error: const ScreeningUnavailableException(
+          'busy',
+          retryAfter: Duration(hours: 1),
+        ),
+        stored: false,
+      ));
+      await drain();
+      expect(rig.server.sends, hasLength(1));
+      expect(rig.sender.memoryEntries, 3);
+      await drain();
+      expect(rig.server.sends, hasLength(1), reason: 'the retry time');
+      rig.sender.reset();
+      expect(rig.sender.memoryEntries, 0);
+      // No retry time any more, and two attempts again, not one.
+      rig.server.sendScript.addAll([lost, lost]);
+      await drain();
+      expect(rig.server.sends, hasLength(3));
+
+      // The typed error of a refusal.
+      rig.server.sendScript.add((
+        error: const ValidationException('bad'),
+        stored: false,
+      ));
+      await drain();
+      expect(rig.server.sends, hasLength(4));
+      expect((await row()).error, isA<ValidationException>());
+      rig.sender.reset();
+      expect(rig.sender.memoryEntries, 0);
+      final failed = await row();
+      expect(failed.status, OutgoingStatus5a.failed);
+      expect(failed.error, isNull);
+      // The row itself is the vault's: still failed, nothing is sent.
+      await drain();
+      expect(rig.server.sends, hasLength(4));
+    });
+
+    test('reset drops the rerun a joined call asked for', () async {
+      await setUpJoined();
+      final sending = Completer<void>();
+      final release = Completer<void>();
+      rig.server.beforeSend = (_) async {
+        rig.server.beforeSend = null;
+        sending.complete();
+        await release.future;
+      };
+      rig.server.sendScript.addAll([lost, lost]);
+      final first = rig.sender.enqueue(
+        localId: 'l1',
+        conversationId: _c1,
+        text: 'a',
+      );
+      await sending.future;
+      await first;
+      // A call joins the running drain; then the session ends.
+      final joined = drain();
+      rig.sender.reset();
+      release.complete();
+      await joined;
+      await rig.sender.settled(_c1);
+      // The running drain made its two attempts; no rerun made a third.
+      expect(rig.server.sends, hasLength(2));
     });
   });
 
