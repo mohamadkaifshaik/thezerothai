@@ -2358,6 +2358,46 @@ void main() {
       }
     });
 
+    test('a due catch-up inside its own wait is not run and the pass says '
+        'when', () async {
+      await setUpJoined();
+      await prime();
+      await say(bobGroup(), 1);
+      await bobSelfUpdate();
+      await say(bobGroup(), 2, at: seconds(1));
+      rig.server.livePageSize = 1;
+      // Every commit listing fails: the reason (the later pair) stands.
+      rig.server.onCall = (c) async {
+        if (c == 'listConversationCommits') {
+          throw const NetworkException('rig');
+        }
+      };
+      await rig.receiver.pullLive(_c1);
+      rig.clock.advance(kWalkBackoff);
+      final second = await rig.receiver.pullLive(_c1);
+      // The second fruitless run at the pair armed the catch-up's own wait.
+      final notBefore = rig.clock.now().add(kWalkBackoff * 2);
+      expect(second.until, notBefore);
+      final context = rig.contexts.of(_c1);
+      expect(context.catchUpNotBefore, notBefore);
+      expect(context.laterPairSeen, const MlsPair(1, 2));
+      // Inside the wait, and not at a time the flat wait would name.
+      rig.clock.advance(const Duration(seconds: 45));
+      rig.server.calls.clear();
+
+      final third = await rig.receiver.pullLive(_c1);
+
+      // The pass ran (its probe), the catch-up did not, and the pass names
+      // the end of that wait.
+      expect(rig.server.calls, contains('listMlsMessages'));
+      expect(rig.server.calls, isNot(contains('listConversationCommits')));
+      expect(third.kind, ReceiveOutcomeKind.stopped);
+      expect(third.until, notBefore);
+      expect(context.catchUpNotBefore, notBefore);
+      expect(context.walkBackoffUntil, isNull);
+      expect(context.laterPairSeen, const MlsPair(1, 2));
+    });
+
     test('a later pair seen on the probe is not caught up again once the '
         'current pair has passed it', () async {
       await setUpJoined();
@@ -2718,6 +2758,289 @@ void main() {
       expect(r.orphan, isNull);
     });
 
+    /// The sink for [pair], called as catch-up calls it (the lock held).
+    Future<void> sinkComplete(MlsPair pair) => rig.locks.run(
+      _c1,
+      () =>
+          rig.receiver.completeEpoch(_c1, pair, priority: BudgetPriority.user),
+    );
+
+    /// A final group of generation 2 at epoch 1 stored beside [g1] (the
+    /// device moved on and kept generation 1's group).
+    Future<void> keepBesideGeneration2(GroupRecord g1) =>
+        rig.device.vault.transaction(
+          (tx) => tx.putGroup(
+            GroupRecord(
+              conversationId: _c1,
+              generation: 2,
+              epoch: 1,
+              state: g1.state,
+            ),
+          ),
+        );
+
+    test('a close walk that ended before the generation moved still deletes '
+        'its kept group', () async {
+      await setUpJoined();
+      final sent = await sayMany(1, 3, start: const Duration(minutes: -10));
+      // The close walk of (1, 1) runs to its end while generation 1 is
+      // current (a real walk, through the sink); its commit never applies.
+      await sinkComplete(const MlsPair(1, 1));
+      expect((await receiveRecord()).close!.end, isTrue);
+      expect(await rig.device.vault.group(_c1, 1), isNotNull);
+      // Then the device moved to generation 2 and kept generation 1's group.
+      await keepBesideGeneration2((await rig.device.vault.group(_c1, 1))!);
+      rig.server.epochRequests.clear();
+
+      await rig.receiver.pullLive(_c1);
+
+      // The pass took the final step for the walk that had already ended:
+      // the group is gone and the slot is free, with nothing listed again.
+      expect(await rig.device.vault.group(_c1, 1), isNull);
+      final r = await receiveRecord();
+      expect(r.close, isNull);
+      expect(r.orphan, isNull);
+      expect(orderedTokens(const MlsPair(1, 1)), isEmpty);
+      for (final m in sent) {
+        expect((await row(m.id))!.state, StoredMessageState.visible);
+      }
+      expect(await rig.device.vault.group(_c1, 2), isNotNull);
+    });
+
+    test('a restart between a close walk\'s end and the delete of its kept '
+        'group loses neither', () async {
+      await setUpJoined();
+      final sent = await sayMany(1, 3, start: const Duration(minutes: -10));
+      await sinkComplete(const MlsPair(1, 1));
+      await keepBesideGeneration2((await rig.device.vault.group(_c1, 1))!);
+      // The app stops with the end recorded and the group still stored.
+      await rig.restart();
+      expect((await receiveRecord()).close!.end, isTrue);
+      expect(await rig.device.vault.group(_c1, 1), isNotNull);
+      rig.server.epochRequests.clear();
+
+      await rig.receiver.pullLive(_c1);
+
+      expect(await rig.device.vault.group(_c1, 1), isNull);
+      expect((await receiveRecord()).close, isNull);
+      expect(orderedTokens(const MlsPair(1, 1)), isEmpty);
+      for (final m in sent) {
+        expect((await row(m.id))!.state, StoredMessageState.visible);
+      }
+    });
+
+    test('an ended close entry replaced by the current pair\'s close walk '
+        'leaves its kept group to the orphan walk', () async {
+      await setUpJoined();
+      final sent = await sayMany(1, 3, start: const Duration(minutes: -10));
+      await sinkComplete(const MlsPair(1, 1));
+      await keepBesideGeneration2((await rig.device.vault.group(_c1, 1))!);
+      // Before any pass, the sink takes the close slot for the current pair.
+      await sinkComplete(const MlsPair(2, 1));
+      expect((await receiveRecord()).close!.pair, const MlsPair(2, 1));
+      expect(await rig.device.vault.group(_c1, 1), isNotNull);
+      rig.server.epochRequests.clear();
+
+      await rig.receiver.pullLive(_c1);
+
+      // The orphan check lists (1, 1) again from the start (stored ids are
+      // skipped) and its final transaction deletes the group.
+      expect(orderedTokens(const MlsPair(1, 1)), isNotEmpty);
+      expect(await rig.device.vault.group(_c1, 1), isNull);
+      expect((await receiveRecord()).orphan, isNull);
+      for (final m in sent) {
+        expect((await row(m.id))!.state, StoredMessageState.visible);
+      }
+    });
+
+    test('an ended close walk of the current generation keeps its '
+        'group', () async {
+      await setUpJoined();
+      await sayMany(1, 3, start: const Duration(minutes: -10));
+      await sinkComplete(const MlsPair(1, 1));
+      expect((await receiveRecord()).close!.end, isTrue);
+
+      await rig.receiver.pullLive(_c1);
+
+      expect((await rig.device.vault.group(_c1, 1))!.epoch, 1);
+      expect((await receiveRecord()).close!.end, isTrue);
+    });
+
+    test('an ended close walk below the current generation never deletes a '
+        'provisional group', () async {
+      await setUpJoined();
+      final g1 = (await rig.device.vault.group(_c1, 1))!;
+      // Generation 1 is being set up again (a provisional group only),
+      // beside a final generation 2.
+      await rig.device.vault.transaction((tx) async {
+        await tx.deleteGroup(_c1, 1);
+        await tx.putGroup(
+          GroupRecord(
+            conversationId: _c1,
+            generation: 1,
+            epoch: 1,
+            state: g1.state,
+            provisional: true,
+            provisionalCreatedAtMicros: t0.microsecondsSinceEpoch,
+          ),
+        );
+      });
+      await keepBesideGeneration2(g1);
+      await putReceiveRecord(
+        const ReceiveRecord(close: WalkEntry(pair: MlsPair(1, 1), end: true)),
+      );
+
+      await rig.receiver.pullLive(_c1);
+
+      expect((await rig.device.vault.group(_c1, 1))!.provisional, isTrue);
+      expect((await receiveRecord()).close!.pair, const MlsPair(1, 1));
+    });
+
+    test('an ended close walk for another epoch than its group never deletes '
+        'the group unwalked', () async {
+      await setUpJoined();
+      final sent = await sayMany(1, 3, start: const Duration(minutes: -10));
+      // A stale slot (a replayed record): it names (1, 3), the kept group is
+      // at (1, 1), never walked.
+      await keepBesideGeneration2((await rig.device.vault.group(_c1, 1))!);
+      await putReceiveRecord(
+        const ReceiveRecord(close: WalkEntry(pair: MlsPair(1, 3), end: true)),
+      );
+      var keptAtListing = false;
+      rig.server.afterEpochAnswer = () async {
+        if (rig.server.epochRequests.last.pair == const MlsPair(1, 1)) {
+          keptAtListing = await rig.device.vault.group(_c1, 1) != null;
+        }
+      };
+
+      await rig.receiver.pullLive(_c1);
+
+      // The slot was no reason to delete: the group went only after the
+      // orphan walk of its own last epoch decrypted with it.
+      expect(keptAtListing, isTrue);
+      for (final m in sent) {
+        expect((await row(m.id))!.state, StoredMessageState.visible);
+      }
+      expect(await rig.device.vault.group(_c1, 1), isNull);
+    });
+
+    test('an orphan entry stored at its end still lets go of its kept '
+        'group', () async {
+      await setUpJoined();
+      await keepBesideGeneration2((await rig.device.vault.group(_c1, 1))!);
+      // No writer leaves an orphan entry with `end` (its end clears the
+      // slot); the decoder accepts one (an older or replayed record).
+      await putReceiveRecord(
+        const ReceiveRecord(orphan: WalkEntry(pair: MlsPair(1, 1), end: true)),
+      );
+
+      await rig.receiver.pullLive(_c1);
+
+      expect(await rig.device.vault.group(_c1, 1), isNull);
+      expect((await receiveRecord()).orphan, isNull);
+    });
+
+    test('a generation switch whose lower generation\'s pair is in the close '
+        'slot deletes that group, walks the last epoch, records both and '
+        'joins', () async {
+      await setUpJoined();
+      final g1 = (await rig.device.vault.group(_c1, 1))!;
+      // This device joins generation 2 for real (that switch walks the then
+      // empty (1, 1) and deletes generation 1).
+      final offer2 = await rig.offer(_c1, bob, generation: 2);
+      expect(await rig.crypto.processWelcomes(), [_c1]);
+      expect(await rig.device.vault.group(_c1, 1), isNull);
+      // Generation 1's group is kept after all, with messages of its last
+      // epoch and its close walk started before the generation moved.
+      final old = await sayMany(1, 3, start: const Duration(minutes: -10));
+      await rig.device.vault.transaction((tx) => tx.putGroup(g1));
+      await putReceiveRecord(
+        const ReceiveRecord(close: WalkEntry(pair: MlsPair(1, 1))),
+      );
+      final m2 = await say(
+        offer2.add.group,
+        10,
+        at: seconds(-1),
+        generation: 2,
+      );
+      final epoch2 = (await rig.device.vault.group(_c1, 2))!.epoch;
+      // Bob starts generation 3: Task 5's switch. What is stored when the
+      // switch reaches its welcome poll (before the join):
+      await rig.offer(_c1, bob, generation: 3);
+      GroupRecord? lowerAtPoll;
+      WalkEntry? closeAtPoll;
+      List<MlsPair>? doneAtPoll;
+      var polls = 0;
+      rig.server.onCall = (c) async {
+        if (c != 'listWelcomes' || polls++ > 0) return;
+        lowerAtPoll = await rig.device.vault.group(_c1, 1);
+        closeAtPoll = (await receiveRecord()).close;
+        doneAtPoll = (await sync()).completedEpochs;
+      };
+
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+
+      // The sink ended (1, 1) in the close slot and deleted its group in
+      // that transaction; then it walked (2, epoch2) in the freed slot.
+      expect(polls, greaterThanOrEqualTo(1));
+      expect(lowerAtPoll, isNull);
+      expect(closeAtPoll!.pair, MlsPair(2, epoch2));
+      expect(closeAtPoll!.end, isTrue);
+      expect(
+        doneAtPoll,
+        containsAll([const MlsPair(1, 1), MlsPair(2, epoch2)]),
+      );
+      for (final m in old) {
+        expect((await row(m.id))!.state, StoredMessageState.visible);
+      }
+      expect((await row(m2.id))!.state, StoredMessageState.visible);
+      // The join happened and took generation 2's group.
+      expect(await rig.device.vault.group(_c1, 3), isNotNull);
+      expect(await rig.device.vault.group(_c1, 2), isNull);
+      expect(await rig.device.vault.group(_c1, 1), isNull);
+      expect(
+        (await rig.device.vault.conversation(_c1))!.joinHighWater!.generation,
+        3,
+      );
+    });
+
+    test('a generation switch that meets an ended close walk of a lower '
+        'generation deletes its group before the pair is recorded', () async {
+      await setUpJoined();
+      final old = await sayMany(1, 3, start: const Duration(minutes: -10));
+      // The close walk of (1, 1) ends while generation 1 is current.
+      await sinkComplete(const MlsPair(1, 1));
+      final ended = (await receiveRecord()).close!;
+      expect(ended.end, isTrue);
+      final g1 = (await rig.device.vault.group(_c1, 1))!;
+      // This device joins generation 2 for real; generation 1's group is
+      // kept after all, its ended close entry still stored.
+      await rig.offer(_c1, bob, generation: 2);
+      expect(await rig.crypto.processWelcomes(), [_c1]);
+      await rig.device.vault.transaction((tx) => tx.putGroup(g1));
+      await putReceiveRecord(ReceiveRecord(close: ended));
+      await rig.offer(_c1, bob, generation: 3);
+      GroupRecord? lowerAtPoll;
+      var polls = 0;
+      rig.server.onCall = (c) async {
+        if (c != 'listWelcomes' || polls++ > 0) return;
+        lowerAtPoll = await rig.device.vault.group(_c1, 1);
+      };
+      rig.server.epochRequests.clear();
+
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+
+      expect(polls, greaterThanOrEqualTo(1));
+      expect(lowerAtPoll, isNull);
+      expect(orderedTokens(const MlsPair(1, 1)), isEmpty);
+      for (final m in old) {
+        expect((await row(m.id))!.state, StoredMessageState.visible);
+      }
+      expect(await rig.device.vault.group(_c1, 3), isNotNull);
+      expect(await rig.device.vault.group(_c1, 2), isNull);
+      expect(await rig.device.vault.group(_c1, 1), isNull);
+    });
+
     test('a conversation with no final group still finishes its undecryptable '
         'walk', () async {
       await setUpJoined();
@@ -2951,6 +3274,42 @@ void main() {
         expect(stored.rec!.armed, isTrue);
       },
     );
+
+    test('a since token outside the token shape is never saved', () async {
+      await setUpJoined();
+      const bad = 's:9\u0001';
+      var forge = true;
+      rig.server.rewriteLive = (real) =>
+          forge ? (real.deepCopy()..sinceToken = bad) : real;
+
+      // 1. The first probe (no since token): not the anchor, and not the
+      // token §4 rule 2 saves when the open walk ends.
+      await rig.receiver.pullLive(_c1);
+      expect((await sync()).sinceToken, '');
+      expect((await receiveRecord()).anchor, '');
+      expect(rig.contexts.of(_c1).endToken, isNull);
+
+      forge = false;
+      final token = await prime();
+
+      // 2. The fast path: the batch is processed, the stored token is kept.
+      await say(bobGroup(), 1);
+      forge = true;
+      await rig.receiver.pullLive(_c1);
+      expect((await row(_mid(1)))!.state, StoredMessageState.visible);
+      expect((await sync()).sinceToken, token);
+
+      // 3. A gapped page (rule 2): its messages come through the open walk
+      // and its token is not kept for the walk's end.
+      await sayMany(2, 3, start: seconds(1));
+      rig.server.livePageSize = 1;
+      await rig.receiver.pullLive(_c1);
+      for (var i = 2; i <= 4; i++) {
+        expect((await row(_mid(i)))!.state, StoredMessageState.visible);
+      }
+      expect((await sync()).sinceToken, token);
+      expect(rig.contexts.of(_c1).endToken, isNull);
+    });
 
     test('an orphan entry below its group\'s epoch reads as ended', () async {
       await setUpJoined();

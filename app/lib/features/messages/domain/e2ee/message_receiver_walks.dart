@@ -44,6 +44,7 @@ class _Probe {
     this.pulled = false,
     this.caughtUp = false,
     this.sawLater,
+    this.listAgain = false,
   });
 
   /// The pass stops with this (rate limited, budget paused, a failed call,
@@ -63,6 +64,11 @@ class _Probe {
   /// The page was not processed: the highest pair of its messages above the
   /// group's current pair (as read before the listing); null: none.
   final MlsPair? sawLater;
+
+  /// The page was not processed and its since token was refused for its
+  /// shape (nothing is kept for §4 rule 2): the open walk still lists once
+  /// more in this pass, so the page's messages come through it.
+  final bool listAgain;
   bool waitingForWelcome = false;
 }
 
@@ -144,7 +150,7 @@ extension _Walks on MessageReceiver {
       _Slot.open,
       priority,
       take,
-      newListing: context.endToken != null || settleDue,
+      newListing: context.endToken != null || probe.listAgain || settleDue,
       onTokenSaved: () => pulled = true,
     );
     if (r != null) return r;
@@ -376,6 +382,11 @@ extension _Walks on MessageReceiver {
     }
     final seq = ++_seq;
     if (page.hasConversation()) _contexts.note(page.conversation);
+    // A since token outside the one token shape reads as no token: it is
+    // never the anchor, never kept for §4 rule 2 and never saved by the fast
+    // path (the stored token stays).
+    final since = isTokenShape(page.sinceToken) ? page.sinceToken : '';
+    final refused = since != page.sinceToken;
     // Against the pair read before the listing (I2's later-pair trigger).
     final later = _highestAbove(page.messages, current);
     return _locks.run(id, () async {
@@ -387,11 +398,11 @@ extension _Walks on MessageReceiver {
       if (token.isEmpty) {
         // §8.2: the anchor and the armed reconcile entry (its listing is
         // step 2's); the page is not processed.
-        await _armLocked(pass, id, page.sinceToken);
-        context.endToken = page.sinceToken.isEmpty
+        await _armLocked(pass, id, since);
+        context.endToken = since.isEmpty
             ? null
-            : (token: page.sinceToken, sentWith: '', seq: seq);
-        return _Probe(sawLater: later);
+            : (token: since, sentWith: '', seq: seq);
+        return _Probe(sawLater: later, listAgain: refused);
       }
       if (page.gapPageToken.isEmpty &&
           openEnded &&
@@ -405,7 +416,7 @@ extension _Walks on MessageReceiver {
           id,
           messages,
           priority: priority,
-          token: (token: page.sinceToken, expect: token),
+          token: (token: since, expect: token),
         );
         return _Probe(
           fastPath: true,
@@ -415,10 +426,10 @@ extension _Walks on MessageReceiver {
       }
       // Not processed: its messages come through the open walk, in order;
       // its token is saved by rule 2 once that walk ends.
-      context.endToken = page.sinceToken.isEmpty
+      context.endToken = since.isEmpty
           ? null
-          : (token: page.sinceToken, sentWith: token, seq: seq);
-      return _Probe(sawLater: later);
+          : (token: since, sentWith: token, seq: seq);
+      return _Probe(sawLater: later, listAgain: refused);
     });
   }
 
@@ -529,7 +540,11 @@ extension _Walks on MessageReceiver {
     while (true) {
       final record = await _readReceive(pass.vault, id);
       final w = _slotOf(record, slot);
-      if (w == null || (w.end && !again)) return null;
+      if (w == null) return null;
+      if (w.end && !again) {
+        await _releaseEnded(pass, id, slot, w);
+        return null;
+      }
       if (take() == 0) return ReceiveOutcome.more;
       final step = await _walkStep(pass, id, slot, w, priority, onTokenSaved);
       switch (step.kind) {
@@ -544,6 +559,61 @@ extension _Walks on MessageReceiver {
           return step.outcome;
       }
     }
+  }
+
+  /// A pass met [slot]'s walk [w] already at its end (no lock held). When it
+  /// reads as the last epoch of a generation below the current one with its
+  /// group still kept (the walk ended while that generation was current, and
+  /// the generation moved since), the final step is taken under the lock,
+  /// where everything is read again ([_releaseEndedLocked]). One lock run of
+  /// its own, and only then.
+  Future<void> _releaseEnded(
+    _Pass pass,
+    String id,
+    _Slot slot,
+    WalkEntry w,
+  ) async {
+    if (slot == _Slot.open || !w.end) return;
+    final current = await _currentPair(pass.vault, id);
+    if (current == null || w.pair.generation >= current.generation) return;
+    final group = await pass.vault.group(id, w.pair.generation);
+    if (group == null || group.provisional || group.epoch != w.pair.epoch) {
+      return;
+    }
+    await _locks.run(id, () => _releaseEndedLocked(pass, id, slot));
+  }
+
+  /// §6 "whoever reaches it", for a close (or orphan) walk whose end was
+  /// recorded earlier. With the lock held, in ONE transaction: the group of
+  /// the walk's generation is deleted and [slot] is cleared. Only when,
+  /// read fresh in the write body, the entry has `end`, its generation is
+  /// strictly below the current pair's, and that generation's group is
+  /// stored, not provisional and at the entry's epoch (the conditions of the
+  /// transaction that records a walk's end, [_applyPageLocked]). Anything
+  /// else writes nothing.
+  Future<void> _releaseEndedLocked(_Pass pass, String id, _Slot slot) async {
+    assert(_locks.isHeld(id), 'The caller must hold the conversation lock.');
+    if (slot == _Slot.open || !pass.live) return;
+    final released = await _session.runWrite((v) async {
+      pass.check(v);
+      final record = await _readReceive(v, id);
+      final w = _slotOf(record, slot);
+      if (w == null || !w.end) return false;
+      final current = await _currentPair(v, id);
+      if (current == null || w.pair.generation >= current.generation) {
+        return false;
+      }
+      final group = await v.group(id, w.pair.generation);
+      if (group == null || group.provisional || group.epoch != w.pair.epoch) {
+        return false;
+      }
+      await v.transaction((tx) async {
+        await tx.deleteGroup(id, w.pair.generation);
+        await _records.putIn(tx, id, _withSlot(record, slot, null));
+      });
+      return true;
+    });
+    if (released) _contexts.of(id).serial++;
   }
 
   /// One page of [slot] (§2 "a walk step"): [w] is the snapshot read with no

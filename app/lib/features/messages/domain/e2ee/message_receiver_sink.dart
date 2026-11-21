@@ -14,7 +14,8 @@ extension _Sink on MessageReceiver {
   /// resumed and listed at most [kSinkPagesPerHold] pages per lock hold with
   /// [SyncBudget.tryTake]. Returns once the walk has ended (the final
   /// transaction of an orphan walk, or of a close walk of a generation below
-  /// the current one, deletes its group); otherwise throws [_WalkPending].
+  /// the current one, deletes its group; a walk met already at its end takes
+  /// that step here, [_releaseEndedLocked]); otherwise throws [_WalkPending].
   Future<void> _sinkWalk(
     String id,
     MlsPair pair,
@@ -43,7 +44,15 @@ extension _Sink on MessageReceiver {
         ? _Slot.orphan
         : _Slot.close;
     final w = _slotOf(record, slot);
-    if (w != null && w.pair == pair && w.end) return;
+    if (w != null && w.pair == pair && w.end) {
+      // Ended before the generation moved: its kept group goes now, before
+      // the caller records the pair as walked (which ends the slot at its
+      // next read, leaving the group to the next join).
+      if (current != null && pair.generation < current.generation) {
+        await _releaseEndedLocked(pass, id, slot);
+      }
+      return;
+    }
     if (slot == _Slot.orphan &&
         (w == null || w.pair != pair) &&
         (await pass.vault.group(id, pair.generation) == null ||
