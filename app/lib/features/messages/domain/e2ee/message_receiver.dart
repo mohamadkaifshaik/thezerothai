@@ -348,6 +348,7 @@ class MessageReceiver implements EpochMessageSink {
     var waiting = false;
     var changed = false;
     var completed = false;
+    var caughtUp = false;
     try {
       var all = true;
       var tokenSaved = false;
@@ -364,6 +365,7 @@ class MessageReceiver implements EpochMessageSink {
         if (step == _Step.later) {
           // Commits first; the batch stops without saving the token (the
           // new pair's open walk lists its messages, §4).
+          caughtUp = true;
           final result = await _crypto.catchUpLocked(id, priority: priority);
           if (result == CatchUpResult.waitingForWelcome) waiting = true;
           all = false;
@@ -387,7 +389,11 @@ class MessageReceiver implements EpochMessageSink {
       completed = false;
     }
     if (changed) _onChanged(id);
-    return _BatchEnd(completed: completed, waitingForWelcome: waiting);
+    return _BatchEnd(
+      completed: completed,
+      waitingForWelcome: waiting,
+      caughtUp: caughtUp,
+    );
   }
 
   /// Saves the since token alone, by compare-and-set on the stored one.
@@ -786,10 +792,17 @@ typedef _RecordUpdate =
     Function(SecureVault v, ConversationSync sync);
 
 class _BatchEnd {
-  const _BatchEnd({required this.completed, required this.waitingForWelcome});
+  const _BatchEnd({
+    required this.completed,
+    required this.waitingForWelcome,
+    required this.caughtUp,
+  });
 
   final bool completed;
   final bool waitingForWelcome;
+
+  /// The batch ran its one catch-up (a message of a later pair).
+  final bool caughtUp;
 }
 
 /// The vault the operation started with is no longer the session's.

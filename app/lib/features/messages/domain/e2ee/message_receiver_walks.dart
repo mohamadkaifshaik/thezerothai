@@ -38,7 +38,13 @@ enum _StepKind { applied, stale, restarted, stop }
 
 /// What the probe did (§4).
 class _Probe {
-  _Probe({this.outcome, this.fastPath = false, this.pulled = false});
+  _Probe({
+    this.outcome,
+    this.fastPath = false,
+    this.pulled = false,
+    this.caughtUp = false,
+    this.sawLater = false,
+  });
 
   /// The pass stops with this (rate limited, budget paused, a failed call,
   /// a retired token).
@@ -49,6 +55,14 @@ class _Probe {
 
   /// The fast path saved the token or found it already stored.
   final bool pulled;
+
+  /// The fast path's batch ran its one catch-up (a message of a later
+  /// pair): the pass runs no other.
+  final bool caughtUp;
+
+  /// The page was not processed and holds a message of a pair above the
+  /// group's current pair (as read before the listing).
+  final bool sawLater;
   bool waitingForWelcome = false;
 }
 
@@ -58,7 +72,7 @@ extension _Walks on MessageReceiver {
     var welcomes = false;
     ReceiveOutcome outcome;
     try {
-      outcome = await _passSteps(id, priority, (w) => welcomes = w);
+      outcome = await _passSteps(id, priority, () => welcomes = true);
     } on Object catch (e, s) {
       _reportIfBug(e, s, 'receive.live');
       outcome = ReceiveOutcome.stopped(_now().add(kWalkBackoff));
@@ -79,19 +93,21 @@ extension _Walks on MessageReceiver {
   Future<ReceiveOutcome> _passSteps(
     String id,
     BudgetPriority priority,
-    void Function(bool) onWelcomes,
+    void Function() onWelcomes,
   ) async {
     final pass = await _start();
     if (pass == null) return ReceiveOutcome.stopped(_now().add(kWalkBackoff));
-    // A provisional group only, or none: catch-up and the welcomes own it.
+    // A provisional group only, or none: catch-up and the welcomes own the
+    // current pair; an undecryptable (`u`) close or orphan walk left over
+    // from a group that is gone is still finished, with no probe.
     if (await _currentPair(pass.vault, id) == null) {
-      return ReceiveOutcome.complete;
+      return _walkWithoutGroup(pass, id, priority);
     }
     final context = _contexts.of(id);
 
     // 1. The probe.
     final probe = await _probe(pass, id, priority);
-    onWelcomes(probe.waitingForWelcome);
+    if (probe.waitingForWelcome) onWelcomes();
     if (probe.outcome != null) return probe.outcome!;
 
     // 2. The reconcile walk: step 2 (an armed entry waits durably).
@@ -142,13 +158,91 @@ extension _Walks on MessageReceiver {
               !context.attributionPending && context.serverPair == pair;
       }
     }
-    final after = await _readReceive(pass.vault, id);
-    final walksLeft =
-        (after.close != null && !after.close!.end) ||
-        after.orphan != null ||
-        (after.open != null && !after.open!.end);
-    return pulled && !walksLeft ? ReceiveOutcome.complete : ReceiveOutcome.more;
+    var after = await _readReceive(pass.vault, id);
+    final current = await _currentPair(pass.vault, id);
+    if (!probe.caughtUp &&
+        current != null &&
+        !_walksLeft(after) &&
+        (_closeEndedAt(after, current) || probe.sawLater)) {
+      // The pass finishes the job (I2): the walks have ended and a commit
+      // waits (the current pair's close walk ended, or the probe showed a
+      // later pair). ONE lock hold with the locked catch-up, as the fast
+      // path's batch does; its unheld welcome poll runs after the lock is
+      // released (`_runPass`). At most once per pass.
+      final result = await _locks.run(id, () async {
+        if (!pass.live) return null;
+        final fresh = await _readReceive(pass.vault, id);
+        if (_walksLeft(fresh) ||
+            await _currentPair(pass.vault, id) != current) {
+          return null;
+        }
+        return _crypto.catchUpLocked(id, priority: priority);
+      });
+      if (result == CatchUpResult.waitingForWelcome) onWelcomes();
+      if (await _currentPair(pass.vault, id) == current) {
+        // Nothing applied (no commit visible yet, a failed call, a later
+        // pair the server does not have): the next pass waits, never an
+        // immediate `more` or a `complete` with a commit left.
+        return ReceiveOutcome.stopped(_now().add(kWalkBackoff));
+      }
+      after = await _readReceive(pass.vault, id);
+    }
+    return pulled && !_walksLeft(after)
+        ? ReceiveOutcome.complete
+        : ReceiveOutcome.more;
   }
+
+  /// A close, orphan or open walk of [r] has pages left.
+  bool _walksLeft(ReceiveRecord r) =>
+      (r.close != null && !r.close!.end) ||
+      r.orphan != null ||
+      (r.open != null && !r.open!.end);
+
+  /// [r]'s close walk for [current] has ended: its commit can apply.
+  bool _closeEndedAt(ReceiveRecord r, MlsPair current) =>
+      r.close != null && r.close!.end && r.close!.pair == current;
+
+  /// A pass with no final group (§3.4 keeps a `u` close or orphan slot whose
+  /// group is gone): those walks only, no probe, no catch-up. A pass that
+  /// moved neither slot stops (a provisional group at the slot's generation
+  /// discards its pages) rather than asking for an immediate next pass.
+  Future<ReceiveOutcome> _walkWithoutGroup(
+    _Pass pass,
+    String id,
+    BudgetPriority priority,
+  ) async {
+    final before = await _readReceive(pass.vault, id);
+    final closeLeft = before.close != null && !before.close!.end;
+    if (!closeLeft && before.orphan == null) return ReceiveOutcome.complete;
+    final context = _contexts.of(id);
+    final until = context.walkBackoffUntil;
+    if (until != null && _now().isBefore(until)) {
+      return ReceiveOutcome.stopped(until);
+    }
+    var left = priority == BudgetPriority.user
+        ? 2 * kWalkPagesPerPass
+        : kWalkPagesPerPass;
+    int take() => left > 0 ? left-- : 0;
+    ReceiveOutcome? stop;
+    for (final slot in const [_Slot.close, _Slot.orphan]) {
+      stop = await _walk(pass, id, slot, priority, take);
+      if (stop != null) break;
+    }
+    if (stop != null && stop.kind != ReceiveOutcomeKind.more) return stop;
+    final after = await _readReceive(pass.vault, id);
+    final left2 =
+        (after.close != null && !after.close!.end) || after.orphan != null;
+    if (!left2) return ReceiveOutcome.complete;
+    if (_sameWalk(before.close, after.close) &&
+        _sameWalk(before.orphan, after.orphan)) {
+      return ReceiveOutcome.stopped(_now().add(kWalkBackoff));
+    }
+    return ReceiveOutcome.more;
+  }
+
+  bool _sameWalk(WalkEntry? a, WalkEntry? b) => a == null
+      ? b == null
+      : b != null && a.pair == b.pair && a.t == b.t && a.end == b.end;
 
   // -------------------------------------------------------------------------
   // The probe (§4)
@@ -192,6 +286,8 @@ extension _Walks on MessageReceiver {
     }
     final seq = ++_seq;
     if (page.hasConversation()) _contexts.note(page.conversation);
+    // Against the pair read before the listing (I2's later-pair trigger).
+    final later = _anyAbove(page.messages, current);
     return _locks.run(id, () async {
       if (!pass.live) {
         return _Probe(
@@ -205,7 +301,7 @@ extension _Walks on MessageReceiver {
         context.endToken = page.sinceToken.isEmpty
             ? null
             : (token: page.sinceToken, sentWith: '', seq: seq);
-        return _Probe();
+        return _Probe(sawLater: later);
       }
       if (page.gapPageToken.isEmpty && openEnded && context.serial == serial) {
         // Rule 1: the fast path.
@@ -218,16 +314,32 @@ extension _Walks on MessageReceiver {
           priority: priority,
           token: (token: page.sinceToken, expect: token),
         );
-        return _Probe(fastPath: true, pulled: end.completed)
-          ..waitingForWelcome = end.waitingForWelcome;
+        return _Probe(
+          fastPath: true,
+          pulled: end.completed,
+          caughtUp: end.caughtUp,
+        )..waitingForWelcome = end.waitingForWelcome;
       }
       // Not processed: its messages come through the open walk, in order;
       // its token is saved by rule 2 once that walk ends.
       context.endToken = page.sinceToken.isEmpty
           ? null
           : (token: page.sinceToken, sentWith: token, seq: seq);
-      return _Probe();
+      return _Probe(sawLater: later);
     });
+  }
+
+  /// [messages] hold one of a pair above [current] (null: none known).
+  bool _anyAbove(List<pb.Message> messages, MlsPair? current) {
+    if (current == null) return false;
+    for (final m in messages) {
+      final g = pairComponentFromInt64(m.mlsGeneration);
+      final e = pairComponentFromInt64(m.mlsEpoch);
+      if (g != null && e != null && MlsPair(g, e).compareTo(current) > 0) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /// A retired since token (§8.2): the token is cleared and the reconcile
@@ -463,7 +575,10 @@ extension _Walks on MessageReceiver {
         group != null && !group.provisional && group.epoch == w.pair.epoch;
     final _Mode mode;
     var entry = w;
-    if (group == null && slot != _Slot.open) {
+    // A provisional group at the slot's generation holds none of its keys
+    // (§3.4 reads it as gone too): mode u, never a page discarded forever.
+    final gone = group == null || group.provisional;
+    if (gone && slot != _Slot.open) {
       // Its keys are gone: rows for the unlisted rest, no engine.
       mode = _Mode.undecryptable;
       if (slot == _Slot.close) {
@@ -511,7 +626,7 @@ extension _Walks on MessageReceiver {
       return (
         record: _withSlot(record, slot, orphanFinal ? null : next),
         sinceToken: token,
-        deleteGroup: orphanFinal && group != null ? w.pair.generation : null,
+        deleteGroup: orphanFinal && !gone ? w.pair.generation : null,
       );
     }
 
@@ -573,13 +688,15 @@ extension _Walks on MessageReceiver {
         return true;
       });
 
-  /// §3.3: strictly ascending by (created_at, id); a continuation page
-  /// starts after [w]'s last position, a listing-start page after its
-  /// settle floor.
+  /// §3.3: every id is 32 lower-case hex (a page position is recorded and
+  /// a record holding any other id would not decode); strictly ascending by
+  /// (created_at, id); a continuation page starts after [w]'s last
+  /// position, a listing-start page after its settle floor.
   bool _inOrder(List<pb.Message> messages, WalkEntry w) {
     if (messages.isEmpty) return true;
     WalkPos? previous;
     for (final m in messages) {
+      if (!_messageIdShape.hasMatch(m.id)) return false;
       final p = _posOf(m);
       if (previous != null && p.compareTo(previous) <= 0) return false;
       previous = p;

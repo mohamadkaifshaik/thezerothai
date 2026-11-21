@@ -1174,7 +1174,8 @@ void main() {
         expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
         expect(rig.contexts.of(_c1).epochWalkPending, isTrue);
         var passes = 0;
-        while (!await rig.receiver.epochWalkDone(_c1, const MlsPair(1, 1))) {
+        // The pass that ends the close walk applies the commit (I2).
+        while ((await rig.device.vault.group(_c1, 1))!.epoch == 1) {
           await rig.receiver.pullLive(_c1);
           if (++passes == 4) await rig.restart();
           expect(passes, lessThan(40));
@@ -1700,16 +1701,181 @@ void main() {
 
       await rig.receiver.pullLive(_c1);
 
+      // The pass ended the close walk and applied the commit itself (I2).
       expect(rig.contexts.of(_c1).epochWalkPending, isFalse);
-      expect(
-        await rig.receiver.epochWalkDone(_c1, const MlsPair(1, 1)),
-        isTrue,
-      );
-      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
       expect((await rig.device.vault.group(_c1, 1))!.epoch, 2);
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
       for (var i = 1; i <= 200; i++) {
         expect((await row(_mid(i)))!.state, StoredMessageState.visible);
       }
+    });
+
+    test('a pass whose close walk has ended applies the commit itself and does '
+        'not spend another probe read', () async {
+      await setUpJoined();
+      await sayMany(1, 200, start: const Duration(minutes: -10));
+      await bobSelfUpdate();
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
+      rig.server.calls.clear();
+
+      final out = await rig.receiver.pullLive(_c1);
+
+      // The close walk ended in this pass, and the same pass applied the
+      // commit: no further pass (and probe read) is needed for it.
+      expect((await rig.device.vault.group(_c1, 1))!.epoch, 2);
+      expect(
+        rig.server.calls.where((c) => c == 'listMlsMessages'),
+        hasLength(1),
+      );
+      expect(
+        rig.server.calls.where((c) => c == 'listConversationCommits'),
+        hasLength(1),
+      );
+      // The new pair's open walk is left (created at the next read).
+      expect(out.kind, ReceiveOutcomeKind.more);
+      for (var i = 1; i <= 200; i++) {
+        expect((await row(_mid(i)))!.state, StoredMessageState.visible);
+      }
+    });
+
+    test('a pass that saw a later pair on the probe runs one catch-up and '
+        'continues on the next pair', () async {
+      await setUpJoined();
+      final token = await prime();
+      await say(bobGroup(), 1);
+      await bobSelfUpdate();
+      await say(bobGroup(), 2, at: seconds(1));
+      // A gapped probe page: not processed; the open walk of (1, 1) ends and
+      // §4 rule 2 saves the probe's token, past message 2 of (1, 2).
+      rig.server.livePageSize = 1;
+      rig.server.calls.clear();
+
+      final out = await rig.receiver.pullLive(_c1);
+
+      expect((await sync()).sinceToken, isNot(token));
+      expect((await row(_mid(1)))!.state, StoredMessageState.visible);
+      expect((await rig.device.vault.group(_c1, 1))!.epoch, 2);
+      expect(
+        rig.server.calls.where((c) => c == 'listConversationCommits'),
+        hasLength(1),
+      );
+      expect(out.kind, ReceiveOutcomeKind.more);
+      expect(await row(_mid(2)), isNull);
+
+      rig.server.calls.clear();
+      await rig.receiver.pullLive(_c1);
+
+      expect((await row(_mid(2)))!.state, StoredMessageState.visible);
+      expect(rig.server.calls, isNot(contains('listConversationCommits')));
+    });
+
+    test(
+      'a pass never calls catch-up while its epoch walk is unfinished',
+      () async {
+        await setUpJoined();
+        await sayMany(1, 650, start: const Duration(minutes: -10));
+        await bobSelfUpdate();
+        // A message of the next pair on the probe page too.
+        await say(bobGroup(), 651, at: seconds(1));
+        expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
+        rig.server.calls.clear();
+
+        final out = await rig.receiver.pullLive(_c1);
+
+        // 2 sink pages and 10 pass pages: the close walk has not ended.
+        expect(out.kind, ReceiveOutcomeKind.more);
+        expect((await receiveRecord()).close!.end, isFalse);
+        expect(rig.server.calls, isNot(contains('listConversationCommits')));
+        expect((await rig.device.vault.group(_c1, 1))!.epoch, 1);
+      },
+      timeout: const Timeout(Duration(minutes: 3)),
+    );
+
+    test('an unfinished undecryptable walk is finished before a new close walk '
+        'takes its slot', () async {
+      await setUpJoined();
+      await sayMany(1, 120, start: const Duration(minutes: -10));
+      // Generation 1's group is gone (a reset) with its close walk of (1, 1)
+      // unfinished in mode u; the device is now in generation 2.
+      final g1 = (await rig.device.vault.group(_c1, 1))!;
+      await rig.device.vault.transaction((tx) async {
+        await tx.putGroup(
+          GroupRecord(
+            conversationId: _c1,
+            generation: 2,
+            epoch: 1,
+            state: g1.state,
+          ),
+        );
+        await tx.deleteGroup(_c1, 1);
+      });
+      await putReceiveRecord(
+        const ReceiveRecord(
+          close: WalkEntry(pair: MlsPair(1, 1), mode: WalkMode.undecryptable),
+        ),
+      );
+      Future<Object?> sinkFor(MlsPair p) async {
+        Object? error;
+        await rig.locks.run(_c1, () async {
+          try {
+            await rig.receiver.completeEpoch(
+              _c1,
+              p,
+              priority: BudgetPriority.user,
+            );
+          } on Object catch (e) {
+            error = e;
+          }
+        });
+        return error;
+      }
+
+      // The sink for (2, 1) does not take the slot: the walk is pending.
+      expect(await sinkFor(const MlsPair(2, 1)), isA<Exception>());
+      expect(rig.contexts.of(_c1).epochWalkPending, isTrue);
+      final kept = (await receiveRecord()).close!;
+      expect(kept.pair, const MlsPair(1, 1));
+      expect(kept.mode, WalkMode.undecryptable);
+
+      // The pass finishes (1, 1): every unlisted message gets its row.
+      final processed = rig.device.engine.processed.length;
+      await rig.receiver.pullLive(_c1);
+      for (var i = 1; i <= 120; i++) {
+        expect((await row(_mid(i)))!.state, StoredMessageState.undecryptable);
+      }
+      expect(rig.device.engine.processed, hasLength(processed));
+
+      // Now the slot is free for (2, 1).
+      expect(await sinkFor(const MlsPair(2, 1)), isNull);
+      expect((await receiveRecord()).close!.pair, const MlsPair(2, 1));
+    });
+
+    test('a conversation with no final group still finishes its undecryptable '
+        'walk', () async {
+      await setUpJoined();
+      await sayMany(1, 120, start: const Duration(minutes: -10));
+      await rig.device.vault.transaction((tx) => tx.deleteGroup(_c1, 1));
+      await putReceiveRecord(
+        const ReceiveRecord(
+          close: WalkEntry(pair: MlsPair(1, 1), mode: WalkMode.undecryptable),
+        ),
+      );
+      rig.server.calls.clear();
+      final processed = rig.device.engine.processed.length;
+
+      final out = await rig.receiver.pullLive(_c1);
+
+      for (var i = 1; i <= 120; i++) {
+        expect((await row(_mid(i)))!.state, StoredMessageState.undecryptable);
+      }
+      expect(rig.device.engine.processed, hasLength(processed));
+      expect((await receiveRecord()).close!.end, isTrue);
+      expect(out.kind, ReceiveOutcomeKind.complete);
+      // No probe without a final group; done once ended.
+      expect(rig.server.calls, isNot(contains('listMlsMessages')));
+      rig.server.calls.clear();
+      expect(await rig.receiver.pullLive(_c1), ReceiveOutcome.complete);
+      expect(epochCalls(), 0);
     });
 
     test('a page listed by a pass is discarded when the sink advanced the same '
@@ -2052,6 +2218,47 @@ void main() {
       expect(out.kind, ReceiveOutcomeKind.stopped);
       expect(rig.contexts.of(_c1).orderViolation, 1);
       expect(await row(_mid(6)), isNull);
+    });
+
+    test('a page with a malformed message id is refused as an order violation '
+        'and never reaches the record', () async {
+      await setUpJoined();
+      final sent = await sayMany(1, 60, start: const Duration(minutes: -10));
+      // Page 2 ends with an entry whose id is not 32 lower-case hex, after
+      // every honest message (the order of the page is otherwise right).
+      rig.server.rewriteEpoch = (real) {
+        if (rig.server.epochRequests.last.token.isEmpty) return real;
+        return real.deepCopy()
+          ..messages.add(
+            sent.last.deepCopy()
+              ..id = 'A' * 32
+              ..createdAt = ts.Timestamp.fromDateTime(t0),
+          );
+      };
+
+      final out = await rig.receiver.pullLive(_c1);
+
+      expect(out.kind, ReceiveOutcomeKind.stopped);
+      expect(rig.contexts.of(_c1).orderViolation, 1);
+      // Nothing of page 2 was processed or recorded.
+      expect((await row(_mid(50)))!.state, StoredMessageState.visible);
+      expect(await row(_mid(51)), isNull);
+      final page2 = orderedTokens(const MlsPair(1, 1)).last;
+      expect(page2, isNotEmpty);
+      final bytes = await rig.device.vault.setting(ReceiveRecords.keyOf(_c1));
+      final stored = ReceiveRecord.decode(bytes!);
+      expect(stored.open!.t, page2);
+      expect(stored.open!.l!.id, _mid(50));
+
+      // The next pass resumes from the old position.
+      rig.server.rewriteEpoch = null;
+      rig.server.epochRequests.clear();
+      rig.clock.advance(kWalkBackoff);
+      await rig.receiver.pullLive(_c1);
+      expect(orderedTokens(const MlsPair(1, 1)).first, page2);
+      for (var i = 51; i <= 60; i++) {
+        expect((await row(_mid(i)))!.state, StoredMessageState.visible);
+      }
     });
 
     test('a page with more than 50 messages is refused', () async {

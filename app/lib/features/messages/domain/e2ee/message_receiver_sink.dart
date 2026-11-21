@@ -44,11 +44,17 @@ extension _Sink on MessageReceiver {
       // Its final transaction ran (the group is deleted) or it is done.
       return;
     }
+    // One slot per kind: an unfinished walk of another pair (a `u` walk
+    // whose group is gone, or a kept generation's) is finished first, by
+    // the passes; it is never replaced and its unlisted rest never dropped.
+    if (w != null && w.pair != pair && !w.end) throw _pending(context);
     final wantMode = slot == _Slot.close ? mode : null;
     if (w == null ||
         w.pair != pair ||
         (wantMode == WalkMode.undecryptable && w.mode != wantMode)) {
-      await _createSlotLocked(pass, id, slot, pair, wantMode);
+      if (!await _createSlotLocked(pass, id, slot, pair, wantMode)) {
+        throw _pending(context);
+      }
     }
 
     // 3-5: at most kSinkPagesPerHold pages per hold, never waiting.
@@ -110,18 +116,22 @@ extension _Sink on MessageReceiver {
 
   /// Creates [slot] for [pair] in its own transaction (§5.2): `open` is
   /// adopted when it is for [pair] (a new listing from its settle token;
-  /// `open` becomes null), otherwise a walk from the start.
-  Future<void> _createSlotLocked(
+  /// `open` becomes null), otherwise a walk from the start. False (nothing
+  /// written): the slot holds an unfinished walk of another pair.
+  Future<bool> _createSlotLocked(
     _Pass pass,
     String id,
     _Slot slot,
     MlsPair pair,
     WalkMode? mode,
   ) async {
-    await _session.runWrite((v) async {
+    final created = await _session.runWrite((v) async {
       pass.check(v);
       final record = await _readReceive(v, id);
       final existing = _slotOf(record, slot);
+      if (existing != null && existing.pair != pair && !existing.end) {
+        return false;
+      }
       final ReceiveRecord next;
       if (existing != null && existing.pair == pair) {
         // Only the mode changes (a close marked undecryptable).
@@ -136,7 +146,9 @@ extension _Sink on MessageReceiver {
         next = _withSlot(record, slot, WalkEntry(pair: pair, mode: mode));
       }
       await v.transaction((tx) => _records.putIn(tx, id, next));
+      return true;
     });
-    _contexts.of(id).serial++;
+    if (created) _contexts.of(id).serial++;
+    return created;
   }
 }
