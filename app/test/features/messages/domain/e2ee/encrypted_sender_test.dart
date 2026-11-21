@@ -73,6 +73,20 @@ class _CutRandomEngine extends RigEngine {
   }
 }
 
+/// A sync budget that records the priority of every unit asked for.
+class _SpyBudget extends SyncBudget {
+  _SpyBudget(RigClock clock)
+    : super(perMinute: 100000, ownDeviceCount: () => 1, now: clock.now);
+
+  final List<BudgetPriority> taken = [];
+
+  @override
+  Future<void> take(BudgetPriority priority, {Object? lane}) {
+    taken.add(priority);
+    return super.take(priority, lane: lane);
+  }
+}
+
 void main() {
   late RigCrypto rig;
   late RigPeer bob;
@@ -106,8 +120,13 @@ void main() {
     bool attributed = true,
     ConversationLocks? locks,
     RigEngine? engine,
+    SyncBudget Function(RigClock clock)? syncBudget,
   }) async {
-    rig = await RigCrypto.create(locks: locks, engine: engine);
+    rig = await RigCrypto.create(
+      locks: locks,
+      engine: engine,
+      syncBudget: syncBudget,
+    );
     bob = await RigPeer.create('bob');
     if (attributed) {
       rig.keys.peers['ref-bob'] = [rigKeyDevice(bob.idString, bob.key)];
@@ -1621,6 +1640,75 @@ void main() {
       expect(rig.server.sends.last.key, isNot(first.key));
       expect(rig.server.sends.last.key, matches(_keyShape));
       expect(await outbox(), isEmpty);
+    });
+  });
+
+  group('a joined drain (code review I1)', () {
+    test('a user call that joins a background drain makes the rerun a user '
+        'drain', () async {
+      late _SpyBudget budget;
+      await setUpJoined(syncBudget: (clock) => budget = _SpyBudget(clock));
+      // A waiting plain row, with no drain running.
+      rig.removedElsewhere = true;
+      await send('l1');
+      rig.removedElsewhere = false;
+      // The priority of the unit each commit listing was made with. The
+      // first listing waits, then fails: that drain's row stays.
+      final atListing = <BudgetPriority>[];
+      final listing = Completer<void>();
+      final release = Completer<void>();
+      rig.server.onCall = (call) async {
+        if (call != 'listConversationCommits') return;
+        atListing.add(budget.taken.last);
+        if (atListing.length > 1) return;
+        listing.complete();
+        await release.future;
+        throw lost.error;
+      };
+      final background = rig.sender.drain(
+        _c1,
+        priority: BudgetPriority.background,
+      );
+      await listing.future;
+      // The user's send joins the running drain.
+      final user = rig.sender.drain(_c1);
+      release.complete();
+      await Future.wait([background, user]);
+      expect(atListing, [BudgetPriority.background, BudgetPriority.user]);
+      expect(rig.server.sends, hasLength(1));
+      expect(await outbox(), isEmpty);
+    });
+
+    test('a background call that joins a user drain reruns in the '
+        'background', () async {
+      late _SpyBudget budget;
+      await setUpJoined(syncBudget: (clock) => budget = _SpyBudget(clock));
+      rig.removedElsewhere = true;
+      await send('l1');
+      rig.removedElsewhere = false;
+      final atListing = <BudgetPriority>[];
+      final listing = Completer<void>();
+      final release = Completer<void>();
+      rig.server.onCall = (call) async {
+        if (call != 'listConversationCommits') return;
+        atListing.add(budget.taken.last);
+        if (atListing.length > 1) return;
+        listing.complete();
+        await release.future;
+        throw lost.error;
+      };
+      final user = rig.sender.drain(_c1);
+      await listing.future;
+      // Two joiners: the strongest of them is what the rerun uses.
+      final joined = [
+        rig.sender.drain(_c1, priority: BudgetPriority.background),
+        rig.sender.drain(_c1, priority: BudgetPriority.live),
+        rig.sender.drain(_c1, priority: BudgetPriority.background),
+      ];
+      release.complete();
+      await Future.wait([user, ...joined]);
+      expect(atListing, [BudgetPriority.user, BudgetPriority.live]);
+      expect(rig.server.sends, hasLength(1));
     });
   });
 }

@@ -1483,12 +1483,14 @@ class RigCrypto {
 
   /// [messaging] replaces the repository view of user `user-a`; [locks]
   /// the first run's conversation locks (a test that watches them);
-  /// [engine] the device's engine.
+  /// [engine] the device's engine; [syncBudget] the sync budget (a test
+  /// that watches the units taken).
   static Future<RigCrypto> create({
     RigMessaging Function(RigServer server)? messaging,
     int epochPageSize = kEpochPageSize,
     ConversationLocks? locks,
     RigEngine? engine,
+    SyncBudget Function(RigClock clock)? syncBudget,
   }) async {
     final clock = RigClock();
     final rig = RigCrypto._(
@@ -1505,11 +1507,9 @@ class RigCrypto {
     rig.messaging = messaging == null
         ? rig.server.viewFor('user-a')
         : messaging(rig.server);
-    rig.syncBudget = SyncBudget(
-      perMinute: 100000,
-      ownDeviceCount: () => 1,
-      now: clock.now,
-    );
+    rig.syncBudget =
+        syncBudget?.call(clock) ??
+        SyncBudget(perMinute: 100000, ownDeviceCount: () => 1, now: clock.now);
     rig.readBudget = SyncBudget(
       perMinute: 100000,
       ownDeviceCount: () => 1,

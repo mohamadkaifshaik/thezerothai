@@ -133,9 +133,10 @@ class EncryptedSender {
   // fact a write relies on: after a restart a row is only resent sooner.
 
   /// The drain running per conversation (single flight), and the
-  /// conversations a trigger came for while theirs ran.
+  /// conversations a trigger came for while theirs ran, each with the
+  /// strongest priority asked (the rerun's).
   final Map<String, Future<void>> _running = {};
-  final Set<String> _again = {};
+  final Map<String, BudgetPriority> _again = {};
 
   /// Local id -> the typed refusal of its last send.
   final Map<String, AppException> _errors = {};
@@ -245,15 +246,18 @@ class EncryptedSender {
 
   /// Encrypts and sends [conversationId]'s waiting rows in order. Returns
   /// when the head row cannot go now. Single flight: a call while a drain
-  /// runs joins it, and that drain runs once more when it ends. Takes the
-  /// conversation lock (never call it with the lock held). Never throws.
+  /// runs joins it, and that drain runs once more when it ends, with the
+  /// strongest priority the joining calls asked for (a user's send that
+  /// joins a background drain does not wait on the background budget).
+  /// Takes the conversation lock (never call it with the lock held). Never
+  /// throws.
   Future<void> drain(
     String conversationId, {
     BudgetPriority priority = BudgetPriority.user,
   }) {
     final running = _running[conversationId];
     if (running != null) {
-      _again.add(conversationId);
+      _again[conversationId] = _stronger(_again[conversationId], priority);
       return running;
     }
     return _running[conversationId] = _drainAll(conversationId, priority);
@@ -376,10 +380,10 @@ class EncryptedSender {
   // -------------------------------------------------------------------------
   // The drain
 
-  Future<void> _drainAll(String id, BudgetPriority priority) async {
+  Future<void> _drainAll(String id, BudgetPriority first) async {
+    var priority = first;
     try {
-      do {
-        _again.remove(id);
+      while (true) {
         _held.remove(id);
         final run = _Run(priority);
         var next = _Next.again;
@@ -413,7 +417,11 @@ class EncryptedSender {
         // must not read as holding the lock.
         final wait = run.resendAfter;
         if (wait != null) _schedule(wait, () => unawaited(drain(id)));
-      } while (_again.contains(id));
+        // The calls that joined meanwhile: one more run, at their priority.
+        final again = _again.remove(id);
+        if (again == null) break;
+        priority = again;
+      }
     } on Object catch (e, s) {
       _reportIfBug(e, s, 'send.drain');
     } finally {
@@ -1099,6 +1107,11 @@ int? _serverMicros(pb.Message m) {
 /// row's gate answer [gate] (it is never `none` then; `notSynced` if so).
 SendBlock _owedReason(SendBlock gate) =>
     gate == SendBlock.none ? SendBlock.notSynced : gate;
+
+/// The stronger of two priorities ([BudgetPriority] lists the strongest
+/// first); [b] when [a] is null.
+BudgetPriority _stronger(BudgetPriority? a, BudgetPriority b) =>
+    a != null && a.index < b.index ? a : b;
 
 String _hexOf(Uint8List b) =>
     b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
