@@ -117,7 +117,9 @@ class StoredMessage {
   String toString() => 'StoredMessage($conversationId, $messageId)';
 }
 
-/// A message encrypted for sending and not yet accepted by the server.
+/// A message waiting to be sent and not yet accepted by the server: at
+/// stage `encrypted` its ciphertext, or at stage `plain` its content only,
+/// saved before it may be encrypted ([stage]).
 /// Exactly one of [conversationId] and [recipientUserId] is set.
 /// [toString] shows the idempotency key only.
 class OutboxItem {
@@ -139,6 +141,10 @@ class OutboxItem {
     this.lastError,
   });
 
+  /// The row's key, and for a stage-encrypted row the idempotency key of
+  /// its send. A stage-plain row's key is never put on the wire: whoever
+  /// encrypts makes a new key and a new expected id in the same
+  /// transaction.
   final String idempotencyKey;
 
   /// The caller's stable local row id, preserved across re-keying.

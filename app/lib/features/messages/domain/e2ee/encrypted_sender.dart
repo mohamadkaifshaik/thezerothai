@@ -80,13 +80,17 @@ class EncryptedSender {
   /// [acceptForReplyLocked] is Task 9's `acceptForReply` for a caller that
   /// HOLDS the conversation lock (`AcceptMessageRequest`, then the
   /// acceptance steps: `requestAccepted`, queued removals, attribution,
-  /// reconcile). It throws on any failure and has then changed nothing.
+  /// reconcile). A throw leaves the row waiting; partial progress is safe
+  /// (every gate is read again before an encrypt). It must bound its own
+  /// waits: it runs under the conversation lock.
   ///
   /// [removedElsewhere] is Task 12's fact: this device was removed from the
   /// account on another device (nothing is encrypted or sent while true).
   ///
   /// [schedule] runs a callback later (a timer in production): the one
-  /// automatic resend after a server-chosen retry time.
+  /// automatic resend after a server-chosen retry time. It returns `void`:
+  /// a scheduled callback cannot be cancelled, and it is harmless after
+  /// [reset] (it only starts a drain, which reads everything fresh).
   EncryptedSender({
     required ConversationCrypto crypto,
     required MessageReceiver receiver,
@@ -476,8 +480,9 @@ class EncryptedSender {
   }
 
   /// One step, with the conversation lock held. Each step ends a row
-  /// (`again`), asks for the live pull (`pull`: at most once for the sync
-  /// and once per `STALE_EPOCH` answer), or stops the drain.
+  /// (`again`), asks for the live pull (`pull`: once for the sync, once
+  /// more after a successful accept, and once per `STALE_EPOCH` answer), or
+  /// stops the drain.
   Future<_Next> _step(String id, _Run run) async {
     final op = await _start();
     if (op == null) return _stop(id, SendBlock.unavailable);
@@ -529,8 +534,9 @@ class EncryptedSender {
     }
     if (!run.synced &&
         (!context.syncedSinceStart || context.attributionPending)) {
-      // Once per drain: commits to the server's pair and attribution here,
-      // then one live pull. Both must complete before this run can encrypt.
+      // Once per drain, and once more after a successful accept: commits to
+      // the server's pair and attribution here, then one live pull. Both
+      // must complete before this run can encrypt.
       run.synced = true;
       run.catchUp = await _crypto.catchUpLocked(id, priority: run.priority);
       return _Next.pull;
@@ -545,7 +551,8 @@ class EncryptedSender {
       try {
         await _acceptForReply(id);
       } on Object catch (e, s) {
-        // Nothing changed: the row waits.
+        // The row waits. What the steps got done stays (it is safe): the
+        // next drain reads every gate again.
         _reportIfBug(e, s, 'send.accept');
         return _stop(id, SendBlock.notSynced);
       }
@@ -980,7 +987,8 @@ class EncryptedSender {
     _errors.remove(localId);
   }
 
-  /// [pulled]: a live pull completed after the row was seen encrypted.
+  /// [calls]: the row's send-call count read before a live pull that then
+  /// completed; null when no such pull completed.
   Future<void> _discardLocked(String id, String localId, int? calls) async {
     final op = await _start();
     if (op == null) return;
@@ -1211,7 +1219,8 @@ class _Run {
 
   final BudgetPriority priority;
 
-  /// The one catch-up and live pull of the sync gate ran.
+  /// The catch-up and live pull of the sync gate ran: once in a drain, and
+  /// once more after a successful accept (which sets this false again).
   bool synced = false;
   CatchUpResult? catchUp;
 
