@@ -181,6 +181,11 @@ class RigEngine implements CryptoEngine {
   /// it is cleared): a result that arrives late.
   Future<void>? holdNextProcess;
 
+  /// The n-th `process` call (1-based, counted by [processed]) runs this
+  /// before it answers (then the entry is removed): await to delay it, or
+  /// never complete to leave it in flight (an app killed mid-page).
+  final Map<int, Future<void> Function()> onProcessCall = {};
+
   @override
   Future<ProcessResult> process(
     Uint8List deviceState,
@@ -194,6 +199,8 @@ class RigEngine implements CryptoEngine {
       throw scripted;
     }
     _enter('process');
+    final hook = onProcessCall.remove(processed.length);
+    if (hook != null) await hook();
     final hold = holdNextProcess;
     holdNextProcess = null;
     if (hold != null) await hold;
@@ -822,6 +829,10 @@ class RigDevice {
   /// The raw database, for tests that look at stored bytes.
   VaultDatabase get db => _db;
   late FakeVaultCipher cipher;
+
+  /// The session's lock owner of this launch (`steal()` ends the session's
+  /// writes at once, as another tab taking the lock does).
+  FakeVaultOwner? owner;
   late VaultSession session;
   late SecureVault vault;
 
@@ -870,7 +881,7 @@ class RigDevice {
       }) => openVaultOnDatabase(_db, uid: uid, cipher: cipher),
       wipeVaultFile: ({required alias, String? expectedStorage}) async {},
       deleteVaultKey: ({required alias}) async {},
-      createOwner: () => FakeVaultOwner(world),
+      createOwner: () => owner = FakeVaultOwner(world),
       markers: world.markers,
       supported: true,
       launchId: 'rig-${_opens++}',
@@ -1040,8 +1051,14 @@ class RigCrypto {
   /// The receiver's probe budget (Task 13 builds the real one).
   late SyncBudget readBudget;
   late DeviceDirectory directory;
-  final ConversationLocks locks = ConversationLocks();
+
+  /// The locks of this app run: a [restart] starts with new ones (memory
+  /// starts again; a pass that was in flight holds only the old ones).
+  ConversationLocks locks = ConversationLocks();
   final ConversationContexts contexts = ConversationContexts();
+
+  /// The receiver's ordered page size (kept across a [restart]).
+  int epochPageSize = kEpochPageSize;
   late KnownConversations known;
   late ConversationCrypto crypto;
 
@@ -1054,13 +1071,14 @@ class RigCrypto {
   /// [messaging] replaces the repository view of user `user-a`.
   static Future<RigCrypto> create({
     RigMessaging Function(RigServer server)? messaging,
+    int epochPageSize = kEpochPageSize,
   }) async {
     final clock = RigClock();
     final rig = RigCrypto._(
       Directory.systemTemp.createTempSync('e2ee_crypto'),
       clock,
       RigServer(clock),
-    );
+    )..epochPageSize = epochPageSize;
     rig.device = await RigDevice.create(dir: rig.dir, clock: clock);
     rig.messaging = messaging == null
         ? rig.server.viewFor('user-a')
@@ -1125,6 +1143,7 @@ class RigCrypto {
       onChanged: changed.add,
       onUnexpectedError: (e, _) => unexpected.add(e),
       ledger: ledger,
+      epochPageSize: epochPageSize,
     );
     crypto.sink = receiver;
   }
@@ -1132,6 +1151,7 @@ class RigCrypto {
   /// An app restart: the vault file is opened again; memory starts again.
   Future<void> restart() async {
     await device.restart();
+    locks = ConversationLocks();
     contexts.clear();
     directory.clear();
     await _wire();

@@ -48,8 +48,11 @@ void main() {
 
   /// This device joins [_c1] from bob's welcome (generation 1, accepted),
   /// with [others] in the group; bob is pinned `theirs` by attribution.
-  Future<void> setUpJoined({List<RigPeer> others = const []}) async {
-    rig = await RigCrypto.create();
+  Future<void> setUpJoined({
+    List<RigPeer> others = const [],
+    int pageSize = kEpochPageSize,
+  }) async {
+    rig = await RigCrypto.create(epochPageSize: pageSize);
     bob = await RigPeer.create('bob');
     rig.keys.peers['ref-bob'] = [rigKeyDevice(bob.idString, bob.key)];
     for (final o in others) {
@@ -887,6 +890,81 @@ void main() {
       expect(await rig.receiver.epochWalkDone(_c1, const MlsPair(1, 1)), false);
     });
 
+    test('the restart count of a walk is reset once a listing reaches its '
+        'end', () async {
+      await setUpJoined();
+      await sayMany(1, 120, start: const Duration(minutes: -10));
+      rig.server.refuseEpochPageTokens = 2;
+
+      await rig.receiver.pullLive(_c1, priority: BudgetPriority.user);
+
+      expect((await row(_mid(120)))!.state, StoredMessageState.visible);
+      expect(rig.contexts.of(_c1).walkRestarts, 0);
+
+      // Later in the same (long) run: one more refused token restarts the
+      // walk again instead of backing off.
+      await sayMany(121, 2, start: seconds(1));
+      rig.server.livePageSize = 1;
+      rig.server.refuseEpochPageTokens = 1;
+      final out = await rig.receiver.pullLive(
+        _c1,
+        priority: BudgetPriority.user,
+      );
+
+      expect(out.kind, isNot(ReceiveOutcomeKind.stopped));
+      expect((await row(_mid(122)))!.state, StoredMessageState.visible);
+    });
+
+    test(
+      'a server that refuses every continuation token still backs off',
+      () async {
+        await setUpJoined();
+        await sayMany(1, 120, start: const Duration(minutes: -10));
+        rig.server.refuseEpochPageTokens = 1000;
+
+        final out = await rig.receiver.pullLive(
+          _c1,
+          priority: BudgetPriority.user,
+        );
+
+        // Page 1, then refused, twice restarted, then the backoff.
+        expect(out.kind, ReceiveOutcomeKind.stopped);
+        expect(epochCalls(), 6);
+        expect(rig.contexts.of(_c1).walkRestarts, 3);
+        rig.server.calls.clear();
+        expect(
+          (await rig.receiver.pullLive(_c1)).kind,
+          ReceiveOutcomeKind.stopped,
+        );
+        expect(epochCalls(), 0);
+      },
+    );
+
+    test('a page whose record went stale under its last message is discarded, '
+        'not counted as applied', () async {
+      await setUpJoined();
+      await sayMany(1, 2, start: const Duration(minutes: -10));
+      // While the page's first message is decrypted, another writer moves
+      // the open walk's cursor: the last message's record update is stale.
+      final engine = rig.device.engine;
+      engine.onProcessCall[engine.processed.length + 1] = () async {
+        final r = await receiveRecord();
+        await putReceiveRecord(r.copyWith(open: r.open!.copyWith(t: 'moved')));
+      };
+      final serial = rig.contexts.of(_c1).serial;
+
+      await rig.receiver.pullLive(_c1);
+
+      expect(rig.contexts.of(_c1).discardedPages, 1);
+      // The stale page was listed again from the moved cursor (refused, so
+      // from the start), never treated as finished.
+      expect(orderedTokens(const MlsPair(1, 1)), contains('moved'));
+      expect(rig.contexts.of(_c1).serial, greaterThan(serial));
+      for (var i = 1; i <= 2; i++) {
+        expect((await row(_mid(i)))!.state, StoredMessageState.visible);
+      }
+    });
+
     test('completing an epoch twice stores the same rows and decrypts '
         'nothing again', () async {
       await setUpJoined();
@@ -1166,54 +1244,98 @@ void main() {
       'an epoch of 5000 messages completes across passes and across a '
       'restart, refetching at most one page, and its commit applies',
       () async {
-        await setUpJoined();
-        await sayMany(1, 5000, start: const Duration(minutes: -10));
+        // Scaled tenfold (M7): 500 messages in pages of 5 are the 100 pages
+        // of 5000 messages in pages of 50.
+        const pageSize = 5;
+        const count = 500;
+        await setUpJoined(pageSize: pageSize);
+        final sent = await sayMany(
+          1,
+          count,
+          start: const Duration(minutes: -10),
+        );
         await bobSelfUpdate();
+        final listed = <String>[];
+        rig.server.rewriteEpoch = (real) {
+          listed.addAll(real.messages.map((m) => m.id));
+          return real;
+        };
 
         // The sink lists 2 pages under the lock, then leaves the walk pending.
         expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
         expect(rig.contexts.of(_c1).epochWalkPending, isTrue);
         var passes = 0;
+        var killed = false;
         // The pass that ends the close walk applies the commit (I2).
         while ((await rig.device.vault.group(_c1, 1))!.epoch == 1) {
+          if (++passes == 4) {
+            // The app is killed while the third message of a page is being
+            // decrypted: that pass never returns; the app starts again.
+            final inFlight = Completer<void>();
+            rig.device.engine.onProcessCall[rig.device.engine.processed.length +
+                3] = () {
+              inFlight.complete();
+              return Completer<void>().future;
+            };
+            unawaited(rig.receiver.pullLive(_c1));
+            await inFlight.future;
+            await rig.restart();
+            killed = true;
+            continue;
+          }
           await rig.receiver.pullLive(_c1);
-          if (++passes == 4) await rig.restart();
           expect(passes, lessThan(40));
         }
+        expect(killed, isTrue);
         expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
 
         expect((await rig.device.vault.group(_c1, 1))!.epoch, 2);
+        // At most the page in flight was listed again, and only its message
+        // in flight was given to the engine again.
+        expect(
+          listed.length - listed.toSet().length,
+          lessThanOrEqualTo(pageSize),
+        );
+        expect(listed.toSet(), hasLength(count));
+        final wires = {
+          for (final m in sent) String.fromCharCodes(m.ciphertext),
+        };
+        final decrypts = rig.device.engine.processed
+            .where((w) => wires.contains(String.fromCharCodes(w)))
+            .length;
+        expect(decrypts, inInclusiveRange(count, count + 1));
         final tokens = orderedTokens(const MlsPair(1, 1));
-        expect(tokens.length - tokens.toSet().length, lessThanOrEqualTo(1));
-        expect(tokens.length, lessThanOrEqualTo(101));
-        final rows = await rig.device.vault.messages(_c1, limit: 6000);
+        expect(tokens.length, lessThanOrEqualTo(count ~/ pageSize + 2));
+        final rows = await rig.device.vault.messages(_c1, limit: 600);
         expect(
           rows.where((m) => m.state == StoredMessageState.visible),
-          hasLength(5000),
+          hasLength(count),
         );
       },
-      timeout: const Timeout(Duration(minutes: 5)),
+      timeout: const Timeout(Duration(minutes: 2)),
     );
 
     test('a walk resumes from the stored cursor after a restart in the middle '
         'of a page', () async {
       await setUpJoined();
-      await sayMany(1, 80, start: const Duration(minutes: -10));
-      // Page 2's tenth message (the 60th process call) fails.
-      rig.device.engine.failProcessCall[60] = const MlsException(
-        MlsErrorCode.deadline,
-        'x',
-      );
+      final sent = await sayMany(1, 80, start: const Duration(minutes: -10));
+      // The app is killed while page 2's tenth message (the 60th process
+      // call) is being decrypted: the pass never returns.
+      final inFlight = Completer<void>();
+      rig.device.engine.onProcessCall[60] = () {
+        inFlight.complete();
+        return Completer<void>().future;
+      };
+      unawaited(rig.receiver.pullLive(_c1));
+      await inFlight.future;
 
-      final out = await rig.receiver.pullLive(_c1);
-
-      expect(out.kind, ReceiveOutcomeKind.stopped);
       expect((await row(_mid(59)))!.state, StoredMessageState.visible);
       expect(await row(_mid(60)), isNull);
       final page2 = orderedTokens(const MlsPair(1, 1)).last;
       expect(page2, isNotEmpty);
       expect((await receiveRecord()).open!.t, page2);
 
+      // The receiver is dropped; the same vault file is opened again.
       await rig.restart();
       rig.server.epochRequests.clear();
       await rig.receiver.pullLive(_c1);
@@ -1221,6 +1343,93 @@ void main() {
       expect(orderedTokens(const MlsPair(1, 1)).first, page2);
       for (var i = 1; i <= 80; i++) {
         expect((await row(_mid(i)))!.state, StoredMessageState.visible);
+      }
+      // Only the message in flight was given to the engine twice.
+      for (final m in sent) {
+        expect(processedCount(m.ciphertext), m.id == _mid(60) ? 2 : 1);
+      }
+    });
+
+    test('an oversized next or resume token is treated as refused', () async {
+      await setUpJoined();
+      await sayMany(1, 3, start: const Duration(minutes: -10));
+      final long = 'x' * (kMaxTokenChars + 1);
+      var n = 0;
+      rig.server.rewriteEpoch = (real) => switch (++n) {
+        1 => real.deepCopy()..nextPageToken = long,
+        2 => real.deepCopy()..resumePageToken = long,
+        _ => real,
+      };
+      // Before the second and third listings: nothing of the pages with an
+      // oversized token was processed.
+      final before = <StoredMessage?>[];
+      rig.server.afterEpochAnswer = () async {
+        if (n >= 1) before.add(await row(_mid(1)));
+      };
+
+      await rig.receiver.pullLive(_c1);
+
+      expect(before, [null, null]);
+      // Each was a refused token: the walk listed again from the start.
+      expect(orderedTokens(const MlsPair(1, 1)), ['', '', '']);
+      expect(rig.contexts.of(_c1).orderViolation, 0);
+      for (var i = 1; i <= 3; i++) {
+        expect((await row(_mid(i)))!.state, StoredMessageState.visible);
+      }
+      expect((await receiveRecord()).open!.end, isTrue);
+    });
+
+    test('a page goes stale when only the record serial changed', () async {
+      await setUpJoined();
+      final sent = await sayMany(1, 60, start: const Duration(minutes: -10));
+      // While page 1 is in flight, a record write elsewhere bumps the serial;
+      // the pair and the token of the entry are unchanged.
+      rig.server.afterEpochAnswer = () async {
+        rig.server.afterEpochAnswer = null;
+        rig.contexts.of(_c1).serial++;
+      };
+
+      await rig.receiver.pullLive(_c1);
+
+      expect(rig.contexts.of(_c1).discardedPages, 1);
+      expect(orderedTokens(const MlsPair(1, 1)).take(2), ['', '']);
+      for (final m in sent) {
+        expect(processedCount(m.ciphertext), 1);
+        expect((await row(m.id))!.state, StoredMessageState.visible);
+      }
+    });
+
+    test('a page stops when its pass goes stale in the middle of it', () async {
+      await setUpJoined();
+      final sent = await sayMany(1, 10, start: const Duration(minutes: -10));
+      // While the fourth message is decrypted, another tab takes the vault:
+      // the session stops its writers at once.
+      final engine = rig.device.engine;
+      engine.onProcessCall[engine.processed.length + 4] = () async {
+        rig.device.owner!.steal();
+      };
+      rig.changed.clear();
+
+      final out = await rig.receiver.pullLive(_c1);
+
+      expect(out.kind, ReceiveOutcomeKind.stopped);
+      // The message whose body was running commits; nothing after it is
+      // given to the engine or written, and the cursor did not move.
+      expect(engine.processed, hasLength(4));
+      expect(rig.changed, contains(_c1));
+
+      await rig.restart();
+      expect((await receiveRecord()).open!.t, '');
+      for (var i = 1; i <= 4; i++) {
+        expect((await row(_mid(i)))!.state, StoredMessageState.visible);
+      }
+      expect(await row(_mid(5)), isNull);
+
+      // The next run lists the page again; stored messages are skipped.
+      await rig.receiver.pullLive(_c1);
+      for (final m in sent) {
+        expect(processedCount(m.ciphertext), 1);
+        expect((await row(m.id))!.state, StoredMessageState.visible);
       }
     });
 
@@ -1267,8 +1476,10 @@ void main() {
 
     test('a first sync of 3000 current-pair messages decrypts oldest first '
         'through the open walk and only then saves the since token', () async {
-      await setUpJoined();
-      final sent = await sayMany(1, 3000, start: const Duration(minutes: -10));
+      // Scaled tenfold (M7): 300 messages in pages of 5 are the 60 pages of
+      // 3000 messages in pages of 50.
+      await setUpJoined(pageSize: 5);
+      final sent = await sayMany(1, 300, start: const Duration(minutes: -10));
       final index = {
         for (var i = 0; i < sent.length; i++)
           String.fromCharCodes(sent[i].ciphertext): i,
@@ -1289,7 +1500,7 @@ void main() {
         for (final w in rig.device.engine.processed)
           index[String.fromCharCodes(w)]!,
       ];
-      expect(order, List.generate(3000, (i) => i));
+      expect(order, List.generate(300, (i) => i));
       // Only the probe's one ListMessages call per pass: no ListMessages
       // paging.
       expect(
@@ -1420,6 +1631,56 @@ void main() {
         expect((await row(_mid(i)))!.state, StoredMessageState.visible);
       }
       expect((await sync()).sinceToken, isNot(token));
+    });
+
+    test('the fast path reads the open walk again under the lock', () async {
+      await setUpJoined();
+      await prime();
+      await say(bobGroup(), 1);
+      // While the probe is in flight, the open walk's entry stops being at
+      // its end (no serial bump: a write the serial does not see).
+      rig.server.onCall = (c) async {
+        if (c != 'listMlsMessages') return;
+        rig.server.onCall = null;
+        final r = await receiveRecord();
+        await putReceiveRecord(r.copyWith(open: r.open!.copyWith(end: false)));
+      };
+      final atListing = <StoredMessage?>[];
+      rig.server.afterEpochAnswer = () async {
+        atListing.add(await row(_mid(1)));
+      };
+
+      await rig.receiver.pullLive(_c1);
+
+      // The probe page was not processed: message 1 came through the walk.
+      expect(atListing, isNotEmpty);
+      expect(atListing.first, isNull);
+      expect((await row(_mid(1)))!.state, StoredMessageState.visible);
+    });
+
+    test('the walked since token is not saved over a token that changed since '
+        'the listing', () async {
+      await setUpJoined();
+      final token = await prime();
+      await sayMany(1, 3);
+      // A gapped probe page: its token waits for the open walk's end (§4
+      // rule 2). While the walk's page is in flight, the stored token moves.
+      rig.server.livePageSize = 1;
+      // Neither the primed token nor the probe's (s:3).
+      const other = 's:2';
+      expect(other, isNot(token));
+      rig.server.afterEpochAnswer = () async {
+        rig.server.afterEpochAnswer = null;
+        final s = await sync();
+        await rig.device.vault.transaction(
+          (tx) => tx.putConversationSync(_c1, s.copyWith(sinceToken: other)),
+        );
+      };
+
+      await rig.receiver.pullLive(_c1);
+
+      expect((await row(_mid(3)))!.state, StoredMessageState.visible);
+      expect((await sync()).sinceToken, other);
     });
 
     test('the since token is never saved while the open walk is for an older '
@@ -2259,6 +2520,34 @@ void main() {
       for (var i = 51; i <= 60; i++) {
         expect((await row(_mid(i)))!.state, StoredMessageState.visible);
       }
+    });
+
+    test('an empty page that carries a next token is refused', () async {
+      await setUpJoined();
+      await sayMany(1, 3);
+      // Endless empty pages: each one names a next page.
+      var n = 0;
+      rig.server.rewriteEpoch = (real) => real.deepCopy()
+        ..messages.clear()
+        ..nextPageToken = 't:$_c1:1:1:${++n}:${_mid(n)}';
+
+      final out = await rig.receiver.pullLive(_c1);
+
+      expect(out.kind, ReceiveOutcomeKind.stopped);
+      expect(rig.contexts.of(_c1).orderViolation, 1);
+      expect(orderedTokens(const MlsPair(1, 1)), hasLength(1));
+      expect((await receiveRecord()).open!.t, '');
+
+      // A short page with a next token is refused the same way.
+      rig.server.rewriteEpoch = (real) =>
+          real.deepCopy()..nextPageToken = 't:$_c1:1:1:1:${_mid(1)}';
+      rig.clock.advance(const Duration(hours: 1));
+      expect(
+        (await rig.receiver.pullLive(_c1)).kind,
+        ReceiveOutcomeKind.stopped,
+      );
+      expect(rig.contexts.of(_c1).orderViolation, 2);
+      expect(await row(_mid(1)), isNull);
     });
 
     test('a page with more than 50 messages is refused', () async {

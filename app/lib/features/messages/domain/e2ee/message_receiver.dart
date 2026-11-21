@@ -131,7 +131,13 @@ class MessageReceiver implements EpochMessageSink {
     required void Function(String conversationId) onChanged,
     required DailyLedger ledger,
     void Function(Object error, StackTrace stack)? onUnexpectedError,
-  }) : _crypto = crypto,
+    int epochPageSize = kEpochPageSize,
+  }) : assert(
+         epochPageSize >= 1 && epochPageSize <= kEpochPageSize,
+         'The contract allows 1 to 50.',
+       ),
+       _pageSize = epochPageSize,
+       _crypto = crypto,
        _session = session,
        _engine = engine,
        _messaging = messaging,
@@ -145,6 +151,10 @@ class MessageReceiver implements EpochMessageSink {
        _records = ReceiveRecords(onUnexpectedError: onUnexpectedError),
        _onUnexpectedError = onUnexpectedError;
 
+  /// The ordered walks' page size ([kEpochPageSize] in production; tests
+  /// pass a smaller one). A page with more messages is refused (§3.3), and
+  /// a shorter one never carries a next token.
+  final int _pageSize;
   final ConversationCrypto _crypto;
   final VaultSession _session;
   final CryptoEngine Function() _engine;

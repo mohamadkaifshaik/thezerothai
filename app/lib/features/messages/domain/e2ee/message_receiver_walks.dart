@@ -303,8 +303,11 @@ extension _Walks on MessageReceiver {
             : (token: page.sinceToken, sentWith: '', seq: seq);
         return _Probe(sawLater: later);
       }
-      if (page.gapPageToken.isEmpty && openEnded && context.serial == serial) {
-        // Rule 1: the fast path.
+      if (page.gapPageToken.isEmpty &&
+          openEnded &&
+          context.serial == serial &&
+          await _openEndedNow(vault, id, current)) {
+        // Rule 1: the fast path (M5: `open` read again under the lock).
         final messages = [...page.messages];
         _sort(messages);
         final end = await _runBatch(
@@ -327,6 +330,19 @@ extension _Walks on MessageReceiver {
           : (token: page.sinceToken, sentWith: token, seq: seq);
       return _Probe(sawLater: later);
     });
+  }
+
+  /// Under the lock: the group's current pair is still [before] and the
+  /// fresh `open` entry is for it with `end` (§4 rule 1).
+  Future<bool> _openEndedNow(
+    SecureVault vault,
+    String id,
+    MlsPair? before,
+  ) async {
+    final current = await _currentPair(vault, id);
+    if (current == null || current != before) return false;
+    final open = (await _readReceive(vault, id)).open;
+    return open != null && open.pair == current && open.end;
   }
 
   /// [messages] hold one of a pair above [current] (null: none known).
@@ -486,7 +502,7 @@ extension _Walks on MessageReceiver {
       final page = await _messaging.listEpochMessages(
         conversationId: id,
         pair: w.pair,
-        pageSize: kEpochPageSize,
+        pageSize: _pageSize,
         pageToken: w.t,
         order: EpochMessageOrder.EPOCH_MESSAGE_ORDER_CREATED_AT,
       );
@@ -557,7 +573,10 @@ extension _Walks on MessageReceiver {
   }) async {
     final context = _contexts.of(id);
     // §3.3: the order check, before anything is processed.
-    if (page.messages.length > kEpochPageSize) {
+    if (page.messages.length > _pageSize ||
+        // M2: the server names a next page only after a full one; an empty
+        // or short page with a next token could be served without end.
+        (page.nextPageToken.isNotEmpty && page.messages.length < _pageSize)) {
       context.orderViolation++;
       return _StepEnd.stop(_backOff(context));
     }
@@ -614,8 +633,13 @@ extension _Walks on MessageReceiver {
         (context.openListingSeq ?? -1) > end.seq;
     final orphanFinal = slot == _Slot.orphan && next.end;
     var tokenWritten = false;
+    // The last computed update was not stale (its transaction carries the
+    // record); read only after a transaction that used it ran.
+    var recordInUpdate = false;
     Future<({ReceiveRecord record, String? sinceToken, int? deleteGroup})?>
     update(SecureVault v, ConversationSync sync) async {
+      recordInUpdate = false;
+      tokenWritten = false;
       final record = await _readReceive(v, id);
       final now = _slotOf(record, slot);
       if (now == null || now.pair != w.pair || now.t != w.t) return null;
@@ -623,6 +647,7 @@ extension _Walks on MessageReceiver {
           ? end.token
           : null;
       tokenWritten = token != null;
+      recordInUpdate = true;
       return (
         record: _withSlot(record, slot, orphanFinal ? null : next),
         sinceToken: token,
@@ -652,7 +677,9 @@ extension _Walks on MessageReceiver {
       }
       if (step == _Step.wrote) {
         changed = true;
-        if (isLast) written = true;
+        // M1: the message's transaction ran; the record rode with it only
+        // when the update was not stale.
+        if (isLast) written = recordInUpdate;
       }
     }
     if (!written) written = await _writeAlone(pass, id, update);
@@ -660,6 +687,10 @@ extension _Walks on MessageReceiver {
     if (!written) return _StepEnd.stale;
     context.serial++;
     context.walkBackoff = null;
+    // M3: the restart count is per listing, not per run, so a long run never
+    // backs off for good; reset only at a listing's end, so a server that
+    // refuses every continuation token still reaches the backoff.
+    if (next.end) context.walkRestarts = 0;
     if (saveEnd) {
       context.endToken = null;
       if (tokenWritten) onTokenSaved?.call();

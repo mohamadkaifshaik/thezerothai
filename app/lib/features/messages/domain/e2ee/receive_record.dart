@@ -210,8 +210,10 @@ class ReceiveRecord {
     utf8.encode(
       jsonEncode({
         'v': 1,
-        'open': _walkJson(open, close: false),
+        'open': _walkJson(open, close: false, lt: true),
         'close': _walkJson(close, close: true),
+        // §3.1: `lt` is the open walk's only (decode still accepts an old
+        // orphan entry that has it).
         'orphan': _walkJson(orphan, close: false),
         'rec': rec == null
             ? null
@@ -264,7 +266,11 @@ class ReceiveRecord {
     );
   }
 
-  static Object? _walkJson(WalkEntry? w, {required bool close}) {
+  static Object? _walkJson(
+    WalkEntry? w, {
+    required bool close,
+    bool lt = false,
+  }) {
     if (w == null) return null;
     return {
       'g': w.pair.generation,
@@ -276,7 +282,7 @@ class ReceiveRecord {
       'end': w.end,
       'l': _posJson(w.l),
       'f': _posJson(w.f),
-      if (!close) 'lt': w.lt,
+      if (lt) 'lt': w.lt,
       if (close) 'm': w.mode == WalkMode.undecryptable ? 'u' : 'c',
     };
   }
@@ -394,6 +400,8 @@ class ReceiveRecord {
         if (g.generation >= current.generation || done.contains(pair)) {
           continue;
         }
+        // M4: the close slot already walks this pair (one slot per pair).
+        if (close?.pair == pair) continue;
         if (open != null && open.pair == pair) {
           orphan = open.adopted(null);
           open = null;
