@@ -159,9 +159,15 @@ class EncryptedSender {
   /// (the barrier, a failed accept, the round cap).
   final Map<String, SendBlock> _held = {};
 
+  /// Conversation -> the local ids a send was made for in this run: the
+  /// only rows the per-row maps above can hold an entry for. The end of a
+  /// drain forgets those whose row is gone ([_forgetGone]).
+  final Map<String, Set<String>> _sentFor = {};
+
   /// Sign-out or a new vault: forgets this run's memory.
   void reset() {
     _again.clear();
+    _sentFor.clear();
     _errors.clear();
     _unknown.clear();
     _reported.clear();
@@ -268,6 +274,12 @@ class EncryptedSender {
   @visibleForTesting
   Future<void> settled(String conversationId) =>
       _running[conversationId] ?? Future<void>.value();
+
+  /// How many per-row entries this run's memory holds (errors, unknown
+  /// outcomes, retry times, send counts). A count only.
+  @visibleForTesting
+  int get memoryEntries =>
+      _errors.length + _unknown.length + _notBefore.length + _sendCalls.length;
 
   /// The user's retry of the row [localId]: a failed row is sent again with
   /// the same bytes, a waiting row is encrypted when it now may. An unknown
@@ -434,6 +446,7 @@ class EncryptedSender {
         // must not read as holding the lock.
         final wait = run.resendAfter;
         if (wait != null) _schedule(wait, () => unawaited(drain(id)));
+        await _forgetGone(id);
         // The calls that joined meanwhile: one more run, at their priority.
         final again = _again.remove(id);
         if (again == null) break;
@@ -478,10 +491,10 @@ class EncryptedSender {
     final rows = read.items;
 
     // The catch-up and the live pull after a STALE_EPOCH answer are done.
-    final staleKey = run.staleKey;
-    if (staleKey != null) {
-      run.staleKey = null;
-      return _afterStale(op, id, rows, staleKey, run);
+    final stale = run.stale;
+    if (stale != null) {
+      run.stale = null;
+      return _afterStale(op, id, rows, stale.key, stale.localId, run);
     }
     if (rows.isEmpty) return _stop(id);
     // Nothing goes past a failed head row; a row with an init is Task 8's.
@@ -730,6 +743,7 @@ class EncryptedSender {
     }
     if (!stored) return _stop(id, SendBlock.unavailable);
     var tries = _unknown.contains(row.localId) ? 1 : 2;
+    _sentFor.putIfAbsent(id, () => {}).add(row.localId);
     while (true) {
       if (!op.live) return _stop(id, SendBlock.unavailable);
       // Counted when it starts and when it ends: a discard's pull is no
@@ -753,7 +767,7 @@ class EncryptedSender {
         // then the live pull, with the row still at stage encrypted.
         run
           ..staleRounds += 1
-          ..staleKey = key;
+          ..stale = (key: key, localId: row.localId);
         run.catchUp = await _crypto.catchUpLocked(id, priority: run.priority);
         return _Next.pull;
       } on AppException catch (e) {
@@ -846,11 +860,12 @@ class EncryptedSender {
     String localId,
     AppException error,
   ) async {
-    _errors[localId] = error;
-    if (error is CannotMessageException) _contexts.of(id).canReply = false;
     try {
       await _session.runWrite((v) async {
         op.check(v);
+        // Memory is written for the vault the send was made with only.
+        _errors[localId] = error;
+        if (error is CannotMessageException) _contexts.of(id).canReply = false;
         final row = await _rowOf(v, id, key);
         if (row == null || row.stage != OutboxStage.encrypted) return;
         await v.transaction(
@@ -873,13 +888,15 @@ class EncryptedSender {
     return _stop(id);
   }
 
-  /// After a `STALE_EPOCH` answer for the row [key], its catch-up and one
-  /// live pull (the lock is held again; everything is read fresh).
+  /// After a `STALE_EPOCH` answer for the row [key] (local id [localId]),
+  /// its catch-up and one live pull (the lock is held again; everything is
+  /// read fresh).
   Future<_Next> _afterStale(
     _Op op,
     String id,
     List<OutboxItem> rows,
     String key,
+    String localId,
     _Run run,
   ) async {
     final capped = run.staleRounds >= kStaleEpochRoundsPerDrain;
@@ -890,6 +907,7 @@ class EncryptedSender {
     if (row == null) {
       // Its echo was found (the same id and the same bytes): done, and
       // nothing was encrypted again.
+      _forget(localId);
       _onChanged(id);
       return _Next.again;
     }
@@ -989,6 +1007,31 @@ class EncryptedSender {
     _unknown.remove(localId);
     _notBefore.remove(localId);
     _sendCalls.remove(localId);
+  }
+
+  /// The end of a drain: forgets every row of [id] a send was made for in
+  /// this run and that is no longer in the outbox (a receive pass stored
+  /// its echo, another code path deleted it). One hold of the lock, a read
+  /// only; a failed or partly unreadable read forgets nothing.
+  Future<void> _forgetGone(String id) async {
+    final sent = _sentFor[id];
+    if (sent == null) return;
+    try {
+      await _locks.run(id, () async {
+        final vault = _session.vault;
+        if (vault == null) return;
+        final read = await vault.outbox(conversationId: id);
+        if (read.unreadableKeys.isNotEmpty) return;
+        final left = {for (final r in read.items) r.localId};
+        for (final localId in sent.difference(left)) {
+          sent.remove(localId);
+          _forget(localId);
+        }
+        if (sent.isEmpty) _sentFor.remove(id);
+      });
+    } on Object catch (e, s) {
+      _reportIfBug(e, s, 'send.forget');
+    }
   }
 
   /// The unsent row [localId] of any conversation, or null.
@@ -1176,9 +1219,9 @@ class _Run {
   bool accepted = false;
   int staleRounds = 0;
 
-  /// The key of the row a `STALE_EPOCH` answer came for, until the step
-  /// after its live pull.
-  String? staleKey;
+  /// The key and the local id of the row a `STALE_EPOCH` answer came for,
+  /// until the step after its live pull.
+  ({String key, String localId})? stale;
 
   /// The server's retry time of an unknown outcome: one resend is
   /// scheduled when the drain's steps have ended.

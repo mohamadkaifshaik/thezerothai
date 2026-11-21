@@ -1868,6 +1868,54 @@ void main() {
     });
   });
 
+  group('this run\'s memory of a row', () {
+    test('a row its STALE_EPOCH echo completed is forgotten', () async {
+      await setUpJoined();
+      rig.server.sendScript.add((
+        error: const StaleEpochException('stale', generation: 1, epoch: 1),
+        stored: true,
+      ));
+      await send('l1');
+      expect(await outbox(), isEmpty);
+      expect((await stored()).single.mine, isTrue);
+      expect(rig.sender.memoryEntries, 0);
+    });
+
+    test('a row a receive pass completed is forgotten at the end of the '
+        'next drain, and a waiting row is not', () async {
+      await setUpJoined();
+      const kept = (error: NetworkException('timed out'), stored: true);
+      rig.server.sendScript.addAll([kept, kept]);
+      await send('l1');
+      expect((await outbox()).single.stage, OutboxStage.encrypted);
+      // Still waiting: its unknown outcome and its send calls are kept.
+      expect(rig.sender.memoryEntries, 2);
+      await rig.receiver.pullLive(_c1);
+      expect(await outbox(), isEmpty, reason: 'the echo completed the row');
+      await drain();
+      expect(rig.sender.memoryEntries, 0);
+      expect(rig.server.sends, hasLength(2));
+    });
+
+    test('a refusal met after the vault was lost changes nothing in '
+        'memory', () async {
+      await setUpJoined();
+      rig.server.beforeSend = (_) async => rig.device.owner!.steal();
+      rig.server.sendScript.add((
+        error: const CannotMessageException(),
+        stored: false,
+      ));
+      await send('l1');
+      expect(rig.server.sends, hasLength(1));
+      expect(rig.contexts.of(_c1).canReply, isTrue);
+      await rig.restart();
+      final row = (await outbox()).single;
+      expect(row.stage, OutboxStage.encrypted);
+      expect(row.lastError, isNull);
+      expect(row.attempts, 0);
+    });
+  });
+
   group('an unreadable outbox row', () {
     test('stops the drain as unavailable, is reported once, and nothing is '
         'sent past it', () async {
