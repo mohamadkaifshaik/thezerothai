@@ -228,18 +228,52 @@ bool _constantTimeEquals(Uint8List a, Uint8List b) {
   return diff == 0;
 }
 
-/// unverified: the commitment is not 32 bytes or differs from reportCommitment(bytes) (constant-time compare);
-/// else undecodable: !wireOk; else unverified: reportKey is not 32 bytes; else ok.
-MessageCheck checkMessageContent(Uint8List contentBytes, Uint8List commitment) {
+/// The receive-time check kept apart: the server can still verify report evidence for [badReportKey] and
+/// [undecodable] (the commitment matched), not for [mismatch]. The commitment is not stored, so this is decided once,
+/// when the message arrives, and stored as [storedName].
+enum MessageCheckDetail {
+  ok('ok'),
+  mismatch('unverified'),
+  badReportKey('badReportKey'),
+  undecodable('undecodable');
+
+  const MessageCheckDetail(this.storedName);
+
+  /// The vault's stored `check` (one of `StoredMessageCheck`).
+  final String storedName;
+
+  /// The port's three-valued answer: mismatch and badReportKey are both unverified.
+  MessageCheck get check => switch (this) {
+    MessageCheckDetail.ok => MessageCheck.ok,
+    MessageCheckDetail.mismatch => MessageCheck.unverified,
+    MessageCheckDetail.badReportKey => MessageCheck.unverified,
+    MessageCheckDetail.undecodable => MessageCheck.undecodable,
+  };
+}
+
+/// mismatch: the commitment is not 32 bytes or differs from reportCommitment(bytes) (constant-time compare);
+/// else undecodable: !wireOk; else badReportKey: reportKey is absent or not 32 bytes; else ok.
+MessageCheckDetail checkMessageContentDetail(
+  Uint8List contentBytes,
+  Uint8List commitment,
+) {
   if (commitment.length != 32 ||
       !_constantTimeEquals(commitment, reportCommitment(contentBytes))) {
-    return MessageCheck.unverified;
+    return MessageCheckDetail.mismatch;
   }
   final d = decodeMessageContentLenient(contentBytes);
-  if (!d.wireOk) return MessageCheck.undecodable;
-  if (d.reportKey?.length != kReportKeyBytes) return MessageCheck.unverified;
-  return MessageCheck.ok;
+  if (!d.wireOk) return MessageCheckDetail.undecodable;
+  if (d.reportKey?.length != kReportKeyBytes) {
+    return MessageCheckDetail.badReportKey;
+  }
+  return MessageCheckDetail.ok;
 }
+
+/// checkMessageContentDetail(...).check: unverified covers both a mismatch and a bad report key length.
+MessageCheck checkMessageContent(
+  Uint8List contentBytes,
+  Uint8List commitment,
+) => checkMessageContentDetail(contentBytes, commitment).check;
 
 bool _isCont(Uint8List b, int i, [int lo = 0x80, int hi = 0xBF]) =>
     i < b.length && b[i] >= lo && b[i] <= hi;

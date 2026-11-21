@@ -64,6 +64,224 @@ class ConversationContext {
   /// it; null before one (`describeState`'s "server's last known
   /// generation").
   MlsPair? serverPair;
+
+  // --- the receiver's walks (design rev 3 §2-§5; memory only) -------------
+
+  /// The receive pass running now (single flight): a second `pullLive`
+  /// joins it. The receiver types it; null when none runs.
+  Future<Object?>? running;
+
+  /// Bumped by every write of the receive record (a reconcile page's too),
+  /// and also with NO record write: when a tombstone page notes a tombstone
+  /// not noted before in this run (an epoch page in flight may still hold
+  /// that message as readable), and by an arming, a retirement or a walk
+  /// restart whose write body found nothing to write. A page listed without
+  /// the lock is
+  /// applied only when it is unchanged, and the pass's "listed to the end"
+  /// fact ([listedToEndIn]) is forgotten when it changes.
+  int serial = 0;
+
+  /// The since token of the last probe page that was not processed, with
+  /// the stored token it was asked with and when it was fetched (the
+  /// receiver's call sequence). Saved by §4 rule 2 only.
+  ({String token, String sentWith, int seq})? endToken;
+
+  /// The sequence number of the open walk's last listing start this run.
+  int? openListingSeq;
+
+  /// The sink refused or left a close (or orphan) walk unfinished, so a
+  /// catch-up ended `interrupted` with a commit waiting at this pair (the
+  /// highest group pair any such signal saw; the sink's own pair when the
+  /// group's was not known): once no walk of the current or a later pair is
+  /// left, the end of a pass runs one catch-up. Cleared when one answers
+  /// other than `interrupted`, or once the group's current pair is strictly
+  /// past it (the fast path or another catch-up applied the commit). Not
+  /// cleared when an older walk ends (the commit that waited for it is
+  /// still unapplied). Null: none due.
+  MlsPair? catchUpDueAt;
+
+  /// The highest pair above the group's that an unprocessed probe page held
+  /// (its since token may be saved past it): the end of a pass runs one
+  /// catch-up while the current pair is below it, until one answers other
+  /// than `interrupted`. Null: none.
+  MlsPair? laterPairSeen;
+
+  /// The group pair at which the end-of-pass catch-up last applied nothing
+  /// and left no walk: a second such run at the same pair waits twice as
+  /// long, doubling up to the walk backoff's cap. Reset (with the two
+  /// fields below) when the pair moves, or a catch-up there applies
+  /// something or leaves a walk; never by a pass that returns `complete`.
+  /// Null: no streak.
+  MlsPair? fruitlessCatchUpAt;
+
+  /// The end-of-pass catch-up's own wait (never the walks'): no end-of-pass
+  /// catch-up before [catchUpNotBefore]; [catchUpBackoff] is the last wait
+  /// of the streak. The walks and the sink are not held by it.
+  DateTime? catchUpNotBefore;
+  Duration? catchUpBackoff;
+
+  /// The walk backoff after an order violation, a missing order echo, an
+  /// RPC failure or the restart cap: no walk before [walkBackoffUntil];
+  /// [walkBackoff] doubles from 1 min to 1 h, reset by an applied page.
+  DateTime? walkBackoffUntil;
+  Duration? walkBackoff;
+
+  /// Refused page tokens this run (at most 2 restarts, §3.2).
+  int walkRestarts = 0;
+
+  /// Counters of this run: pages without the order echo, pages out of
+  /// order, and pages listed without the lock that were discarded.
+  int orderMissing = 0;
+  int orderViolation = 0;
+  int discardedPages = 0;
+
+  // --- the receiver's reconcile walk (design rev 3 §8.2; memory only) -----
+
+  /// No tombstone listing before this time (a refused, failed or
+  /// out-of-order listing); [reconcileBackoff] is its last wait, 1 min
+  /// doubling to 1 h, reset by an applied page. The failures that bound a
+  /// final attempt's wait are counted in the sealed receive record, not
+  /// here. The probe and the walks are not held by it.
+  DateTime? reconcileNotBefore;
+  Duration? reconcileBackoff;
+
+  /// Counters of this run: tombstone pages refused for their shape or
+  /// order, and tombstone pages listed without the lock that were
+  /// discarded.
+  int reconcileViolation = 0;
+  int reconcileDiscarded = 0;
+
+  /// The pass whose own reconcile step applied the LAST page of the by-id
+  /// tombstone listing after its probe was answered, with [serial] as that
+  /// page left it. A fact of that one pass, in memory only and never in
+  /// the receive record (a stored mark would have no age: a later reader
+  /// could not tell a takedown made since). While it holds, that pass's
+  /// final attempts may reach the engine although the reconcile entry
+  /// still waits for a since token.
+  ({Object pass, int serial})? _listedToEnd;
+
+  /// [pass]'s reconcile step just applied the listing's last page (call
+  /// after that page's own change of [serial], with the lock held).
+  void noteListedToEnd(Object pass) =>
+      _listedToEnd = (pass: pass, serial: serial);
+
+  /// The fact is gone: the pass ended, a since token or an anchor was
+  /// retired, the entry was armed, or the listing began again.
+  void clearListedToEnd() => _listedToEnd = null;
+
+  /// Whether [pass] itself listed the tombstones to the end and nothing
+  /// has written the receive record since ([serial] is unchanged). A
+  /// changed [serial] forgets the fact for good; another pass (the sink's,
+  /// the public reconcile's) is only answered no.
+  bool listedToEndIn(Object pass) {
+    final noted = _listedToEnd;
+    if (noted == null) return false;
+    if (noted.serial != serial) {
+      _listedToEnd = null;
+      return false;
+    }
+    return identical(noted.pass, pass);
+  }
+
+  /// The pass whose probe was ANSWERED for a request that sent the stored,
+  /// non-empty since token, with that token: the pass has seen what changed
+  /// since it (a takedown among it). The freshness witness of every engine
+  /// call on a DEFERRED message while no reconcile entry stands: a retry,
+  /// and a final attempt. A fact of that one pass, in memory only and never
+  /// in a sealed record (a stored mark would have no age).
+  ///
+  /// The token follows that pass's own saves: when the pass itself saves a
+  /// since token over exactly this one (the fast path, §4 rule 2: both by
+  /// compare-and-set on the token its probe was answered for), the witness
+  /// holds for the token it saved ([noteSinceTokenSaved]). Any other stored
+  /// token, an empty one above all, is not witnessed.
+  ({Object pass, String token})? _probeAnswered;
+
+  /// [pass]'s probe was answered for a request that sent the stored since
+  /// token [token] (call with the lock held, after every tombstone of the
+  /// answer was noted for the run). An empty token is never a witness.
+  void noteProbeAnswered(Object pass, String token) {
+    if (token.isNotEmpty) _probeAnswered = (pass: pass, token: token);
+  }
+
+  /// [pass] saved the since token [to] over [from] in a transaction that
+  /// committed. Only the witnessed pass's own save over the witnessed token
+  /// moves the witness; an empty [to] never does.
+  void noteSinceTokenSaved(Object pass, String from, String to) {
+    final noted = _probeAnswered;
+    if (noted == null ||
+        to.isEmpty ||
+        !identical(noted.pass, pass) ||
+        noted.token != from) {
+      return;
+    }
+    _probeAnswered = (pass: pass, token: to);
+  }
+
+  /// The witness is gone: the pass ended, or a since token or an anchor was
+  /// retired.
+  void clearProbeAnswered() => _probeAnswered = null;
+
+  /// Whether [pass] itself holds the witness for [sinceToken], the since
+  /// token read fresh in the write body that asks: this running pass's
+  /// probe was answered for a request that sent the stored, non-empty since
+  /// token, and the stored token is still that one (or the one this pass
+  /// saved over it). Another pass (the sink's own, a later one) is only
+  /// answered no.
+  bool probeAnsweredIn(Object pass, String sinceToken) {
+    final noted = _probeAnswered;
+    return noted != null &&
+        identical(noted.pass, pass) &&
+        sinceToken.isNotEmpty &&
+        noted.token == sinceToken;
+  }
+
+  // --- the receiver's failure rule (design rev 3 §7; memory only) ---------
+
+  /// No engine call of the receiver for THIS conversation before this time:
+  /// a group-level failure stopped a pass (1 min, doubling with the group
+  /// failure count). Device-level trouble (a device-down answer, the
+  /// breaker, an unwitnessed crash) is held receiver-wide, in the receiver.
+  /// Cleared when the app resumes.
+  DateTime? engineHoldUntil;
+
+  /// Message id -> state (`removed` / `deletedAccount`) of every tombstone
+  /// seen this run, oldest first, bounded: a deferred message whose id is
+  /// here is never given to the engine again (§7.4 check 2, §8.1).
+  final Map<String, String> tombstoned = {};
+
+  /// `generation:epoch` -> the receiver's run id in which that group
+  /// reached the group failure maximum: for the rest of that run its
+  /// `internal` / `deadline` answers become rows with no probe (§7.2).
+  final Map<String, String> groupBroken = {};
+
+  /// `generation:epoch` -> the receiver's run id in which a `process` call
+  /// on that group last succeeded: the witness that the group itself works,
+  /// without which a full deferred record never evicts (a ruling after the
+  /// design, fix round 1).
+  final Map<String, String> groupWorked = {};
+
+  /// Message id -> the receiver's count of engine successes when that
+  /// message was deferred unwitnessed this run (§7.2): once the count has
+  /// grown, the end of a pass promotes it.
+  final Map<String, int> unwitnessed = {};
+
+  /// A hint, never a fact a write relies on: the deferred record was read
+  /// or written empty by this run's last pass (then a walk does not open
+  /// it again for every message). Null: not known.
+  bool? deferredEmpty;
+
+  /// A hint: the receive record's group failure count was read or written
+  /// null this run (then a process success does not read it again). Null:
+  /// not known.
+  bool? groupFailuresNull;
+
+  /// How many times the walk backoff was raised this run (every order
+  /// violation, missing order echo or restart cap; never an RPC failure).
+  /// The receiver reads it around a walk step to tell the walk's own
+  /// refusal from a failed or rate-limited call; the refusals that lead to
+  /// an abandonment are counted in the sealed receive record, not here.
+  int walkBackOffs = 0;
 }
 
 /// The [ConversationContext] of every conversation, by id.
@@ -87,6 +305,13 @@ class ConversationContexts {
       c.incomingRequest = false;
     }
     c.canReply = row.canReply;
+  }
+
+  /// The app resumed: no conversation's own engine hold is kept.
+  void clearEngineHolds() {
+    for (final c in _byId.values) {
+      c.engineHoldUntil = null;
+    }
   }
 
   /// Sign-out or a new vault.

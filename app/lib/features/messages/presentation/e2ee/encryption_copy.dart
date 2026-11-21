@@ -125,6 +125,10 @@ const kOwnDeviceAlertAction = 'Check your devices';
 /// Placeholder (fixed, spec 7.5).
 const kCouldNotDecryptText = "Couldn't decrypt this message";
 
+/// Placeholder of a message this device still holds and will try to decrypt
+/// again (owner-approved 2026-11-21). Promises no success and no time.
+const kWaitingToDecryptText = 'Waiting to decrypt this message';
+
 /// Placeholder (fixed).
 const kCouldNotVerifyText = "This message couldn't be verified";
 

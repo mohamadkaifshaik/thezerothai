@@ -154,6 +154,11 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
           !e.canReport || (visible && !e.mine),
           'canReport only for a visible message that is not mine',
         );
+        assert(
+          !e.waitingToDecrypt ||
+              (e.state == EncryptedMessageState.undecryptable && !e.mine),
+          'waitingToDecrypt only for an undecryptable row that is not mine',
+        );
       }
     }
   }

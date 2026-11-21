@@ -14,7 +14,12 @@ extension _CommitApply on ConversationCrypto {
     pb.ConversationCommit commit,
   ) async {
     try {
-      await sink?.completeEpoch(id, at, priority: pass.priority);
+      final sink = this.sink;
+      if (sink != null) {
+        await sink.completeEpoch(id, at, priority: pass.priority);
+        // Never a commit applied while its close walk has not ended (§5.1).
+        if (!await sink.epochWalkDone(id, at)) return _Applied.interrupted;
+      }
     } on Object catch (e, s) {
       _reportIfBug(e, s, 'completeEpoch');
       return _Applied.interrupted;

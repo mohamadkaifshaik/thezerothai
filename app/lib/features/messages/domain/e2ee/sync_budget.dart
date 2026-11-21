@@ -5,6 +5,11 @@ import 'dart:collection';
 /// `ListWelcomes` and `AckWelcomes`, divided by the number of own devices (R8).
 const int kSyncCallsPerMinute = 60;
 
+/// Calls a minute for the receiver's probe (`ListMessages`, which the server
+/// limits with the other list reads), divided by the number of own devices
+/// (receive-walks design §1, §9: the read budget).
+const int kMlsReadCallsPerMinute = 10;
+
 /// Calls a minute for `ListMyKeyDevices` and `GetKeyDevices`, divided by the
 /// number of own devices (R8, KP).
 const int kDirectoryCallsPerMinute = 60;
@@ -28,13 +33,34 @@ enum BudgetPriority {
   /// The open conversation and sends.
   user,
 
+  /// Work for a conversation the user is not looking at that should not
+  /// wait behind the background sweep (a push that says a message came).
+  /// Served after every waiting [user] call and before every waiting
+  /// [background] call; it shares the background reserve.
+  live,
+
   /// Everything else.
   background,
 }
 
 /// A rolling one-minute budget of calls, shared by the callers of one group of
-/// RPCs. Waiting [BudgetPriority.user] calls are served before waiting
-/// [BudgetPriority.background] calls. Uses a timer only while a call waits.
+/// RPCs. Uses a timer only while a call waits.
+///
+/// - **Units.** One unit is one call. The limit is
+///   floor(perMinute / max(1, ownDeviceCount())) calls per rolling minute,
+///   never less than one.
+/// - **Order.** Waiting [BudgetPriority.user] calls are served first, in
+///   the order they came; then waiting [BudgetPriority.live] calls, in the
+///   order they came; then waiting [BudgetPriority.background] calls,
+///   round-robin by lane (the `lane` of [take], the conversation id for the
+///   receiver; calls with no lane share one), first in first out within a
+///   lane. So one conversation with a long backlog never starves the others.
+/// - **The reserve.** At a limit of 2 or more, `live` and `background`
+///   calls together take at most limit - 1 units per rolling minute: one
+///   unit a minute is always there for a `user` call. At a limit of 1 there
+///   is no reserve. [tryTake] respects it too.
+/// - **Spent.** [take] waits (its caller holds no lock); [tryTake] answers
+///   false at once.
 class SyncBudget {
   SyncBudget({
     required int perMinute,
@@ -50,10 +76,16 @@ class SyncBudget {
   final int Function() _ownDeviceCount;
   final DateTime Function() _now;
 
-  /// When the calls of the last minute were made, oldest first.
-  final Queue<DateTime> _calls = Queue();
+  /// When the calls of the last minute were made, oldest first, and
+  /// whether each was a [BudgetPriority.user] call (the reserve counts the
+  /// others).
+  final Queue<({DateTime at, bool user})> _calls = Queue();
   final Queue<Completer<void>> _userWaiting = Queue();
-  final Queue<Completer<void>> _backgroundWaiting = Queue();
+  final Queue<Completer<void>> _liveWaiting = Queue();
+
+  /// Lane -> its waiting background calls, in the order the lanes are
+  /// served next (a served lane with calls left goes to the end).
+  final LinkedHashMap<Object?, Queue<Completer<void>>> _lanes = LinkedHashMap();
   DateTime? _pausedUntil;
   Timer? _timer;
 
@@ -85,14 +117,60 @@ class SyncBudget {
   /// less than one). Fails with [StateError] when [reset] ran while waiting,
   /// and with [BudgetPaused] when [pauseUntil] ran while waiting. A call
   /// taken while already paused waits for the pause to end (callers check
-  /// [paused] first).
-  Future<void> take(BudgetPriority priority) {
+  /// [paused] first). [lane] groups background calls for the round-robin
+  /// (the conversation id; ignored for the other priorities).
+  Future<void> take(BudgetPriority priority, {Object? lane}) {
     final waiter = Completer<void>();
-    (priority == BudgetPriority.user ? _userWaiting : _backgroundWaiting).add(
-      waiter,
-    );
+    switch (priority) {
+      case BudgetPriority.user:
+        _userWaiting.add(waiter);
+      case BudgetPriority.live:
+        _liveWaiting.add(waiter);
+      case BudgetPriority.background:
+        _lanes.putIfAbsent(lane, Queue.new).add(waiter);
+    }
     _pump();
     return waiter.future;
+  }
+
+  /// One unit now, or false: true only when a unit is free at this moment
+  /// for [priority] (the reserve is left to [BudgetPriority.user]), the
+  /// budget is not paused and no [BudgetPriority.user] call is waiting.
+  /// Never queues and never waits (for work under a held lock).
+  bool tryTake(BudgetPriority priority) {
+    final now = _now();
+    if (_pauseEnd(now) != null || _userWaiting.isNotEmpty) return false;
+    _prune(now);
+    final user = priority == BudgetPriority.user;
+    if (!_free(user: user)) return false;
+    _calls.add((at: now, user: user));
+    return true;
+  }
+
+  /// A unit is free now (after [_prune]): the limit is not reached, and for
+  /// a call that is not a user's the reserve is left alone.
+  bool _free({required bool user}) {
+    final limit = _limit;
+    if (_calls.length >= limit) return false;
+    if (user || limit < 2) return true;
+    var others = 0;
+    for (final c in _calls) {
+      if (!c.user) others++;
+    }
+    return others < limit - 1;
+  }
+
+  /// Every waiting call, removed from its queue.
+  List<Completer<void>> _takeWaiting() {
+    final waiting = [
+      ..._userWaiting,
+      ..._liveWaiting,
+      for (final lane in _lanes.values) ...lane,
+    ];
+    _userWaiting.clear();
+    _liveWaiting.clear();
+    _lanes.clear();
+    return waiting;
   }
 
   /// RATE_LIMITED: no call before [until], capped at now +
@@ -113,10 +191,7 @@ class SyncBudget {
       _pump();
       return;
     }
-    final waiting = [..._userWaiting, ..._backgroundWaiting];
-    _userWaiting.clear();
-    _backgroundWaiting.clear();
-    for (final w in waiting) {
+    for (final w in _takeWaiting()) {
       w.completeError(const BudgetPaused());
     }
     _pump();
@@ -129,11 +204,25 @@ class SyncBudget {
     _timer = null;
     _calls.clear();
     _pausedUntil = null;
-    final waiting = [..._userWaiting, ..._backgroundWaiting];
-    _userWaiting.clear();
-    _backgroundWaiting.clear();
-    for (final w in waiting) {
+    for (final w in _takeWaiting()) {
       w.completeError(StateError('The budget was reset.'));
+    }
+  }
+
+  /// Drops the calls older than the window.
+  void _prune(DateTime now) {
+    // A clock set back leaves stamps in the future: such a call counts as
+    // made now, so the wait is never longer than one window.
+    if (_calls.isNotEmpty && _calls.last.at.isAfter(now)) {
+      final clamped = [
+        for (final c in _calls) c.at.isAfter(now) ? (at: now, user: c.user) : c,
+      ];
+      _calls
+        ..clear()
+        ..addAll(clamped);
+    }
+    while (_calls.isNotEmpty && now.difference(_calls.first.at) >= _window) {
+      _calls.removeFirst();
     }
   }
 
@@ -141,29 +230,35 @@ class SyncBudget {
     _timer?.cancel();
     _timer = null;
     final now = _now();
-    // A clock set back leaves stamps in the future: such a call counts as
-    // made now, so the wait is never longer than one window.
-    if (_calls.isNotEmpty && _calls.last.isAfter(now)) {
-      final clamped = [for (final c in _calls) c.isAfter(now) ? now : c];
-      _calls
-        ..clear()
-        ..addAll(clamped);
-    }
-    while (_calls.isNotEmpty && now.difference(_calls.first) >= _window) {
-      _calls.removeFirst();
-    }
-    while (_userWaiting.isNotEmpty || _backgroundWaiting.isNotEmpty) {
+    _prune(now);
+    while (_userWaiting.isNotEmpty ||
+        _liveWaiting.isNotEmpty ||
+        _lanes.isNotEmpty) {
       final until = _pauseEnd(now);
       if (until != null) {
         return _wake(until.difference(now));
       }
-      if (_calls.length >= _limit) {
-        return _wake(_calls.first.add(_window).difference(now));
+      final user = _userWaiting.isNotEmpty;
+      if (!_free(user: user)) {
+        // No unit for the call that is next (the limit, or the reserve):
+        // asked again when the oldest call of the window leaves it. A
+        // waiter never passes one that is ahead of it.
+        return _wake(_calls.first.at.add(_window).difference(now));
       }
-      final next = _userWaiting.isNotEmpty
-          ? _userWaiting.removeFirst()
-          : _backgroundWaiting.removeFirst();
-      _calls.add(now);
+      final Completer<void> next;
+      if (user) {
+        next = _userWaiting.removeFirst();
+      } else if (_liveWaiting.isNotEmpty) {
+        next = _liveWaiting.removeFirst();
+      } else {
+        // Round-robin: the first lane's oldest call; the lane goes to the
+        // end while it has calls left.
+        final lane = _lanes.keys.first;
+        final queue = _lanes.remove(lane)!;
+        next = queue.removeFirst();
+        if (queue.isNotEmpty) _lanes[lane] = queue;
+      }
+      _calls.add((at: now, user: user));
       next.complete();
     }
   }

@@ -1075,11 +1075,15 @@ class MessagingRepository {
   );
 
   /// Messages of [conversationId] sent at [pair]. Not globally off is enough.
+  /// [order] `CREATED_AT` asks for the ordered, resumable listing (oldest
+  /// first, with a resume token); the answer's `order` echo says whether it
+  /// was served so.
   Future<pb.ListEpochMessagesResponse> listEpochMessages({
     required String conversationId,
     required MlsPair pair,
     int pageSize = 0,
     String pageToken = '',
+    EpochMessageOrder order = EpochMessageOrder.EPOCH_MESSAGE_ORDER_UNSPECIFIED,
   }) => _mls(
     () => _gate.runRead(
       () => _apiClient.messaging.listEpochMessages(
@@ -1087,6 +1091,29 @@ class MessagingRepository {
           conversationId: conversationId,
           mlsGeneration: Int64(pair.generation),
           mlsEpoch: Int64(pair.epoch),
+          pageSize: pageSize,
+          pageToken: pageToken,
+          order: order,
+        ),
+      ),
+    ),
+  );
+
+  /// The tombstones of [conversationId] (ids and states only, ascending by
+  /// message id), one page. Not globally off is enough here; the server
+  /// also needs `e2ee_dm` not globally off and answers FEATURE_DISABLED
+  /// otherwise. [pageSize] 0 asks for the server's default (50; at most
+  /// 100). A refused token throws `ValidationException(field:
+  /// 'page_token')`. Nothing is written to the store.
+  Future<pb.ListMessageTombstonesResponse> listMessageTombstones({
+    required String conversationId,
+    int pageSize = 0,
+    String pageToken = '',
+  }) => _mls(
+    () => _gate.runRead(
+      () => _apiClient.messaging.listMessageTombstones(
+        pb.ListMessageTombstonesRequest(
+          conversationId: conversationId,
           pageSize: pageSize,
           pageToken: pageToken,
         ),

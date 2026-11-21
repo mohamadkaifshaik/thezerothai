@@ -72,6 +72,122 @@ void main() {
     );
   });
 
+  test(
+    'a matching commitment with a bad report key length is badReportKey',
+    () {
+      for (final keyLen in [0, 31, 33]) {
+        final b = Uint8List.fromList(
+          _hex('0a026869') + [0x1a, keyLen] + Uint8List(keyLen),
+        );
+        expect(
+          checkMessageContentDetail(b, reportCommitment(b)),
+          MessageCheckDetail.badReportKey,
+          reason: 'key length $keyLen',
+        );
+      }
+      // No report key at all.
+      final noKey = _hex('0a026869');
+      expect(
+        checkMessageContentDetail(noKey, reportCommitment(noKey)),
+        MessageCheckDetail.badReportKey,
+      );
+    },
+  );
+
+  test('a commitment mismatch is mismatch whatever the key length', () {
+    for (final keyLen in [0, 31, 32, 33]) {
+      final b = Uint8List.fromList(
+        _hex('0a026869') + [0x1a, keyLen] + Uint8List(keyLen),
+      );
+      final wrong = Uint8List.fromList(reportCommitment(b))..[0] ^= 1;
+      expect(
+        checkMessageContentDetail(b, wrong),
+        MessageCheckDetail.mismatch,
+        reason: 'key length $keyLen',
+      );
+      expect(
+        checkMessageContentDetail(
+          b,
+          Uint8List.sublistView(reportCommitment(b), 0, 31),
+        ),
+        MessageCheckDetail.mismatch,
+        reason: 'short commitment, key length $keyLen',
+      );
+    }
+    // Undecodable bytes under a wrong commitment are a mismatch too.
+    final junk = _hex('0e');
+    expect(
+      checkMessageContentDetail(junk, Uint8List(32)),
+      MessageCheckDetail.mismatch,
+    );
+  });
+
+  test('the detailed check is ok and undecodable where the three-valued one '
+      'is', () {
+    final good = encodeMessageContent(text: 'hi', reportKey: _key());
+    expect(
+      checkMessageContentDetail(good, reportCommitment(good)),
+      MessageCheckDetail.ok,
+    );
+    final junk = _hex('0e');
+    expect(
+      checkMessageContentDetail(junk, reportCommitment(junk)),
+      MessageCheckDetail.undecodable,
+    );
+  });
+
+  test(
+    'the three-valued check maps mismatch and badReportKey to unverified',
+    () {
+      final good = encodeMessageContent(text: 'hi', reportKey: _key());
+      final shortKey = Uint8List.fromList(
+        _hex('0a026869') + _hex('1a1f') + Uint8List(31),
+      );
+      final junk = _hex('0e');
+      final rows = <(Uint8List, Uint8List, MessageCheckDetail, MessageCheck)>[
+        (good, reportCommitment(good), MessageCheckDetail.ok, MessageCheck.ok),
+        (
+          good,
+          Uint8List(32),
+          MessageCheckDetail.mismatch,
+          MessageCheck.unverified,
+        ),
+        (
+          shortKey,
+          reportCommitment(shortKey),
+          MessageCheckDetail.badReportKey,
+          MessageCheck.unverified,
+        ),
+        (
+          junk,
+          reportCommitment(junk),
+          MessageCheckDetail.undecodable,
+          MessageCheck.undecodable,
+        ),
+      ];
+      for (final (bytes, commitment, detail, check) in rows) {
+        expect(checkMessageContentDetail(bytes, commitment), detail);
+        expect(
+          checkMessageContent(bytes, commitment),
+          check,
+          reason: '$detail',
+        );
+      }
+    },
+  );
+
+  test('the stored name of each detailed check', () {
+    expect(
+      {for (final d in MessageCheckDetail.values) d: d.storedName},
+      {
+        MessageCheckDetail.ok: 'ok',
+        MessageCheckDetail.mismatch: 'unverified',
+        MessageCheckDetail.badReportKey: 'badReportKey',
+        MessageCheckDetail.undecodable: 'undecodable',
+      },
+    );
+  });
+
   test('well-formed commitment over non-protobuf bytes is undecodable', () {
     final b = _hex('0e');
     expect(

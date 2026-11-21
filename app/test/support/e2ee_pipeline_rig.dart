@@ -17,6 +17,8 @@ import 'package:dzeroth/features/messages/data/messaging_repository.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_context.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_crypto.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_locks.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/daily_ledger.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/message_receiver.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/device_directory.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/e2ee_types.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/known_conversations.dart';
@@ -78,12 +80,48 @@ class RigEngine implements CryptoEngine {
   /// Runs before every call of the named method (for ordering asserts).
   final List<String> calls = [];
 
+  /// The key of [bytes] in [failWire], [failWireAlways] and [failState].
+  static String key(List<int> bytes) => base64Encode(bytes);
+
+  /// Wire bytes ([key]) -> the errors of the next `process` calls with
+  /// exactly those bytes, one per call, in order (a message that fails).
+  final Map<String, List<MlsException>> failWire = {};
+
+  /// Wire bytes ([key]) -> the error of every `process` call with exactly
+  /// those bytes (after [failWire]'s queue for them is used up).
+  final Map<String, MlsException> failWireAlways = {};
+
+  /// Group state ([key]) -> the error of every `process` and `describe`
+  /// call given exactly that state (a group state that fails).
+  final Map<String, MlsException> failState = {};
+
+  /// As the guarded engine on the web: a `deadline` answer is a crash that
+  /// replaces the worker, and from the second one since the last
+  /// [onAppResumed] every call answers `unavailable`.
+  bool webLike = false;
+  int _crashes = 0;
+
+  /// The guarded engine's resume: one replacement is allowed again.
+  void onAppResumed() => _crashes = 0;
+
+  static const MlsException _unavailable = MlsException(
+    MlsErrorCode.unavailable,
+    'rig: the engine is unavailable',
+  );
+
+  /// Throws [e] as the guarded engine would (a crash is counted first).
+  Never _fail(MlsException e) {
+    if (webLike && e.code == MlsErrorCode.deadline) _crashes++;
+    throw e;
+  }
+
   void _enter(String name) {
     calls.add(name);
+    if (webLike && _crashes >= 2) throw _unavailable;
     final once = failNext.remove(name);
-    if (once != null) throw once;
+    if (once != null) _fail(once);
     final always = failAlways[name];
-    if (always != null) throw always;
+    if (always != null) _fail(always);
   }
 
   @override
@@ -168,9 +206,21 @@ class RigEngine implements CryptoEngine {
     return inner.encrypt(deviceState, groupState, plaintext);
   }
 
+  /// The wire bytes of every `process` call, in order (failed calls too).
+  final List<Uint8List> processed = [];
+
+  /// The n-th `process` call (1-based, counted by [processed]) throws this
+  /// error (then the entry is removed).
+  final Map<int, MlsException> failProcessCall = {};
+
   /// When set, the next `process` call waits for it before it answers (then
   /// it is cleared): a result that arrives late.
   Future<void>? holdNextProcess;
+
+  /// The n-th `process` call (1-based, counted by [processed]) runs this
+  /// before it answers (then the entry is removed): await to delay it, or
+  /// never complete to leave it in flight (an app killed mid-page).
+  final Map<int, Future<void> Function()> onProcessCall = {};
 
   @override
   Future<ProcessResult> process(
@@ -178,7 +228,22 @@ class RigEngine implements CryptoEngine {
     Uint8List groupState,
     Uint8List wire,
   ) async {
+    processed.add(Uint8List.fromList(wire));
+    final scripted = failProcessCall.remove(processed.length);
+    if (scripted != null) {
+      calls.add('process');
+      if (webLike && _crashes >= 2) throw _unavailable;
+      _fail(scripted);
+    }
     _enter('process');
+    final queue = failWire[key(wire)];
+    if (queue != null && queue.isNotEmpty) _fail(queue.removeAt(0));
+    final byWire = failWireAlways[key(wire)];
+    if (byWire != null) _fail(byWire);
+    final byState = failState[key(groupState)];
+    if (byState != null) _fail(byState);
+    final hook = onProcessCall.remove(processed.length);
+    if (hook != null) await hook();
     final hold = holdNextProcess;
     holdNextProcess = null;
     if (hold != null) await hold;
@@ -188,6 +253,8 @@ class RigEngine implements CryptoEngine {
   @override
   Future<GroupDescription> describe(Uint8List groupState) async {
     _enter('describe');
+    final byState = failState[key(groupState)];
+    if (byState != null) _fail(byState);
     final real = await inner.describe(groupState);
     final rewrite = describeMembers;
     if (rewrite == null) return real;
@@ -215,7 +282,10 @@ class RigEngine implements CryptoEngine {
       inner.open(key, aad, sealed);
 
   @override
-  Future<Uint8List> randomBytes(int length) => inner.randomBytes(length);
+  Future<Uint8List> randomBytes(int length) async {
+    _enter('randomBytes');
+    return inner.randomBytes(length);
+  }
 }
 
 /// A device that exists only as engine state (no vault): a peer, or an own
@@ -356,6 +426,128 @@ class RigServer {
     ...?_welcomes[deviceId]?.values,
   ];
 
+  // --- messages (ListMessages / ListEpochMessages) -------------------------
+
+  final Map<String, List<_Stored>> _messages = {};
+  int _messageSeq = 0;
+
+  /// conversationId -> the caller's DeleteConversation time (`cleared_at`).
+  final Map<String, DateTime> clearedAt = {};
+
+  /// The page size of a ListMessages answer (the repository asks for 50).
+  int livePageSize = 50;
+
+  /// Since tokens the server no longer accepts (a retired token).
+  final Set<String> retiredSince = {};
+
+  /// The next this many ListEpochMessages calls that carry a page token are
+  /// refused (`page_token`).
+  int refuseEpochPageTokens = 0;
+
+  /// Replaces a ListMessages answer (to forge an empty or odd one).
+  pb.ListMessagesResponse Function(pb.ListMessagesResponse real)? rewriteLive;
+
+  /// Replaces a ListEpochMessages answer (to reorder, forge or add).
+  pb.ListEpochMessagesResponse Function(pb.ListEpochMessagesResponse real)?
+  rewriteEpoch;
+
+  /// The ordered listing's index is missing: an order = CREATED_AT call is
+  /// answered as the real server's fail-closed fallback (an empty page, the
+  /// order unset, no next or resume token, not settled, cleared_at kept).
+  bool epochOrderFallback = false;
+
+  /// Every ListEpochMessages request: the pair, the page token and order.
+  final List<({MlsPair pair, String token, EpochMessageOrder order})>
+  epochRequests = [];
+
+  /// Runs after a ListEpochMessages answer is computed and before it is
+  /// returned (a race: something happens while the page is in flight).
+  Future<void> Function()? afterEpochAnswer;
+
+  /// The read hold `rateLimitedFor` reports (null: none).
+  RateLimitedException? readHold;
+
+  // --- tombstones (ListMessageTombstones) ----------------------------------
+
+  /// The page token of every ListMessageTombstones request, in order.
+  final List<String> tombstoneRequests = [];
+
+  /// The server's page size cap (the real one clamps to 100).
+  int tombstonePageMax = 100;
+
+  /// Asked at each ListMessageTombstones call: a non-null answer is thrown
+  /// instead of a page (FEATURE_DISABLED, UNIMPLEMENTED, a failed call).
+  Object? Function()? tombstoneError;
+
+  /// The next this many ListMessageTombstones calls that carry a page token
+  /// are refused (`page_token`).
+  int refuseTombstoneTokens = 0;
+
+  /// Ids of tombstone rows the server reads but leaves out of its answer
+  /// (`service_sync.go`: a row whose stored state or id is malformed is
+  /// skipped, and the next token is still at the page's last row, a
+  /// skipped one included). A full page of them is an EMPTY page with a
+  /// next token.
+  final Set<String> tombstoneSkipped = {};
+
+  /// Replaces a ListMessageTombstones answer (to reorder or forge).
+  pb.ListMessageTombstonesResponse Function(
+    pb.ListMessageTombstonesResponse real,
+  )?
+  rewriteTombstones;
+
+  /// Runs after a ListMessageTombstones answer is computed and before it is
+  /// returned (a race: something happens while the page is in flight).
+  Future<void> Function()? afterTombstoneAnswer;
+
+  /// Stores [m] (a send, as the server keeps it).
+  void addMessage(pb.Message m) {
+    final list = _messages.putIfAbsent(m.conversationId, () => []);
+    if (list.any((s) => s.message.id == m.id)) {
+      throw StateError('one message per id');
+    }
+    list.add(_Stored(m.deepCopy(), ++_messageSeq));
+  }
+
+  /// A takedown or an account deletion: the state changes and the
+  /// ciphertext and commitment go (the change is listed after any since
+  /// token issued before it).
+  void tombstone(String conversationId, String id, MessageState state) {
+    final s = _messages[conversationId]!.singleWhere((s) => s.message.id == id);
+    s.message
+      ..state = state
+      ..ciphertext = <int>[]
+      ..reportCommitment = <int>[]
+      ..ciphertextRemoved = true;
+    s.seq = ++_messageSeq;
+    if (takedownRetiresSince) _sinceFloor[conversationId] = s.seq;
+  }
+
+  /// The server's thread-revision rule (`service_messages.go`, "Thread
+  /// revision"): a takedown or an erasure makes every since token issued
+  /// before it invalid (VALIDATION `since_token`). Off by default: a
+  /// takedown then leaves older since tokens valid, as this rig always did.
+  bool takedownRetiresSince = false;
+
+  /// conversationId -> the change sequence of its last takedown made while
+  /// [takedownRetiresSince] was on: a since token below it is refused.
+  final Map<String, int> _sinceFloor = {};
+
+  /// The messages changed after since-sequence [since], newest first.
+  List<pb.Message> _changed(String conversationId, int since) {
+    final list = [
+      for (final s in _messages[conversationId] ?? const <_Stored>[])
+        if (s.seq > since) s,
+    ];
+    list.sort((a, b) {
+      final t = b.message.createdAt.toDateTime().compareTo(
+        a.message.createdAt.toDateTime(),
+      );
+      return t != 0 ? t : b.message.id.compareTo(a.message.id);
+    });
+    return [for (final s in list) s.message.deepCopy()];
+  }
+
   /// A repository for the user [user] (its commits come back `from_self`).
   RigMessaging viewFor(String user) => RigMessaging(this, user);
 
@@ -363,6 +555,26 @@ class RigServer {
     calls.add(call);
     await onCall?.call(call);
   }
+}
+
+/// The real server's `EpochResumeTrail`.
+const Duration _kResumeTrail = Duration(seconds: 60);
+
+/// A message's listing position: (created_at micros, id).
+(int, String) _posOf(pb.Message m) =>
+    (m.createdAt.seconds.toInt() * 1000000 + m.createdAt.nanos ~/ 1000, m.id);
+
+/// Positions compare on time, then id ("" first).
+int _cmpPos((int, String) a, (int, String) b) {
+  final c = a.$1.compareTo(b.$1);
+  return c != 0 ? c : a.$2.compareTo(b.$2);
+}
+
+class _Stored {
+  _Stored(this.message, this.seq);
+
+  final pb.Message message;
+  int seq;
 }
 
 class _Commit {
@@ -374,7 +586,7 @@ class _Commit {
   final DateTime createdAt;
 }
 
-/// One user's view of a [RigServer]: the six MLS repository methods and the
+/// One user's view of a [RigServer]: the seven MLS repository methods and the
 /// few cache methods the pipeline reads. Everything else throws.
 class RigMessaging implements MessagingRepository {
   RigMessaging(this._server, this.user);
@@ -439,10 +651,139 @@ class RigMessaging implements MessagingRepository {
     required MlsPair pair,
     int pageSize = 0,
     String pageToken = '',
+    EpochMessageOrder order = EpochMessageOrder.EPOCH_MESSAGE_ORDER_UNSPECIFIED,
   }) async {
     await _server._enter('listEpochMessages');
-    return pb.ListEpochMessagesResponse();
+    _server.epochRequests.add((pair: pair, token: pageToken, order: order));
+    // Stricter than the server: the contract's pair (both >= 1) and page
+    // size (at most 50); a token is bound to the conversation and pair.
+    if (pair.generation < 1 || pair.epoch < 1) {
+      throw const ValidationException('pair', field: 'mls_epoch');
+    }
+    if (pageSize < 1 || pageSize > 50) {
+      throw const ValidationException('page_size', field: 'page_size');
+    }
+    if (order == EpochMessageOrder.EPOCH_MESSAGE_ORDER_CREATED_AT) {
+      final real = _orderedEpoch(conversationId, pair, pageSize, pageToken);
+      await _server.afterEpochAnswer?.call();
+      return _server.rewriteEpoch?.call(real) ?? real;
+    }
+    if (order != EpochMessageOrder.EPOCH_MESSAGE_ORDER_UNSPECIFIED) {
+      throw const ValidationException('order', field: 'order');
+    }
+    final prefix = 'e:$conversationId:${pair.generation}:${pair.epoch}:';
+    var offset = 0;
+    if (pageToken.isNotEmpty) {
+      if (_server.refuseEpochPageTokens > 0 || !pageToken.startsWith(prefix)) {
+        if (_server.refuseEpochPageTokens > 0) {
+          _server.refuseEpochPageTokens--;
+        }
+        throw const ValidationException('page_token', field: 'page_token');
+      }
+      offset = int.parse(pageToken.substring(prefix.length));
+    }
+    final all = [
+      for (final s in _server._messages[conversationId] ?? const <_Stored>[])
+        if (s.message.mlsGeneration == Int64(pair.generation) &&
+            s.message.mlsEpoch == Int64(pair.epoch))
+          s.message.deepCopy(),
+    ]..sort((a, b) => a.id.compareTo(b.id));
+    final page = all.skip(offset).take(pageSize).toList();
+    final end = offset + page.length;
+    final cleared = _server.clearedAt[conversationId];
+    final real = pb.ListEpochMessagesResponse(
+      messages: page,
+      nextPageToken: end < all.length ? '$prefix$end' : '',
+      clearedAt: cleared == null ? null : ts.Timestamp.fromDateTime(cleared),
+    );
+    await _server.afterEpochAnswer?.call();
+    return _server.rewriteEpoch?.call(real) ?? real;
   }
+
+  /// order = CREATED_AT, as `listEpochByTime` (service_sync.go) answers:
+  /// (created_at, id) ascending from the token's position (a full position
+  /// resumes after that message, a time-only one at that time, before every
+  /// id); next_page_token on a full page only; resume_page_token at
+  /// R = max(request position, min(after the last row, read time - 60 s)),
+  /// "" only with no position and no row; resume_settled = (R == after the
+  /// last row, the request position on an empty page). A token is bound to
+  /// the conversation, the pair and this order (an id-order token, or this
+  /// order's token in id order, is VALIDATION page_token).
+  pb.ListEpochMessagesResponse _orderedEpoch(
+    String conversationId,
+    MlsPair pair,
+    int pageSize,
+    String pageToken,
+  ) {
+    final prefix = 't:$conversationId:${pair.generation}:${pair.epoch}:';
+    (int, String)? after;
+    if (pageToken.isNotEmpty) {
+      if (_server.refuseEpochPageTokens > 0 || !pageToken.startsWith(prefix)) {
+        if (_server.refuseEpochPageTokens > 0) {
+          _server.refuseEpochPageTokens--;
+        }
+        throw const ValidationException('page_token', field: 'page_token');
+      }
+      final rest = pageToken.substring(prefix.length).split(':');
+      final at = rest.length == 2 ? int.tryParse(rest[0]) : null;
+      final id = rest.length == 2 ? rest[1] : '';
+      final timeOnly = id == '-' && at != null && at > 0;
+      if (at == null || !(timeOnly || RegExp(r'^[0-9a-f]{32}$').hasMatch(id))) {
+        throw const ValidationException('page_token', field: 'page_token');
+      }
+      after = (at, timeOnly ? '' : id);
+    }
+    final cleared = _server.clearedAt[conversationId];
+    final clearedAt = cleared == null
+        ? null
+        : ts.Timestamp.fromDateTime(cleared);
+    if (_server.epochOrderFallback) {
+      return pb.ListEpochMessagesResponse(clearedAt: clearedAt);
+    }
+    final all = [
+      for (final s in _server._messages[conversationId] ?? const <_Stored>[])
+        if (s.message.mlsGeneration == Int64(pair.generation) &&
+            s.message.mlsEpoch == Int64(pair.epoch))
+          s.message.deepCopy(),
+    ]..sort((a, b) => _cmpPos(_posOf(a), _posOf(b)));
+    final from = after;
+    final rows = [
+      for (final m in all)
+        if (from == null ||
+            (from.$2.isEmpty
+                ? _posOf(m).$1 >= from.$1
+                : _cmpPos(_posOf(m), from) > 0))
+          m,
+    ];
+    final page = rows.take(pageSize).toList();
+    final a = page.isEmpty ? after : _posOf(page.last);
+    final cut = (
+      _server.clock.now().microsecondsSinceEpoch - _kResumeTrail.inMicroseconds,
+      '',
+    );
+    // The zero position (no request position) sorts first.
+    final low = a == null ? null : (_cmpPos(a, cut) <= 0 ? a : cut);
+    final (int, String)? r;
+    if (after == null) {
+      r = low;
+    } else {
+      r = low == null || _cmpPos(after, low) >= 0 ? after : low;
+    }
+    String seal((int, String) p) =>
+        '$prefix${p.$1}:${p.$2.isEmpty ? '-' : p.$2}';
+    return pb.ListEpochMessagesResponse(
+      messages: page,
+      nextPageToken: page.length == pageSize ? seal(_posOf(page.last)) : '',
+      clearedAt: clearedAt,
+      order: EpochMessageOrder.EPOCH_MESSAGE_ORDER_CREATED_AT,
+      resumePageToken: r == null ? '' : seal(r),
+      resumeSettled: r == a,
+    );
+  }
+
+  /// RATE_LIMITED hold of the list reads (the rig's [RigServer.readHold]).
+  @override
+  RateLimitedException? rateLimitedFor() => _server.readHold;
 
   @override
   Future<pb.ListWelcomesResponse> listWelcomes({
@@ -484,6 +825,55 @@ class RigMessaging implements MessagingRepository {
     byConv!.removeWhere((_, w) => ids.contains(w.id));
   }
 
+  /// The contract as built (`service_sync.go`): ids and states only, in
+  /// ascending message id, paged by the last id; page size 0 or negative
+  /// is 50, clamped to the cap; a token that is not this conversation's is
+  /// refused (`page_token`); a next token only when more rows follow, at
+  /// the page's last row ([RigServer.tombstoneSkipped] rows included).
+  @override
+  Future<pb.ListMessageTombstonesResponse> listMessageTombstones({
+    required String conversationId,
+    int pageSize = 0,
+    String pageToken = '',
+  }) async {
+    await _server._enter('listMessageTombstones');
+    _server.tombstoneRequests.add(pageToken);
+    final error = _server.tombstoneError?.call();
+    if (error != null) throw error;
+    final prefix = 'x:$conversationId:';
+    var after = '';
+    if (pageToken.isNotEmpty) {
+      final refuse = _server.refuseTombstoneTokens > 0;
+      if (refuse) _server.refuseTombstoneTokens--;
+      if (refuse || !pageToken.startsWith(prefix)) {
+        throw const ValidationException('page_token', field: 'page_token');
+      }
+      after = pageToken.substring(prefix.length);
+    }
+    final cap = _server.tombstonePageMax;
+    final size = pageSize <= 0 ? (cap < 50 ? cap : 50) : pageSize.clamp(1, cap);
+    final rows = [
+      for (final s in _server._messages[conversationId] ?? const <_Stored>[])
+        if ((s.message.state == MessageState.MESSAGE_STATE_REMOVED ||
+                s.message.state ==
+                    MessageState.MESSAGE_STATE_DELETED_ACCOUNT) &&
+            s.message.id.compareTo(after) > 0)
+          s.message,
+    ]..sort((a, b) => a.id.compareTo(b.id));
+    final page = rows.take(size).toList();
+    final real = pb.ListMessageTombstonesResponse(
+      tombstones: [
+        for (final m in page)
+          if (!_server.tombstoneSkipped.contains(m.id))
+            pb.MessageTombstone(id: m.id, state: m.state),
+      ],
+      nextPageToken: rows.length > size ? '$prefix${page.last.id}' : '',
+    );
+    final answer = _server.rewriteTombstones?.call(real) ?? real;
+    await _server.afterTombstoneAnswer?.call();
+    return answer;
+  }
+
   @override
   Future<pb.ListMessagesResponse> listMlsMessages({
     required String conversationId,
@@ -491,13 +881,98 @@ class RigMessaging implements MessagingRepository {
     String pageToken = '',
   }) async {
     await _server._enter('listMlsMessages');
+    final real = _listMls(conversationId, sinceToken, pageToken);
+    return _server.rewriteLive?.call(real) ?? real;
+  }
+
+  pb.ListMessagesResponse _listMls(
+    String conversationId,
+    String sinceToken,
+    String pageToken,
+  ) {
+    // The repository's rule: at most one token.
+    if (sinceToken.isNotEmpty && pageToken.isNotEmpty) {
+      throw ArgumentError('At most one of sinceToken and pageToken');
+    }
+    final size = _server.livePageSize;
+    final now = 's:${_server._messageSeq}';
+    if (sinceToken.isNotEmpty) {
+      final since = sinceToken.startsWith('s:')
+          ? int.tryParse(sinceToken.substring(2))
+          : null;
+      if (since == null ||
+          _server.retiredSince.contains(sinceToken) ||
+          since < (_server._sinceFloor[conversationId] ?? 0)) {
+        throw const ValidationException('since', field: 'since_token');
+      }
+      final changed = _server._changed(conversationId, since);
+      final page = changed.take(size).toList();
+      return pb.ListMessagesResponse(
+        messages: page,
+        sinceToken: now,
+        gapPageToken: changed.length > size ? 'p:$since:$size' : '',
+      );
+    }
+    if (pageToken.isNotEmpty) {
+      final parts = pageToken.split(':');
+      if (parts.length != 3 || parts[0] != 'p') {
+        throw const ValidationException('page', field: 'page_token');
+      }
+      final since = int.parse(parts[1]);
+      final offset = int.parse(parts[2]);
+      final list = _server._changed(conversationId, since);
+      final page = list.skip(offset).take(size).toList();
+      final end = offset + page.length;
+      return pb.ListMessagesResponse(
+        messages: page,
+        nextPageToken: end < list.length ? 'p:$since:$end' : '',
+      );
+    }
+    final all = _server._changed(conversationId, 0);
+    final page = all.take(size).toList();
     final row = _server.rows[conversationId];
-    return pb.ListMessagesResponse(conversation: row);
+    return pb.ListMessagesResponse(
+      messages: page,
+      conversation: row,
+      sinceToken: now,
+      nextPageToken: all.length > size ? 'p:0:$size' : '',
+    );
   }
 
   @override
   Object? noSuchMethod(Invocation invocation) =>
       throw UnimplementedError('${invocation.memberName}');
+}
+
+/// The real [VaultSession] with one observer and one strict hook:
+/// [onWriteAsked] runs when `runWrite` is called; then, when [refuseWrite]
+/// answers true, the write fails BEFORE its body runs (a write that never
+/// starts); otherwise the real `runWrite` does everything else.
+class _RigVaultSession extends VaultSession {
+  _RigVaultSession({
+    required this.onWriteAsked,
+    required this.refuseWrite,
+    required super.openCipher,
+    required super.openVault,
+    required super.wipeVaultFile,
+    required super.deleteVaultKey,
+    required super.createOwner,
+    required super.markers,
+    required super.supported,
+    required super.launchId,
+    super.now,
+    super.onUnexpectedError,
+  });
+
+  final void Function() onWriteAsked;
+  final bool Function() refuseWrite;
+
+  @override
+  Future<T> runWrite<T>(Future<T> Function(SecureVault vault) body) {
+    onWriteAsked();
+    if (refuseWrite()) throw StateError('rig: this write was refused');
+    return super.runWrite(body);
+  }
 }
 
 /// One user device of the rig: a real vault in a temp file, an engine, a
@@ -528,8 +1003,34 @@ class RigDevice {
   /// The raw database, for tests that look at stored bytes.
   VaultDatabase get db => _db;
   late FakeVaultCipher cipher;
+
+  /// The session's lock owner of this launch (`steal()` ends the session's
+  /// writes at once, as another tab taking the lock does).
+  FakeVaultOwner? owner;
   late VaultSession session;
   late SecureVault vault;
+
+  /// Runs, synchronously, each time `session.runWrite` is ASKED for (before
+  /// the body waits for the vault's write lock): a test can tell that a
+  /// write is queued behind a body that is still running. It observes only:
+  /// the write itself is the real session's, unchanged.
+  void Function()? onWriteAsked;
+
+  /// Strict hook: when true, the NEXT `session.runWrite` asked for fails
+  /// before its body runs (a [StateError], as a write that never starts),
+  /// once; the flag is cleared and [writesRefused] counts it. Every other
+  /// write is the real session's.
+  bool failNextWriteAsked = false;
+
+  /// How many writes [failNextWriteAsked] refused.
+  int writesRefused = 0;
+
+  bool _refuseWrite() {
+    if (!failNextWriteAsked) return false;
+    failNextWriteAsked = false;
+    writesRefused++;
+    return true;
+  }
 
   Uint8List get deviceId => rigBytes(deviceIdString);
 
@@ -566,7 +1067,9 @@ class RigDevice {
       NativeDatabase(File('${dir.path}${Platform.pathSeparator}$uid.sqlite')),
     );
     cipher = FakeVaultCipher();
-    session = VaultSession(
+    session = _RigVaultSession(
+      onWriteAsked: () => onWriteAsked?.call(),
+      refuseWrite: _refuseWrite,
       openCipher: (u, {required create}) async => cipher,
       openVault: ({
         required uid,
@@ -576,7 +1079,7 @@ class RigDevice {
       }) => openVaultOnDatabase(_db, uid: uid, cipher: cipher),
       wipeVaultFile: ({required alias, String? expectedStorage}) async {},
       deleteVaultKey: ({required alias}) async {},
-      createOwner: () => FakeVaultOwner(world),
+      createOwner: () => owner = FakeVaultOwner(world),
       markers: world.markers,
       supported: true,
       launchId: 'rig-${_opens++}',
@@ -742,29 +1245,48 @@ class RigCrypto {
   late RigMessaging messaging;
   final RigKeys keys = RigKeys();
   late SyncBudget syncBudget;
+
+  /// The receiver's probe budget (Task 13 builds the real one).
+  late SyncBudget readBudget;
   late DeviceDirectory directory;
-  final ConversationLocks locks = ConversationLocks();
+
+  /// The locks of this app run: a [restart] starts with new ones (memory
+  /// starts again; a pass that was in flight holds only the old ones).
+  ConversationLocks locks = ConversationLocks();
   final ConversationContexts contexts = ConversationContexts();
+
+  /// The receiver's ordered page size (kept across a [restart]).
+  int epochPageSize = kEpochPageSize;
   late KnownConversations known;
   late ConversationCrypto crypto;
+
+  /// The receiver, set as [crypto]'s sink (Task 6).
+  late MessageReceiver receiver;
+  late DailyLedger ledger;
   final List<String> changed = [];
   final List<Object> unexpected = [];
 
   /// [messaging] replaces the repository view of user `user-a`.
   static Future<RigCrypto> create({
     RigMessaging Function(RigServer server)? messaging,
+    int epochPageSize = kEpochPageSize,
   }) async {
     final clock = RigClock();
     final rig = RigCrypto._(
       Directory.systemTemp.createTempSync('e2ee_crypto'),
       clock,
       RigServer(clock),
-    );
+    )..epochPageSize = epochPageSize;
     rig.device = await RigDevice.create(dir: rig.dir, clock: clock);
     rig.messaging = messaging == null
         ? rig.server.viewFor('user-a')
         : messaging(rig.server);
     rig.syncBudget = SyncBudget(
+      perMinute: 100000,
+      ownDeviceCount: () => 1,
+      now: clock.now,
+    );
+    rig.readBudget = SyncBudget(
       perMinute: 100000,
       ownDeviceCount: () => 1,
       now: clock.now,
@@ -801,11 +1323,33 @@ class RigCrypto {
       onChanged: changed.add,
       onUnexpectedError: (e, _) => unexpected.add(e),
     );
+    ledger = DailyLedger(
+      session: device.session,
+      now: clock.now,
+      onUnexpectedError: (e, _) => unexpected.add(e),
+    );
+    receiver = MessageReceiver(
+      crypto: crypto,
+      session: device.session,
+      engine: () => device.engine,
+      messaging: messaging,
+      syncBudget: syncBudget,
+      readBudget: readBudget,
+      locks: locks,
+      contexts: contexts,
+      now: clock.now,
+      onChanged: changed.add,
+      onUnexpectedError: (e, _) => unexpected.add(e),
+      ledger: ledger,
+      epochPageSize: epochPageSize,
+    );
+    crypto.sink = receiver;
   }
 
   /// An app restart: the vault file is opened again; memory starts again.
   Future<void> restart() async {
     await device.restart();
+    locks = ConversationLocks();
     contexts.clear();
     directory.clear();
     await _wire();

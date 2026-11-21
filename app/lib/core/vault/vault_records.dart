@@ -213,13 +213,17 @@ class ConversationRecord {
   final ConversationSync sync;
 }
 
-/// The `check` of a stored message (equals `MessageCheck.name`).
+/// The `check` of a stored message (equals `MessageCheckDetail.storedName`).
+/// `unverified` is a real commitment mismatch only; `badReportKey` is a
+/// matching commitment over content that decodes but whose report key has the
+/// wrong length.
 abstract final class StoredMessageCheck {
   static const String ok = 'ok';
   static const String unverified = 'unverified';
+  static const String badReportKey = 'badReportKey';
   static const String undecodable = 'undecodable';
 
-  static const Set<String> all = {ok, unverified, undecodable};
+  static const Set<String> all = {ok, unverified, badReportKey, undecodable};
 }
 
 /// The `kind` of a stored message.

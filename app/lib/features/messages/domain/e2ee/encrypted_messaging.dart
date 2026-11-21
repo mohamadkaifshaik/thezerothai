@@ -118,7 +118,12 @@ final class DecryptedMessage extends ThreadEntry {
     this.problem = SendProblem.none,
     this.error,
     this.canReport = false,
+    this.waitingToDecrypt = false,
   });
+
+  /// True only with state == undecryptable: this device still holds the message and will try to decrypt it again
+  /// (it is not stored yet). It has no text, no side (mine == false), no report and no preview or search hit.
+  final bool waitingToDecrypt;
   final bool mine; // from the MLS sender device's pinned side (R7), never the server's from_self.
   // For an `undecryptable` row it is true only for a lost own send (R7); every other
   // undecryptable row has mine == false, own or not. Screens never take a side from

@@ -12,7 +12,7 @@ import 'package:dzeroth/core/vault/vault_database.dart';
 import 'package:dzeroth/core/vault/vault_open.dart';
 import 'package:dzeroth/core/vault/vault_status.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/message_content_codec.dart'
-    show MessageCheck;
+    show MessageCheckDetail;
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../support/fake_vault_cipher.dart';
@@ -2061,6 +2061,35 @@ void main() {
       expect(removed.content, isNull);
     });
 
+    test('a badReportKey check is accepted and read back; an unknown check is '
+        'still refused', () async {
+      StoredMessage message(String id, String check) => StoredMessage(
+        conversationId: 'c1',
+        messageId: id,
+        createdAtMicros: 10,
+        mine: false,
+        state: StoredMessageState.visible,
+        generation: 1,
+        epoch: 1,
+        content: _b('content of $id'),
+        check: check,
+        senderDeviceId: _b('sender-$id'),
+      );
+      await vault.transaction(
+        (tx) => tx.putMessage(message('k', 'badReportKey')),
+      );
+      final k = (await vault.message('c1', 'k'))!;
+      expect(k.check, 'badReportKey');
+      expect(k.state, StoredMessageState.visible);
+      expect(_s(k.content), 'content of k');
+      expect(_s(k.senderDeviceId), 'sender-k');
+      await expectLater(
+        vault.transaction((tx) => tx.putMessage(message('x', 'mismatch'))),
+        throwsArgumentError,
+      );
+      expect(await vault.message('c1', 'x'), isNull);
+    });
+
     test('mine is stored in clear and the legacy sealed from_self always '
         'equals it', () async {
       await vault.transaction((tx) async {
@@ -2325,12 +2354,22 @@ void main() {
       expect(await _count(db, 'vault_group_states'), 0);
     });
 
-    test('StoredMessageCheck values equal MessageCheck.name', () {
-      expect(StoredMessageCheck.ok, MessageCheck.ok.name);
-      expect(StoredMessageCheck.unverified, MessageCheck.unverified.name);
-      expect(StoredMessageCheck.undecodable, MessageCheck.undecodable.name);
+    test('StoredMessageCheck values equal MessageCheckDetail.storedName', () {
+      expect(StoredMessageCheck.ok, MessageCheckDetail.ok.storedName);
+      expect(
+        StoredMessageCheck.unverified,
+        MessageCheckDetail.mismatch.storedName,
+      );
+      expect(
+        StoredMessageCheck.badReportKey,
+        MessageCheckDetail.badReportKey.storedName,
+      );
+      expect(
+        StoredMessageCheck.undecodable,
+        MessageCheckDetail.undecodable.storedName,
+      );
       expect(StoredMessageCheck.all, {
-        for (final c in MessageCheck.values) c.name,
+        for (final d in MessageCheckDetail.values) d.storedName,
       });
     });
   });
