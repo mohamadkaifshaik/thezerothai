@@ -97,11 +97,18 @@ const int _kTombstonedRemembered = 4096;
 final RegExp _messageIdShape = RegExp(r'^[0-9a-f]{32}$');
 
 /// What one receive pass ended with (§2). `complete`: the since token is
-/// saved (or already stored) and no walk has pages left; `more`: work is
-/// left (the allowance was spent, a page was discarded, a token was
-/// retired); `held`: rate limited or the budget is paused, until [until];
-/// `stopped`: a failure or a backoff, not before [until]. Never names a
-/// conversation, a message or a key.
+/// saved (or already stored), no walk has pages left, and the reconcile
+/// entry has no work left (it is null, or was disarmed in this pass): never
+/// while a tombstone listing has pages left or only waits for a since
+/// token. A pass of a conversation with NO final group is `complete` once
+/// its leftover undecryptable walks have ended and no reconcile entry
+/// stands; while one stands with its listing at the end (no walk of such a
+/// conversation saves the since token that would disarm it) the pass is
+/// `stopped` for one walk backoff. `more`: work is left (the allowance was
+/// spent, a page was discarded, a token was retired, a listing reached its
+/// end before a since token was saved); `held`: rate limited or the budget
+/// is paused, until [until]; `stopped`: a failure or a backoff, not before
+/// [until]. Never names a conversation, a message or a key.
 class ReceiveOutcome {
   const ReceiveOutcome._(this.kind, this.until);
 
@@ -133,13 +140,23 @@ enum ReceiveOutcomeKind { complete, more, held, stopped }
 /// walks of receive-walks design rev 3): decrypts, checks and stores each
 /// message of a conversation in the vault.
 ///
-/// A pass ([pullLive]) probes `ListMessages` on the read budget, then walks
-/// the close, orphan and open pairs with ordered, resumable
-/// `ListEpochMessages` pages whose cursors live in the sealed receive record
-/// (`messages.e2ee.receive.<id>`). Pages are listed WITHOUT the lock and
-/// applied under it after a re-validation; each message is one `runWrite`
-/// body (read fresh, the engine call, ONE transaction with its result, and
-/// for a page's last message the walk's new entry).
+/// A pass ([pullLive]) probes `ListMessages` on the read budget, runs the
+/// reconcile walk (`ListMessageTombstones` pages, while its entry is
+/// armed), then walks the close, orphan and open pairs with ordered,
+/// resumable `ListEpochMessages` pages whose cursors live in the sealed
+/// receive record (`messages.e2ee.receive.<id>`). Pages are listed WITHOUT
+/// the lock and applied under it after a re-validation; each message is
+/// one `runWrite` body (read fresh, the engine call, ONE transaction with
+/// its result, and for a page's last message the walk's new entry).
+///
+/// A pass is more than its listings (a scheduler that drains passes must
+/// know): at its end it may run ONE locked catch-up of the conversation
+/// (`ConversationCrypto.catchUpLocked`: the commit listing, engine work,
+/// and through the sink more epoch pages), then the deferred retries
+/// (engine calls under the lock), and, when a catch-up of the pass waited
+/// for a welcome, one UNHELD `ConversationCrypto.processWelcomes` (network
+/// calls for every conversation of the device, after the lock is
+/// released). The fast path's batch may run that one catch-up instead.
 ///
 /// The sink methods ([completeEpoch], [markEpochUndecryptable]) are called
 /// by catch-up WITH the lock held: they take no lock, never run catch-up and
@@ -362,11 +379,21 @@ class MessageReceiver implements EpochMessageSink {
   // -------------------------------------------------------------------------
   // The pass
 
-  /// One bounded receive pass for [conversationId] (§2): the probe, the
-  /// close walk, the orphan walk and the open walk, each at most one
-  /// allowance. Single flight: a call while a pass runs joins it. Never
-  /// loops, never schedules, never throws. Takes the conversation lock (never
-  /// call it with the lock held).
+  /// One bounded receive pass for [conversationId] (§2), in this order: the
+  /// probe (a detector only while no final group is stored); the reconcile
+  /// walk, one allowance of tombstone pages ([kReconcilePagesPerPass]); the
+  /// close walk, the orphan walk and the open walk, one allowance of epoch
+  /// pages across them ([kWalkPagesPerPass]); at most ONE locked catch-up
+  /// (`catchUpLocked`, by the fast path's batch or at the pass's end: the
+  /// commit listing, engine work, and the sink's own epoch pages); a second
+  /// reconcile step when the listing had reached its end and the pass then
+  /// saved a since token (what is left of the allowance); the deferred
+  /// retries (engine calls under the lock); and, after the lock is
+  /// released, one unheld `processWelcomes` when a catch-up of the pass
+  /// waited for a welcome (network calls beyond this conversation). Single
+  /// flight: a call while a pass runs joins it. Never loops, never
+  /// schedules, never throws (unless the error reporter itself throws).
+  /// Takes the conversation lock (never call it with the lock held).
   Future<ReceiveOutcome> pullLive(
     String conversationId, {
     BudgetPriority priority = BudgetPriority.background,
@@ -388,9 +415,13 @@ class MessageReceiver implements EpochMessageSink {
   /// One allowance of the reconcile walk of [conversationId] alone (§8.2:
   /// step 2 of a pass, without its probe and its walks), for a scheduler
   /// that wants removed text cleared while no pass is due. `complete`: no
-  /// reconcile entry is armed, or its listing ended; otherwise as a pass.
-  /// No engine call. Takes the conversation lock (never call it with the
-  /// lock held). Never throws.
+  /// reconcile entry is armed, or its listing ended and disarmed it.
+  /// `stopped(now + 1 min)`: the listing reached its end (its tombstones
+  /// are applied) but only waits for a since token, which this step never
+  /// saves: a pass is what is owed, not another call of this. Otherwise as
+  /// a pass (`more`, `held`, `stopped`). It never opens the final-attempt
+  /// gate. No engine call. Takes the conversation lock (never call it with
+  /// the lock held). Never throws.
   Future<ReceiveOutcome> reconcile(
     String conversationId, {
     BudgetPriority priority = BudgetPriority.background,

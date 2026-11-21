@@ -89,8 +89,10 @@ int _oldestFirst(DeferredItem a, DeferredItem b) {
   return c != 0 ? c : a.id.compareTo(b.id);
 }
 
-/// The failure rule (design rev 3 §7), AS AMENDED by the rulings of fix
-/// round 1 (where a line below and §7 differ, the line below is the rule):
+/// The failure rule (design rev 3 §7), AS AMENDED by the rulings made after
+/// the design: fix rounds 1 to 3 of step 2a, step 2b and its fix round, and
+/// the whole-branch fix wave (each row names the round that changed it;
+/// where a line below and §7 differ, the line below is the rule):
 ///
 /// | Failure sequence | What grows | What ends it |
 /// |---|---|---|
@@ -103,8 +105,10 @@ int _oldestFirst(DeferredItem a, DeferredItem b) {
 /// | a 17th failure, describe answers, NO `process` success on that group this run (amended: it evicted; amended again in fix round 2) | `gf.n` of the full-record kind (a count of the other kind starts again at 1; fix round 3); nothing evicted, nothing deferred; this conversation's own hold | at the third counted strike of that kind in a row ONLY that message is a row and `gf` is cleared in the same transaction; the group is NOT rowed for the run, so the next failure starts a new count (one row per three spaced strikes). The sixteen held items get NO engine retry while the head message keeps striking: each pass sets this conversation's hold before its retries run |
 /// | any group-level strike less than [kEngineBackoff] after the last counted one for that group (fix round 2; the time is `gf.at`, durable) | nothing; this conversation's own hold | not counted, whatever the app run: resumes never land three strikes within seconds |
 /// | a 17th unwitnessed failure | nothing; the receiver-wide hold | no eviction, no deferral |
-/// | a retry in a pass whose probe was not answered for the stored, non-empty since token, or while that token is empty, or while the reconcile entry is armed (amended, fix round 2) | nothing | no engine call; the engine-free checks still run; the item ends by a tombstone, expiry, its lost group or its final attempt, or by a retry once step 2b's reconciliation has disarmed the entry |
+/// | a retry in a pass whose probe was not answered for the stored, non-empty since token, or while the stored token is no longer that one (empty above all), or while ANY reconcile entry exists, armed or not yet armed (amended, fix round 2; the whole-branch fix wave) | nothing | no engine call; the engine-free checks still run; the item ends by a tombstone, expiry, its lost group or its final attempt, or by a retry once step 2b's reconciliation has cleared the entry |
 /// | a final attempt that answers `deadline` (amended) | its own `cc` (witnessed) or `cu`; the body makes no further engine attempt and the walk does not end in it | the next end: a `cc` item is a row with no engine call |
+/// | a final attempt that needs the engine with NO reconcile entry, outside a running pass whose probe was answered for the stored, non-empty since token: a catch-up or a welcome poll outside a pass, and the sink of a pass's own catch-up (the whole-branch fix wave) | nothing | no engine call, nothing written; the walk's end waits and the sink signals pending; the next pass's own walk makes the attempt after its probe is answered |
+/// | a final attempt that needs the engine while a reconcile entry stands (step 2 carry-over 14; fix round 1 of step 2b) | nothing | the engine runs only when THIS pass listed the tombstones to the end and nothing wrote the receive record since; otherwise the end waits; with the entry's failure count at [kReconcileGiveUpAfter] the item is a row with no engine call |
 ///
 /// While either hold stands no engine call is made for the conversation
 /// (the receiver-wide one: for any conversation); listing is not gated.

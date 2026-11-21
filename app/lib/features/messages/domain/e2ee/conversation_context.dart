@@ -71,9 +71,14 @@ class ConversationContext {
   /// joins it. The receiver types it; null when none runs.
   Future<Object?>? running;
 
-  /// Bumped by every write of the receive record (step 2's reconcile page
-  /// must bump it too); a page listed without the lock is applied only when
-  /// it is unchanged.
+  /// Bumped by every write of the receive record (a reconcile page's too),
+  /// and also with NO record write: when a tombstone page notes a tombstone
+  /// not noted before in this run (an epoch page in flight may still hold
+  /// that message as readable), and by an arming, a retirement or a walk
+  /// restart whose write body found nothing to write. A page listed without
+  /// the lock is
+  /// applied only when it is unchanged, and the pass's "listed to the end"
+  /// fact ([listedToEndIn]) is forgotten when it changes.
   int serial = 0;
 
   /// The since token of the last probe page that was not processed, with

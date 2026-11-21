@@ -206,8 +206,10 @@ const int kReconcileGiveUpAfter = 5;
 /// unavailable and the retirements that interrupted a listing, ACROSS app
 /// runs and across retirements: at most one is counted per engine-backoff
 /// minute, doubling with the count. Both are optional at decode (a record
-/// written before they existed reads 0). Only the end of a complete
-/// listing (the entry becoming null) clears them. No `toString`.
+/// written before they existed reads 0). Only the LAST page of a complete
+/// listing clears them: when that page disarms (the entry becomes null),
+/// and also when it leaves the entry armed for want of a since token (both
+/// are then written as 0). No `toString`.
 class ReconcileEntry {
   const ReconcileEntry({
     required this.armed,

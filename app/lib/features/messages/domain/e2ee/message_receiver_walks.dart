@@ -277,7 +277,8 @@ extension _Walks on MessageReceiver {
     );
     if (r != null) return r;
 
-    // 6. Deferred retries: step 2.
+    // (Step 2 of a pass is the reconcile walk, before these walks; step 6,
+    // the deferred retries, runs in `_runPass` after everything here.)
 
     if (pulled) {
       // M10: a pass that saved the since token (or found it stored) at the
