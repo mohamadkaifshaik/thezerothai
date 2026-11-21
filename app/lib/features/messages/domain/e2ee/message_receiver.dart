@@ -56,9 +56,10 @@ const Duration kWalkBackoffMax = Duration(hours: 1);
 /// receive record's file; a ruling after the design).
 const Duration kWalkRefusalSpacing = Duration(hours: 1);
 
-/// When the next pass may try after an engine answer that stopped a pass
-/// (§7.2: the device is down, an unwitnessed crash, a group-level failure;
-/// the device-level breaker doubles it up to [kWalkBackoffMax]).
+/// The first wait after an engine answer that stopped a pass (§7.2). It
+/// doubles up to [kWalkBackoffMax]: receiver-wide on consecutive
+/// device-level results (the device is down, the breaker, an unwitnessed
+/// crash), and per conversation with the count of group-level failures.
 const Duration kEngineBackoff = Duration(minutes: 1);
 
 /// The open walk runs one listing from its settle token on a fast-path pass
@@ -221,6 +222,23 @@ class MessageReceiver implements EpochMessageSink {
   /// The engine answered `deadline` this run: no crash-class retry after.
   bool _deadlineThisRun = false;
 
+  /// The RECEIVER-WIDE engine hold (a ruling after the design, fix round 1;
+  /// it amends §7.2's per-conversation stop): a device-level result (an
+  /// `unavailable` answer, the device-level breaker, an unwitnessed crash)
+  /// seen by ANY conversation holds the engine work of EVERY conversation
+  /// of this receiver until this time, since a hung engine holds the
+  /// user's one vault write lock while it is waited for. Listing is not
+  /// gated. [_engineHoldBackoff] is its last wait: [kEngineBackoff],
+  /// doubling up to [kWalkBackoffMax] on consecutive device-level results;
+  /// any engine success of the receiver clears both, and so does
+  /// [onAppResumed]. Memory only.
+  DateTime? _engineHeldUntil;
+  Duration? _engineHoldBackoff;
+
+  /// When the receiver-wide engine hold ends (null: none set, or cleared).
+  /// A time only.
+  DateTime? get engineHeldUntil => _engineHeldUntil;
+
   int _deferredTotal = 0;
   int _evictedTotal = 0;
   int _breakerOpen = 0;
@@ -233,12 +251,19 @@ class MessageReceiver implements EpochMessageSink {
   int get breakerOpened => _breakerOpen;
 
   /// The app resumed (call right after the engine's own `onAppResumed`): a
-  /// new run. Each deferred item may be attempted once more, and one
-  /// crash-class retry is allowed again.
+  /// new run. Each deferred item may be attempted once more, one
+  /// crash-class retry is allowed again, and every engine hold is cleared
+  /// (the receiver-wide one with its doubling, and each conversation's own:
+  /// the resume replaced a crashed engine, so the next pass may try). The
+  /// record of messages deferred unwitnessed is kept: an engine success
+  /// after the resume still promotes them.
   void onAppResumed() {
     _runId = _newRunId();
     _crashRetryUsed = false;
     _deadlineThisRun = false;
+    _engineHeldUntil = null;
+    _engineHoldBackoff = null;
+    _contexts.clearEngineHolds();
   }
 
   /// How many undecryptable walks of [conversationId] were given up (step
@@ -705,16 +730,22 @@ class MessageReceiver implements EpochMessageSink {
         final p = MlsPair(group.generation, group.epoch);
         final order = pair.compareTo(p);
         if (order > 0) {
-          // Live: catch-up first. An epoch walk never runs catch-up: the
-          // message is left for its own epoch.
-          return mode == _Mode.live ? _Step.later : write.commit();
+          // Live: catch-up first (not while an engine hold stands: applying
+          // a commit is engine work too). An epoch walk never runs
+          // catch-up: the message is left for its own epoch.
+          if (mode != _Mode.live) return write.commit();
+          return _engineHoldOf(context) != null ? _Step.stop : _Step.later;
         }
         if (order < 0) {
           // Its keys are gone: never given to the engine; no side.
           return write.commit(row: undecryptable());
         }
 
-        // 7. The engine, and ONE transaction with its result.
+        // 7. The engine, and ONE transaction with its result. No engine
+        // call while an engine hold stands (the receiver-wide one, or this
+        // conversation's own): the batch or page stops here, the cursor
+        // kept.
+        if (_engineHoldOf(context) != null) return _Step.stop;
         final deviceState = await v.deviceState();
         if (deviceState == null) return _Step.stop;
         final commitment = Uint8List.fromList(m.reportCommitment);

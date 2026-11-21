@@ -89,31 +89,67 @@ int _oldestFirst(DeferredItem a, DeferredItem b) {
   return c != 0 ? c : a.id.compareTo(b.id);
 }
 
+/// The failure rule (design rev 3 §7), AS AMENDED by the rulings of fix
+/// round 1 (where a line below and §7 differ, the line below is the rule):
+///
+/// | Failure sequence | What grows | What ends it |
+/// |---|---|---|
+/// | `internal`, describe answers | `k` (durable) | a row at 3 strikes, or at overflow, close, group gone, expiry |
+/// | `deadline`, describe answers | `k` and `cc` | a row at `cc` = 2 |
+/// | `deadline`, describe fails or answers `unavailable` (the web's second crash of a run; amended) | `cu`; the RECEIVER-WIDE hold | promoted to `cc` once an engine call succeeds after it (also after a resume); `cu` alone is never a row |
+/// | `internal`, describe fails, the device probe answers | `gf.n`; this conversation's own hold, 1 min doubling with `gf.n` (amended) | a row at `gf.n` = 3; then the group is rowed for the run |
+/// | both probes fail, or `unavailable` on an `internal` | nothing durable; the RECEIVER-WIDE hold, 1 min doubling to 1 h, cleared by any engine success or a resume (amended: it was per conversation) | any engine success |
+/// | a final attempt that answers `deadline` (amended) | its own `cc` (witnessed) or `cu`; the body makes no further engine attempt and the walk does not end in it | the next end: a `cc` item is a row with no engine call |
+///
+/// While either hold stands no engine call is made for the conversation
+/// (the receiver-wide one: for any conversation); listing is not gated.
 extension _Failures on MessageReceiver {
-  /// An engine call whose success is counted in [_okSeq] (§7.1).
+  /// An engine call whose success is counted in [_okSeq] (§7.1). Any
+  /// success clears the receiver-wide engine hold and its doubling.
   Future<T> _counted<T>(Future<T> call) async {
     final result = await call;
     _okSeq++;
+    _engineHeldUntil = null;
+    _engineHoldBackoff = null;
     return result;
   }
 
-  /// The end of an engine hold of [context] still in the future, or null.
+  /// The end of the engine hold that keeps [context]'s conversation from
+  /// the engine now (the later of the receiver-wide hold and its own), or
+  /// null when neither stands.
   DateTime? _engineHoldOf(ConversationContext context) {
-    final until = context.engineHoldUntil;
-    return until != null && _now().isBefore(until) ? until : null;
+    final now = _now();
+    DateTime? until;
+    for (final u in [_engineHeldUntil, context.engineHoldUntil]) {
+      if (u != null && now.isBefore(u) && (until == null || u.isAfter(until))) {
+        until = u;
+      }
+    }
+    return until;
   }
 
-  /// No engine call for this conversation before [kEngineBackoff] from now
-  /// (the breaker: 1 min doubling to 1 h).
-  void _holdEngine(ConversationContext context, {bool breaker = false}) {
+  /// A DEVICE-LEVEL result (an `unavailable` answer, the breaker, an
+  /// unwitnessed crash): no engine call of the receiver, for ANY
+  /// conversation, before [kEngineBackoff] from now, doubling up to
+  /// [kWalkBackoffMax] while such results follow each other with no engine
+  /// success between them.
+  void _holdDevice() {
+    final previous = _engineHoldBackoff;
+    var d = previous == null ? kEngineBackoff : previous * 2;
+    if (d > kWalkBackoffMax) d = kWalkBackoffMax;
+    _engineHoldBackoff = d;
+    _engineHeldUntil = _now().add(d);
+  }
+
+  /// A GROUP-LEVEL failure, the [n]th in a row: no engine call for this
+  /// conversation before `kEngineBackoff * 2^(n-1)` from now (capped at
+  /// [kWalkBackoffMax]). Other conversations are not held.
+  void _holdGroup(ConversationContext context, int n) {
     var d = kEngineBackoff;
-    if (breaker) {
-      final previous = context.breakerBackoff;
-      if (previous != null) d = previous * 2;
-      if (d > kWalkBackoffMax) d = kWalkBackoffMax;
-      context.breakerBackoff = d;
-      _breakerOpen++;
+    for (var i = 1; i < n && d < kWalkBackoffMax; i++) {
+      d *= 2;
     }
+    if (d > kWalkBackoffMax) d = kWalkBackoffMax;
     context.engineHoldUntil = _now().add(d);
   }
 
@@ -253,6 +289,14 @@ extension _Failures on MessageReceiver {
   /// something other than `unavailable`. `stamp` is the success count
   /// before P2 (an unwitnessed crash is promoted once it has grown, so a
   /// device probe that answers counts as a later success).
+  ///
+  /// A ruling after the design (fix round 1; it amends §7.2's "`unavailable`
+  /// from a probe is device-down"): a `deadline` whose probe answers
+  /// `unavailable` is an UNWITNESSED CRASH, not a device-down answer that
+  /// counts nothing. On the web the second crash of a run makes every later
+  /// call `unavailable`; counted as `cu`, that message is promoted by the
+  /// first engine success after the resume and is a row at its second
+  /// crash, instead of reaching the engine a third time.
   Future<_Fail> _classify(MlsErrorCode code, Uint8List groupState) async {
     if (code == MlsErrorCode.unavailable) {
       return (kind: _FailKind.deviceDown, stamp: _okSeq);
@@ -260,7 +304,12 @@ extension _Failures on MessageReceiver {
     final crash = code == MlsErrorCode.deadline;
     if (crash) _deadlineThisRun = true;
     if (await _probe1(groupState) case final p1?) {
-      if (!p1) return (kind: _FailKind.deviceDown, stamp: _okSeq);
+      if (!p1) {
+        return (
+          kind: crash ? _FailKind.unwitnessedCrash : _FailKind.deviceDown,
+          stamp: _okSeq,
+        );
+      }
       return (
         kind: crash ? _FailKind.witnessedCrash : _FailKind.witnessed,
         stamp: _okSeq,
@@ -276,8 +325,8 @@ extension _Failures on MessageReceiver {
     } on Object {
       p2 = false;
     }
-    if (p2 == null) return (kind: _FailKind.deviceDown, stamp: stamp);
     if (crash) return (kind: _FailKind.unwitnessedCrash, stamp: stamp);
+    if (p2 == null) return (kind: _FailKind.deviceDown, stamp: stamp);
     return (kind: p2 ? _FailKind.groupLevel : _FailKind.breaker, stamp: stamp);
   }
 
@@ -325,7 +374,7 @@ extension _Failures on MessageReceiver {
     MlsPair p,
     ReceiveRecord? riding,
   ) async {
-    final context = _contexts.of(id)..breakerBackoff = null;
+    final context = _contexts.of(id);
     if (riding == null && context.groupFailuresNull == true) return null;
     final base = riding ?? await _readReceive(v, id);
     if (base.gf == null) {
@@ -486,9 +535,11 @@ extension _Failures on MessageReceiver {
   /// checks that need no engine (§7.4 checks 1 to 6) run for every item in
   /// every pass, so an item whose row, tombstone, `cleared_at`, expiry or
   /// lost group ends it never waits for a retry to be due; the engine runs
-  /// only for a due item, only when [engine] (the pass was not stopped or
-  /// held) and no engine hold is set. Never throws.
-  Future<void> _retryDeferred(String id, {required bool engine}) async {
+  /// only for a due item and only while no engine hold stands (the
+  /// receiver-wide one, or this conversation's own). What the pass itself
+  /// ended with does not matter (fix round 1: a failed call or a walk
+  /// backoff keeps nothing from the engine). Never throws.
+  Future<void> _retryDeferred(String id) async {
     try {
       final pass = await _start();
       if (pass == null) return;
@@ -508,7 +559,7 @@ extension _Failures on MessageReceiver {
       await _locks.run(id, () async {
         if (!pass.live) return;
         if (await _promoteLocked(pass, id)) changed = true;
-        var allow = engine;
+        var allow = true;
         for (final mid in ids) {
           if (!pass.live) return;
           final end = await _retryOne(
@@ -722,10 +773,11 @@ extension _Failures on MessageReceiver {
     switch (fail.kind) {
       case _FailKind.deviceDown:
         // No strike, no attempt counted.
-        _holdEngine(context);
+        _holdDevice();
         return _Retry.stop;
       case _FailKind.breaker:
-        _holdEngine(context, breaker: true);
+        _breakerOpen++;
+        _holdDevice();
         return _Retry.stop;
       case _FailKind.groupLevel:
         final next = await _groupFailure(v, id, item.pair);
@@ -734,7 +786,7 @@ extension _Failures on MessageReceiver {
         }
         await v.transaction((tx) => _records.putIn(tx, id, next.record));
         context.serial++;
-        _holdEngine(context);
+        _holdGroup(context, next.record.gf!.n);
         return _Retry.stop;
       case _FailKind.witnessed:
       case _FailKind.witnessedCrash:
@@ -749,7 +801,7 @@ extension _Failures on MessageReceiver {
       case _FailKind.unwitnessedCrash:
         await keep(item.copyWith(cu: item.cu + 1, la: now, ru: _runId));
         context.unwitnessed[mid] = fail.stamp;
-        _holdEngine(context);
+        _holdDevice();
         return _Retry.stop;
     }
   });
@@ -769,11 +821,19 @@ extension _Failures on MessageReceiver {
   /// engine call. With [generationEnds] (the group is about to be deleted)
   /// every item of the generation ends, those of another epoch as rows.
   ///
-  /// Null: the end must wait (the engine is down, the breaker, an
-  /// unwitnessed crash, or a group-level failure below the maximum; a hold
-  /// is set and at most a durable counter was written by a transaction of
-  /// its own): the caller writes NOTHING, so the group stays and the walk
-  /// has not ended.
+  /// Null: the end must wait (an engine hold stands, the engine is down,
+  /// the breaker, a group-level failure below the maximum, or an attempt
+  /// answered `deadline`; a hold is set where the rule sets one and at most
+  /// a durable counter was written by a transaction of its own): the caller
+  /// writes NOTHING, so the group stays and the walk has not ended.
+  ///
+  /// A ruling after the design (fix round 1; it amends §7.6 end 1): the
+  /// attempts STOP at the first `deadline` answer, witnessed or not. That
+  /// item's own crash is counted durably (`k` and `cc` when the describe
+  /// probe answers, so the next end rows it with no engine call; `cu`
+  /// otherwise) and no later item is tried in this body, so one body waits
+  /// on a hung engine for at most one attempt and its probes, not sixteen,
+  /// while it holds the user's vault write lock.
   Future<_FinalPlan?> _finalAttempts(
     SecureVault v,
     _Pass pass,
@@ -850,6 +910,8 @@ extension _Failures on MessageReceiver {
         await row();
         continue;
       }
+      // No engine call while an engine hold stands: the end waits.
+      if (_engineHoldOf(context) != null) return null;
       final a = await _attempt(
         v,
         pass,
@@ -872,26 +934,51 @@ extension _Failures on MessageReceiver {
           plan
             ..group = advanced
             ..success = true;
-          context.breakerBackoff = null;
         }
         if (a.epochMustAdvance) plan.epochMustAdvance = true;
         continue;
       }
-      if (code != MlsErrorCode.unavailable && _groupBroken(context, pair)) {
+      final broken =
+          code != MlsErrorCode.unavailable && _groupBroken(context, pair);
+      if (broken && code != MlsErrorCode.deadline) {
         await row();
         continue;
       }
-      final fail = await _classify(code, group.state);
+      if (broken) _deadlineThisRun = true;
+      // A `deadline` in a group rowed for the run gets no probe, but it
+      // still ends the attempts of this body, its crash counted.
+      final fail = broken
+          ? (kind: _FailKind.witnessedCrash, stamp: _okSeq)
+          : await _classify(code, group.state);
       switch (fail.kind) {
         case _FailKind.witnessed:
-        case _FailKind.witnessedCrash:
           // The engine works: this failure is final.
           await row();
+        case _FailKind.witnessedCrash:
+          // The first `deadline` ends the attempts of this body. Its crash
+          // is counted durably, so the next end rows it with no engine
+          // call; nothing is written for the items after it.
+          await v.transaction(
+            (tx) => _deferred.putIn(
+              tx,
+              id,
+              d.put(
+                item.copyWith(
+                  k: item.k + 1,
+                  cc: item.cc + 1,
+                  la: now,
+                  ru: _runId,
+                ),
+              ),
+            ),
+          );
+          return null;
         case _FailKind.deviceDown:
-          _holdEngine(context);
+          _holdDevice();
           return null;
         case _FailKind.breaker:
-          _holdEngine(context, breaker: true);
+          _breakerOpen++;
+          _holdDevice();
           return null;
         case _FailKind.groupLevel:
           final next = await _groupFailure(v, id, pair);
@@ -901,7 +988,7 @@ extension _Failures on MessageReceiver {
           } else {
             await v.transaction((tx) => _records.putIn(tx, id, next.record));
             context.serial++;
-            _holdEngine(context);
+            _holdGroup(context, next.record.gf!.n);
             return null;
           }
         case _FailKind.unwitnessedCrash:
@@ -913,7 +1000,7 @@ extension _Failures on MessageReceiver {
             ),
           );
           context.unwitnessed[item.id] = fail.stamp;
-          _holdEngine(context);
+          _holdDevice();
           return null;
       }
     }
@@ -1066,10 +1153,11 @@ extension _Failures on MessageReceiver {
     );
     switch (fail.kind) {
       case _FailKind.deviceDown:
-        _holdEngine(context);
+        _holdDevice();
         return _Step.stop;
       case _FailKind.breaker:
-        _holdEngine(context, breaker: true);
+        _breakerOpen++;
+        _holdDevice();
         return _Step.stop;
       case _FailKind.groupLevel:
         final next = await _groupFailure(v, id, p);
@@ -1085,7 +1173,7 @@ extension _Failures on MessageReceiver {
         // Durable before the pass stops; the page's record is not written.
         await v.transaction((tx) => _records.putIn(tx, id, next.record));
         context.serial++;
-        _holdEngine(context);
+        _holdGroup(context, next.record.gf!.n);
         return _Step.stop;
       case _FailKind.witnessed:
       case _FailKind.witnessedCrash:
@@ -1126,7 +1214,7 @@ extension _Failures on MessageReceiver {
           _deferredTotal++;
           onDeferred();
         }
-        _holdEngine(context);
+        _holdDevice();
         return _Step.stop;
     }
   }

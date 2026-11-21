@@ -132,13 +132,12 @@ class ConversationContext {
 
   // --- the receiver's failure rule (design rev 3 §7; memory only) ---------
 
-  /// No engine call of the receiver for this conversation before this time
-  /// (a device-down answer, the device-level breaker, an unwitnessed crash
-  /// or a group-level failure stopped a pass). [breakerBackoff] is the
-  /// breaker's last wait (1 min doubling to 1 h, reset by a process
-  /// success).
+  /// No engine call of the receiver for THIS conversation before this time:
+  /// a group-level failure stopped a pass (1 min, doubling with the group
+  /// failure count). Device-level trouble (a device-down answer, the
+  /// breaker, an unwitnessed crash) is held receiver-wide, in the receiver.
+  /// Cleared when the app resumes.
   DateTime? engineHoldUntil;
-  Duration? breakerBackoff;
 
   /// Message id -> state (`removed` / `deletedAccount`) of every tombstone
   /// seen this run, oldest first, bounded: a deferred message whose id is
@@ -194,6 +193,13 @@ class ConversationContexts {
       c.incomingRequest = false;
     }
     c.canReply = row.canReply;
+  }
+
+  /// The app resumed: no conversation's own engine hold is kept.
+  void clearEngineHolds() {
+    for (final c in _byId.values) {
+      c.engineHoldUntil = null;
+    }
   }
 
   /// Sign-out or a new vault.

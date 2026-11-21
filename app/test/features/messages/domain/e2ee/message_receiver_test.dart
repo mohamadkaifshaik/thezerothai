@@ -86,13 +86,14 @@ void main() {
     Uint8List? bytes,
     Uint8List? commitment,
     int generation = 1,
+    String conversation = _c1,
   }) async {
     final content = bytes ?? _content(text);
     final r = await g.owner.engine.encrypt(g.owner.state, g.state, content);
     g.state = r.groupState;
     final m = pb.Message(
       id: _mid(n),
-      conversationId: _c1,
+      conversationId: conversation,
       fromSelf: fromSelf,
       state: MessageState.MESSAGE_STATE_VISIBLE,
       createdAt: ts.Timestamp.fromDateTime(t0.add(at)),
@@ -3810,10 +3811,12 @@ void main() {
       rig.clock.advance(kEngineBackoff);
       final second = await rig.receiver.pullLive(_c1);
       expect(second.kind, ReceiveOutcomeKind.stopped);
+      // The second device-level result in a row: the hold doubles.
+      expect(second.until, rig.clock.now().add(kEngineBackoff * 2));
       expect(await rig.dump(), before);
       expect(count('randomBytes'), 0);
 
-      rig.clock.advance(kEngineBackoff);
+      rig.clock.advance(kEngineBackoff * 2);
       await rig.receiver.pullLive(_c1);
       expect((await row(_mid(1)))!.state, StoredMessageState.visible);
       expect(await deferredIds(), isEmpty);
@@ -3869,8 +3872,15 @@ void main() {
       rig.clock.advance(kEngineBackoff);
       final second = await rig.receiver.pullLive(_c1);
       expect(second.kind, ReceiveOutcomeKind.stopped);
+      // The wait doubles with the count (1 min, then 2).
+      expect(second.until, rig.clock.now().add(kEngineBackoff * 2));
       expect((await receiveRecord()).gf!.n, 2);
       expect(await row(_mid(1)), isNull);
+      // Inside the wait a pass makes no engine call.
+      rig.clock.advance(kEngineBackoff);
+      final inside = await rig.receiver.pullLive(_c1);
+      expect(inside.until, second.until);
+      expect(processedCount(m1.ciphertext), 2);
 
       rig.clock.advance(kEngineBackoff);
       final probes = count('describe');
@@ -4145,7 +4155,9 @@ void main() {
       for (var i = 0; i < 3; i++) {
         final out = await rig.receiver.pullLive(_c1);
         expect(out.kind, ReceiveOutcomeKind.stopped);
-        rig.clock.advance(kEngineBackoff);
+        // The receiver-wide hold doubles while nothing succeeds.
+        expect(out.until, rig.clock.now().add(kEngineBackoff * (1 << i)));
+        rig.clock.value = out.until!;
       }
 
       // One new unwitnessed deferral per pass; no row, ever.
@@ -4361,7 +4373,7 @@ void main() {
 
       expect(engine().processed, hasLength(1));
       expect((await deferred()).encode(), before);
-      expect(rig.contexts.of(_c1).engineHoldUntil, isNotNull);
+      expect(rig.receiver.engineHeldUntil, rig.clock.now().add(kEngineBackoff));
     });
 
     test('a retry whose probes both fail writes nothing, and one that hangs '
@@ -4380,7 +4392,7 @@ void main() {
       await rig.receiver.pullLive(_c1);
       expect((await deferred()).encode(), held);
       expect(rig.receiver.breakerOpened, 1);
-      expect(rig.contexts.of(_c1).engineHoldUntil, isNotNull);
+      expect(rig.receiver.engineHeldUntil, rig.clock.now().add(kEngineBackoff));
       expect(await row(_mid(1)), isNull);
 
       // A hang with a failing describe probe: an unwitnessed crash, counted
@@ -4411,9 +4423,8 @@ void main() {
       expect(await row(_mid(1)), isNull);
     });
 
-    test('on the web a crashing message replaces the worker at most twice, '
-        'ever, and two crashing messages in one run leave the second one '
-        'untried until the next resume', () async {
+    test('on the web a second crashing message in a run is held as an '
+        'unwitnessed crash and reaches the engine twice', () async {
       await setUpJoined();
       engine().webLike = true;
       final m1 = await say(bobGroup(), 1);
@@ -4422,39 +4433,40 @@ void main() {
       failAlways(m1, deadline);
       failAlways(m2, deadline);
 
-      // The first crash is witnessed on the replacement worker; the second
-      // makes the engine unavailable: device-down, nothing counted for it.
+      // The first crash is witnessed on the replacement worker. The second
+      // makes the engine unavailable, and its describe probe says so: an
+      // unwitnessed crash, counted durably.
       final first = await rig.receiver.pullLive(_c1);
       expect(first.kind, ReceiveOutcomeKind.stopped);
-      final one = (await deferred()).items.single;
-      expect((one.id, one.k, one.cc, one.cu), (_mid(1), 1, 1, 0));
-      expect(await row(_mid(2)), isNull);
-      expect(await row(_mid(3)), isNull);
+      expect(
+        [for (final i in (await deferred()).items) (i.id, i.k, i.cc, i.cu)],
+        [(_mid(1), 1, 1, 0), (_mid(2), 0, 0, 1)],
+      );
+      expect(await rig.device.vault.messages(_c1, limit: 10), isEmpty);
 
-      // The next resume: the second message crashes once and is deferred
-      // with its witness; no crash-class retry in a run with a crash.
+      // The next resume: the walk passes both, the third message decrypts
+      // (an engine success after the crash: the second is promoted), and
+      // the run's one crash-class retry rows the first at its second crash.
       resume();
       rig.clock.advance(kDeferredRetrySpacing);
       await rig.receiver.pullLive(_c1);
-      expect(await deferredIds(), [_mid(1), _mid(2)]);
       expect((await row(_mid(3)))!.state, StoredMessageState.visible);
-      expect(processedCount(m1.ciphertext), 1);
+      expect((await row(_mid(1)))!.state, StoredMessageState.undecryptable);
+      final held = (await deferred()).items.single;
+      expect((held.id, held.k, held.cc, held.cu), (_mid(2), 1, 1, 0));
+      // `cu` alone never made it a row, and it was not tried again.
+      expect(await row(_mid(2)), isNull);
+      expect(processedCount(m2.ciphertext), 1);
 
-      // One crash-class retry per run, each a row at its second COUNTED
-      // crash.
-      for (final m in [m1, m2]) {
-        resume();
-        rig.clock.advance(kDeferredRetrySpacing);
-        await rig.receiver.pullLive(_c1);
-        expect((await row(m.id))!.state, StoredMessageState.undecryptable);
-      }
+      // The resume after: its one retry is its second crash, and a row.
+      resume();
+      rig.clock.advance(kDeferredRetrySpacing);
+      await rig.receiver.pullLive(_c1);
+      expect((await row(_mid(2)))!.state, StoredMessageState.undecryptable);
       expect(await deferredIds(), isEmpty);
+      // Each crashing message replaced the worker at most twice, ever.
       expect(processedCount(m1.ciphertext), kDeferredCrashStrikes);
-      // The second message's crash in the first run was answered
-      // device-down (the describe probe said `unavailable`), so §7.2 counted
-      // nothing for it: it reached the engine once more than its two
-      // counted crashes.
-      expect(processedCount(m2.ciphertext), kDeferredCrashStrikes + 1);
+      expect(processedCount(m2.ciphertext), kDeferredCrashStrikes);
     });
 
     test('a deferred item past 30 days from the earlier of its server time '
@@ -4730,7 +4742,11 @@ void main() {
         expect(await epochOf(1), 1);
         expect(await deferredIds(), [_mid(1)]);
         expect(await row(_mid(1)), isNull);
-        rig.clock.advance(kEngineBackoff);
+        // The conversation's own wait doubles with the count: 1 min, 2.
+        rig.clock.advance(kEngineBackoff * n - seconds(1));
+        expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
+        expect((await receiveRecord()).gf!.n, n);
+        rig.clock.advance(seconds(1));
       }
       // The commit is applied by another engine call on the same state:
       // the group works again for it.
@@ -4764,6 +4780,95 @@ void main() {
       expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
       expect((await row(_mid(1)))!.state, StoredMessageState.visible);
       expect(await epochOf(1), 2);
+    });
+
+    test('final attempts stop at the first deadline and the walk ends on a '
+        'later pass', () async {
+      await setUpJoined();
+      final m1 = await say(bobGroup(), 1);
+      final m2 = await say(bobGroup(), 2, at: seconds(1));
+      failNext(m1, [internal]);
+      failNext(m2, [internal]);
+      await rig.receiver.pullLive(_c1);
+      expect(await deferredIds(), [_mid(1), _mid(2)]);
+      await bobSelfUpdate();
+      // From now both hang; the describe probe answers.
+      failAlways(m1, deadline);
+      failAlways(m2, deadline);
+
+      // The first hangs: its crash is counted (durably, so it never reaches
+      // the engine again), nothing is written for the second, which is not
+      // tried in this body, and the walk has not ended.
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
+      expect(processedCount(m1.ciphertext), 2);
+      expect(processedCount(m2.ciphertext), 1);
+      var items = (await deferred()).items;
+      expect(
+        [for (final i in items) (i.id, i.k, i.cc, i.cu)],
+        [(_mid(1), 2, 1, 0), (_mid(2), 1, 0, 0)],
+      );
+      expect((await receiveRecord()).close!.end, isFalse);
+      expect(await epochOf(1), 1);
+      expect(await row(_mid(1)), isNull);
+      expect(await row(_mid(2)), isNull);
+
+      // The next one: the first is a row with no engine call (in the end's
+      // transaction, so not yet), the second hangs once.
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
+      expect(processedCount(m1.ciphertext), 2);
+      expect(processedCount(m2.ciphertext), 2);
+      items = (await deferred()).items;
+      expect([for (final i in items) i.cc], [1, 1]);
+      expect(await epochOf(1), 1);
+
+      // Then the walk ends with no engine call and the commit applies.
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      expect(processedCount(m1.ciphertext), 2);
+      expect(processedCount(m2.ciphertext), 2);
+      for (final n in [1, 2]) {
+        expect((await row(_mid(n)))!.state, StoredMessageState.undecryptable);
+      }
+      expect(await deferredIds(), isEmpty);
+      expect(await epochOf(1), 2);
+    });
+
+    test('sixteen final attempts on a hanging engine make one engine attempt '
+        'in a lock hold', () async {
+      await setUpJoined();
+      await putDeferred(
+        DeferredRecord([
+          for (var n = 101; n <= 100 + kDeferredMax; n++)
+            heldItem(n, ct: [n, n, n]),
+        ]),
+      );
+      engine().failAlways['process'] = deadline;
+
+      Future<Object?> close() async {
+        Object? refused;
+        await rig.locks.run(_c1, () async {
+          try {
+            await rig.receiver.completeEpoch(
+              _c1,
+              const MlsPair(1, 1),
+              priority: BudgetPriority.user,
+            );
+          } on Object catch (e) {
+            refused = e;
+          }
+        });
+        return refused;
+      }
+
+      expect(await close(), isA<Exception>());
+      // One attempt and its describe probe, not sixteen of each.
+      expect(engine().processed, hasLength(1));
+      expect(count('describe'), 1);
+      expect((await receiveRecord()).close!.end, isFalse);
+      expect(await deferredIds(), hasLength(kDeferredMax));
+      expect(await rig.device.vault.messages(_c1, limit: 20), isEmpty);
+
+      expect(await close(), isA<Exception>());
+      expect(engine().processed, hasLength(2));
     });
 
     test('an undecryptable close walk rows its deferred items with no engine '
@@ -4890,6 +4995,180 @@ void main() {
       expect(await rig.device.vault.group(_c1, 1), isNull);
       expect(await deferredIds(), isEmpty);
       expect((await receiveRecord()).close, isNull);
+    });
+  });
+
+  group('the engine holds (fix round 1: receiver-wide for device-level '
+      'trouble)', () {
+    const c2 = '22222222222222222222222222222222';
+
+    /// This device joins a second conversation with bob; returns bob's
+    /// group of it.
+    Future<RigGroup> joinSecond() async {
+      await rig.accept(c2);
+      rig.header(c2, 'ref-bob');
+      final second = await rig.offer(c2, bob);
+      expect(await rig.crypto.processWelcomes(), [c2]);
+      engine().calls.clear();
+      return second.add.group;
+    }
+
+    /// Nothing answers: every engine call runs into its deadline.
+    void hang() {
+      for (final name in const ['process', 'describe', 'randomBytes']) {
+        engine().failAlways[name] = deadline;
+      }
+    }
+
+    int liveCalls() =>
+        rig.server.calls.where((c) => c == 'listMlsMessages').length;
+
+    test('a hung engine seen in one conversation holds engine work in every '
+        'conversation', () async {
+      await setUpJoined();
+      final g2 = await joinSecond();
+      await say(bobGroup(), 1);
+      final n1 = await say(g2, 2, conversation: c2);
+      hang();
+
+      final first = await rig.receiver.pullLive(_c1);
+      expect(first.kind, ReceiveOutcomeKind.stopped);
+      expect(first.until, rig.clock.now().add(kEngineBackoff));
+      final calls = engine().calls.length;
+      final listed = liveCalls();
+
+      // The other conversation makes no engine call at all while the hold
+      // stands, and says when it ends; its listing is not gated.
+      final second = await rig.receiver.pullLive(c2);
+      expect(second.kind, ReceiveOutcomeKind.stopped);
+      expect(second.until, first.until);
+      expect(engine().calls.length, calls);
+      expect(processedCount(n1.ciphertext), 0);
+      expect(liveCalls(), listed + 1);
+      expect(
+        (await DeferredRecords().read(rig.device.vault, c2)).record.items,
+        isEmpty,
+      );
+      expect(await rig.device.vault.message(c2, _mid(2)), isNull);
+
+      // Nothing was lost: once the hold is over and the engine answers, the
+      // other conversation's message decrypts.
+      engine().failAlways.clear();
+      rig.clock.advance(kEngineBackoff);
+      await rig.receiver.pullLive(c2);
+      expect(
+        (await rig.device.vault.message(c2, _mid(2)))!.state,
+        StoredMessageState.visible,
+      );
+    });
+
+    test('the receiver-wide hold doubles on a second device-level failure '
+        'and clears on a success', () async {
+      await setUpJoined();
+      final g2 = await joinSecond();
+      await say(bobGroup(), 1);
+      await say(g2, 2, conversation: c2);
+      hang();
+
+      final first = await rig.receiver.pullLive(_c1);
+      expect(first.until, rig.clock.now().add(kEngineBackoff));
+      // The second device-level result, seen by ANOTHER conversation.
+      rig.clock.advance(kEngineBackoff);
+      final second = await rig.receiver.pullLive(c2);
+      expect(second.kind, ReceiveOutcomeKind.stopped);
+      expect(second.until, rig.clock.now().add(kEngineBackoff * 2));
+      // And the third.
+      rig.clock.advance(kEngineBackoff * 2);
+      await say(bobGroup(), 3, at: seconds(1));
+      final third = await rig.receiver.pullLive(_c1);
+      expect(third.until, rig.clock.now().add(kEngineBackoff * 4));
+
+      // Any engine success ends the doubling.
+      engine().failAlways.clear();
+      rig.clock.advance(kEngineBackoff * 4);
+      await say(bobGroup(), 4, at: seconds(2));
+      await rig.receiver.pullLive(_c1);
+      expect((await row(_mid(4)))!.state, StoredMessageState.visible);
+      hang();
+      await say(g2, 5, at: seconds(3), conversation: c2);
+      final after = await rig.receiver.pullLive(c2);
+      expect(after.kind, ReceiveOutcomeKind.stopped);
+      expect(after.until, rig.clock.now().add(kEngineBackoff));
+    });
+
+    test('app resume clears the engine holds', () async {
+      await setUpJoined();
+      await prime();
+      final m1 = await say(bobGroup(), 1, at: seconds(1));
+      failNext(m1, [unavailable]);
+      final first = await rig.receiver.pullLive(_c1);
+      expect(first.kind, ReceiveOutcomeKind.stopped);
+      expect(rig.receiver.engineHeldUntil, first.until);
+
+      // The receiver-wide hold: no wait after a resume.
+      resume();
+      expect(rig.receiver.engineHeldUntil, isNull);
+      expect(
+        (await rig.receiver.pullLive(_c1)).kind,
+        ReceiveOutcomeKind.complete,
+      );
+      expect((await row(_mid(1)))!.state, StoredMessageState.visible);
+
+      // A conversation's own hold (a group-level failure) too.
+      await say(bobGroup(), 2, at: seconds(2));
+      engine().failState[RigEngine.key(await groupState())] = internal;
+      final second = await rig.receiver.pullLive(_c1);
+      expect(second.kind, ReceiveOutcomeKind.stopped);
+      expect((await receiveRecord()).gf!.n, 1);
+      expect(rig.receiver.engineHeldUntil, isNull);
+      engine().failState.clear();
+      resume();
+      expect(
+        (await rig.receiver.pullLive(_c1)).kind,
+        ReceiveOutcomeKind.complete,
+      );
+      expect((await row(_mid(2)))!.state, StoredMessageState.visible);
+    });
+
+    test('a group-level failure holds only its own conversation', () async {
+      await setUpJoined();
+      final g2 = await joinSecond();
+      await say(bobGroup(), 1);
+      await say(g2, 2, conversation: c2);
+      engine().failState[RigEngine.key(await groupState())] = internal;
+
+      final first = await rig.receiver.pullLive(_c1);
+      expect(first.kind, ReceiveOutcomeKind.stopped);
+      expect((await receiveRecord()).gf!.n, 1);
+
+      expect(
+        (await rig.receiver.pullLive(c2)).kind,
+        ReceiveOutcomeKind.complete,
+      );
+      expect(
+        (await rig.device.vault.message(c2, _mid(2)))!.state,
+        StoredMessageState.visible,
+      );
+    });
+
+    test('a pass stopped by a failed call still retries a due deferred '
+        'item', () async {
+      await setUpJoined();
+      final m1 = await say(bobGroup(), 1);
+      failNext(m1, [internal]);
+      await rig.receiver.pullLive(_c1);
+      expect(await deferredIds(), [_mid(1)]);
+
+      nextRun();
+      rig.server.onCall = (c) async {
+        if (c == 'listMlsMessages') throw const NetworkException('rig');
+      };
+      final out = await rig.receiver.pullLive(_c1);
+
+      // Only an engine hold keeps a retry from the engine, not the network.
+      expect(out.kind, ReceiveOutcomeKind.stopped);
+      expect((await row(_mid(1)))!.state, StoredMessageState.visible);
+      expect(await deferredIds(), isEmpty);
     });
   });
 

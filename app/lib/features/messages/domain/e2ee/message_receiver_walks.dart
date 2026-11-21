@@ -83,14 +83,10 @@ extension _Walks on MessageReceiver {
       _reportIfBug(e, s, 'receive.live');
       outcome = ReceiveOutcome.stopped(_now().add(kWalkBackoff));
     }
-    // 6. The deferred retries, after the pass's fresh work (§7.4). The
-    // engine is left alone after a pass that was stopped or held.
-    await _retryDeferred(
-      id,
-      engine:
-          outcome.kind == ReceiveOutcomeKind.complete ||
-          outcome.kind == ReceiveOutcomeKind.more,
-    );
+    // 6. The deferred retries, after the pass's fresh work (§7.4),
+    // whatever the pass ended with: only an engine hold keeps a due item
+    // from the engine.
+    await _retryDeferred(id);
     // Catch-up's held poll stops at a page that lacks the welcome: a welcome
     // it did not find is looked for by an unheld poll, after the lock is
     // released (never a public entry under a held lock).
@@ -129,35 +125,43 @@ extension _Walks on MessageReceiver {
       return _walkWithoutGroup(pass, id, priority);
     }
     final context = _contexts.of(id);
-    // §7.2: an engine answer stopped a pass (the device is down, the
-    // breaker, an unwitnessed crash, a group-level failure): no engine call
-    // for this conversation before the hold ends.
-    final held = _engineHoldOf(context);
-    if (held != null) return ReceiveOutcome.stopped(held);
 
-    // 1. The probe.
+    // 1. The probe. An engine hold (§7.2 as amended: the receiver-wide one
+    // after device-level trouble seen by ANY conversation, or this
+    // conversation's own after a group-level failure) does not gate the
+    // listing: the probe still detects a retired token, arms the reconcile
+    // entry and ends a taken-down deferred message. The hold gates the
+    // engine: the fast path's batch stops at the first message that needs
+    // it.
     final probe = await _probe(pass, id, priority);
     if (probe.waitingForWelcome) onWelcomes();
     if (probe.outcome != null) return probe.outcome!;
-    // The fast path's batch stopped on an engine answer.
-    final stopped = _engineHoldOf(context);
-    if (stopped != null) return ReceiveOutcome.stopped(stopped);
 
-    // 2. The reconcile walk: step 2 (an armed entry waits durably).
+    // 2. The reconcile walk: step 2 (an armed entry waits durably; it
+    // needs no engine, so it belongs here, before the hold ends the pass).
 
     // 3-5. The walks, one allowance across them.
     final until = context.walkBackoffUntil;
     if (until != null && _now().isBefore(until)) {
-      return ReceiveOutcome.stopped(until);
+      final held = _engineHoldOf(context);
+      return ReceiveOutcome.stopped(
+        held != null && held.isAfter(until) ? held : until,
+      );
     }
     var left = priority == BudgetPriority.user
         ? 2 * kWalkPagesPerPass
         : kWalkPagesPerPass;
     int take() => left > 0 ? left-- : 0;
+    // A close or orphan walk that needs no engine goes on under a hold; one
+    // that decrypts stops before it lists ([_walk]).
     for (final slot in const [_Slot.close, _Slot.orphan]) {
       final r = await _walk(pass, id, slot, priority, take);
       if (r != null) return r;
     }
+    // The open walk decrypts, and so does applying a commit: neither under
+    // a hold (also when the fast path's batch stopped on an engine answer).
+    final held = _engineHoldOf(context);
+    if (held != null) return ReceiveOutcome.stopped(held);
     final record = await _readReceive(pass.vault, id);
     final open = record.open;
     final lt = open?.lt;
@@ -571,8 +575,14 @@ extension _Walks on MessageReceiver {
         await _releaseEnded(pass, id, slot, w);
         return null;
       }
-      if (take() == 0) return ReceiveOutcome.more;
       final context = _contexts.of(id);
+      // Under an engine hold a walk that decrypts is not listed (its page
+      // could not be applied); one that needs no engine goes on.
+      final held = _engineHoldOf(context);
+      if (held != null && await _needsEngine(pass.vault, id, slot, w)) {
+        return ReceiveOutcome.stopped(held);
+      }
+      if (take() == 0) return ReceiveOutcome.more;
       final backOffs = context.walkBackOffs;
       final step = await _walkStep(pass, id, slot, w, priority, onTokenSaved);
       switch (step.kind) {
@@ -596,6 +606,21 @@ extension _Walks on MessageReceiver {
           return step.outcome;
       }
     }
+  }
+
+  /// [slot]'s walk [w] gives its messages to the engine: the open walk
+  /// always; a close or orphan walk unless it is in mode `u` or the group
+  /// of its generation is gone or provisional.
+  Future<bool> _needsEngine(
+    SecureVault vault,
+    String id,
+    _Slot slot,
+    WalkEntry w,
+  ) async {
+    if (slot == _Slot.open) return true;
+    if (slot == _Slot.close && w.mode == WalkMode.undecryptable) return false;
+    final group = await vault.group(id, w.pair.generation);
+    return group != null && !group.provisional;
   }
 
   /// A ruling after the design (step 2 carry-over 4, amended by fix round
