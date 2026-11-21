@@ -183,6 +183,10 @@ class _FailingSink implements EpochMessageSink {
   }) async {
     if (conversationId == failing) throw StateError('rig: walk failed');
   }
+
+  /// A walk that returned has ended.
+  @override
+  Future<bool> epochWalkDone(String conversationId, MlsPair pair) async => true;
 }
 
 void main() {

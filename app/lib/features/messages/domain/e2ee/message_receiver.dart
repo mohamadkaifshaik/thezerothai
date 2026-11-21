@@ -19,25 +19,42 @@ import 'conversation_locks.dart';
 import 'daily_ledger.dart';
 import 'e2ee_types.dart';
 import 'message_content_codec.dart';
+import 'receive_record.dart';
 import 'sync_budget.dart';
 
-/// The contract's page size for `ListEpochMessages` (at most 50).
+part 'message_receiver_sink.dart';
+part 'message_receiver_walks.dart';
+
+/// The contract's page size for `ListEpochMessages` (at most 50). A page
+/// with more messages is refused (§3.3).
 const int kEpochPageSize = 50;
 
-/// The most `ListEpochMessages` pages one epoch walk reads (50 messages a
-/// page, restarts included). An epoch longer than that is not complete: the
-/// walk stops (the commit after it waits), so a server that always answers
-/// another page cannot hold the conversation lock forever.
-const int _kEpochPagesMax = 100;
+/// A ciphertext longer than this is never given to the engine: it is an
+/// undecryptable row (M1).
+const int kMaxCiphertextBytes = 8192;
 
-/// The most gap pages one live pull follows after its since page. At the cap
-/// the pull is interrupted (nothing of it is processed, the token is kept).
-const int _kLiveGapPagesMax = 20;
+/// Epoch pages the sink lists per conversation lock hold (§2, §9).
+const int kSinkPagesPerHold = 2;
 
-/// The most pages the walk after a retired since token reads (first page
-/// included). Older tombstones are not reconciled past it (Open question 5:
-/// the whole thread by default; this bound keeps one pass finite).
-const int _kRetiredWalkPagesMax = 40;
+/// Walk pages one pass lists across its close, orphan and open walks (§9);
+/// twice that at user priority.
+const int kWalkPagesPerPass = 10;
+
+/// Refused page tokens a walk restarts from per run (§3.2).
+const int kWalkRestartsPerRun = 2;
+
+/// The first backoff after an order violation, a missing order echo or the
+/// restart cap (§3.3); it doubles up to [kWalkBackoffMax].
+const Duration kWalkBackoff = Duration(minutes: 1);
+const Duration kWalkBackoffMax = Duration(hours: 1);
+
+/// When the next pass may try after a transient engine answer (as built:
+/// nothing stored, the cursor kept).
+const Duration kEngineBackoff = Duration(minutes: 1);
+
+/// The open walk runs one listing from its settle token on a fast-path pass
+/// at most this often (§4, the settle refresh; local clock).
+const Duration kOpenSettleEvery = Duration(minutes: 10);
 
 /// How many message ids handled without a row (a forgery, this device's own
 /// message already in its sent log) are remembered this run, so a second
@@ -47,15 +64,56 @@ const int _kRowlessRemembered = 4096;
 
 final RegExp _messageIdShape = RegExp(r'^[0-9a-f]{32}$');
 
-/// Receiving encrypted messages (Task 6, R7, R8, R12, R13, spec 7.5):
-/// decrypts, checks and stores each message of a conversation in the vault,
-/// as the live pull and as the sink of catch-up's epoch walks.
+/// What one receive pass ended with (§2). `complete`: the since token is
+/// saved (or already stored) and no walk has pages left; `more`: work is
+/// left (the allowance was spent, a page was discarded, a token was
+/// retired); `held`: rate limited or the budget is paused, until [until];
+/// `stopped`: a failure or a backoff, not before [until]. Never names a
+/// conversation, a message or a key.
+class ReceiveOutcome {
+  const ReceiveOutcome._(this.kind, this.until);
+
+  static const ReceiveOutcome complete = ReceiveOutcome._(
+    ReceiveOutcomeKind.complete,
+    null,
+  );
+  static const ReceiveOutcome more = ReceiveOutcome._(
+    ReceiveOutcomeKind.more,
+    null,
+  );
+
+  factory ReceiveOutcome.held(DateTime until) =>
+      ReceiveOutcome._(ReceiveOutcomeKind.held, until);
+
+  factory ReceiveOutcome.stopped(DateTime until) =>
+      ReceiveOutcome._(ReceiveOutcomeKind.stopped, until);
+
+  final ReceiveOutcomeKind kind;
+  final DateTime? until;
+
+  @override
+  String toString() => 'ReceiveOutcome(${kind.name})';
+}
+
+enum ReceiveOutcomeKind { complete, more, held, stopped }
+
+/// Receiving encrypted messages (Task 6, R7, R8, R12, R13, spec 7.5; the
+/// walks of receive-walks design rev 3): decrypts, checks and stores each
+/// message of a conversation in the vault.
 ///
-/// Locking: [pullLive] and [applyClearedAtOnce] take the conversation lock;
-/// the sink methods ([completeEpoch], [markEpochUndecryptable]) are called by
-/// catch-up WITH it held, take no lock and never run catch-up. Inside the
-/// lock each message is one `runWrite` body: read fresh, the engine call,
-/// and ONE transaction with its result (the new group state and the row).
+/// A pass ([pullLive]) probes `ListMessages` on the read budget, then walks
+/// the close, orphan and open pairs with ordered, resumable
+/// `ListEpochMessages` pages whose cursors live in the sealed receive record
+/// (`messages.e2ee.receive.<id>`). Pages are listed WITHOUT the lock and
+/// applied under it after a re-validation; each message is one `runWrite`
+/// body (read fresh, the engine call, ONE transaction with its result, and
+/// for a page's last message the walk's new entry).
+///
+/// The sink methods ([completeEpoch], [markEpochUndecryptable]) are called
+/// by catch-up WITH the lock held: they take no lock, never run catch-up and
+/// list at most [kSinkPagesPerHold] pages per hold (never waiting for the
+/// budget); an unfinished walk throws, so catch-up ends `interrupted` and
+/// the commit waits for the next pass to continue it.
 ///
 /// Never logs; decrypted bytes live only in the vault's sealed rows. An
 /// unexpected failure is reported as [E2eePipelineError] with a step name.
@@ -66,6 +124,7 @@ class MessageReceiver implements EpochMessageSink {
     required CryptoEngine Function() engine,
     required MessagingRepository messaging,
     required SyncBudget syncBudget,
+    required SyncBudget readBudget,
     required ConversationLocks locks,
     required ConversationContexts contexts,
     required DateTime Function() now,
@@ -77,11 +136,13 @@ class MessageReceiver implements EpochMessageSink {
        _engine = engine,
        _messaging = messaging,
        _syncBudget = syncBudget,
+       _readBudget = readBudget,
        _locks = locks,
        _contexts = contexts,
        _now = now,
        _onChanged = onChanged,
        ledger = ledger,
+       _records = ReceiveRecords(onUnexpectedError: onUnexpectedError),
        _onUnexpectedError = onUnexpectedError;
 
   final ConversationCrypto _crypto;
@@ -89,10 +150,12 @@ class MessageReceiver implements EpochMessageSink {
   final CryptoEngine Function() _engine;
   final MessagingRepository _messaging;
   final SyncBudget _syncBudget;
+  final SyncBudget _readBudget;
   final ConversationLocks _locks;
   final ConversationContexts _contexts;
   final DateTime Function() _now;
   final void Function(String conversationId) _onChanged;
+  final ReceiveRecords _records;
   final void Function(Object error, StackTrace stack)? _onUnexpectedError;
 
   /// The daily ledger of the lost-send follow-up (R7): Task 9's self-update
@@ -100,6 +163,13 @@ class MessageReceiver implements EpochMessageSink {
   final DailyLedger ledger;
 
   int _forgeries = 0;
+
+  /// The receiver's call sequence (probe and listing order, §4 rule 2).
+  int _seq = 0;
+
+  /// The lock hold the sink counts pages for, and its count.
+  Object? _sinkHold;
+  int _sinkPages = 0;
 
   /// `uid|conversationId|messageId` of messages handled without a row this
   /// run (oldest first, at most [_kRowlessRemembered]).
@@ -110,186 +180,98 @@ class MessageReceiver implements EpochMessageSink {
   int get forgeriesSkipped => _forgeries;
 
   // -------------------------------------------------------------------------
-  // Live messages
+  // The pass
 
-  /// Live messages: ListMessages with the stored since token; commits first
-  /// when a message of a later pair appears.
-  Future<void> pullLive(
+  /// One bounded receive pass for [conversationId] (§2): the probe, the
+  /// close walk, the orphan walk and the open walk, each at most one
+  /// allowance. Single flight: a call while a pass runs joins it. Never
+  /// loops, never schedules, never throws. Takes the conversation lock (never
+  /// call it with the lock held).
+  Future<ReceiveOutcome> pullLive(
     String conversationId, {
     BudgetPriority priority = BudgetPriority.background,
-  }) async {
-    var welcomes = false;
-    await _locks.run(conversationId, () async {
-      welcomes = await _pullLocked(conversationId, priority);
+  }) {
+    final context = _contexts.of(conversationId);
+    final running = context.running;
+    if (running != null) return running.then((o) => o! as ReceiveOutcome);
+    final pass = _runPass(conversationId, priority);
+    context.running = pass;
+    pass.then((_) {
+      if (identical(context.running, pass)) context.running = null;
     });
-    // Catch-up's held poll stops at a page that lacks the welcome: a welcome
-    // it did not find is looked for by an unheld poll, after the lock is
-    // released (never a public entry under a held lock).
-    if (welcomes) {
-      try {
-        await _crypto.processWelcomes(priority: priority);
-      } on Object catch (e, s) {
-        _reportIfBug(e, s, 'receive.welcomes');
-      }
-    }
+    return pass;
   }
 
-  /// One live pull with the lock held; true when catch-up ended waiting for
-  /// a welcome. Never throws.
-  Future<bool> _pullLocked(String id, BudgetPriority priority) async {
-    try {
-      final pass = await _start();
-      if (pass == null) return false;
-      // A provisional group only, or none: catch-up and the welcomes own it.
-      if (await _currentPair(pass.vault, id) == null) return false;
-      final token = (await pass.vault.conversation(id))?.sync.sinceToken ?? '';
-      final listed = await _listLive(pass, id, token, priority);
-      if (listed == null) return false;
-      _sort(listed.messages);
-      final end = await _runBatch(
-        pass,
-        id,
-        listed.messages,
-        mode: _Mode.live,
-        priority: priority,
-        token: listed.sinceToken,
-      );
-      if (end.completed) {
-        // M10: a completed pull at the group's current pair.
-        final pair = await _currentPair(pass.vault, id);
-        final context = _contexts.of(id);
-        if (pair != null) {
-          context
-            ..livePulledAt = pair
-            ..syncedSinceStart =
-                !context.attributionPending && context.serverPair == pair;
-        }
-      }
-      return end.waitingForWelcome;
-    } on Object catch (e, s) {
-      _reportIfBug(e, s, 'receive.live');
-      return false;
+  /// [conversationId]'s close (or orphan) walk for [pair] reached its end
+  /// (read from the receive record). True for a pair no member can have
+  /// sent in (generation or epoch below 1).
+  @override
+  Future<bool> epochWalkDone(String conversationId, MlsPair pair) async {
+    if (pair.generation < 1 || pair.epoch < 1) return true;
+    final vault = _session.vault;
+    if (vault == null) return false;
+    final record = await _readReceive(vault, conversationId);
+    for (final w in [record.close, record.orphan]) {
+      if (w != null && w.pair == pair) return w.end;
     }
+    return false;
   }
 
-  /// The batch of one live pull: the since page and its gap pages, or (no
-  /// token, or a retired one) the first page, then for a retired token every
-  /// older page to the end of the thread (bounded). Null: interrupted.
-  Future<({List<pb.Message> messages, String sinceToken})?> _listLive(
-    _Pass pass,
-    String id,
-    String token,
-    BudgetPriority priority,
-  ) async {
-    final messages = <pb.Message>[];
-    if (token.isNotEmpty) {
-      final first = await _listMls(priority, id, sinceToken: token);
-      if (identical(first, _retired)) {
-        return _walkRetired(pass, id, priority);
-      }
-      if (first == null) return null;
-      messages.addAll(first.messages);
-      var gap = first.gapPageToken;
-      var pages = 0;
-      final seen = <String>{};
-      while (gap.isNotEmpty) {
-        if (++pages > _kLiveGapPagesMax || !seen.add(gap)) return null;
-        final next = await _listMls(priority, id, pageToken: gap);
-        if (next == null || identical(next, _retired)) return null;
-        messages.addAll(next.messages);
-        gap = next.nextPageToken;
-      }
-      return (messages: messages, sinceToken: first.sinceToken);
-    }
-    final first = await _listMls(priority, id);
-    if (first == null || identical(first, _retired)) return null;
-    if (first.hasConversation()) _contexts.note(first.conversation);
-    return (messages: [...first.messages], sinceToken: first.sinceToken);
-  }
+  // -------------------------------------------------------------------------
+  // The sink (called by catch-up with the conversation lock held)
 
-  /// A retired since token: the token is not used again; the thread is read
-  /// from the first page following `next_page_token`, and every message
-  /// goes through the one-message rules, which reconcile by id (REMOVED or
-  /// DELETED_ACCOUNT clears a stored copy; a stored id is skipped). Nothing
-  /// is deleted. Paced by the sync budget (user reads first) and the
-  /// repository's read hold.
-  Future<({List<pb.Message> messages, String sinceToken})?> _walkRetired(
-    _Pass pass,
-    String id,
-    BudgetPriority priority,
-  ) async {
-    final first = await _listMls(priority, id);
-    if (first == null || identical(first, _retired)) return null;
-    if (first.hasConversation()) _contexts.note(first.conversation);
-    final messages = [...first.messages];
-    var next = first.nextPageToken;
-    var pages = 1;
-    final seen = <String>{};
-    while (next.isNotEmpty && pages < _kRetiredWalkPagesMax) {
-      if (!seen.add(next)) break;
-      final page = await _listMls(priority, id, pageToken: next);
-      if (page == null || identical(page, _retired)) return null;
-      pages++;
-      messages.addAll(page.messages);
-      next = page.nextPageToken;
-    }
-    return (messages: messages, sinceToken: first.sinceToken);
-  }
+  /// The close walk of [pair] (the orphan walk below the current
+  /// generation), each message through the one-message rules; idempotent.
+  /// Throws (an [Exception], so catch-up ends `interrupted` and the commit
+  /// waits) while the walk has not ended; the next pass continues it.
+  @override
+  Future<void> completeEpoch(
+    String conversationId,
+    MlsPair pair, {
+    required BudgetPriority priority,
+  }) => _sinkWalk(conversationId, pair, priority, WalkMode.decrypt);
 
-  /// One `ListMessages` call (one sync-budget unit). Null when it could not
-  /// be made or failed; [_retired] for a refused since token.
-  Future<pb.ListMessagesResponse?> _listMls(
-    BudgetPriority priority,
-    String id, {
-    String sinceToken = '',
-    String pageToken = '',
-  }) async {
-    if (!await _takeUnit(priority)) return null;
-    try {
-      return await _messaging.listMlsMessages(
-        conversationId: id,
-        sinceToken: sinceToken,
-        pageToken: pageToken,
-      );
-    } on ValidationException catch (e) {
-      if (sinceToken.isNotEmpty && e.field == 'since_token') return _retired;
-      return null;
-    } on Object catch (e, s) {
-      _reportIfBug(e, s, 'receive.listMessages');
-      return null;
-    }
-  }
+  /// As [completeEpoch] in mode `u`: every unstored message of [pair]
+  /// becomes an `undecryptable` row (tombstones, skips and the echo rules as
+  /// for any message); the engine is never called.
+  @override
+  Future<void> markEpochUndecryptable(
+    String conversationId,
+    MlsPair pair, {
+    required BudgetPriority priority,
+  }) => _sinkWalk(conversationId, pair, priority, WalkMode.undecryptable);
 
   // -------------------------------------------------------------------------
   // cleared_at (R8)
 
   /// R8: once per app run per conversation, one ListEpochMessages call for
-  /// the current pair; deletes local copies created at or before
-  /// `cleared_at`. A `cleared_at` in the future is ignored. Never throws.
+  /// the current pair (listed WITHOUT the lock); deletes local copies created
+  /// at or before `cleared_at` under the lock. A `cleared_at` in the future
+  /// is ignored. Never throws.
   Future<void> applyClearedAtOnce(String conversationId) async {
     final id = conversationId;
     if (_contexts.of(id).clearedAtReadThisRun) return;
-    await _locks.run(id, () async {
-      final context = _contexts.of(id);
-      if (context.clearedAtReadThisRun) return;
+    try {
+      final pass = await _start();
+      if (pass == null) return;
+      final pair = await _currentPair(pass.vault, id);
+      if (pair == null || pair.epoch < 1) return;
+      if (!await _takeUnit(_syncBudget, BudgetPriority.user)) return;
+      final pb.ListEpochMessagesResponse page;
       try {
-        final pass = await _start();
-        if (pass == null) return;
-        final pair = await _currentPair(pass.vault, id);
-        if (pair == null || pair.epoch < 1) return;
-        if (!await _takeUnit(BudgetPriority.user)) return;
-        final pb.ListEpochMessagesResponse page;
-        try {
-          page = await _messaging.listEpochMessages(
-            conversationId: id,
-            pair: pair,
-            pageSize: kEpochPageSize,
-          );
-        } on Object catch (e, s) {
-          _reportIfBug(e, s, 'receive.clearedAt');
-          return;
-        }
-        final cleared = _clearedAtOf(page);
+        page = await _messaging.listEpochMessages(
+          conversationId: id,
+          pair: pair,
+          pageSize: kEpochPageSize,
+        );
+      } on Object catch (e, s) {
+        _reportIfBug(e, s, 'receive.clearedAt');
+        return;
+      }
+      final cleared = _clearedAtOf(page);
+      await _locks.run(id, () async {
+        final context = _contexts.of(id);
+        if (context.clearedAtReadThisRun || !pass.live) return;
         if (cleared == null) {
           // Read: not again this run (unset, or in the future: ignored).
           context.clearedAtReadThisRun = true;
@@ -314,12 +296,12 @@ class MessageReceiver implements EpochMessageSink {
         // next call of this run.
         context.clearedAtReadThisRun = true;
         _onChanged(id);
-      } on _Stopped {
-        return;
-      } on Object catch (e, s) {
-        _reportIfBug(e, s, 'receive.clearedAt');
-      }
-    });
+      });
+    } on _Stopped {
+      return;
+    } on Object catch (e, s) {
+      _reportIfBug(e, s, 'receive.clearedAt');
+    }
   }
 
   /// The response's `cleared_at` in microseconds, or null when unset or in
@@ -329,102 +311,6 @@ class MessageReceiver implements EpochMessageSink {
     final micros = _micros(page.clearedAt.seconds, page.clearedAt.nanos);
     if (micros == null || micros > _now().microsecondsSinceEpoch) return null;
     return micros;
-  }
-
-  // -------------------------------------------------------------------------
-  // The sink (called by catch-up with the conversation lock held)
-
-  /// Every message of [pair] (all pages), sorted by `created_at` then id,
-  /// each through the one-message rules. Idempotent. Throws (an
-  /// [Exception], so catch-up ends `interrupted` and the commit waits) when
-  /// the epoch could not be walked to its end.
-  @override
-  Future<void> completeEpoch(
-    String conversationId,
-    MlsPair pair, {
-    required BudgetPriority priority,
-  }) => _walkEpoch(conversationId, pair, priority, _Mode.epoch);
-
-  /// Every message of [pair] not stored yet becomes an `undecryptable` row
-  /// (tombstones, skips and the echo rules as for any message); the engine
-  /// is never called. Idempotent; throws like [completeEpoch].
-  @override
-  Future<void> markEpochUndecryptable(
-    String conversationId,
-    MlsPair pair, {
-    required BudgetPriority priority,
-  }) => _walkEpoch(conversationId, pair, priority, _Mode.undecryptable);
-
-  Future<void> _walkEpoch(
-    String id,
-    MlsPair pair,
-    BudgetPriority priority,
-    _Mode mode,
-  ) async {
-    assert(_locks.isHeld(id), 'The caller must hold the conversation lock.');
-    // No member can have sent in epoch 0 (the contract lists pairs >= 1).
-    if (pair.generation < 1 || pair.epoch < 1) return;
-    final pass = await _start();
-    if (pass == null) throw const _Stopped();
-    final listed = await _listEpoch(id, pair, priority);
-    if (listed.clearedAt != null) {
-      await _saveClearedAt(pass, id, listed.clearedAt!);
-    }
-    _sort(listed.messages);
-    final end = await _runBatch(
-      pass,
-      id,
-      listed.messages,
-      mode: mode,
-      priority: priority,
-      epoch: pair,
-    );
-    if (!end.completed) throw const _Stopped();
-  }
-
-  /// Every page of [pair]'s messages. A refused page token starts the
-  /// listing again once; anything else that fails stops the walk.
-  Future<({List<pb.Message> messages, int? clearedAt})> _listEpoch(
-    String id,
-    MlsPair pair,
-    BudgetPriority priority,
-  ) async {
-    final out = <pb.Message>[];
-    int? cleared;
-    var token = '';
-    var restarted = false;
-    var pages = 0;
-    final seen = <String>{};
-    while (true) {
-      if (++pages > _kEpochPagesMax) throw const _Stopped();
-      if (!await _takeUnit(priority)) throw const _Stopped();
-      final pb.ListEpochMessagesResponse page;
-      try {
-        page = await _messaging.listEpochMessages(
-          conversationId: id,
-          pair: pair,
-          pageSize: kEpochPageSize,
-          pageToken: token,
-        );
-      } on ValidationException {
-        if (token.isEmpty || restarted) throw const _Stopped();
-        restarted = true;
-        token = '';
-        out.clear();
-        seen.clear();
-        continue;
-      } on Object catch (e, s) {
-        _reportIfBug(e, s, 'receive.listEpochMessages');
-        throw const _Stopped();
-      }
-      cleared = _clearedAtOf(page) ?? cleared;
-      out.addAll(page.messages);
-      final next = page.nextPageToken;
-      if (next.isEmpty) break;
-      if (!seen.add(next)) throw const _Stopped();
-      token = next;
-    }
-    return (messages: out, clearedAt: cleared);
   }
 
   /// Saves [cleared] in the sync record when it is later than the stored
@@ -445,22 +331,20 @@ class MessageReceiver implements EpochMessageSink {
   });
 
   // -------------------------------------------------------------------------
-  // A batch
+  // A probe batch (the fast path, §4 rule 1)
 
-  /// Runs [messages] (sorted) in order. Live: a message of a later pair
-  /// stops the batch for one catch-up (through the locked entry; its commits
-  /// come first), then the batch goes on; a second one stops it. [token]
-  /// (live) is saved with the last message's transaction, or alone after it.
+  /// Runs [messages] (sorted) in order, with the lock held. A message of a
+  /// later pair runs one catch-up (through the locked entry; its commits
+  /// come first) and stops the batch without saving. [token] is saved (by
+  /// compare-and-set on the stored token) with the last message's
+  /// transaction, or alone after it.
   Future<_BatchEnd> _runBatch(
     _Pass pass,
     String id,
     List<pb.Message> messages, {
-    required _Mode mode,
     required BudgetPriority priority,
-    MlsPair? epoch,
-    String? token,
+    required _TokenSave token,
   }) async {
-    var caughtUp = false;
     var waiting = false;
     var changed = false;
     var completed = false;
@@ -469,18 +353,21 @@ class MessageReceiver implements EpochMessageSink {
       var tokenSaved = false;
       for (var i = 0; i < messages.length; i++) {
         final last = i == messages.length - 1;
-        final saveToken = last ? token : null;
-        var step = await _one(pass, id, messages[i], mode, epoch, saveToken);
+        final step = await _one(
+          pass,
+          id,
+          messages[i],
+          _Mode.live,
+          null,
+          token: last ? token : null,
+        );
         if (step == _Step.later) {
-          // One catch-up per pull: a second later pair waits for the next.
-          if (caughtUp) throw const _Stopped();
-          caughtUp = true;
+          // Commits first; the batch stops without saving the token (the
+          // new pair's open walk lists its messages, §4).
           final result = await _crypto.catchUpLocked(id, priority: priority);
           if (result == CatchUpResult.waitingForWelcome) waiting = true;
-          if (!pass.live) throw const _Stopped();
-          step = await _one(pass, id, messages[i], mode, epoch, saveToken);
-          // Still above the group after one catch-up: the next pull.
-          if (step == _Step.later) step = _Step.stop;
+          all = false;
+          break;
         }
         if (step == _Step.stop) {
           all = false;
@@ -488,14 +375,10 @@ class MessageReceiver implements EpochMessageSink {
         }
         if (step == _Step.wrote) {
           changed = true;
-          if (saveToken != null) tokenSaved = true;
+          if (last) tokenSaved = true;
         }
       }
-      // The token goes with the last message's transaction; when that wrote
-      // nothing (or the batch is empty), alone after it.
-      if (all && token != null && !tokenSaved) {
-        await _saveToken(pass, id, token);
-      }
+      if (all && !tokenSaved) await _saveToken(pass, id, token);
       completed = all;
     } on _Stopped {
       completed = false;
@@ -507,31 +390,43 @@ class MessageReceiver implements EpochMessageSink {
     return _BatchEnd(completed: completed, waitingForWelcome: waiting);
   }
 
-  /// Saves the live since token alone (no message of the batch wrote).
-  Future<void> _saveToken(_Pass pass, String id, String token) =>
-      _session.runWrite((v) async {
-        pass.check(v);
-        final sync =
-            (await v.conversation(id))?.sync ?? const ConversationSync();
-        // An answer without a since token keeps the stored one.
-        if (token.isEmpty || sync.sinceToken == token) return;
-        await v.transaction(
-          (tx) => tx.putConversationSync(id, sync.copyWith(sinceToken: token)),
-        );
-      });
+  /// Saves the since token alone, by compare-and-set on the stored one.
+  Future<void> _saveToken(
+    _Pass pass,
+    String id,
+    _TokenSave token,
+  ) => _session.runWrite((v) async {
+    pass.check(v);
+    final sync = (await v.conversation(id))?.sync ?? const ConversationSync();
+    // An answer without a since token keeps the stored one.
+    if (token.token.isEmpty ||
+        sync.sinceToken != token.expect ||
+        sync.sinceToken == token.token) {
+      return;
+    }
+    await v.transaction(
+      (tx) =>
+          tx.putConversationSync(id, sync.copyWith(sinceToken: token.token)),
+    );
+  });
 
   // -------------------------------------------------------------------------
   // One message
 
   /// One message, under the conversation lock, in ONE `runWrite` body.
+  /// [token]: the probe batch's since token, saved by compare-and-set with
+  /// this message's transaction. [record]: a page's walk entry, computed in
+  /// this body from the record read fresh here and written with this
+  /// message's transaction.
   Future<_Step> _one(
     _Pass pass,
     String id,
     pb.Message m,
     _Mode mode,
-    MlsPair? epoch,
-    String? saveToken,
-  ) async {
+    MlsPair? epoch, {
+    _TokenSave? token,
+    _RecordUpdate? record,
+  }) async {
     final mid = m.id;
     // Not a message of this conversation the vault can key: nothing of it.
     if (!_messageIdShape.hasMatch(mid) ||
@@ -547,12 +442,24 @@ class MessageReceiver implements EpochMessageSink {
     try {
       return await _session.runWrite((v) async {
         pass.check(v);
-        final record = await v.conversation(id);
-        final sync = record?.sync ?? const ConversationSync();
+        final stored = await v.conversation(id);
+        final sync = stored?.sync ?? const ConversationSync();
         final cleared = sync.clearedAtMicros;
         // 8. At or before cleared_at: processed, never stored.
         final hidden = cleared != null && at <= cleared;
-        final write = _Write(v, id, sync, saveToken, hidden);
+        final update = record == null ? null : await record(v, sync);
+        final saveToken = token != null && sync.sinceToken == token.expect
+            ? token.token
+            : update?.sinceToken;
+        final write = _Write(
+          v,
+          id,
+          sync,
+          saveToken,
+          hidden,
+          update?.record,
+          update?.deleteGroup,
+        );
 
         // 1. A tombstone clears a stored copy and stores nothing new.
         if (m.state == MessageState.MESSAGE_STATE_REMOVED ||
@@ -575,9 +482,13 @@ class MessageReceiver implements EpochMessageSink {
           content: null,
         );
 
-        // 2. An epoch before this device joined: nothing.
-        final joined = record?.joinHighWater;
-        if (pair != null && joined != null && pair.compareTo(joined.next) < 0) {
+        // 2. An epoch before this device joined: nothing, unless it is the
+        // pair being walked (the last epoch of a kept older generation, §6).
+        final joined = stored?.joinHighWater;
+        if (pair != null &&
+            joined != null &&
+            pair.compareTo(joined.next) < 0 &&
+            pair != epoch) {
           return _Step.skipped;
         }
         // 3. Stored (any state): no engine call.
@@ -610,15 +521,26 @@ class MessageReceiver implements EpochMessageSink {
             );
           }
         }
+        // M2: this device's own send (its digest is in the sent log): never
+        // given to the engine; no row.
+        if (pair != null &&
+            ciphertext.isNotEmpty &&
+            await v.hasSent(id, pair, sentDigest(ciphertext))) {
+          _remember(rowlessKey);
+          return write.commit();
+        }
 
-        // 5. Nothing to decrypt.
-        if (m.ciphertextRemoved || ciphertext.isEmpty || pair == null) {
+        // 5. Nothing to decrypt, or more than the engine is given (M1).
+        if (m.ciphertextRemoved ||
+            ciphertext.isEmpty ||
+            ciphertext.length > kMaxCiphertextBytes ||
+            pair == null) {
           return write.commit(row: undecryptable());
         }
 
         // An epoch this device can no longer decrypt.
         if (mode == _Mode.undecryptable) {
-          if (pair.compareTo(epoch!) > 0) return _Step.skipped;
+          if (pair.compareTo(epoch!) > 0) return write.commit();
           return write.commit(row: undecryptable());
         }
 
@@ -635,7 +557,7 @@ class MessageReceiver implements EpochMessageSink {
         if (order > 0) {
           // Live: catch-up first. An epoch walk never runs catch-up: the
           // message is left for its own epoch.
-          return mode == _Mode.live ? _Step.later : _Step.skipped;
+          return mode == _Mode.live ? _Step.later : write.commit();
         }
         if (order < 0) {
           // Its keys are gone: never given to the engine; no side.
@@ -658,13 +580,13 @@ class MessageReceiver implements EpochMessageSink {
               if (!m.fromSelf) {
                 // C3: unauthenticated; a forgery. Counted, never shown.
                 if (_remember(rowlessKey)) _forgeries++;
-                return _Step.skipped;
+                return write.commit();
               }
               if (await v.hasOutboxExpecting(mid) ||
                   await v.hasSent(id, p, sentDigest(ciphertext))) {
                 // Sent by this device (its echo comes, or came, by bytes).
                 _remember(rowlessKey);
-                return _Step.skipped;
+                return write.commit();
               }
               // R7: a lost send. The epoch must advance before the next
               // encrypt.
@@ -675,7 +597,7 @@ class MessageReceiver implements EpochMessageSink {
             case MlsErrorCode.internal:
             case MlsErrorCode.deadline:
             case MlsErrorCode.unavailable:
-              // Transient: nothing stored; the next pull retries.
+              // Transient: nothing stored; the next pass retries.
               return _Step.stop;
             case MlsErrorCode.duplicate:
             case MlsErrorCode.badInput:
@@ -750,6 +672,15 @@ class MessageReceiver implements EpochMessageSink {
 
   // -------------------------------------------------------------------------
 
+  /// The receive record of [id], read with [vault] (the caller's body vault
+  /// for a write) and normalized against the vault (§3.4).
+  Future<ReceiveRecord> _readReceive(SecureVault vault, String id) async {
+    final raw = await _records.read(vault, id);
+    final sync =
+        (await vault.conversation(id))?.sync ?? const ConversationSync();
+    return raw.normalized(sync: sync, groups: await vault.groups(id));
+  }
+
   Future<_Pass?> _start() async {
     final vault = _session.vault;
     if (vault == null) return null;
@@ -777,12 +708,12 @@ class MessageReceiver implements EpochMessageSink {
     return current;
   }
 
-  /// One unit of the sync budget; false (make no call) while paused or
-  /// after a reset.
-  Future<bool> _takeUnit(BudgetPriority priority) async {
-    if (_syncBudget.paused) return false;
+  /// One unit of [budget] (waiting is allowed: call with no lock held);
+  /// false (make no call) while paused or after a reset.
+  Future<bool> _takeUnit(SyncBudget budget, BudgetPriority priority) async {
+    if (budget.paused) return false;
     try {
-      await _syncBudget.take(priority);
+      await budget.take(priority);
       return true;
     } on BudgetPaused {
       return false;
@@ -802,11 +733,11 @@ class MessageReceiver implements EpochMessageSink {
 
 /// `created_at`, then id.
 void _sort(List<pb.Message> messages) {
-  messages.sort((a, b) {
-    final t = _createdMicros(a).compareTo(_createdMicros(b));
-    return t != 0 ? t : a.id.compareTo(b.id);
-  });
+  messages.sort((a, b) => _posOf(a).compareTo(_posOf(b)));
 }
+
+/// A message's listing position (`created_at` micros, then id).
+WalkPos _posOf(pb.Message m) => WalkPos(_createdMicros(m), m.id);
 
 /// The largest whole second whose microseconds stay exact on the web
 /// (below 2^53).
@@ -837,14 +768,22 @@ bool _sameBytes(List<int> a, List<int> b) {
   return diff == 0;
 }
 
-/// A refused since token (distinct from a failed call).
-final pb.ListMessagesResponse _retired = pb.ListMessagesResponse();
-
 enum _Mode { live, epoch, undecryptable }
 
 /// `wrote`: one transaction ran; `skipped`: nothing was written; `later`: a
 /// pair above the group's (live only); `stop`: the batch ends here.
 enum _Step { wrote, skipped, later, stop }
+
+/// A since token to save, only when the stored token is still [expect].
+typedef _TokenSave = ({String token, String expect});
+
+/// What a page's last transaction writes besides its message, computed in
+/// the write body from the record read fresh there: the record, a since
+/// token (§4 rule 2) and an orphan group to delete (§6). Null: the walk's
+/// entry is no longer the one the page was listed for; write nothing.
+typedef _RecordUpdate =
+    Future<({ReceiveRecord record, String? sinceToken, int? deleteGroup})?>
+    Function(SecureVault v, ConversationSync sync);
 
 class _BatchEnd {
   const _BatchEnd({required this.completed, required this.waitingForWelcome});
@@ -853,8 +792,8 @@ class _BatchEnd {
   final bool waitingForWelcome;
 }
 
-/// The vault the operation started with is no longer the session's, or an
-/// epoch walk could not reach its end. Carries nothing.
+/// The vault the operation started with is no longer the session's.
+/// Carries nothing.
 class _Stopped implements Exception {
   const _Stopped();
 }
@@ -881,16 +820,27 @@ class _Pass {
 
 /// The one transaction of one message, inside its runWrite body: the row
 /// (dropped at or before cleared_at), the group state, the outbox delete,
-/// the sync record (the since token of the batch's last message, "epoch
-/// must advance"), read fresh in that body. No `toString`.
+/// the sync record (a since token, "epoch must advance"), the receive record
+/// and an orphan group's delete, all read or computed fresh in that body.
+/// No `toString`.
 class _Write {
-  _Write(this.vault, this.id, this.sync, this.token, this.hidden);
+  _Write(
+    this.vault,
+    this.id,
+    this.sync,
+    this.token,
+    this.hidden,
+    this.record,
+    this.deleteGroup,
+  );
 
   final SecureVault vault;
   final String id;
   final ConversationSync sync;
   final String? token;
   final bool hidden;
+  final ReceiveRecord? record;
+  final int? deleteGroup;
 
   Future<_Step> commit({
     StoredMessage? row,
@@ -909,6 +859,7 @@ class _Write {
         group == null &&
         deleteOutbox == null &&
         tombstone == null &&
+        record == null &&
         !needSync) {
       return _Step.skipped;
     }
@@ -919,6 +870,10 @@ class _Write {
         await tx.setMessageState(id, tombstone.$1, tombstone.$2);
       }
       if (deleteOutbox != null) await tx.deleteOutbox(deleteOutbox);
+      if (deleteGroup != null) await tx.deleteGroup(id, deleteGroup!);
+      if (record != null) {
+        await tx.putSetting(ReceiveRecords.keyOf(id), record!.encode());
+      }
       if (needSync) {
         await tx.putConversationSync(
           id,

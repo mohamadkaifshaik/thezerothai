@@ -64,6 +64,43 @@ class ConversationContext {
   /// it; null before one (`describeState`'s "server's last known
   /// generation").
   MlsPair? serverPair;
+
+  // --- the receiver's walks (design rev 3 §2-§5; memory only) -------------
+
+  /// The receive pass running now (single flight): a second `pullLive`
+  /// joins it. The receiver types it; null when none runs.
+  Future<Object?>? running;
+
+  /// Bumped by every write of the receive record and every stored tombstone;
+  /// a page listed without the lock is applied only when it is unchanged.
+  int serial = 0;
+
+  /// The since token of the last probe page that was not processed, with
+  /// the stored token it was asked with and when it was fetched (the
+  /// receiver's call sequence). Saved by §4 rule 2 only.
+  ({String token, String sentWith, int seq})? endToken;
+
+  /// The sequence number of the open walk's last listing start this run.
+  int? openListingSeq;
+
+  /// The sink left a close (or orphan) walk unfinished: the next pass
+  /// continues it without the lock.
+  bool epochWalkPending = false;
+
+  /// The walk backoff after an order violation, a missing order echo, an
+  /// RPC failure or the restart cap: no walk before [walkBackoffUntil];
+  /// [walkBackoff] doubles from 1 min to 1 h, reset by an applied page.
+  DateTime? walkBackoffUntil;
+  Duration? walkBackoff;
+
+  /// Refused page tokens this run (at most 2 restarts, §3.2).
+  int walkRestarts = 0;
+
+  /// Counters of this run: pages without the order echo, pages out of
+  /// order, and pages listed without the lock that were discarded.
+  int orderMissing = 0;
+  int orderViolation = 0;
+  int discardedPages = 0;
 }
 
 /// The [ConversationContext] of every conversation, by id.

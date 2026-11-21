@@ -286,6 +286,18 @@ void main() {
     expect(r.mlsEpoch, Int64(6));
     expect(r.pageSize, 20);
     expect(r.pageToken, 'tok');
+    expect(r.order, EpochMessageOrder.EPOCH_MESSAGE_ORDER_UNSPECIFIED);
+  });
+
+  test('listEpochMessages sends the created_at order when asked', () async {
+    await repo.listEpochMessages(
+      conversationId: _conv,
+      pair: const MlsPair(2, 6),
+      pageSize: 50,
+      order: EpochMessageOrder.EPOCH_MESSAGE_ORDER_CREATED_AT,
+    );
+    final r = requests.single as pb.ListEpochMessagesRequest;
+    expect(r.order, EpochMessageOrder.EPOCH_MESSAGE_ORDER_CREATED_AT);
   });
 
   test('listWelcomes sends the device', () async {

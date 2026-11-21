@@ -1,0 +1,614 @@
+part of 'message_receiver.dart';
+
+/// The three walk slots of the receive record (§3.1).
+enum _Slot { open, close, orphan }
+
+WalkEntry? _slotOf(ReceiveRecord r, _Slot slot) => switch (slot) {
+  _Slot.open => r.open,
+  _Slot.close => r.close,
+  _Slot.orphan => r.orphan,
+};
+
+ReceiveRecord _withSlot(ReceiveRecord r, _Slot slot, WalkEntry? w) =>
+    switch (slot) {
+      _Slot.open => r.copyWith(open: w),
+      _Slot.close => r.copyWith(close: w),
+      _Slot.orphan => r.copyWith(orphan: w),
+    };
+
+/// What one walk step (or one probe) ended with. [outcome] set: the pass
+/// stops with it.
+class _StepEnd {
+  const _StepEnd._(this.kind, {this.outcome, this.ended = false});
+
+  static const _StepEnd stale = _StepEnd._(_StepKind.stale);
+  static const _StepEnd restarted = _StepEnd._(_StepKind.restarted);
+  static const _StepEnd advanced = _StepEnd._(_StepKind.applied);
+  static const _StepEnd finished = _StepEnd._(_StepKind.applied, ended: true);
+
+  factory _StepEnd.stop(ReceiveOutcome outcome) =>
+      _StepEnd._(_StepKind.stop, outcome: outcome);
+
+  final _StepKind kind;
+  final ReceiveOutcome? outcome;
+  final bool ended;
+}
+
+enum _StepKind { applied, stale, restarted, stop }
+
+/// What the probe did (§4).
+class _Probe {
+  _Probe({this.outcome, this.fastPath = false, this.pulled = false});
+
+  /// The pass stops with this (rate limited, budget paused, a failed call,
+  /// a retired token).
+  final ReceiveOutcome? outcome;
+
+  /// The page was processed on the fast path (§4 rule 1).
+  final bool fastPath;
+
+  /// The fast path saved the token or found it already stored.
+  final bool pulled;
+  bool waitingForWelcome = false;
+}
+
+extension _Walks on MessageReceiver {
+  /// One pass (§2). Never throws.
+  Future<ReceiveOutcome> _runPass(String id, BudgetPriority priority) async {
+    var welcomes = false;
+    ReceiveOutcome outcome;
+    try {
+      outcome = await _passSteps(id, priority, (w) => welcomes = w);
+    } on Object catch (e, s) {
+      _reportIfBug(e, s, 'receive.live');
+      outcome = ReceiveOutcome.stopped(_now().add(kWalkBackoff));
+    }
+    // Catch-up's held poll stops at a page that lacks the welcome: a welcome
+    // it did not find is looked for by an unheld poll, after the lock is
+    // released (never a public entry under a held lock).
+    if (welcomes) {
+      try {
+        await _crypto.processWelcomes(priority: priority);
+      } on Object catch (e, s) {
+        _reportIfBug(e, s, 'receive.welcomes');
+      }
+    }
+    return outcome;
+  }
+
+  Future<ReceiveOutcome> _passSteps(
+    String id,
+    BudgetPriority priority,
+    void Function(bool) onWelcomes,
+  ) async {
+    final pass = await _start();
+    if (pass == null) return ReceiveOutcome.stopped(_now().add(kWalkBackoff));
+    // A provisional group only, or none: catch-up and the welcomes own it.
+    if (await _currentPair(pass.vault, id) == null) {
+      return ReceiveOutcome.complete;
+    }
+    final context = _contexts.of(id);
+
+    // 1. The probe.
+    final probe = await _probe(pass, id, priority);
+    onWelcomes(probe.waitingForWelcome);
+    if (probe.outcome != null) return probe.outcome!;
+
+    // 2. The reconcile walk: step 2 (an armed entry waits durably).
+
+    // 3-5. The walks, one allowance across them.
+    final until = context.walkBackoffUntil;
+    if (until != null && _now().isBefore(until)) {
+      return ReceiveOutcome.stopped(until);
+    }
+    var left = priority == BudgetPriority.user
+        ? 2 * kWalkPagesPerPass
+        : kWalkPagesPerPass;
+    int take() => left > 0 ? left-- : 0;
+    for (final slot in const [_Slot.close, _Slot.orphan]) {
+      final r = await _walk(pass, id, slot, priority, take);
+      if (r != null) return r;
+    }
+    final record = await _readReceive(pass.vault, id);
+    final open = record.open;
+    final lt = open?.lt;
+    final settleDue =
+        probe.fastPath &&
+        (lt == null ||
+            _now().microsecondsSinceEpoch - lt >=
+                kOpenSettleEvery.inMicroseconds);
+    var pulled = probe.pulled;
+    final r = await _walk(
+      pass,
+      id,
+      _Slot.open,
+      priority,
+      take,
+      newListing: context.endToken != null || settleDue,
+      onTokenSaved: () => pulled = true,
+    );
+    if (r != null) return r;
+
+    // 6. Deferred retries: step 2.
+
+    if (pulled) {
+      // M10: a pass that saved the since token (or found it stored) at the
+      // group's current pair.
+      final pair = await _currentPair(pass.vault, id);
+      if (pair != null) {
+        context
+          ..livePulledAt = pair
+          ..syncedSinceStart =
+              !context.attributionPending && context.serverPair == pair;
+      }
+    }
+    final after = await _readReceive(pass.vault, id);
+    final walksLeft =
+        (after.close != null && !after.close!.end) ||
+        after.orphan != null ||
+        (after.open != null && !after.open!.end);
+    return pulled && !walksLeft ? ReceiveOutcome.complete : ReceiveOutcome.more;
+  }
+
+  // -------------------------------------------------------------------------
+  // The probe (§4)
+
+  Future<_Probe> _probe(_Pass pass, String id, BudgetPriority priority) async {
+    final context = _contexts.of(id);
+    final limited = _messaging.rateLimitedFor();
+    if (limited != null) {
+      return _Probe(outcome: ReceiveOutcome.held(_retryAt(limited)));
+    }
+    if (!await _takeUnit(_readBudget, priority)) {
+      return _Probe(outcome: ReceiveOutcome.held(_now().add(kWalkBackoff)));
+    }
+    final vault = pass.vault;
+    final token = (await vault.conversation(id))?.sync.sinceToken ?? '';
+    final before = await _readReceive(vault, id);
+    final current = await _currentPair(vault, id);
+    final open = before.open;
+    final openEnded = open != null && open.pair == current && open.end;
+    final serial = context.serial;
+    final sent = token.isNotEmpty ? token : before.anchor;
+    final pb.ListMessagesResponse page;
+    try {
+      page = await _messaging.listMlsMessages(
+        conversationId: id,
+        sinceToken: sent,
+      );
+    } on ValidationException catch (e) {
+      if (e.field == 'since_token' && sent.isNotEmpty) {
+        await _locks.run(id, () => _retireLocked(pass, id, token));
+        return _Probe(outcome: ReceiveOutcome.more);
+      }
+      return _Probe(outcome: ReceiveOutcome.stopped(_now().add(kWalkBackoff)));
+    } on RateLimitedException catch (e) {
+      final until = _retryAt(e);
+      _readBudget.pauseUntil(until);
+      return _Probe(outcome: ReceiveOutcome.held(until));
+    } on Object catch (e, s) {
+      _reportIfBug(e, s, 'receive.listMessages');
+      return _Probe(outcome: ReceiveOutcome.stopped(_now().add(kWalkBackoff)));
+    }
+    final seq = ++_seq;
+    if (page.hasConversation()) _contexts.note(page.conversation);
+    return _locks.run(id, () async {
+      if (!pass.live) {
+        return _Probe(
+          outcome: ReceiveOutcome.stopped(_now().add(kWalkBackoff)),
+        );
+      }
+      if (token.isEmpty) {
+        // §8.2: the anchor and the armed reconcile entry (its listing is
+        // step 2's); the page is not processed.
+        await _armLocked(pass, id, page.sinceToken);
+        context.endToken = page.sinceToken.isEmpty
+            ? null
+            : (token: page.sinceToken, sentWith: '', seq: seq);
+        return _Probe();
+      }
+      if (page.gapPageToken.isEmpty && openEnded && context.serial == serial) {
+        // Rule 1: the fast path.
+        final messages = [...page.messages];
+        _sort(messages);
+        final end = await _runBatch(
+          pass,
+          id,
+          messages,
+          priority: priority,
+          token: (token: page.sinceToken, expect: token),
+        );
+        return _Probe(fastPath: true, pulled: end.completed)
+          ..waitingForWelcome = end.waitingForWelcome;
+      }
+      // Not processed: its messages come through the open walk, in order;
+      // its token is saved by rule 2 once that walk ends.
+      context.endToken = page.sinceToken.isEmpty
+          ? null
+          : (token: page.sinceToken, sentWith: token, seq: seq);
+      return _Probe();
+    });
+  }
+
+  /// A retired since token (§8.2): the token is cleared and the reconcile
+  /// entry reset (unarmed) in one transaction; a retired anchor is cleared.
+  Future<void> _retireLocked(_Pass pass, String id, String token) async {
+    if (!pass.live) return;
+    _contexts.of(id).endToken = null;
+    await _session.runWrite((v) async {
+      pass.check(v);
+      final sync = (await v.conversation(id))?.sync ?? const ConversationSync();
+      if (sync.sinceToken != token) return;
+      final record = await _readReceive(v, id);
+      await v.transaction((tx) async {
+        if (token.isEmpty) {
+          await _records.putIn(tx, id, record.copyWith(anchor: ''));
+          return;
+        }
+        await tx.putConversationSync(id, sync.copyWith(sinceToken: ''));
+        await _records.putIn(
+          tx,
+          id,
+          record.copyWith(rec: const ReconcileEntry(armed: false)),
+        );
+      });
+    });
+    _contexts.of(id).serial++;
+  }
+
+  /// The probe with an empty since token: [anchor] (the answer's token)
+  /// becomes the anchor and the reconcile entry is armed, in one
+  /// transaction (§8.2).
+  Future<void> _armLocked(_Pass pass, String id, String anchor) async {
+    await _session.runWrite((v) async {
+      pass.check(v);
+      final sync = (await v.conversation(id))?.sync ?? const ConversationSync();
+      if (sync.sinceToken.isNotEmpty) return;
+      final record = await _readReceive(v, id);
+      final rec = record.rec;
+      final armed = ReconcileEntry(
+        armed: true,
+        t: rec?.t ?? '',
+        n: rec?.n ?? 0,
+        l: rec?.l ?? '',
+      );
+      await v.transaction(
+        (tx) => _records.putIn(
+          tx,
+          id,
+          record.copyWith(
+            rec: armed,
+            anchor: anchor.isEmpty || anchor.length > kMaxTokenChars
+                ? record.anchor
+                : anchor,
+          ),
+        ),
+      );
+    });
+    _contexts.of(id).serial++;
+  }
+
+  // -------------------------------------------------------------------------
+  // A walk (§3, §5)
+
+  /// Walks [slot] with the pages [take] still allows (each step takes one).
+  /// [newListing]: a walk at its end lists once more from its settle token
+  /// (for §4 rule 2 or the settle refresh). Null: done for this pass;
+  /// otherwise the pass ends with the outcome.
+  Future<ReceiveOutcome?> _walk(
+    _Pass pass,
+    String id,
+    _Slot slot,
+    BudgetPriority priority,
+    int Function() take, {
+    bool newListing = false,
+    void Function()? onTokenSaved,
+  }) async {
+    var again = newListing;
+    while (true) {
+      final record = await _readReceive(pass.vault, id);
+      final w = _slotOf(record, slot);
+      if (w == null || (w.end && !again)) return null;
+      if (take() == 0) return ReceiveOutcome.more;
+      final step = await _walkStep(pass, id, slot, w, priority, onTokenSaved);
+      switch (step.kind) {
+        case _StepKind.applied:
+          again = false;
+          if (step.ended) return null;
+        case _StepKind.stale:
+          _contexts.of(id).discardedPages++;
+        case _StepKind.restarted:
+          break;
+        case _StepKind.stop:
+          return step.outcome;
+      }
+    }
+  }
+
+  /// One page of [slot] (§2 "a walk step"): [w] is the snapshot read with no
+  /// lock; the page is listed with no lock, then applied under the lock only
+  /// when the snapshot still holds (§5.1).
+  Future<_StepEnd> _walkStep(
+    _Pass pass,
+    String id,
+    _Slot slot,
+    WalkEntry w,
+    BudgetPriority priority,
+    void Function()? onTokenSaved,
+  ) async {
+    final context = _contexts.of(id);
+    final serial = context.serial;
+    if (!await _takeUnit(_syncBudget, priority)) {
+      return _StepEnd.stop(ReceiveOutcome.held(_now().add(kWalkBackoff)));
+    }
+    final seq = ++_seq;
+    final listed = await _listOrdered(id, w);
+    if (listed.outcome != null) return _StepEnd.stop(listed.outcome!);
+    return _locks.run(id, () async {
+      if (!pass.live) return _StepEnd.stale;
+      final fresh = _slotOf(await _readReceive(pass.vault, id), slot);
+      if (fresh == null ||
+          fresh.pair != w.pair ||
+          fresh.t != w.t ||
+          context.serial != serial) {
+        return _StepEnd.stale;
+      }
+      if (listed.page == null) return _restartLocked(pass, id, slot, fresh);
+      return _applyPageLocked(
+        pass,
+        id,
+        slot,
+        fresh,
+        listed.page!,
+        listSeq: seq,
+        onTokenSaved: onTokenSaved,
+      );
+    });
+  }
+
+  /// One ordered page at [w]'s token. `page` null with no outcome: the token
+  /// was refused (or an answer's token is over [kMaxTokenChars]).
+  Future<({pb.ListEpochMessagesResponse? page, ReceiveOutcome? outcome})>
+  _listOrdered(String id, WalkEntry w) async {
+    try {
+      final page = await _messaging.listEpochMessages(
+        conversationId: id,
+        pair: w.pair,
+        pageSize: kEpochPageSize,
+        pageToken: w.t,
+        order: EpochMessageOrder.EPOCH_MESSAGE_ORDER_CREATED_AT,
+      );
+      if (page.nextPageToken.length > kMaxTokenChars ||
+          page.resumePageToken.length > kMaxTokenChars) {
+        return (page: null, outcome: null);
+      }
+      return (page: page, outcome: null);
+    } on ValidationException catch (e) {
+      if (e.field == 'page_token' && w.t.isNotEmpty) {
+        return (page: null, outcome: null);
+      }
+      return (
+        page: null,
+        outcome: ReceiveOutcome.stopped(_now().add(kWalkBackoff)),
+      );
+    } on RateLimitedException catch (e) {
+      final until = _retryAt(e);
+      _syncBudget.pauseUntil(until);
+      return (page: null, outcome: ReceiveOutcome.held(until));
+    } on Object catch (e, s) {
+      _reportIfBug(e, s, 'receive.listEpochMessages');
+      return (
+        page: null,
+        outcome: ReceiveOutcome.stopped(_now().add(kWalkBackoff)),
+      );
+    }
+  }
+
+  /// A refused token (§3.2): the walk lists again from the start, at most
+  /// [kWalkRestartsPerRun] times a run; then the walk backs off.
+  Future<_StepEnd> _restartLocked(
+    _Pass pass,
+    String id,
+    _Slot slot,
+    WalkEntry fresh,
+  ) async {
+    final context = _contexts.of(id);
+    if (++context.walkRestarts > kWalkRestartsPerRun) {
+      return _StepEnd.stop(_backOff(context));
+    }
+    await _session.runWrite((v) async {
+      pass.check(v);
+      final record = await _readReceive(v, id);
+      final now = _slotOf(record, slot);
+      if (now == null || now.pair != fresh.pair || now.t != fresh.t) return;
+      await v.transaction(
+        (tx) =>
+            _records.putIn(tx, id, _withSlot(record, slot, now.restarted())),
+      );
+    });
+    context.serial++;
+    return _StepEnd.restarted;
+  }
+
+  /// Applies [page] to [slot]'s entry [w] (read fresh under the held lock):
+  /// the order check, the group check, then each message oldest first in its
+  /// own `runWrite`; the last one's transaction writes the new entry (or a
+  /// transaction alone does). Shared by the pass and the sink.
+  Future<_StepEnd> _applyPageLocked(
+    _Pass pass,
+    String id,
+    _Slot slot,
+    WalkEntry w,
+    pb.ListEpochMessagesResponse page, {
+    required int listSeq,
+    void Function()? onTokenSaved,
+  }) async {
+    final context = _contexts.of(id);
+    // §3.3: the order check, before anything is processed.
+    if (page.messages.length > kEpochPageSize) {
+      context.orderViolation++;
+      return _StepEnd.stop(_backOff(context));
+    }
+    if (page.order != EpochMessageOrder.EPOCH_MESSAGE_ORDER_CREATED_AT) {
+      context.orderMissing++;
+      return _StepEnd.stop(_backOff(context));
+    }
+    if (!_inOrder(page.messages, w)) {
+      context.orderViolation++;
+      return _StepEnd.stop(_backOff(context));
+    }
+    // §5.1 rule 4: the group for the pair.
+    final group = await pass.vault.group(id, w.pair.generation);
+    final usable =
+        group != null && !group.provisional && group.epoch == w.pair.epoch;
+    final _Mode mode;
+    var entry = w;
+    if (group == null && slot != _Slot.open) {
+      // Its keys are gone: rows for the unlisted rest, no engine.
+      mode = _Mode.undecryptable;
+      if (slot == _Slot.close) {
+        entry = entry.copyWith(mode: WalkMode.undecryptable);
+      }
+    } else if (!usable) {
+      // Moved past the pair (ended), provisional, or gone for `open`: the
+      // record is normalized at its next read.
+      return _StepEnd.stale;
+    } else if (slot == _Slot.close && w.mode == WalkMode.undecryptable) {
+      mode = _Mode.undecryptable;
+    } else {
+      mode = _Mode.epoch;
+    }
+    final cleared = _clearedAtOf(page);
+    if (cleared != null) await _saveClearedAt(pass, id, cleared);
+
+    final last = page.messages.isEmpty ? null : _posOf(page.messages.last);
+    final next = entry.afterPage(
+      next: page.nextPageToken,
+      resume: page.resumePageToken,
+      settled: page.resumeSettled,
+      last: last,
+      open: slot == _Slot.open,
+      nowLocal: _now().microsecondsSinceEpoch,
+    );
+    if (slot == _Slot.open && w.r) context.openListingSeq = listSeq;
+    final end = context.endToken;
+    final saveEnd =
+        slot == _Slot.open &&
+        next.end &&
+        end != null &&
+        (context.openListingSeq ?? -1) > end.seq;
+    final orphanFinal = slot == _Slot.orphan && next.end;
+    var tokenWritten = false;
+    Future<({ReceiveRecord record, String? sinceToken, int? deleteGroup})?>
+    update(SecureVault v, ConversationSync sync) async {
+      final record = await _readReceive(v, id);
+      final now = _slotOf(record, slot);
+      if (now == null || now.pair != w.pair || now.t != w.t) return null;
+      final token = saveEnd && sync.sinceToken == end.sentWith
+          ? end.token
+          : null;
+      tokenWritten = token != null;
+      return (
+        record: _withSlot(record, slot, orphanFinal ? null : next),
+        sinceToken: token,
+        deleteGroup: orphanFinal && group != null ? w.pair.generation : null,
+      );
+    }
+
+    var written = false;
+    var changed = false;
+    final messages = page.messages;
+    for (var i = 0; i < messages.length; i++) {
+      final isLast = i == messages.length - 1;
+      final step = await _one(
+        pass,
+        id,
+        messages[i],
+        mode,
+        w.pair,
+        record: isLast ? update : null,
+      );
+      if (step == _Step.stop) {
+        if (changed) _onChanged(id);
+        // As built: nothing stored for this message, the cursor kept.
+        return _StepEnd.stop(
+          ReceiveOutcome.stopped(_now().add(kEngineBackoff)),
+        );
+      }
+      if (step == _Step.wrote) {
+        changed = true;
+        if (isLast) written = true;
+      }
+    }
+    if (!written) written = await _writeAlone(pass, id, update);
+    if (changed) _onChanged(id);
+    if (!written) return _StepEnd.stale;
+    context.serial++;
+    context.walkBackoff = null;
+    if (saveEnd) {
+      context.endToken = null;
+      if (tokenWritten) onTokenSaved?.call();
+    }
+    if (slot != _Slot.open && next.end) context.epochWalkPending = false;
+    return next.end ? _StepEnd.finished : _StepEnd.advanced;
+  }
+
+  /// A page's record update in a transaction of its own (its last message
+  /// wrote nothing, or the page is empty). False: nothing was written.
+  Future<bool> _writeAlone(_Pass pass, String id, _RecordUpdate update) =>
+      _session.runWrite((v) async {
+        pass.check(v);
+        final sync =
+            (await v.conversation(id))?.sync ?? const ConversationSync();
+        final u = await update(v, sync);
+        if (u == null) return false;
+        final token = u.sinceToken;
+        await v.transaction((tx) async {
+          if (u.deleteGroup != null) await tx.deleteGroup(id, u.deleteGroup!);
+          await _records.putIn(tx, id, u.record);
+          if (token != null && token.isNotEmpty && token != sync.sinceToken) {
+            await tx.putConversationSync(id, sync.copyWith(sinceToken: token));
+          }
+        });
+        return true;
+      });
+
+  /// §3.3: strictly ascending by (created_at, id); a continuation page
+  /// starts after [w]'s last position, a listing-start page after its
+  /// settle floor.
+  bool _inOrder(List<pb.Message> messages, WalkEntry w) {
+    if (messages.isEmpty) return true;
+    WalkPos? previous;
+    for (final m in messages) {
+      final p = _posOf(m);
+      if (previous != null && p.compareTo(previous) <= 0) return false;
+      previous = p;
+    }
+    final first = _posOf(messages.first);
+    final l = w.l;
+    final f = w.f;
+    if (!w.r && l != null && first.compareTo(l) <= 0) return false;
+    if (w.r && f != null && first.compareTo(f) <= 0) return false;
+    return true;
+  }
+
+  /// The walk backoff (1 min doubling to 1 h, memory).
+  ReceiveOutcome _backOff(ConversationContext context) {
+    final previous = context.walkBackoff;
+    var d = previous == null ? kWalkBackoff : previous * 2;
+    if (d > kWalkBackoffMax) d = kWalkBackoffMax;
+    context.walkBackoff = d;
+    final until = _now().add(d);
+    context.walkBackoffUntil = until;
+    return ReceiveOutcome.stopped(until);
+  }
+
+  /// A server retry time, 1 min without a hint, capped at
+  /// [kMaxServerRetryWait].
+  DateTime _retryAt(RateLimitedException e) {
+    var wait = e.retryAfter ?? const Duration(minutes: 1);
+    if (wait > kMaxServerRetryWait) wait = kMaxServerRetryWait;
+    if (wait.isNegative) wait = Duration.zero;
+    return _now().add(wait);
+  }
+}

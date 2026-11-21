@@ -48,6 +48,10 @@ class _Sink implements EpochMessageSink {
   }) async {
     calls.add('undecryptable ${pair.generation}:${pair.epoch}');
   }
+
+  /// A recorded walk always ends when its call returns.
+  @override
+  Future<bool> epochWalkDone(String conversationId, MlsPair pair) async => true;
 }
 
 /// A sync budget that counts the units taken.
@@ -2463,8 +2467,8 @@ void main() {
       expect(await v.group(_c1, 1), isNull);
     });
 
-    test('a lower generation left behind by a switch is marked undecryptable '
-        'and deleted at the join', () async {
+    test('a lower generation left behind by a switch is walked with its kept '
+        'group and deleted at the join', () async {
       await join(_c1);
       final v = rig.device.vault;
       // Generation 2 stored beside generation 1, which catch-up never walks
@@ -2485,8 +2489,10 @@ void main() {
 
       expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
 
-      expect(sink.calls, contains('undecryptable 1:1'));
-      expect(sink.calls, isNot(contains('complete 1:1 at 1')));
+      // Receive-walks §6: the orphan's last epoch is completed (decrypted
+      // with its kept group), never marked undecryptable.
+      expect(sink.calls, contains('complete 1:1 at 1'));
+      expect(sink.calls, isNot(contains('undecryptable 1:1')));
       expect(await v.group(_c1, 3), isNotNull);
       expect(await v.group(_c1, 2), isNull);
       expect(await v.group(_c1, 1), isNull);

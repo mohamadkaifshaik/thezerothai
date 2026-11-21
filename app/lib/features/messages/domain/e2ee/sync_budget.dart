@@ -5,6 +5,11 @@ import 'dart:collection';
 /// `ListWelcomes` and `AckWelcomes`, divided by the number of own devices (R8).
 const int kSyncCallsPerMinute = 60;
 
+/// Calls a minute for the receiver's probe (`ListMessages`, which the server
+/// limits with the other list reads), divided by the number of own devices
+/// (receive-walks design §1, §9: the read budget).
+const int kMlsReadCallsPerMinute = 10;
+
 /// Calls a minute for `ListMyKeyDevices` and `GetKeyDevices`, divided by the
 /// number of own devices (R8, KP).
 const int kDirectoryCallsPerMinute = 60;
@@ -95,6 +100,18 @@ class SyncBudget {
     return waiter.future;
   }
 
+  /// One unit now, or false: true only when a unit is free at this moment,
+  /// the budget is not paused and no [BudgetPriority.user] call is waiting.
+  /// Never queues and never waits (for work under a held lock).
+  bool tryTake(BudgetPriority priority) {
+    final now = _now();
+    if (_pauseEnd(now) != null || _userWaiting.isNotEmpty) return false;
+    _prune(now);
+    if (_calls.length >= _limit) return false;
+    _calls.add(now);
+    return true;
+  }
+
   /// RATE_LIMITED: no call before [until], capped at now +
   /// [kMaxServerRetryWait]. A later pause never shortens an earlier one.
   /// When the budget ends up paused (the capped time is after now), every
@@ -137,10 +154,8 @@ class SyncBudget {
     }
   }
 
-  void _pump() {
-    _timer?.cancel();
-    _timer = null;
-    final now = _now();
+  /// Drops the calls older than the window.
+  void _prune(DateTime now) {
     // A clock set back leaves stamps in the future: such a call counts as
     // made now, so the wait is never longer than one window.
     if (_calls.isNotEmpty && _calls.last.isAfter(now)) {
@@ -152,6 +167,13 @@ class SyncBudget {
     while (_calls.isNotEmpty && now.difference(_calls.first) >= _window) {
       _calls.removeFirst();
     }
+  }
+
+  void _pump() {
+    _timer?.cancel();
+    _timer = null;
+    final now = _now();
+    _prune(now);
     while (_userWaiting.isNotEmpty || _backgroundWaiting.isNotEmpty) {
       final until = _pauseEnd(now);
       if (until != null) {

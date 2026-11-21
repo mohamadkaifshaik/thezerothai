@@ -34,4 +34,21 @@ void main() {
     expect(seen, (a: true, b: false));
     expect(locks.isHeld('a'), isFalse);
   });
+
+  test('holdToken differs between two holds and is null outside', () async {
+    final locks = ConversationLocks();
+    expect(locks.holdToken('a'), isNull);
+    final first = await locks.run('a', () async {
+      final before = locks.holdToken('a');
+      await Future<void>.delayed(Duration.zero);
+      expect(locks.holdToken('a'), same(before));
+      expect(locks.holdToken('b'), isNull);
+      return before;
+    });
+    final second = await locks.run('a', () async => locks.holdToken('a'));
+    expect(first, isNotNull);
+    expect(second, isNotNull);
+    expect(identical(first, second), isFalse);
+    expect(locks.holdToken('a'), isNull);
+  });
 }

@@ -277,4 +277,34 @@ void main() {
       expect(rig.served, ['a', 'b']);
     });
   });
+
+  test('tryTake is false when no unit is free and never queues', () {
+    fakeAsync((async) {
+      final rig = _Rig(async, perMinute: 2);
+      expect(rig.budget.tryTake(BudgetPriority.background), isTrue);
+      expect(rig.budget.tryTake(BudgetPriority.user), isTrue);
+      // The window is full: false, and nothing waits (no timer).
+      expect(rig.budget.tryTake(BudgetPriority.user), isFalse);
+      expect(async.pendingTimers, isEmpty);
+      rig.take('queued');
+      rig.settle();
+      expect(rig.served, isEmpty);
+      async.elapse(const Duration(minutes: 1));
+      expect(rig.served, ['queued']);
+      // A queued user waiter keeps the free unit: tryTake leaves it.
+      rig.take('u1', BudgetPriority.user);
+      rig.take('u2', BudgetPriority.user);
+      rig.settle();
+      expect(rig.served, ['queued', 'u1']);
+      expect(rig.budget.tryTake(BudgetPriority.background), isFalse);
+      // A paused budget gives nothing.
+      async.elapse(const Duration(minutes: 1));
+      expect(rig.served, ['queued', 'u1', 'u2']);
+      rig.budget.pauseUntil(rig.now().add(const Duration(minutes: 5)));
+      async.elapse(const Duration(minutes: 2));
+      expect(rig.budget.tryTake(BudgetPriority.user), isFalse);
+      async.elapse(const Duration(minutes: 4));
+      expect(rig.budget.tryTake(BudgetPriority.user), isTrue);
+    });
+  });
 }

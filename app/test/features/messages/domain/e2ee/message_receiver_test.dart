@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:dzeroth/core/crypto/crypto_types.dart';
@@ -5,7 +6,10 @@ import 'package:dzeroth/core/crypto/mls_derivations.dart';
 import 'package:dzeroth/core/crypto/mls_pair.dart';
 import 'package:dzeroth/core/vault/secure_vault.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_crypto.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/e2ee_types.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/message_content_codec.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/message_receiver.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/receive_record.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/sync_budget.dart';
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
@@ -167,6 +171,46 @@ void main() {
 
   int processedCount(List<int> wire) =>
       rig.device.engine.processed.where((w) => rigEq(w, wire)).length;
+
+  /// Bob's messages [from] .. [from] + [count] - 1 at (1, current epoch),
+  /// one millisecond apart from [start] after t0.
+  Future<List<pb.Message>> sayMany(
+    int from,
+    int count, {
+    Duration start = Duration.zero,
+  }) async => [
+    for (var i = 0; i < count; i++)
+      await say(bobGroup(), from + i, at: start + Duration(milliseconds: i)),
+  ];
+
+  /// The stored receive record, as stored (not normalized).
+  Future<ReceiveRecord> receiveRecord() =>
+      ReceiveRecords().read(rig.device.vault, _c1);
+
+  /// Stores [r] as the receive record (as a transaction would leave it).
+  Future<void> putReceiveRecord(ReceiveRecord r) =>
+      rig.device.vault.transaction((tx) => ReceiveRecords().putIn(tx, _c1, r));
+
+  /// The ordered epoch requests for [pair] (page tokens, in order).
+  List<String> orderedTokens(MlsPair pair) => [
+    for (final r in rig.server.epochRequests)
+      if (r.pair == pair &&
+          r.order == EpochMessageOrder.EPOCH_MESSAGE_ORDER_CREATED_AT)
+        r.token,
+  ];
+
+  int epochCalls() =>
+      rig.server.calls.where((c) => c == 'listEpochMessages').length;
+
+  /// A first pull with nothing to receive: the open walk ends and the since
+  /// token is saved (later probes take the fast path).
+  Future<String> prime() async {
+    final out = await rig.receiver.pullLive(_c1);
+    expect(out.kind, ReceiveOutcomeKind.complete);
+    final token = (await sync()).sinceToken;
+    expect(token, isNotEmpty);
+    return token;
+  }
 
   group('one message', () {
     test('a peer message is stored visible with its exact bytes, check ok '
@@ -551,6 +595,9 @@ void main() {
       await setUpJoined();
       await bobSelfUpdate();
       expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      // The fast path (a saved token, an ended open walk) processes probe
+      // pages; walks list the current pair only.
+      await prime();
       rig.device.engine.processed.clear();
       // Listed live only after the epoch was closed.
       rig.server.addMessage(
@@ -718,16 +765,14 @@ void main() {
   });
 
   group('order and epochs', () {
-    test("an epoch's messages are decrypted in created_at then id order "
-        'whatever the page order', () async {
+    test("an epoch's messages are decrypted in the ordered listing's "
+        'created_at then id order', () async {
       await setUpJoined();
       final g = bobGroup();
       final a = await say(g, 3, at: seconds(0));
       final b = await say(g, 1, at: seconds(5));
       final c = await say(g, 2, at: seconds(5));
-      // The epoch walk sees them in reverse id order.
-      rig.server.rewriteEpoch = (real) =>
-          real.deepCopy()..messages.sort((x, y) => y.id.compareTo(x.id));
+      // (A page out of that order is discarded: see the order check tests.)
       await bobSelfUpdate();
       rig.device.engine.processed.clear();
 
@@ -746,6 +791,8 @@ void main() {
 
     test('a message of a later pair triggers catch-up first', () async {
       await setUpJoined();
+      // The fast path needs a saved token and an ended open walk.
+      await prime();
       final before = await say(bobGroup(), 1);
       await bobSelfUpdate();
       final after = await say(bobGroup(), 2, at: seconds(1));
@@ -757,16 +804,17 @@ void main() {
       expect((await rig.device.vault.group(_c1, 1))!.epoch, 2);
       expect((await row(_mid(1)))!.state, StoredMessageState.visible);
       expect((await row(_mid(2)))!.state, StoredMessageState.visible);
-      expect((await row(_mid(2))), isNotNull);
       final commitAt = rig.server.calls.indexOf('listConversationCommits');
       expect(
         commitAt,
         greaterThan(rig.server.calls.indexOf('listMlsMessages')),
       );
-      // The epoch-1 message once (by the walk), then the commit, then the
-      // epoch-2 message.
+      // The epoch-1 message once, then the commit, then the epoch-2 message
+      // (by the new pair's open walk).
       expect(processedCount(before.ciphertext), 1);
       expect(rigEq(rig.device.engine.processed.last, after.ciphertext), isTrue);
+      // The batch stopped without saving; the next fast path saves it.
+      await rig.receiver.pullLive(_c1);
       expect(rig.contexts.of(_c1).livePulledAt, const MlsPair(1, 2));
     });
 
@@ -806,6 +854,12 @@ void main() {
       rig.server.refuseEpochPageTokens = 1;
       await bobSelfUpdate();
 
+      // The sink lists 2 pages a hold: page 1, then the refused token; the
+      // walk restarts from the start (its stored cursor) and the next pass
+      // finishes it.
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
+      expect((await receiveRecord()).close!.t, '');
+      await rig.receiver.pullLive(_c1);
       expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
 
       for (var i = 1; i <= 60; i++) {
@@ -813,23 +867,25 @@ void main() {
       }
     });
 
-    test(
-      'a second refused page token stops the walk and the commit waits',
-      () async {
-        await setUpJoined();
-        final g = bobGroup();
-        for (var i = 1; i <= 60; i++) {
-          await say(g, i, at: seconds(i));
-        }
-        rig.server.refuseEpochPageTokens = 2;
-        await bobSelfUpdate();
+    test('a third refused page token in a run stops the walk and the commit '
+        'waits', () async {
+      await setUpJoined();
+      final g = bobGroup();
+      for (var i = 1; i <= 60; i++) {
+        await say(g, i, at: seconds(i));
+      }
+      rig.server.refuseEpochPageTokens = 3;
+      await bobSelfUpdate();
 
-        expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
+      final out = await rig.receiver.pullLive(_c1);
+      expect(out.kind, ReceiveOutcomeKind.stopped);
+      expect(rig.contexts.of(_c1).walkRestarts, 3);
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
 
-        expect((await rig.device.vault.group(_c1, 1))!.epoch, 1);
-        expect(await row(_mid(1)), isNull);
-      },
-    );
+      expect((await rig.device.vault.group(_c1, 1))!.epoch, 1);
+      expect(await rig.receiver.epochWalkDone(_c1, const MlsPair(1, 1)), false);
+    });
 
     test('completing an epoch twice stores the same rows and decrypts '
         'nothing again', () async {
@@ -938,6 +994,9 @@ void main() {
     test('a later generation with no welcome stops the batch, and an unheld '
         'welcome poll runs after the lock is released', () async {
       await setUpJoined();
+      // The fast path needs a saved token and an ended open walk.
+      final token = await prime();
+      rig.contexts.of(_c1).livePulledAt = null;
       rig.server.addCommit(
         _c1,
         const MlsPair(2, 0),
@@ -964,25 +1023,9 @@ void main() {
       expect(rig.server.calls.where((c) => c == 'listWelcomes'), hasLength(2));
       expect(rig.server.calls.last, 'listWelcomes');
       expect(await row(_mid(1)), isNull);
-      expect((await sync()).sinceToken, '');
+      expect((await sync()).sinceToken, token);
       expect(rig.contexts.of(_c1).livePulledAt, isNull);
       expect(rig.device.engine.processed, isEmpty);
-    });
-
-    test('a gap is followed until it closes', () async {
-      await setUpJoined();
-      await rig.receiver.pullLive(_c1);
-      final g = bobGroup();
-      for (var i = 1; i <= 5; i++) {
-        await say(g, i, at: seconds(i));
-      }
-      rig.server.livePageSize = 2;
-
-      await rig.receiver.pullLive(_c1);
-
-      for (var i = 1; i <= 5; i++) {
-        expect((await row(_mid(i)))!.state, StoredMessageState.visible);
-      }
     });
 
     test('the since token is saved with the batch and nothing reaches '
@@ -1009,44 +1052,6 @@ void main() {
       expect((await sync()).sinceToken, isNot(token));
     });
 
-    test('a retired since token keeps every stored message and reconciles '
-        'tombstones by id', () async {
-      await setUpJoined();
-      final g = bobGroup();
-      await say(g, 1);
-      await say(g, 2, at: seconds(1));
-      await rig.receiver.pullLive(_c1);
-      final token = (await sync()).sinceToken;
-      // A row the server no longer lists.
-      await rig.device.vault.transaction(
-        (tx) => tx.putMessage(
-          StoredMessage(
-            conversationId: _c1,
-            messageId: _mid(9),
-            createdAtMicros: t0.microsecondsSinceEpoch,
-            mine: true,
-            state: StoredMessageState.visible,
-            generation: 1,
-            epoch: 1,
-            content: _content('kept'),
-          ),
-        ),
-      );
-      rig.server
-        ..tombstone(_c1, _mid(1), MessageState.MESSAGE_STATE_REMOVED)
-        ..retiredSince.add(token)
-        ..livePageSize = 1;
-
-      await rig.receiver.pullLive(_c1);
-
-      expect((await row(_mid(1)))!.state, StoredMessageState.removed);
-      expect((await row(_mid(2)))!.state, StoredMessageState.visible);
-      expect((await row(_mid(9)))!.state, StoredMessageState.visible);
-      final next = (await sync()).sinceToken;
-      expect(next, isNotEmpty);
-      expect(next, isNot(token));
-    });
-
     test('a completed live pull records its pair and an interrupted one does '
         'not', () async {
       await setUpJoined();
@@ -1067,6 +1072,44 @@ void main() {
       await rig.receiver.pullLive(_c1);
 
       expect(context.livePulledAt, const MlsPair(1, 1));
+      expect(context.syncedSinceStart, isTrue);
+
+      // A gapped probe page: recorded only once the open walk ended and its
+      // token was saved (rule 2).
+      context
+        ..livePulledAt = null
+        ..syncedSinceStart = false;
+      await sayMany(2, 3, start: seconds(1));
+      rig.server.livePageSize = 1;
+      rig.device.engine.failProcessCall[rig.device.engine.processed.length +
+          1] = const MlsException(
+        MlsErrorCode.deadline,
+        'x',
+      );
+      await rig.receiver.pullLive(_c1);
+      expect(context.livePulledAt, isNull);
+      await rig.receiver.pullLive(_c1);
+      expect(context.livePulledAt, const MlsPair(1, 1));
+
+      // The open walk for an older pair (a commit applied meanwhile, by
+      // catch-up, which records nothing of the live pull): not recorded
+      // until the new pair's walk ended.
+      context
+        ..livePulledAt = null
+        ..syncedSinceStart = false;
+      await bobSelfUpdate();
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      expect(context.livePulledAt, isNull);
+      await say(bobGroup(), 9, at: seconds(9));
+      rig.device.engine.failProcessCall[rig.device.engine.processed.length +
+          1] = const MlsException(
+        MlsErrorCode.deadline,
+        'x',
+      );
+      await rig.receiver.pullLive(_c1);
+      expect(context.livePulledAt, isNull);
+      await rig.receiver.pullLive(_c1);
+      expect(context.livePulledAt, const MlsPair(1, 2));
       expect(context.syncedSinceStart, isTrue);
     });
   });
@@ -1102,7 +1145,993 @@ void main() {
       expect((await row(_mid(2))), isNotNull);
       expect((await sync()).clearedAtMicros, t0.microsecondsSinceEpoch);
     });
+
+    test('applyClearedAtOnce lists without the lock', () async {
+      await setUpJoined();
+      final held = <bool>[];
+      rig.server.onCall = (c) async {
+        if (c == 'listEpochMessages') held.add(rig.locks.isHeld(_c1));
+      };
+      rig.server.clearedAt[_c1] = t0;
+
+      await rig.receiver.applyClearedAtOnce(_c1);
+
+      expect(held, [false]);
+      expect((await sync()).clearedAtMicros, t0.microsecondsSinceEpoch);
+    });
   });
+
+  group('durable walks (C1)', () {
+    test(
+      'an epoch of 5000 messages completes across passes and across a '
+      'restart, refetching at most one page, and its commit applies',
+      () async {
+        await setUpJoined();
+        await sayMany(1, 5000, start: const Duration(minutes: -10));
+        await bobSelfUpdate();
+
+        // The sink lists 2 pages under the lock, then leaves the walk pending.
+        expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
+        expect(rig.contexts.of(_c1).epochWalkPending, isTrue);
+        var passes = 0;
+        while (!await rig.receiver.epochWalkDone(_c1, const MlsPair(1, 1))) {
+          await rig.receiver.pullLive(_c1);
+          if (++passes == 4) await rig.restart();
+          expect(passes, lessThan(40));
+        }
+        expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+
+        expect((await rig.device.vault.group(_c1, 1))!.epoch, 2);
+        final tokens = orderedTokens(const MlsPair(1, 1));
+        expect(tokens.length - tokens.toSet().length, lessThanOrEqualTo(1));
+        expect(tokens.length, lessThanOrEqualTo(101));
+        final rows = await rig.device.vault.messages(_c1, limit: 6000);
+        expect(
+          rows.where((m) => m.state == StoredMessageState.visible),
+          hasLength(5000),
+        );
+      },
+      timeout: const Timeout(Duration(minutes: 5)),
+    );
+
+    test('a walk resumes from the stored cursor after a restart in the middle '
+        'of a page', () async {
+      await setUpJoined();
+      await sayMany(1, 80, start: const Duration(minutes: -10));
+      // Page 2's tenth message (the 60th process call) fails.
+      rig.device.engine.failProcessCall[60] = const MlsException(
+        MlsErrorCode.deadline,
+        'x',
+      );
+
+      final out = await rig.receiver.pullLive(_c1);
+
+      expect(out.kind, ReceiveOutcomeKind.stopped);
+      expect((await row(_mid(59)))!.state, StoredMessageState.visible);
+      expect(await row(_mid(60)), isNull);
+      final page2 = orderedTokens(const MlsPair(1, 1)).last;
+      expect(page2, isNotEmpty);
+      expect((await receiveRecord()).open!.t, page2);
+
+      await rig.restart();
+      rig.server.epochRequests.clear();
+      await rig.receiver.pullLive(_c1);
+
+      expect(orderedTokens(const MlsPair(1, 1)).first, page2);
+      for (var i = 1; i <= 80; i++) {
+        expect((await row(_mid(i)))!.state, StoredMessageState.visible);
+      }
+    });
+
+    test('an unreadable or older receive record only re-lists pages and '
+        'stores every message once', () async {
+      await setUpJoined();
+      final sent = await sayMany(1, 120, start: const Duration(minutes: -10));
+      rig.device.engine.failProcessCall[51] = const MlsException(
+        MlsErrorCode.deadline,
+        'x',
+      );
+      await rig.receiver.pullLive(_c1);
+      final key = ReceiveRecords.keyOf(_c1);
+      final older = (await rig.sealedSetting(key))!;
+      await rig.receiver.pullLive(_c1);
+      expect(await rig.receiver.pullLive(_c1), ReceiveOutcome.complete);
+      final processed = rig.device.engine.processed.length;
+      final dump = await rig.device.vault.messages(_c1, limit: 500);
+
+      // A replayed older record: the walk re-lists from its old cursor.
+      await rig.replaySealedSetting(key, older);
+      rig.server.epochRequests.clear();
+      await rig.receiver.pullLive(_c1);
+      expect(orderedTokens(const MlsPair(1, 1)), isNotEmpty);
+      // An unreadable one: it reads as empty and re-lists from the start.
+      await rig.replaySealedSetting(key, Uint8List.fromList([1, 2, 3]));
+      rig.server.epochRequests.clear();
+      await rig.receiver.pullLive(_c1);
+      expect(orderedTokens(const MlsPair(1, 1)).first, '');
+
+      // Reads only: nothing was decrypted again and every row is as it was.
+      expect(rig.device.engine.processed.length, processed);
+      final after = await rig.device.vault.messages(_c1, limit: 500);
+      expect(after, hasLength(sent.length));
+      expect(
+        [for (final m in after) (m.messageId, m.state)],
+        [for (final m in dump) (m.messageId, m.state)],
+      );
+      expect(rig.unexpected.whereType<E2eePipelineError>().map((e) => e.step), [
+        'receive.read',
+      ]);
+      rig.unexpected.clear();
+    });
+
+    test('a first sync of 3000 current-pair messages decrypts oldest first '
+        'through the open walk and only then saves the since token', () async {
+      await setUpJoined();
+      final sent = await sayMany(1, 3000, start: const Duration(minutes: -10));
+      final index = {
+        for (var i = 0; i < sent.length; i++)
+          String.fromCharCodes(sent[i].ciphertext): i,
+      };
+      var passes = 0;
+      ReceiveOutcome out;
+      do {
+        out = await rig.receiver.pullLive(_c1, priority: BudgetPriority.user);
+        if (out.kind != ReceiveOutcomeKind.complete) {
+          expect((await sync()).sinceToken, '');
+        }
+        expect(++passes, lessThan(20));
+      } while (out.kind != ReceiveOutcomeKind.complete);
+
+      expect(passes, greaterThan(1));
+      expect((await sync()).sinceToken, isNotEmpty);
+      final order = [
+        for (final w in rig.device.engine.processed)
+          index[String.fromCharCodes(w)]!,
+      ];
+      expect(order, List.generate(3000, (i) => i));
+      // Only the probe's one ListMessages call per pass: no ListMessages
+      // paging.
+      expect(
+        rig.server.calls.where((c) => c == 'listMlsMessages'),
+        hasLength(passes),
+      );
+    }, timeout: const Timeout(Duration(minutes: 3)));
+
+    test('the open walk resumes from its settle token and lists only messages '
+        'stored since', () async {
+      await setUpJoined();
+      await sayMany(1, 5, start: const Duration(minutes: -10));
+      await prime();
+      final s = (await receiveRecord()).open!.s;
+      expect(s, isNotEmpty);
+      await sayMany(6, 2);
+      // A gapped probe page: the open walk lists once from s.
+      rig.server.livePageSize = 1;
+      final listed = <String>[];
+      rig.server.rewriteEpoch = (real) {
+        listed.addAll(real.messages.map((m) => m.id));
+        return real;
+      };
+      rig.server.epochRequests.clear();
+
+      await rig.receiver.pullLive(_c1);
+
+      expect(orderedTokens(const MlsPair(1, 1)).first, s);
+      expect(listed, [_mid(6), _mid(7)]);
+      expect((await row(_mid(7)))!.state, StoredMessageState.visible);
+    });
+
+    test(
+      'a message committed late inside the trail is found by the next listing',
+      () async {
+        await setUpJoined();
+        await say(bobGroup(), 1);
+        final token = await prime();
+        // Stamped before message 1 (inside the 60 s trail), stored after the
+        // listing that passed its position.
+        await say(bobGroup(), 2, at: seconds(-30));
+        await say(bobGroup(), 3, at: seconds(1));
+        rig.server.livePageSize = 1;
+
+        await rig.receiver.pullLive(_c1);
+
+        expect((await row(_mid(2)))!.state, StoredMessageState.visible);
+        expect((await row(_mid(3)))!.state, StoredMessageState.visible);
+        expect((await sync()).sinceToken, isNot(token));
+      },
+    );
+
+    test('the settle token stops at the first unsettled page and the next '
+        'listing starts there', () async {
+      await setUpJoined();
+      await sayMany(1, 100, start: const Duration(minutes: -10));
+      await sayMany(101, 20);
+      await prime();
+      final open = (await receiveRecord()).open!;
+      // Pages 1 and 2 were settled (their floor is message 100); page 3
+      // trails, so s is its resume token, not the end.
+      expect(open.f, isNotNull);
+      expect(open.f!.id, _mid(100));
+      // A time-only position (the trail), not the position after message
+      // 120.
+      expect(open.s, endsWith(':-'));
+      expect(open.end, isTrue);
+      // Two new messages and a page size of one: a gapped probe page.
+      await sayMany(121, 2, start: seconds(1));
+      rig.server.livePageSize = 1;
+      final listed = <String>[];
+      rig.server.rewriteEpoch = (real) {
+        listed.addAll(real.messages.map((m) => m.id));
+        return real;
+      };
+      rig.server.epochRequests.clear();
+
+      await rig.receiver.pullLive(_c1);
+
+      expect(orderedTokens(const MlsPair(1, 1)).first, open.s);
+      expect(listed, [for (var i = 101; i <= 122; i++) _mid(i)]);
+    });
+
+    test(
+      'the fast path runs one settle listing at most every ten minutes',
+      () async {
+        await setUpJoined();
+        await prime();
+        await say(bobGroup(), 1);
+        rig.server.calls.clear();
+
+        await rig.receiver.pullLive(_c1);
+        expect(epochCalls(), 0);
+        expect((await row(_mid(1)))!.state, StoredMessageState.visible);
+
+        rig.clock.advance(const Duration(minutes: 10));
+        await rig.receiver.pullLive(_c1);
+        expect(epochCalls(), 1);
+        await rig.receiver.pullLive(_c1);
+        expect(epochCalls(), 1);
+      },
+    );
+  });
+
+  group('the since-token rule (§4)', () {
+    test('a gapped since page is not processed and its token is saved only '
+        'after the open walk reached its end', () async {
+      await setUpJoined();
+      final token = await prime();
+      await sayMany(1, 7);
+      rig.server.livePageSize = 2;
+      final atListing = <String>[];
+      rig.server.afterEpochAnswer = () async {
+        atListing.add((await sync()).sinceToken);
+        expect(await row(_mid(7)), isNull);
+      };
+      rig.server.calls.clear();
+
+      await rig.receiver.pullLive(_c1);
+
+      // One probe call (the gap is never followed), then the open walk.
+      expect(
+        rig.server.calls.where((c) => c == 'listMlsMessages'),
+        hasLength(1),
+      );
+      expect(atListing, [token]);
+      for (var i = 1; i <= 7; i++) {
+        expect((await row(_mid(i)))!.state, StoredMessageState.visible);
+      }
+      expect((await sync()).sinceToken, isNot(token));
+    });
+
+    test('the since token is never saved while the open walk is for an older '
+        'pair', () async {
+      await setUpJoined();
+      final token = await prime();
+      await sayMany(1, 2);
+      rig.server.livePageSize = 1;
+      // While the open walk's page of (1, 1) is in flight, catch-up
+      // applies bob's commit; the page is then stale.
+      rig.server.afterEpochAnswer = () async {
+        rig.server.afterEpochAnswer = null;
+        await bobSelfUpdate();
+        await say(bobGroup(), 3, at: seconds(1));
+        expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+        rig.device.engine.failProcessCall[rig.device.engine.processed.length +
+            1] = const MlsException(
+          MlsErrorCode.deadline,
+          'x',
+        );
+      };
+
+      await rig.receiver.pullLive(_c1);
+
+      expect(rig.contexts.of(_c1).discardedPages, greaterThanOrEqualTo(1));
+      expect((await sync()).sinceToken, token);
+      expect(await row(_mid(3)), isNull);
+      for (var i = 0; i < 3; i++) {
+        await rig.receiver.pullLive(_c1);
+      }
+      expect((await row(_mid(3)))!.state, StoredMessageState.visible);
+      expect((await sync()).sinceToken, isNot(token));
+    });
+
+    test('a probe page without a gap is not processed after a join until the '
+        "new pair's open walk ended", () async {
+      await setUpJoined();
+      final token = await prime();
+      await say(bobGroup(), 1);
+      await bobSelfUpdate();
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      // The open walk of the new pair (1, 2) starts from the beginning.
+      expect((await receiveRecord()).open, isNull);
+      await say(bobGroup(), 2, at: seconds(1));
+      rig.server.afterEpochAnswer = () async {
+        // The probe page (messages 1 and 2, no gap) was not processed.
+        expect(await row(_mid(2)), isNull);
+        expect((await sync()).sinceToken, token);
+      };
+
+      await rig.receiver.pullLive(_c1);
+
+      expect((await row(_mid(2)))!.state, StoredMessageState.visible);
+      expect((await sync()).sinceToken, isNot(token));
+      expect((await receiveRecord()).open!.pair, const MlsPair(1, 2));
+    });
+
+    test(
+      'a probe batch whose catch-up changes the pair stops without saving the '
+      'token',
+      () async {
+        await setUpJoined();
+        final token = await prime();
+        await say(bobGroup(), 1);
+        await bobSelfUpdate();
+        await say(bobGroup(), 2, at: seconds(1));
+
+        await rig.receiver.pullLive(_c1);
+
+        expect((await rig.device.vault.group(_c1, 1))!.epoch, 2);
+        expect((await sync()).sinceToken, token);
+        expect((await row(_mid(2)))!.state, StoredMessageState.visible);
+        // The next fast path saves it.
+        await rig.receiver.pullLive(_c1);
+        expect((await sync()).sinceToken, isNot(token));
+      },
+    );
+
+    test(
+      'rows written by another writer do not move the since token',
+      () async {
+        await setUpJoined();
+        final token = await prime();
+        await say(bobGroup(), 1);
+        await bobSelfUpdate();
+
+        // Catch-up's sink stores the epoch's rows; it never saves a token.
+        expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+
+        expect((await row(_mid(1)))!.state, StoredMessageState.visible);
+        expect((await sync()).sinceToken, token);
+      },
+    );
+
+    test(
+      'the probe draws on the read budget and never on the sync budget',
+      () async {
+        await setUpJoined();
+        await prime();
+        await say(bobGroup(), 1);
+        rig.readBudget.pauseUntil(
+          rig.clock.now().add(const Duration(hours: 1)),
+        );
+        rig.server.calls.clear();
+
+        final held = await rig.receiver.pullLive(_c1);
+
+        expect(held.kind, ReceiveOutcomeKind.held);
+        expect(rig.server.calls, isEmpty);
+
+        rig.readBudget.reset();
+        rig.syncBudget.pauseUntil(
+          rig.clock.now().add(const Duration(hours: 1)),
+        );
+
+        await rig.receiver.pullLive(_c1);
+
+        expect(rig.server.calls, ['listMlsMessages']);
+        expect((await row(_mid(1)))!.state, StoredMessageState.visible);
+      },
+    );
+
+    test('an own message whose digest is in the sent log is skipped before '
+        'the engine', () async {
+      await setUpJoined();
+      final m = await sayOwn(1);
+      await rig.device.vault.transaction(
+        (tx) => tx.addSent(
+          _c1,
+          const MlsPair(1, 1),
+          sentDigest(Uint8List.fromList(m.ciphertext)),
+        ),
+      );
+
+      await rig.receiver.pullLive(_c1);
+
+      expect(processedCount(m.ciphertext), 0);
+      expect(await row(_mid(1)), isNull);
+    });
+
+    test('a second pullLive joins the running pass', () async {
+      await setUpJoined();
+      final gate = Completer<void>();
+      rig.server.onCall = (c) async {
+        if (c == 'listMlsMessages') await gate.future;
+      };
+      final a = rig.receiver.pullLive(_c1);
+      final b = rig.receiver.pullLive(_c1);
+      gate.complete();
+
+      expect(await a, same(await b));
+      expect(
+        rig.server.calls.where((c) => c == 'listMlsMessages'),
+        hasLength(1),
+      );
+    });
+
+    test(
+      'no ListMessages call is made while the conversation lock is held',
+      () async {
+        await setUpJoined();
+        final held = <bool>[];
+        rig.server.onCall = (c) async {
+          if (c == 'listMlsMessages') held.add(rig.locks.isHeld(_c1));
+        };
+        await prime();
+        await say(bobGroup(), 1);
+        await bobSelfUpdate();
+        await say(bobGroup(), 2, at: seconds(1));
+        rig.server.livePageSize = 1;
+        await rig.receiver.pullLive(_c1);
+        await rig.receiver.pullLive(_c1);
+        // The commit applies by catch-up (Task 13 runs it); the new pair's
+        // open walk then lists message 2.
+        await rig.crypto.catchUp(_c1);
+        await rig.receiver.pullLive(_c1);
+
+        expect(held, isNotEmpty);
+        expect(held, everyElement(isFalse));
+        expect((await row(_mid(2)))!.state, StoredMessageState.visible);
+      },
+    );
+  });
+
+  group('ownership and the close walk (§5)', () {
+    test("the close walk adopts the open walk's cursor for the same pair and "
+        'ends after one listing from the settle token', () async {
+      await setUpJoined();
+      await sayMany(1, 5, start: const Duration(minutes: -10));
+      await prime();
+      final s = (await receiveRecord()).open!.s;
+      await bobSelfUpdate();
+      rig.server.epochRequests.clear();
+
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+
+      expect(orderedTokens(const MlsPair(1, 1)), [s]);
+    });
+
+    test('a close created while the open walk is mid-backlog lists the epoch '
+        'once in total', () async {
+      await setUpJoined();
+      await sayMany(1, 590, start: const Duration(minutes: -10));
+      final out = await rig.receiver.pullLive(_c1);
+      expect(out.kind, ReceiveOutcomeKind.more);
+      await bobSelfUpdate();
+
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+
+      final tokens = orderedTokens(const MlsPair(1, 1));
+      expect(tokens, hasLength(12));
+      expect(tokens.toSet(), hasLength(12));
+      for (var i = 1; i <= 590; i++) {
+        expect((await row(_mid(i)))!.state, StoredMessageState.visible);
+      }
+    });
+
+    test('the sink lists at most 2 epoch pages per lock hold and never waits '
+        'for the budget', () async {
+      await setUpJoined();
+      await sayMany(1, 200, start: const Duration(minutes: -10));
+      await bobSelfUpdate();
+
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
+      expect(orderedTokens(const MlsPair(1, 1)), hasLength(2));
+
+      // No unit free: the sink makes no call and does not wait.
+      rig.server.epochRequests.clear();
+      rig.syncBudget.pauseUntil(rig.clock.now().add(const Duration(hours: 1)));
+      Object? error;
+      await rig.locks.run(_c1, () async {
+        try {
+          await rig.receiver.completeEpoch(
+            _c1,
+            const MlsPair(1, 1),
+            priority: BudgetPriority.user,
+          );
+        } on Object catch (e) {
+          error = e;
+        }
+      });
+      expect(error, isA<Exception>());
+      expect(rig.server.epochRequests, isEmpty);
+    });
+
+    test('a pending close walk is reported and the next pass completes it and '
+        'the commit applies', () async {
+      await setUpJoined();
+      await sayMany(1, 200, start: const Duration(minutes: -10));
+      await bobSelfUpdate();
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
+      expect(rig.contexts.of(_c1).epochWalkPending, isTrue);
+
+      await rig.receiver.pullLive(_c1);
+
+      expect(rig.contexts.of(_c1).epochWalkPending, isFalse);
+      expect(
+        await rig.receiver.epochWalkDone(_c1, const MlsPair(1, 1)),
+        isTrue,
+      );
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      expect((await rig.device.vault.group(_c1, 1))!.epoch, 2);
+      for (var i = 1; i <= 200; i++) {
+        expect((await row(_mid(i)))!.state, StoredMessageState.visible);
+      }
+    });
+
+    test('a page listed by a pass is discarded when the sink advanced the same '
+        'walk meanwhile', () async {
+      await setUpJoined();
+      final sent = await sayMany(1, 250, start: const Duration(minutes: -10));
+      await bobSelfUpdate();
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
+      rig.server.afterEpochAnswer = () async {
+        rig.server.afterEpochAnswer = null;
+        expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
+      };
+
+      await rig.receiver.pullLive(_c1);
+
+      expect(rig.contexts.of(_c1).discardedPages, 1);
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      for (final m in sent) {
+        expect(processedCount(m.ciphertext), 1);
+        expect((await row(m.id))!.state, StoredMessageState.visible);
+      }
+    });
+
+    test(
+      'a walk whose group was deleted while listing switches to undecryptable '
+      'rows',
+      () async {
+        await setUpJoined();
+        await sayMany(1, 120, start: const Duration(minutes: -10));
+        await bobSelfUpdate();
+        expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
+        final processed = rig.device.engine.processed.length;
+        rig.server.afterEpochAnswer = () async {
+          rig.server.afterEpochAnswer = null;
+          await rig.device.vault.transaction((tx) => tx.deleteGroup(_c1, 1));
+        };
+
+        await rig.receiver.pullLive(_c1);
+
+        expect((await row(_mid(100)))!.state, StoredMessageState.visible);
+        for (var i = 101; i <= 120; i++) {
+          final m = (await row(_mid(i)))!;
+          expect(m.state, StoredMessageState.undecryptable);
+          expect(m.mine, isFalse);
+        }
+        expect(rig.device.engine.processed.length, processed);
+        final close = (await receiveRecord()).close!;
+        expect(close.mode, WalkMode.undecryptable);
+        expect(close.end, isTrue);
+      },
+    );
+
+    test(
+      'a commit is never applied while its close walk has not ended',
+      () async {
+        await setUpJoined();
+        await sayMany(1, 3);
+        await bobSelfUpdate();
+        // A sink that returns without walking.
+        rig.crypto.sink = _NoWalkSink(rig.receiver);
+
+        expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
+        expect((await rig.device.vault.group(_c1, 1))!.epoch, 1);
+
+        rig.crypto.sink = rig.receiver;
+        expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+        expect((await rig.device.vault.group(_c1, 1))!.epoch, 2);
+      },
+    );
+
+    test('a close entry for a completed epoch reads as ended and writes no '
+        'row', () async {
+      await setUpJoined();
+      await prime();
+      await bobSelfUpdate();
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      // A late message of (1, 1) and a stale close entry for it in mode u.
+      rig.server.addMessage(
+        pb.Message(
+          id: _mid(10),
+          conversationId: _c1,
+          state: MessageState.MESSAGE_STATE_VISIBLE,
+          createdAt: ts.Timestamp.fromDateTime(t0),
+          ciphertext: [1, 2, 3, 4],
+          reportCommitment: List.filled(32, 1),
+          mlsGeneration: Int64(1),
+          mlsEpoch: Int64(1),
+        ),
+      );
+      final s = await sync();
+      await rig.device.vault.transaction(
+        (tx) => tx.putConversationSync(
+          _c1,
+          s.copyWith(completedEpochs: [const MlsPair(1, 1)]),
+        ),
+      );
+      final r = await receiveRecord();
+      await putReceiveRecord(
+        r.copyWith(
+          close: const WalkEntry(
+            pair: MlsPair(1, 1),
+            mode: WalkMode.undecryptable,
+          ),
+        ),
+      );
+      rig.server.epochRequests.clear();
+
+      await rig.receiver.pullLive(_c1);
+
+      expect(orderedTokens(const MlsPair(1, 1)), isEmpty);
+      expect(await row(_mid(10)), isNull);
+      expect((await receiveRecord()).close, isNull);
+    });
+  });
+
+  group('the record and the orphan generation (§3.4, §6)', () {
+    test('an empty since token with no reconcile entry creates an armed entry '
+        'at read', () {
+      final group = GroupRecord(
+        conversationId: _c1,
+        generation: 1,
+        epoch: 1,
+        state: Uint8List(1),
+      );
+      final r = ReceiveRecord.empty.normalized(
+        sync: const ConversationSync(),
+        groups: [group],
+      );
+      expect(r.rec, isNotNull);
+      expect(r.rec!.armed, isTrue);
+      expect(r.open!.pair, const MlsPair(1, 1));
+      // A stored token: none is created.
+      final kept = ReceiveRecord.empty.normalized(
+        sync: const ConversationSync(sinceToken: 's:1'),
+        groups: [group],
+      );
+      expect(kept.rec, isNull);
+    });
+
+    test('a retired since token clears the token and creates the reconcile '
+        'entry in one transaction', () async {
+      await setUpJoined();
+      final token = await prime();
+      expect((await receiveRecord()).rec!.armed, isTrue);
+      rig.server.retiredSince.add(token);
+      // The record's seal fails: the token is not cleared either.
+      rig.device.cipher.failSeal = (label) =>
+          label.startsWith('vault_settings');
+      await rig.receiver.pullLive(_c1);
+      expect((await sync()).sinceToken, token);
+      rig.device.cipher.failSeal = null;
+
+      await rig.receiver.pullLive(_c1);
+
+      expect((await sync()).sinceToken, '');
+      final rec = (await receiveRecord()).rec!;
+      expect(rec.armed, isFalse);
+      expect(rec.t, '');
+      expect(rec.n, 0);
+    });
+
+    test('the reconcile entry is armed after one probe from the anchor even '
+        'while the open walk is stalled', () async {
+      await setUpJoined();
+      await prime();
+      final anchor = (await receiveRecord()).anchor;
+      expect(anchor, isNotEmpty);
+      // The since token moves on past the anchor; then it is retired.
+      await say(bobGroup(), 1);
+      await rig.receiver.pullLive(_c1);
+      final token = (await sync()).sinceToken;
+      expect(token, isNot(anchor));
+      rig.server.retiredSince.add(token);
+      await rig.receiver.pullLive(_c1);
+      expect((await receiveRecord()).rec!.armed, isFalse);
+      await say(bobGroup(), 2, at: seconds(1));
+      rig.server.epochOrderFallback = true;
+
+      final out = await rig.receiver.pullLive(_c1);
+
+      expect(out.kind, ReceiveOutcomeKind.stopped);
+      expect(rig.contexts.of(_c1).orderMissing, 1);
+      final record = await receiveRecord();
+      expect(record.rec!.armed, isTrue);
+      expect(record.anchor, isNot(anchor));
+      expect(await row(_mid(2)), isNull);
+    });
+
+    test('an orphan entry below its group\'s epoch reads as ended', () async {
+      await setUpJoined();
+      await bobSelfUpdate();
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      final g1 = (await rig.device.vault.group(_c1, 1))!;
+      await rig.device.vault.transaction(
+        (tx) => tx.putGroup(
+          GroupRecord(
+            conversationId: _c1,
+            generation: 2,
+            epoch: 1,
+            state: g1.state,
+          ),
+        ),
+      );
+      await putReceiveRecord(
+        const ReceiveRecord(orphan: WalkEntry(pair: MlsPair(1, 1))),
+      );
+      rig.server.epochRequests.clear();
+
+      await rig.receiver.pullLive(_c1);
+
+      expect(orderedTokens(const MlsPair(1, 1)), isEmpty);
+      // The orphan check found (1, 2), the kept group's last epoch.
+      expect(orderedTokens(const MlsPair(1, 2)), isNotEmpty);
+    });
+
+    test('the last epoch of an orphan generation is decrypted with its kept '
+        'group after a later join, then the group is deleted', () async {
+      await setUpJoined();
+      final m1 = await say(bobGroup(), 1, at: seconds(-1));
+      // Bob starts generation 2; this device joins it and keeps generation
+      // 1 (its last epoch was never walked).
+      await rig.offer(_c1, bob, generation: 2);
+      expect(await rig.crypto.processWelcomes(), [_c1]);
+      expect(await rig.device.vault.group(_c1, 2), isNotNull);
+
+      for (var i = 0; i < 3; i++) {
+        await rig.receiver.pullLive(_c1);
+      }
+
+      expect((await row(_mid(1)))!.state, StoredMessageState.visible);
+      expect(processedCount(m1.ciphertext), 1);
+      expect(await rig.device.vault.group(_c1, 1), isNull);
+    });
+
+    test('an orphan walk runs from the pass with no commit arriving', () async {
+      await setUpJoined();
+      await say(bobGroup(), 1, at: seconds(-1));
+      final g1 = (await rig.device.vault.group(_c1, 1))!;
+      await rig.device.vault.transaction(
+        (tx) => tx.putGroup(
+          GroupRecord(
+            conversationId: _c1,
+            generation: 2,
+            epoch: 1,
+            state: g1.state,
+          ),
+        ),
+      );
+      rig.server.calls.clear();
+
+      await rig.receiver.pullLive(_c1);
+
+      expect(rig.server.calls, isNot(contains('listConversationCommits')));
+      expect((await row(_mid(1)))!.state, StoredMessageState.visible);
+      expect(await rig.device.vault.group(_c1, 1), isNull);
+      expect((await receiveRecord()).orphan, isNull);
+    });
+  });
+
+  group('the order check (§3.3)', () {
+    test('a page without the order echo is not processed and the walk '
+        'stops', () async {
+      await setUpJoined();
+      await say(bobGroup(), 1);
+      rig.server.epochOrderFallback = true;
+
+      final out = await rig.receiver.pullLive(_c1);
+
+      expect(out.kind, ReceiveOutcomeKind.stopped);
+      expect(rig.contexts.of(_c1).orderMissing, 1);
+      expect(await row(_mid(1)), isNull);
+      expect((await receiveRecord()).open!.end, isFalse);
+      expect((await sync()).sinceToken, '');
+      // The fallback page looks like an end; the commit still waits.
+      await bobSelfUpdate();
+      rig.contexts.of(_c1).walkBackoffUntil = null;
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
+      expect((await rig.device.vault.group(_c1, 1))!.epoch, 1);
+      expect(await rig.receiver.epochWalkDone(_c1, const MlsPair(1, 1)), false);
+    });
+
+    test('a page that is not strictly ascending is discarded, backs off and '
+        'counts an order violation', () async {
+      await setUpJoined();
+      await sayMany(1, 3);
+      rig.server.rewriteEpoch = (real) =>
+          real.deepCopy()..messages.sort((x, y) => y.id.compareTo(x.id));
+
+      final out = await rig.receiver.pullLive(_c1);
+
+      expect(out.kind, ReceiveOutcomeKind.stopped);
+      expect(out.until, rig.clock.now().add(kWalkBackoff));
+      expect(rig.contexts.of(_c1).orderViolation, 1);
+      expect(await row(_mid(1)), isNull);
+      // Backing off: no listing before the time.
+      rig.server.calls.clear();
+      expect(
+        (await rig.receiver.pullLive(_c1)).kind,
+        ReceiveOutcomeKind.stopped,
+      );
+      expect(epochCalls(), 0);
+      rig.server.rewriteEpoch = null;
+      rig.clock.advance(kWalkBackoff);
+      await rig.receiver.pullLive(_c1);
+      for (var i = 1; i <= 3; i++) {
+        expect((await row(_mid(i)))!.state, StoredMessageState.visible);
+      }
+    });
+
+    test('a continuation page that starts at or before the last processed '
+        'message is discarded', () async {
+      await setUpJoined();
+      final sent = await sayMany(1, 60, start: const Duration(minutes: -10));
+      rig.server.rewriteEpoch = (real) {
+        if (rig.server.epochRequests.last.token.isEmpty) return real;
+        return real.deepCopy()..messages.insert(0, sent[49].deepCopy());
+      };
+
+      final out = await rig.receiver.pullLive(_c1);
+
+      expect(out.kind, ReceiveOutcomeKind.stopped);
+      expect(rig.contexts.of(_c1).orderViolation, 1);
+      expect((await row(_mid(50)))!.state, StoredMessageState.visible);
+      expect(await row(_mid(51)), isNull);
+    });
+
+    test('a listing-start page that starts at or before the settle floor is '
+        'discarded', () async {
+      await setUpJoined();
+      final sent = await sayMany(1, 5, start: const Duration(minutes: -10));
+      await prime();
+      expect((await receiveRecord()).open!.f!.id, _mid(5));
+      await sayMany(6, 2);
+      rig.server.livePageSize = 1;
+      rig.server.rewriteEpoch = (real) =>
+          real.deepCopy()..messages.insert(0, sent[4].deepCopy());
+
+      final out = await rig.receiver.pullLive(_c1);
+
+      expect(out.kind, ReceiveOutcomeKind.stopped);
+      expect(rig.contexts.of(_c1).orderViolation, 1);
+      expect(await row(_mid(6)), isNull);
+    });
+
+    test('a page with more than 50 messages is refused', () async {
+      await setUpJoined();
+      final m = await say(bobGroup(), 1);
+      rig.server.rewriteEpoch = (real) => real.deepCopy()
+        ..messages.addAll([
+          for (var i = 0; i < 50; i++)
+            m.deepCopy()
+              ..id = _mid(100 + i)
+              ..createdAt = ts.Timestamp.fromDateTime(t0.add(seconds(i + 1))),
+        ]);
+
+      final out = await rig.receiver.pullLive(_c1);
+
+      expect(out.kind, ReceiveOutcomeKind.stopped);
+      expect(rig.contexts.of(_c1).orderViolation, 1);
+      expect(await row(_mid(1)), isNull);
+      expect(rig.device.engine.processed, isEmpty);
+    });
+
+    test('a ciphertext over 8192 bytes is not held and is an undecryptable '
+        'row without an engine call', () async {
+      await setUpJoined();
+      rig.server.addMessage(
+        pb.Message(
+          id: _mid(1),
+          conversationId: _c1,
+          state: MessageState.MESSAGE_STATE_VISIBLE,
+          createdAt: ts.Timestamp.fromDateTime(t0),
+          ciphertext: List.filled(kMaxCiphertextBytes + 1, 1),
+          reportCommitment: List.filled(32, 1),
+          mlsGeneration: Int64(1),
+          mlsEpoch: Int64(1),
+        ),
+      );
+      await say(bobGroup(), 2, at: seconds(1));
+
+      await rig.receiver.pullLive(_c1);
+
+      final m = (await row(_mid(1)))!;
+      expect(m.state, StoredMessageState.undecryptable);
+      expect(m.mine, isFalse);
+      expect(rig.device.engine.processed, hasLength(1));
+      expect((await row(_mid(2)))!.state, StoredMessageState.visible);
+    });
+
+    test('junk 8 KiB entries under fake ids in an epoch leave every honest '
+        'message decryptable', () async {
+      await setUpJoined();
+      final honest = <pb.Message>[];
+      for (var i = 0; i < 20; i++) {
+        honest.add(await say(bobGroup(), 2 * i + 1, at: seconds(2 * i)));
+        rig.server.addMessage(
+          pb.Message(
+            id: _mid(2 * i + 2),
+            conversationId: _c1,
+            state: MessageState.MESSAGE_STATE_VISIBLE,
+            createdAt: ts.Timestamp.fromDateTime(t0.add(seconds(2 * i + 1))),
+            ciphertext: List.filled(kMaxCiphertextBytes, i),
+            reportCommitment: List.filled(32, 1),
+            mlsGeneration: Int64(1),
+            mlsEpoch: Int64(1),
+          ),
+        );
+      }
+
+      await rig.receiver.pullLive(_c1);
+
+      for (final m in honest) {
+        expect((await row(m.id))!.state, StoredMessageState.visible);
+      }
+      for (var i = 0; i < 20; i++) {
+        expect(
+          (await row(_mid(2 * i + 2)))!.state,
+          StoredMessageState.undecryptable,
+        );
+      }
+    });
+  });
+}
+
+/// A sink that returns without walking (a buggy sink): catch-up must not
+/// apply the commit, since the receiver's record says the walk did not end.
+class _NoWalkSink implements EpochMessageSink {
+  _NoWalkSink(this.receiver);
+
+  final MessageReceiver receiver;
+
+  @override
+  Future<void> completeEpoch(
+    String conversationId,
+    MlsPair pair, {
+    required BudgetPriority priority,
+  }) async {}
+
+  @override
+  Future<void> markEpochUndecryptable(
+    String conversationId,
+    MlsPair pair, {
+    required BudgetPriority priority,
+  }) async {}
+
+  @override
+  Future<bool> epochWalkDone(String conversationId, MlsPair pair) =>
+      receiver.epochWalkDone(conversationId, pair);
 }
 
 Duration seconds(int n) => Duration(seconds: n);

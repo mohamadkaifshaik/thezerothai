@@ -1075,11 +1075,15 @@ class MessagingRepository {
   );
 
   /// Messages of [conversationId] sent at [pair]. Not globally off is enough.
+  /// [order] `CREATED_AT` asks for the ordered, resumable listing (oldest
+  /// first, with a resume token); the answer's `order` echo says whether it
+  /// was served so.
   Future<pb.ListEpochMessagesResponse> listEpochMessages({
     required String conversationId,
     required MlsPair pair,
     int pageSize = 0,
     String pageToken = '',
+    EpochMessageOrder order = EpochMessageOrder.EPOCH_MESSAGE_ORDER_UNSPECIFIED,
   }) => _mls(
     () => _gate.runRead(
       () => _apiClient.messaging.listEpochMessages(
@@ -1089,6 +1093,7 @@ class MessagingRepository {
           mlsEpoch: Int64(pair.epoch),
           pageSize: pageSize,
           pageToken: pageToken,
+          order: order,
         ),
       ),
     ),

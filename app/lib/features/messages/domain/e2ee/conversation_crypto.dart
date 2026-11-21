@@ -107,6 +107,11 @@ abstract interface class EpochMessageSink {
     MlsPair pair, {
     required BudgetPriority priority,
   });
+
+  /// True once the walk of [pair] has ended (a [completeEpoch] or
+  /// [markEpochUndecryptable] that returned normally). Catch-up applies a
+  /// commit only when this holds (fail closed).
+  Future<bool> epochWalkDone(String conversationId, MlsPair pair);
 }
 
 /// The encrypted conversations' crypto service: joins from welcomes and

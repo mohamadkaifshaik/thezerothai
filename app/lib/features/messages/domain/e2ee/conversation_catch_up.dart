@@ -148,8 +148,9 @@ extension _CatchUp on ConversationCrypto {
     // 6. Generation switch: g's last epoch is walked to its end first (L6).
     final last = MlsPair(g, e);
     // A LOWER stored generation catch-up never walks (it walks the highest
-    // only), not recorded as walked: its last epoch is marked undecryptable
-    // and recorded with g's, so the join deletes it too.
+    // only), not recorded as walked: its last epoch is decrypted with its
+    // kept group (the orphan walk, receive-walks §6) and recorded with g's,
+    // so the join deletes it too.
     final done =
         (await vault.conversation(id))?.sync.completedEpochs ??
         const <MlsPair>[];
@@ -163,7 +164,7 @@ extension _CatchUp on ConversationCrypto {
     final sink = this.sink;
     try {
       for (final o in orphans) {
-        await sink?.markEpochUndecryptable(id, o, priority: pass.priority);
+        await sink?.completeEpoch(id, o, priority: pass.priority);
       }
       if (gStuck) {
         await sink?.markEpochUndecryptable(id, last, priority: pass.priority);

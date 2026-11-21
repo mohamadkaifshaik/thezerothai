@@ -173,6 +173,10 @@ class RigEngine implements CryptoEngine {
   /// The wire bytes of every `process` call, in order (failed calls too).
   final List<Uint8List> processed = [];
 
+  /// The n-th `process` call (1-based, counted by [processed]) throws this
+  /// error (then the entry is removed).
+  final Map<int, MlsException> failProcessCall = {};
+
   /// When set, the next `process` call waits for it before it answers (then
   /// it is cleared): a result that arrives late.
   Future<void>? holdNextProcess;
@@ -184,6 +188,11 @@ class RigEngine implements CryptoEngine {
     Uint8List wire,
   ) async {
     processed.add(Uint8List.fromList(wire));
+    final scripted = failProcessCall.remove(processed.length);
+    if (scripted != null) {
+      calls.add('process');
+      throw scripted;
+    }
     _enter('process');
     final hold = holdNextProcess;
     holdNextProcess = null;
@@ -387,6 +396,22 @@ class RigServer {
   pb.ListEpochMessagesResponse Function(pb.ListEpochMessagesResponse real)?
   rewriteEpoch;
 
+  /// The ordered listing's index is missing: an order = CREATED_AT call is
+  /// answered as the real server's fail-closed fallback (an empty page, the
+  /// order unset, no next or resume token, not settled, cleared_at kept).
+  bool epochOrderFallback = false;
+
+  /// Every ListEpochMessages request: the pair, the page token and order.
+  final List<({MlsPair pair, String token, EpochMessageOrder order})>
+  epochRequests = [];
+
+  /// Runs after a ListEpochMessages answer is computed and before it is
+  /// returned (a race: something happens while the page is in flight).
+  Future<void> Function()? afterEpochAnswer;
+
+  /// The read hold `rateLimitedFor` reports (null: none).
+  RateLimitedException? readHold;
+
   /// Stores [m] (a send, as the server keeps it).
   void addMessage(pb.Message m) {
     final list = _messages.putIfAbsent(m.conversationId, () => []);
@@ -431,6 +456,19 @@ class RigServer {
     calls.add(call);
     await onCall?.call(call);
   }
+}
+
+/// The real server's `EpochResumeTrail`.
+const Duration _kResumeTrail = Duration(seconds: 60);
+
+/// A message's listing position: (created_at micros, id).
+(int, String) _posOf(pb.Message m) =>
+    (m.createdAt.seconds.toInt() * 1000000 + m.createdAt.nanos ~/ 1000, m.id);
+
+/// Positions compare on time, then id ("" first).
+int _cmpPos((int, String) a, (int, String) b) {
+  final c = a.$1.compareTo(b.$1);
+  return c != 0 ? c : a.$2.compareTo(b.$2);
 }
 
 class _Stored {
@@ -514,8 +552,10 @@ class RigMessaging implements MessagingRepository {
     required MlsPair pair,
     int pageSize = 0,
     String pageToken = '',
+    EpochMessageOrder order = EpochMessageOrder.EPOCH_MESSAGE_ORDER_UNSPECIFIED,
   }) async {
     await _server._enter('listEpochMessages');
+    _server.epochRequests.add((pair: pair, token: pageToken, order: order));
     // Stricter than the server: the contract's pair (both >= 1) and page
     // size (at most 50); a token is bound to the conversation and pair.
     if (pair.generation < 1 || pair.epoch < 1) {
@@ -523,6 +563,14 @@ class RigMessaging implements MessagingRepository {
     }
     if (pageSize < 1 || pageSize > 50) {
       throw const ValidationException('page_size', field: 'page_size');
+    }
+    if (order == EpochMessageOrder.EPOCH_MESSAGE_ORDER_CREATED_AT) {
+      final real = _orderedEpoch(conversationId, pair, pageSize, pageToken);
+      await _server.afterEpochAnswer?.call();
+      return _server.rewriteEpoch?.call(real) ?? real;
+    }
+    if (order != EpochMessageOrder.EPOCH_MESSAGE_ORDER_UNSPECIFIED) {
+      throw const ValidationException('order', field: 'order');
     }
     final prefix = 'e:$conversationId:${pair.generation}:${pair.epoch}:';
     var offset = 0;
@@ -549,8 +597,94 @@ class RigMessaging implements MessagingRepository {
       nextPageToken: end < all.length ? '$prefix$end' : '',
       clearedAt: cleared == null ? null : ts.Timestamp.fromDateTime(cleared),
     );
+    await _server.afterEpochAnswer?.call();
     return _server.rewriteEpoch?.call(real) ?? real;
   }
+
+  /// order = CREATED_AT, as `listEpochByTime` (service_sync.go) answers:
+  /// (created_at, id) ascending from the token's position (a full position
+  /// resumes after that message, a time-only one at that time, before every
+  /// id); next_page_token on a full page only; resume_page_token at
+  /// R = max(request position, min(after the last row, read time - 60 s)),
+  /// "" only with no position and no row; resume_settled = (R == after the
+  /// last row, the request position on an empty page). A token is bound to
+  /// the conversation, the pair and this order (an id-order token, or this
+  /// order's token in id order, is VALIDATION page_token).
+  pb.ListEpochMessagesResponse _orderedEpoch(
+    String conversationId,
+    MlsPair pair,
+    int pageSize,
+    String pageToken,
+  ) {
+    final prefix = 't:$conversationId:${pair.generation}:${pair.epoch}:';
+    (int, String)? after;
+    if (pageToken.isNotEmpty) {
+      if (_server.refuseEpochPageTokens > 0 || !pageToken.startsWith(prefix)) {
+        if (_server.refuseEpochPageTokens > 0) {
+          _server.refuseEpochPageTokens--;
+        }
+        throw const ValidationException('page_token', field: 'page_token');
+      }
+      final rest = pageToken.substring(prefix.length).split(':');
+      final at = rest.length == 2 ? int.tryParse(rest[0]) : null;
+      final id = rest.length == 2 ? rest[1] : '';
+      final timeOnly = id == '-' && at != null && at > 0;
+      if (at == null || !(timeOnly || RegExp(r'^[0-9a-f]{32}$').hasMatch(id))) {
+        throw const ValidationException('page_token', field: 'page_token');
+      }
+      after = (at, timeOnly ? '' : id);
+    }
+    final cleared = _server.clearedAt[conversationId];
+    final clearedAt = cleared == null
+        ? null
+        : ts.Timestamp.fromDateTime(cleared);
+    if (_server.epochOrderFallback) {
+      return pb.ListEpochMessagesResponse(clearedAt: clearedAt);
+    }
+    final all = [
+      for (final s in _server._messages[conversationId] ?? const <_Stored>[])
+        if (s.message.mlsGeneration == Int64(pair.generation) &&
+            s.message.mlsEpoch == Int64(pair.epoch))
+          s.message.deepCopy(),
+    ]..sort((a, b) => _cmpPos(_posOf(a), _posOf(b)));
+    final from = after;
+    final rows = [
+      for (final m in all)
+        if (from == null ||
+            (from.$2.isEmpty
+                ? _posOf(m).$1 >= from.$1
+                : _cmpPos(_posOf(m), from) > 0))
+          m,
+    ];
+    final page = rows.take(pageSize).toList();
+    final a = page.isEmpty ? after : _posOf(page.last);
+    final cut = (
+      _server.clock.now().microsecondsSinceEpoch - _kResumeTrail.inMicroseconds,
+      '',
+    );
+    // The zero position (no request position) sorts first.
+    final low = a == null ? null : (_cmpPos(a, cut) <= 0 ? a : cut);
+    final (int, String)? r;
+    if (after == null) {
+      r = low;
+    } else {
+      r = low == null || _cmpPos(after, low) >= 0 ? after : low;
+    }
+    String seal((int, String) p) =>
+        '$prefix${p.$1}:${p.$2.isEmpty ? '-' : p.$2}';
+    return pb.ListEpochMessagesResponse(
+      messages: page,
+      nextPageToken: page.length == pageSize ? seal(_posOf(page.last)) : '',
+      clearedAt: clearedAt,
+      order: EpochMessageOrder.EPOCH_MESSAGE_ORDER_CREATED_AT,
+      resumePageToken: r == null ? '' : seal(r),
+      resumeSettled: r == a,
+    );
+  }
+
+  /// RATE_LIMITED hold of the list reads (the rig's [RigServer.readHold]).
+  @override
+  RateLimitedException? rateLimitedFor() => _server.readHold;
 
   @override
   Future<pb.ListWelcomesResponse> listWelcomes({
@@ -902,6 +1036,9 @@ class RigCrypto {
   late RigMessaging messaging;
   final RigKeys keys = RigKeys();
   late SyncBudget syncBudget;
+
+  /// The receiver's probe budget (Task 13 builds the real one).
+  late SyncBudget readBudget;
   late DeviceDirectory directory;
   final ConversationLocks locks = ConversationLocks();
   final ConversationContexts contexts = ConversationContexts();
@@ -929,6 +1066,11 @@ class RigCrypto {
         ? rig.server.viewFor('user-a')
         : messaging(rig.server);
     rig.syncBudget = SyncBudget(
+      perMinute: 100000,
+      ownDeviceCount: () => 1,
+      now: clock.now,
+    );
+    rig.readBudget = SyncBudget(
       perMinute: 100000,
       ownDeviceCount: () => 1,
       now: clock.now,
@@ -976,6 +1118,7 @@ class RigCrypto {
       engine: () => device.engine,
       messaging: messaging,
       syncBudget: syncBudget,
+      readBudget: readBudget,
       locks: locks,
       contexts: contexts,
       now: clock.now,
