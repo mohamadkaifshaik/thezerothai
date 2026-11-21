@@ -1484,6 +1484,62 @@ variable "feature_dm_post_share_percent" {
   }
 }
 
+variable "feature_dm_share_check" {
+  description = "FEATURE_DM_SHARE_CHECK rollout mode for MessagingService.CheckPostShare (the server's share check for a post shared into an end-to-end encrypted conversation; read-only); needs FEATURE_MESSAGING, FEATURE_POSTS and FEATURE_DM_POST_SHARE on for the caller: off | allowlist | percent | on. Default off in every environment. Ceiling in scripts/promotion/flag-ceiling.json: dev allowlist of at most 6, prod off."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_dm_share_check)
+    error_message = "feature_dm_share_check must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_dm_share_check_allowlist" {
+  description = "FEATURE_DM_SHARE_CHECK_ALLOWLIST: comma-separated Firebase uids (not a secret), at most 6 under the dev ceiling. Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_dm_share_check_percent" {
+  description = "FEATURE_DM_SHARE_CHECK_PERCENT: 0-100, only meaningful when feature_dm_share_check = percent. The dev ceiling allows no percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_dm_share_check_percent >= 0 && var.feature_dm_share_check_percent <= 100 && floor(var.feature_dm_share_check_percent) == var.feature_dm_share_check_percent
+    error_message = "feature_dm_share_check_percent must be an integer 0-100."
+  }
+}
+
+variable "feature_e2ee_dm" {
+  description = "FEATURE_E2EE_DM rollout mode for end-to-end encrypted direct messages: gates the key directory (KeyService) and the encrypted-message RPCs for the caller, and makes the app create its local vault and register this device's keys: off | allowlist | percent | on. Default off in every environment. Any mode other than off also lets every caller use the read-only sync RPCs that are gated on the flag being not globally off. Ceiling in scripts/promotion/flag-ceiling.json: dev allowlist of at most 6, prod off. Signing out of an allowlisted account deletes that device's encrypted messages."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_e2ee_dm)
+    error_message = "feature_e2ee_dm must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_e2ee_dm_allowlist" {
+  description = "FEATURE_E2EE_DM_ALLOWLIST: comma-separated Firebase uids (not a secret), at most 6 under the dev ceiling. Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_e2ee_dm_percent" {
+  description = "FEATURE_E2EE_DM_PERCENT: 0-100, only meaningful when feature_e2ee_dm = percent. The dev ceiling allows no percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_e2ee_dm_percent >= 0 && var.feature_e2ee_dm_percent <= 100 && floor(var.feature_e2ee_dm_percent) == var.feature_e2ee_dm_percent
+    error_message = "feature_e2ee_dm_percent must be an integer 0-100."
+  }
+}
+
 variable "feature_share_count" {
   description = "FEATURE_SHARE_COUNT rollout mode for EngagementService.RecordPostShare (on for the caller) and the direct-message share record of Post.share_count (while not globally off); clients show the count only when it is on for the viewer: off | allowlist | percent | on. Default off in every environment; ramp deliberately."
   type        = string
