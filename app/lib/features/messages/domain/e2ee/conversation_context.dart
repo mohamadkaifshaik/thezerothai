@@ -65,6 +65,14 @@ class ConversationContext {
   /// generation").
   MlsPair? serverPair;
 
+  /// Audit M1: [serverPair] is the answer the LAST catch-up of this run got.
+  /// Cleared when a catch-up starts and set only where [serverPair] is
+  /// assigned from a commit listing's answer, so a catch-up interrupted
+  /// before its listing answered leaves it false (with [serverPair] at an
+  /// older answer). [syncedSinceStart] is set true only while this holds: a
+  /// completed live pull never sets it from a stale pair.
+  bool serverPairFresh = false;
+
   // --- the receiver's walks (design rev 3 §2-§5; memory only) -------------
 
   /// The receive pass running now (single flight): a second `pullLive`

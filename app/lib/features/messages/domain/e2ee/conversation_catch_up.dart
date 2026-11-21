@@ -16,8 +16,12 @@ extension _CatchUp on ConversationCrypto {
     _Operation? parent,
   }) async {
     final context = _contexts.of(id);
-    // Set again only by a pass that ends at the server pair (step 8).
-    context.syncedSinceStart = false;
+    // Set again only by a pass that ends at the server pair (step 8). Until
+    // a commit listing of THIS catch-up answers, the remembered server pair
+    // is an older answer (audit M1).
+    context
+      ..syncedSinceStart = false
+      ..serverPairFresh = false;
     try {
       final pass = await _startOperation(priority, parent: parent);
       if (pass == null) return CatchUpResult.interrupted;
@@ -69,7 +73,9 @@ extension _CatchUp on ConversationCrypto {
         context.serverPair = null;
         return CatchUpResult.notEncrypted;
       }
-      context.serverPair = server;
+      context
+        ..serverPair = server
+        ..serverPairFresh = true;
       await _noteWaiting(pass, id, server.generation);
       return CatchUpResult.waitingForWelcome;
     }
@@ -87,7 +93,9 @@ extension _CatchUp on ConversationCrypto {
       final page = await _listCommits(pass, id, after);
       server = page == null ? null : _serverPairOf(page);
       if (page == null || server == null) return CatchUpResult.interrupted;
-      context.serverPair = server;
+      context
+        ..serverPair = server
+        ..serverPairFresh = true;
       final serverAhead = server.generation > g;
       for (final c in page.commits) {
         final cg = pairComponentFromInt64(c.mlsGeneration);
@@ -215,7 +223,9 @@ extension _CatchUp on ConversationCrypto {
       }
     }
     context.syncedSinceStart =
-        !context.attributionPending && context.livePulledAt == server;
+        !context.attributionPending &&
+        context.serverPairFresh &&
+        context.livePulledAt == server;
     return CatchUpResult.current;
   }
 

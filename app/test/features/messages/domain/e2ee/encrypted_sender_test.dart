@@ -7,10 +7,12 @@ import 'package:dzeroth/core/crypto/mls_derivations.dart';
 import 'package:dzeroth/core/crypto/mls_pair.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/vault/secure_vault.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/conversation_crypto.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_locks.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/e2ee_types.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/encrypted_sender.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/message_content_codec.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/message_receiver.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/sync_budget.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
@@ -1330,6 +1332,75 @@ void main() {
       expect(out.retryable, isTrue);
       await drain();
       expect(rig.server.calls.where((c) => c == 'sendEncrypted'), hasLength(3));
+    });
+  });
+
+  group('a fresh server pair before encrypt (audit M1)', () {
+    void failCommitListing() => rig.server.onCall = (call) async {
+      if (call == 'listConversationCommits') throw lost.error;
+    };
+
+    test('an interrupted drain, then a completed receive pass: the next '
+        'drain does not encrypt on the stale pair', () async {
+      await setUpJoined();
+      final context = rig.contexts.of(_c1);
+      // The server moves to (1, 2); this device read (1, 1) at the join.
+      await bobSelfUpdate();
+      failCommitListing();
+      await send('l1');
+      expect(encrypts(), 0);
+      expect(context.serverPair, const MlsPair(1, 1));
+      // A push: a receive pass that completes at the device's pair.
+      final pull = await rig.receiver.pullLive(_c1);
+      expect(pull.kind, ReceiveOutcomeKind.complete);
+      expect(context.livePulledAt, const MlsPair(1, 1));
+      // The second drain's commit listing still fails.
+      await drain();
+      expect(encrypts(), 0);
+      expect(rig.server.sends, isEmpty);
+      expect((await outbox()).single.stage, OutboxStage.plain);
+      expect(
+        (await rig.sender.outgoing(_c1)).single.waitingOn,
+        SendBlock.notSynced,
+      );
+      expect(context.syncedSinceStart, isFalse);
+      // A catch-up that ends current: the row goes out on the server's pair.
+      rig.server.onCall = null;
+      await drain();
+      expect(context.syncedSinceStart, isTrue);
+      expect(rig.server.sends.single.pair, const MlsPair(1, 2));
+      expect(await outbox(), isEmpty);
+    });
+
+    test('an interrupted receiver-side catch-up, then a completed receive '
+        'pass: a drain does not encrypt on the stale pair', () async {
+      await setUpJoined();
+      final context = rig.contexts.of(_c1);
+      expect(
+        (await rig.receiver.pullLive(_c1)).kind,
+        ReceiveOutcomeKind.complete,
+      );
+      expect(context.syncedSinceStart, isTrue);
+      await bobSelfUpdate();
+      failCommitListing();
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
+      expect(context.syncedSinceStart, isFalse);
+      expect(context.serverPair, const MlsPair(1, 1));
+      expect(
+        (await rig.receiver.pullLive(_c1)).kind,
+        ReceiveOutcomeKind.complete,
+      );
+      // The stale pair never sets the flag again.
+      expect(context.syncedSinceStart, isFalse, reason: 'a stale server pair');
+      await send('l1');
+      expect(encrypts(), 0);
+      expect(rig.server.sends, isEmpty);
+      expect((await outbox()).single.stage, OutboxStage.plain);
+      rig.server.onCall = null;
+      await drain();
+      expect(context.syncedSinceStart, isTrue);
+      expect(rig.server.sends.single.pair, const MlsPair(1, 2));
+      expect(await outbox(), isEmpty);
     });
   });
 }
