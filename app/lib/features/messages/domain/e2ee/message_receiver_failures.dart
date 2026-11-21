@@ -97,10 +97,10 @@ int _oldestFirst(DeferredItem a, DeferredItem b) {
 /// | `internal`, describe answers | `k` (durable) | a row at 3 strikes, or at overflow, close, group gone, expiry |
 /// | `deadline`, describe answers | `k` and `cc` | a row at `cc` = 2 |
 /// | `deadline`, describe fails or answers `unavailable` (the web's second crash of a run; amended) | `cu`; the RECEIVER-WIDE hold | promoted to `cc` once an engine call succeeds after it (also after a resume); `cu` alone is never a row |
-/// | `internal`, describe fails, the device probe answers | `gf.n`; this conversation's own hold, 1 min doubling with `gf.n` (amended) | a row at `gf.n` = 3; then the group is rowed for the run |
+/// | `internal`, describe fails, the device probe answers | `gf.n` of the describe-failed kind (a count of the other kind starts again at 1; fix round 3); this conversation's own hold, 1 min doubling with `gf.n` (amended) | a row at `gf.n` = 3, three spaced describe failures in a row; then the group is rowed for the run |
 /// | both probes fail, or `unavailable` on an `internal` | nothing durable; the RECEIVER-WIDE hold, 1 min doubling to 1 h, cleared by any engine success or a resume (amended: it was per conversation) | any engine success |
 /// | a 17th failure, describe answers, a `process` call on that group succeeded this run | `k` of the new item | evict the witnessed item with the most `k`, then the most `cc`, then the oldest; none witnessed: the new one is the row |
-/// | a 17th failure, describe answers, NO `process` success on that group this run (amended: it evicted; amended again in fix round 2) | `gf.n`; nothing evicted, nothing deferred; this conversation's own hold | at the third counted strike ONLY that message is a row and `gf` is cleared in the same transaction; the group is NOT rowed for the run, so the next failure starts a new count (one row per three spaced strikes) |
+/// | a 17th failure, describe answers, NO `process` success on that group this run (amended: it evicted; amended again in fix round 2) | `gf.n` of the full-record kind (a count of the other kind starts again at 1; fix round 3); nothing evicted, nothing deferred; this conversation's own hold | at the third counted strike of that kind in a row ONLY that message is a row and `gf` is cleared in the same transaction; the group is NOT rowed for the run, so the next failure starts a new count (one row per three spaced strikes). The sixteen held items get NO engine retry while the head message keeps striking: each pass sets this conversation's hold before its retries run |
 /// | any group-level strike less than [kEngineBackoff] after the last counted one for that group (fix round 2; the time is `gf.at`, durable) | nothing; this conversation's own hold | not counted, whatever the app run: resumes never land three strikes within seconds |
 /// | a 17th unwitnessed failure | nothing; the receiver-wide hold | no eviction, no deferral |
 /// | a retry in a pass whose probe was not answered for the stored, non-empty since token, or while that token is empty, or while the reconcile entry is armed (amended, fix round 2) | nothing | no engine call; the engine-free checks still run; the item ends by a tombstone, expiry, its lost group or its final attempt, or by a retry once step 2b's reconciliation has disarmed the entry |
@@ -379,20 +379,38 @@ extension _Failures on MessageReceiver {
   /// now as its time, and `max` says it reached [kGroupFailuresMax]. What
   /// the maximum does is the caller's: breaking the group
   /// ([_breakGroup]) is for a group whose `describe` FAILS only (§7.2).
+  ///
+  /// A ruling after the design (fix round 3): the count carries the [kind]
+  /// of its strikes, durably. A counted strike whose kind differs from the
+  /// stored one is strike 1 of a new count with its own kind (the spacing
+  /// is asked first, against the last counted strike of either kind). So
+  /// `max` needs [kGroupFailuresMax] spaced strikes of the SAME kind in a
+  /// row: full-record strikes never help a `describe` failure break the
+  /// group, and `describe` failures never help a full-record strike row a
+  /// message. A stored count without a kind reads as the full-record kind.
   Future<({ReceiveRecord fresh, GroupFailures gf, bool counted, bool max})>
-  _groupFailure(SecureVault v, String id, MlsPair p) async {
+  _groupFailure(
+    SecureVault v,
+    String id,
+    MlsPair p,
+    GroupFailureKind kind,
+  ) async {
     final fresh = await _readReceive(v, id);
     final had = fresh.gf?.pair == p ? fresh.gf : null;
     final now = _now().microsecondsSinceEpoch;
     _contexts.of(id).groupFailuresNull = false;
+    // The spacing first, whatever the kinds: an uncounted strike changes
+    // nothing of the stored count, not its kind either.
     if (had != null && (now - had.at).abs() < kEngineBackoff.inMicroseconds) {
       return (fresh: fresh, gf: had, counted: false, max: false);
     }
-    final n = (had?.n ?? 0) + 1;
+    // A count holds strikes of ONE kind in a row: a counted strike of the
+    // other kind is the first of a new count.
+    final n = had != null && had.kind == kind ? had.n + 1 : 1;
     final max = n >= kGroupFailuresMax;
     return (
       fresh: fresh,
-      gf: GroupFailures(p, max ? kGroupFailuresMax : n, at: now),
+      gf: GroupFailures(p, max ? kGroupFailuresMax : n, at: now, kind: kind),
       counted: true,
       max: max,
     );
@@ -530,6 +548,12 @@ extension _Failures on MessageReceiver {
   ) async {
     final states = _tombstoneStates(id, messages);
     if (states.isEmpty) return;
+    // Remembered for the run BEFORE the write is asked for (fix round 3, as
+    // the fast path does before its batch): when `runWrite` fails before
+    // its body runs, the pass's probe still counts as answered, and its
+    // retries must not give such a message to the engine (§7.4 check 2).
+    final context = _contexts.of(id);
+    states.forEach((mid, state) => _noteTombstone(context, mid, state));
     try {
       final wrote = await _session.runWrite((v) async {
         pass.check(v);
@@ -871,7 +895,12 @@ extension _Failures on MessageReceiver {
         return _Retry.stop;
       case _FailKind.groupLevel:
         // `describe` fails for this group: the design's group-level rule.
-        final next = await _groupFailure(v, id, item.pair);
+        final next = await _groupFailure(
+          v,
+          id,
+          item.pair,
+          GroupFailureKind.describeFailed,
+        );
         if (next.max) {
           _breakGroup(context, item.pair);
           return end(
@@ -1075,7 +1104,12 @@ extension _Failures on MessageReceiver {
           return null;
         case _FailKind.groupLevel:
           // `describe` fails for this group: the design's group-level rule.
-          final next = await _groupFailure(v, id, pair);
+          final next = await _groupFailure(
+            v,
+            id,
+            pair,
+            GroupFailureKind.describeFailed,
+          );
           if (next.max) {
             _breakGroup(context, pair);
             plan.broken = next.gf;
@@ -1259,10 +1293,21 @@ extension _Failures on MessageReceiver {
     ///    broken, and the count is CLEARED in the same transaction. The
     ///    next failure starts a new count, so the conversation keeps
     ///    moving at one row per three spaced strikes and honest messages
-    ///    are never rowed wholesale; the sixteen held items keep their own
-    ///    retry rules.
+    ///    are never rowed wholesale. The sixteen held items get NO engine
+    ///    retry while the head message keeps striking: each pass sets this
+    ///    conversation's hold at the strike, before its retries run (their
+    ///    engine-free checks still run).
+    /// The count holds strikes of one kind (fix round 3, [_groupFailure]):
+    /// the maximum is three spaced strikes of THIS kind in a row.
     Future<_Step> groupLevel({required bool describeFails}) async {
-      final next = await _groupFailure(v, id, p);
+      final next = await _groupFailure(
+        v,
+        id,
+        p,
+        describeFails
+            ? GroupFailureKind.describeFailed
+            : GroupFailureKind.fullRecord,
+      );
       if (!next.max) {
         await _groupStrikeHeld(v, id, next);
         return _Step.stop;

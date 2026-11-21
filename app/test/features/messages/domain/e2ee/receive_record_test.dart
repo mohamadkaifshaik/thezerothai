@@ -228,6 +228,31 @@ void main() {
         (r) => r['gf'] = {'g': 1, 'e': 1, 'n': 2, 'at': '1'},
         false,
       ),
+      (
+        'a group failure count of the full-record kind',
+        (r) => r['gf'] = {'g': 1, 'e': 1, 'n': 2, 'k': 'f'},
+        true,
+      ),
+      (
+        'a group failure count of the describe-failed kind',
+        (r) => r['gf'] = {'g': 1, 'e': 1, 'n': 2, 'k': 'd'},
+        true,
+      ),
+      (
+        'a group failure count with no kind',
+        (r) => r['gf'] = {'g': 1, 'e': 1, 'n': 2, 'at': 5},
+        true,
+      ),
+      (
+        'a group failure count of an unknown kind',
+        (r) => r['gf'] = {'g': 1, 'e': 1, 'n': 2, 'k': 'x'},
+        false,
+      ),
+      (
+        'a number for the group failure kind',
+        (r) => r['gf'] = {'g': 1, 'e': 1, 'n': 2, 'k': 1},
+        false,
+      ),
       ('an abandoned-walk count', (r) => r['ab'] = 3, true),
       ('a negative abandoned-walk count', (r) => r['ab'] = -1, false),
       (
@@ -347,11 +372,13 @@ void main() {
         ),
         anchor: token,
         // The group failure count, the time of its last counted strike and
-        // the abandoned-walk count at their maxima too.
+        // the abandoned-walk count at their maxima too, with the kind of
+        // the count (either value is written as one character).
         gf: const GroupFailures(
           MlsPair(kMaxPairComponent, kMaxPairComponent),
           kGroupFailuresMax,
           at: kMaxPairComponent,
+          kind: GroupFailureKind.describeFailed,
         ),
         abandoned: kAbandonedWalksMax,
       );
@@ -362,6 +389,7 @@ void main() {
       expect(again.gf!.n, kGroupFailuresMax);
       expect(again.gf!.pair.epoch, kMaxPairComponent);
       expect(again.gf!.at, kMaxPairComponent);
+      expect(again.gf!.kind, GroupFailureKind.describeFailed);
       expect(again.abandoned, kAbandonedWalksMax);
       for (final w in [again.open!, again.close!, again.orphan!]) {
         expect((w.mf, w.mfAt), (kWalkGiveUpAfter, kMaxPairComponent));
@@ -478,6 +506,33 @@ void main() {
               .encode(),
         );
         expect(clamped.gf!.at, read);
+      }
+    });
+
+    test('the kind of a group failure count round-trips in each value, and a '
+        'record without it reads as the full-record kind', () {
+      for (final kind in GroupFailureKind.values) {
+        final again = ReceiveRecord.decode(
+          ReceiveRecord(
+            gf: GroupFailures(const MlsPair(1, 4), 2, at: 77, kind: kind),
+          ).encode(),
+        );
+        expect((again.gf!.n, again.gf!.at, again.gf!.kind), (2, 77, kind));
+      }
+      // A record written before the kind existed has none: it reads as the
+      // kind that never breaks a group.
+      final old = _record()..['gf'] = {'g': 1, 'e': 4, 'n': 2, 'at': 77};
+      expect(
+        ReceiveRecord.decode(_bytes(old)).gf!.kind,
+        GroupFailureKind.fullRecord,
+      );
+      for (final (written, kind) in [
+        ('f', GroupFailureKind.fullRecord),
+        ('d', GroupFailureKind.describeFailed),
+      ]) {
+        final stored = _record()
+          ..['gf'] = {'g': 1, 'e': 4, 'n': 2, 'at': 77, 'k': written};
+        expect(ReceiveRecord.decode(_bytes(stored)).gf!.kind, kind);
       }
     });
 

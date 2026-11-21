@@ -4452,6 +4452,134 @@ void main() {
       expect(processedCount(m2.ciphertext), 2);
     });
 
+    test('two full-record strikes then one describe failure do not break the '
+        'group', () async {
+      await setUpJoined();
+      await putDeferred(
+        DeferredRecord([
+          for (var n = 101; n <= 100 + kDeferredMax; n++) heldItem(n),
+        ]),
+      );
+      final held = (await deferred()).encode();
+      // The record is full with no witness: every `process` of the first
+      // message fails while `describe` answers.
+      final m1 = await say(bobGroup(), 1);
+      final m2 = await say(bobGroup(), 2, at: seconds(1));
+      failAlways(m1, internal);
+      await rig.receiver.pullLive(_c1);
+      rig.clock.advance(kEngineBackoff);
+      await rig.receiver.pullLive(_c1);
+      expect((await receiveRecord()).gf!.n, 2);
+
+      // Now `describe` itself fails for the group (the device probe
+      // answers): a strike of the OTHER kind. It is the first of a new
+      // count, not the third of the old one: nothing is a row and the group
+      // is not rowed for the run.
+      final state = await groupState();
+      engine().failState[RigEngine.key(state)] = internal;
+      rig.clock.advance(kEngineBackoff * 2);
+      final t3 = rig.clock.now();
+      final third = await rig.receiver.pullLive(_c1);
+      expect(await row(_mid(1)), isNull);
+      expect(await row(_mid(2)), isNull);
+      expect(rig.contexts.of(_c1).groupBroken, isEmpty);
+      expect(processedCount(m2.ciphertext), 0);
+      expect(third.kind, ReceiveOutcomeKind.stopped);
+      expect(third.until, t3.add(kEngineBackoff));
+      var gf = (await receiveRecord()).gf!;
+      expect(
+        (gf.n, gf.kind, gf.at),
+        (1, GroupFailureKind.describeFailed, t3.microsecondsSinceEpoch),
+      );
+      expect(await rig.device.vault.messages(_c1, limit: 20), isEmpty);
+      expect((await deferred()).encode(), held);
+
+      // Less than a minute after it a strike is not counted, whatever its
+      // kind (here the full-record kind again): the count, its kind and its
+      // time stay, and nothing is a row.
+      engine().failState.clear();
+      resume();
+      rig.clock.advance(seconds(20));
+      await rig.receiver.pullLive(_c1);
+      expect(processedCount(m1.ciphertext), 4);
+      expect(await rig.device.vault.messages(_c1, limit: 20), isEmpty);
+      gf = (await receiveRecord()).gf!;
+      expect(
+        (gf.n, gf.kind, gf.at),
+        (1, GroupFailureKind.describeFailed, t3.microsecondsSinceEpoch),
+      );
+
+      // Two more spaced describe failures: the third IN A ROW breaks the
+      // group, and the next message is a row with no probe.
+      engine().failState[RigEngine.key(state)] = internal;
+      resume();
+      rig.clock.advance(seconds(40));
+      await rig.receiver.pullLive(_c1);
+      gf = (await receiveRecord()).gf!;
+      expect((gf.n, gf.kind), (2, GroupFailureKind.describeFailed));
+      expect(await rig.device.vault.messages(_c1, limit: 20), isEmpty);
+      expect(rig.contexts.of(_c1).groupBroken, isEmpty);
+
+      resume();
+      rig.clock.advance(kEngineBackoff);
+      final probes = count('describe');
+      await rig.receiver.pullLive(_c1);
+      gf = (await receiveRecord()).gf!;
+      expect(
+        (gf.n, gf.kind),
+        (kGroupFailuresMax, GroupFailureKind.describeFailed),
+      );
+      expect(rig.contexts.of(_c1).groupBroken, hasLength(1));
+      expect((await row(_mid(1)))!.state, StoredMessageState.undecryptable);
+      expect((await row(_mid(2)))!.state, StoredMessageState.undecryptable);
+      expect(count('describe'), probes + 1);
+      expect(processedCount(m2.ciphertext), 1);
+      expect((await deferred()).encode(), held);
+    });
+
+    test('two describe failures then a full-record strike restart the count '
+        'and row nothing', () async {
+      await setUpJoined();
+      await putDeferred(
+        DeferredRecord([
+          for (var n = 101; n <= 100 + kDeferredMax; n++) heldItem(n),
+        ]),
+      );
+      final held = (await deferred()).encode();
+      final m1 = await say(bobGroup(), 1);
+      final m2 = await say(bobGroup(), 2, at: seconds(1));
+      // `describe` fails for the group while the device probe answers.
+      engine().failState[RigEngine.key(await groupState())] = internal;
+      await rig.receiver.pullLive(_c1);
+      rig.clock.advance(kEngineBackoff);
+      await rig.receiver.pullLive(_c1);
+      var gf = (await receiveRecord()).gf!;
+      expect((gf.n, gf.kind), (2, GroupFailureKind.describeFailed));
+
+      // Now `describe` answers and only the message fails, with the record
+      // full and no witness: a strike of the OTHER kind. It is the first of
+      // a new count: this message is not a row (it would have been at the
+      // third strike of one shared count) and the pass stops.
+      engine().failState.clear();
+      failAlways(m1, internal);
+      rig.clock.advance(kEngineBackoff * 2);
+      final t3 = rig.clock.now();
+      final third = await rig.receiver.pullLive(_c1);
+      expect(await row(_mid(1)), isNull);
+      expect(await rig.device.vault.messages(_c1, limit: 20), isEmpty);
+      expect(processedCount(m2.ciphertext), 0);
+      expect(third.kind, ReceiveOutcomeKind.stopped);
+      expect(third.until, t3.add(kEngineBackoff));
+      expect(rig.contexts.of(_c1).groupBroken, isEmpty);
+      gf = (await receiveRecord()).gf!;
+      expect(
+        (gf.n, gf.kind, gf.at),
+        (1, GroupFailureKind.fullRecord, t3.microsecondsSinceEpoch),
+      );
+      expect((await deferred()).encode(), held);
+      expect(rig.receiver.evictedCount, 0);
+    });
+
     test('with a successful decrypt in the group this run, a seventeenth '
         'witnessed failure evicts as before', () async {
       await setUpJoined();
@@ -4685,6 +4813,55 @@ void main() {
       expect((await receiveRecord()).gf!.n, 1);
       expect((await deferred()).encode(), held);
       expect(await row(_mid(1)), isNull);
+    });
+
+    test('a third spaced describe failure at a retry breaks the group and '
+        'the next item is rowed without a probe', () async {
+      await setUpJoined();
+      final m1 = await say(bobGroup(), 1);
+      final m2 = await say(bobGroup(), 2, at: seconds(1));
+      failNext(m1, [internal]);
+      failNext(m2, [internal]);
+      await rig.receiver.pullLive(_c1);
+      expect(await deferredIds(), [_mid(1), _mid(2)]);
+      await reconciled();
+      // From now `describe` fails for the group while the device probe
+      // answers.
+      engine().failState[RigEngine.key(await groupState())] = internal;
+
+      // Two spaced strikes at the retry of the oldest item: counted, the
+      // pass's retries stop, nothing is a row.
+      nextRun();
+      await rig.receiver.pullLive(_c1);
+      var gf = (await receiveRecord()).gf!;
+      expect((gf.n, gf.kind), (1, GroupFailureKind.describeFailed));
+      rig.clock.advance(kEngineBackoff);
+      await rig.receiver.pullLive(_c1);
+      gf = (await receiveRecord()).gf!;
+      expect((gf.n, gf.kind), (2, GroupFailureKind.describeFailed));
+      expect(processedCount(m1.ciphertext), 3);
+      expect(processedCount(m2.ciphertext), 1);
+      expect(await rig.device.vault.messages(_c1, limit: 10), isEmpty);
+      expect(rig.contexts.of(_c1).groupBroken, isEmpty);
+
+      // The third: its item is a row and the group is rowed for the run,
+      // so the next item's failure is a row at once, with no probe.
+      rig.clock.advance(kEngineBackoff * 2);
+      final probes = count('describe');
+      await rig.receiver.pullLive(_c1);
+
+      expect(rig.contexts.of(_c1).groupBroken, hasLength(1));
+      gf = (await receiveRecord()).gf!;
+      expect(
+        (gf.n, gf.kind),
+        (kGroupFailuresMax, GroupFailureKind.describeFailed),
+      );
+      expect((await row(_mid(1)))!.state, StoredMessageState.undecryptable);
+      expect((await row(_mid(2)))!.state, StoredMessageState.undecryptable);
+      expect(count('describe'), probes + 1);
+      expect(processedCount(m1.ciphertext), 4);
+      expect(processedCount(m2.ciphertext), 2);
+      expect(await deferredIds(), isEmpty);
     });
 
     test('on the web a second crashing message in a run is held as an '
@@ -5033,6 +5210,59 @@ void main() {
       expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
 
       expect((await row(_mid(1)))!.state, StoredMessageState.undecryptable);
+      expect(await deferredIds(), isEmpty);
+      expect(await epochOf(1), 2);
+    });
+
+    test('a third spaced describe failure at a final attempt breaks the '
+        'group and the next item is rowed without a probe', () async {
+      await setUpJoined();
+      final m1 = await say(bobGroup(), 1);
+      final m2 = await say(bobGroup(), 2, at: seconds(1));
+      failNext(m1, [internal]);
+      failNext(m2, [internal]);
+      await rig.receiver.pullLive(_c1);
+      expect(await deferredIds(), [_mid(1), _mid(2)]);
+      await bobSelfUpdate();
+      // From now the engine works but this group state does not.
+      engine().failState[RigEngine.key(await groupState())] = internal;
+      for (var n = 1; n < kGroupFailuresMax; n++) {
+        expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
+        final gf = (await receiveRecord()).gf!;
+        expect((gf.n, gf.kind), (n, GroupFailureKind.describeFailed));
+        rig.clock.advance(kEngineBackoff * n);
+      }
+      expect(rig.contexts.of(_c1).groupBroken, isEmpty);
+      expect(await rig.device.vault.messages(_c1, limit: 10), isEmpty);
+
+      // The third strike: `describe` fails once more for the oldest item's
+      // attempt, then would answer. The group is rowed for the run at that
+      // strike, so the next item's failure asks no probe. (The commit is
+      // applied by another engine call on the same state, which works.)
+      engine().failState.clear();
+      failAlways(m1, internal);
+      failAlways(m2, internal);
+      engine().failNext['describe'] = internal;
+      final from = engine().calls.length;
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+
+      expect(rig.contexts.of(_c1).groupBroken, hasLength(1));
+      // The two final attempts, and one probe pair between them only.
+      final calls = engine().calls.skip(from).toList();
+      final second = calls.indexOf('process', calls.indexOf('process') + 1);
+      expect(calls.sublist(0, second + 1), [
+        'process',
+        'describe',
+        'randomBytes',
+        'process',
+      ]);
+      // What follows is the commit's own application (pinned as observed:
+      // a probe of the second item would be one more `describe` here).
+      expect(calls.sublist(second + 1), ['describe', 'process', 'describe']);
+      expect(processedCount(m1.ciphertext), 4);
+      expect(processedCount(m2.ciphertext), 2);
+      expect((await row(_mid(1)))!.state, StoredMessageState.undecryptable);
+      expect((await row(_mid(2)))!.state, StoredMessageState.undecryptable);
       expect(await deferredIds(), isEmpty);
       expect(await epochOf(1), 2);
     });
@@ -6022,6 +6252,51 @@ void main() {
       expect((await row(_mid(1)))!.state, StoredMessageState.removed);
       expect(await deferredIds(), isEmpty);
       expect(processedCount(m1.ciphertext), 1);
+    });
+
+    test('a tombstone on a probe page that is not processed is noted for the '
+        'run even when its write never starts', () async {
+      await setUpJoined();
+      final m1 = await deferOne(1);
+      await reconciled();
+      // A later run, past the retry spacing: the item is due.
+      nextRun();
+      rig.server.tombstone(_c1, _mid(1), MessageState.MESSAGE_STATE_REMOVED);
+      // A gapped page: never processed as a batch. The first write asked
+      // for after it was listed (the one for its tombstones) fails before
+      // its body runs.
+      var listed = false;
+      var refuse = false;
+      var refusals = 0;
+      rig.server.rewriteLive = (r) {
+        if (!listed) refuse = true;
+        listed = true;
+        return r..gapPageToken = 'gap';
+      };
+      rig.server.rewriteEpoch = (r) =>
+          r..messages.removeWhere((m) => m.id == _mid(1));
+      rig.device.onWriteAsked = () {
+        if (!refuse) return;
+        refuse = false;
+        refusals++;
+        throw StateError('refused');
+      };
+
+      await rig.receiver.pullLive(_c1);
+      rig.device.onWriteAsked = null;
+
+      // The probe was answered with the stored token, so the due retry was
+      // allowed: only the note keeps the stored ciphertext from the engine
+      // (it would decrypt, and a removed message would be stored as
+      // visible).
+      expect(refusals, 1);
+      expect(
+        rig.contexts.of(_c1).tombstoned[_mid(1)],
+        StoredMessageState.removed,
+      );
+      expect(processedCount(m1.ciphertext), 1);
+      expect((await row(_mid(1)))!.state, StoredMessageState.removed);
+      expect(await deferredIds(), isEmpty);
     });
 
     test('a tombstone for an id that is neither stored nor deferred writes '

@@ -227,13 +227,39 @@ const int kAbandonedWalksMax = 9999;
 /// only when at least the engine backoff has passed since [at], whatever
 /// the app run (a ruling after the design, fix round 2), so app resumes,
 /// which clear the memory holds, never land three strikes within seconds.
+///
+/// [kind] (`k` inside `gf`: `'f'` or `'d'`; a ruling after the design, fix
+/// round 3) is the kind of the strikes counted: [n] counts strikes of ONE
+/// kind in a row, and a counted strike of the other kind starts again at 1
+/// with its own kind. Optional at decode: a record written before it
+/// existed reads as [GroupFailureKind.fullRecord], the kind that never
+/// breaks a group, so an old count never helps a single `describe` failure
+/// reach the maximum. Any other value is refused, as every bad `gf` value.
 /// No `toString`.
 class GroupFailures {
-  const GroupFailures(this.pair, this.n, {this.at = 0});
+  const GroupFailures(
+    this.pair,
+    this.n, {
+    this.at = 0,
+    this.kind = GroupFailureKind.fullRecord,
+  });
 
   final MlsPair pair;
   final int n;
   final int at;
+  final GroupFailureKind kind;
+}
+
+/// The kind of the strikes a group failure count holds (§7.2 as amended).
+enum GroupFailureKind {
+  /// `describe` ANSWERS, the deferred record is full and no `process` call
+  /// on the group succeeded this run: at the maximum only the failing
+  /// message is a row; the group is never broken.
+  fullRecord,
+
+  /// `describe` itself FAILS for the group while the device probe answers
+  /// (the design's rule): at the maximum the group is rowed for the run.
+  describeFailed,
 }
 
 /// The receive record of one conversation (§3.1), with [gf] (§7.2) and
@@ -311,6 +337,10 @@ class ReceiveRecord {
                 'at': gf!.at < 0
                     ? 0
                     : (gf!.at > kMaxPairComponent ? kMaxPairComponent : gf!.at),
+                'k': switch (gf!.kind) {
+                  GroupFailureKind.fullRecord => 'f',
+                  GroupFailureKind.describeFailed => 'd',
+                },
               },
         'ab': abandoned < 0
             ? 0
@@ -371,7 +401,15 @@ class ReceiveRecord {
           at > kMaxPairComponent) {
         throw const FormatException('gf');
       }
-      failures = GroupFailures(MlsPair(g, e), n, at: at);
+      // Optional: a record written before the kind existed has none, and
+      // reads as the kind that never breaks a group. Any other value is
+      // refused.
+      final kind = switch (gf['k']) {
+        null || 'f' => GroupFailureKind.fullRecord,
+        'd' => GroupFailureKind.describeFailed,
+        _ => throw const FormatException('gf'),
+      };
+      failures = GroupFailures(MlsPair(g, e), n, at: at, kind: kind);
     }
     // Optional: a record written before the count existed has none.
     final ab = m['ab'] ?? 0;
