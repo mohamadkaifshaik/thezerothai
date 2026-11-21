@@ -43,12 +43,11 @@ final Int64 _maxSeconds = Int64(9007199254);
 /// web, persistence before send remains a stated limit. A stage-`encrypted` row
 /// is resent byte for byte under the same key until the server answers; it
 /// goes back to stage `plain` only after a `STALE_EPOCH` whose catch-up
-/// moved this device's pair past the one it was encrypted for. One
-/// condition holds it (audit M2, a ruling): it is not sent, for the first
-/// time or again, while a member is unattributed (an unknown device is) or
-/// attribution is pending. It is never encrypted again for that: the same
-/// bytes go out once the condition clears, and a server that moved on
-/// answers `STALE_EPOCH` as above. `epochMustAdvance` holds no resend.
+/// moved this device's pair past the one it was encrypted for. Audit M2 (a
+/// ruling): it is not sent, for the first time or again, while a member is
+/// unattributed (an unknown device is) or attribution is pending; it is
+/// never encrypted again for that, and the same bytes go out once the
+/// condition clears. `epochMustAdvance` holds no resend.
 ///
 /// Keys. Every ciphertext goes out under a key made for it at the encrypt
 /// (16 random bytes as 32 hex), never under the key its plain row was
@@ -163,9 +162,8 @@ class EncryptedSender {
   /// (the barrier, a failed accept, the round cap).
   final Map<String, SendBlock> _held = {};
 
-  /// Conversation -> the local ids a send was made for in this run: the
-  /// only rows the per-row maps above can hold an entry for. The end of a
-  /// drain forgets those whose row is gone ([_forgetGone]).
+  /// Conversation -> the local ids a send was made for in this run (only
+  /// these have entries above); [_forgetGone] drops those whose row is gone.
   final Map<String, Set<String>> _sentFor = {};
 
   /// Sign-out or a new vault: forgets this run's memory.
@@ -338,18 +336,16 @@ class EncryptedSender {
 
   /// The waiting rows of [conversationId], oldest first: `failed` (the
   /// typed error only while this run remembers it), `sending` (stage
-  /// encrypted, or `waiting` while audit M2 holds it) or `waiting` with the
-  /// gate that holds it. Reads only.
+  /// encrypted and not held by audit M2) or `waiting` with the gate that
+  /// holds it. Reads only.
   ///
   /// An empty list always means "no rows", never a failed read (a ruling:
-  /// a screen that got an empty list during a keystore outage would drop
-  /// its pending bubbles, and the user would send the text twice). A read
-  /// that fails throws instead, and the caller keeps what it shows:
-  /// [StateError] when the vault is not open (or was closed meanwhile),
-  /// [VaultKeyException] when the vault's cipher cannot run, and any other
-  /// exception of the vault's reads as it is. A programming error is
-  /// reported by its step name first. (A single row that no longer opens
-  /// is not listed; the drain stops at it.)
+  /// a screen given an empty list during a keystore outage drops its
+  /// pending bubbles, and the user sends the text twice). A failed read
+  /// throws: [StateError] when the vault is not open, [VaultKeyException]
+  /// when its cipher cannot run, any other exception of its reads as it is
+  /// (a programming error is reported by its step name first). A single
+  /// row that no longer opens is not listed; the drain stops at it.
   Future<List<OutgoingRow>> outgoing(String conversationId) async {
     final vault = _session.vault;
     if (vault == null) throw StateError('The vault is not ready.');
@@ -515,9 +511,8 @@ class EncryptedSender {
         break;
       }
     }
-    // Audit M2: an encrypted row is held while a member is not attributable
-    // (never encrypted again for it). The sync step below may conclude the
-    // attribution, as for a plain row; then every fact is read again.
+    // Audit M2: an encrypted row is held while a member is not attributable.
+    // The sync step below may conclude the attribution, as for a plain row.
     final owed =
         row.stage == OutboxStage.encrypted &&
         await _attributionOwed(op.vault, id);
@@ -611,12 +606,10 @@ class EncryptedSender {
     return held(SendBlock.none);
   }
 
-  /// Audit M2 (a controller ruling): whether a member of [id] is not
-  /// attributable now, the part of the encrypt gate that also holds a
-  /// stage-encrypted row: a stored unattributed pin (an unknown device is
-  /// one), or an attribution this run has not concluded. Reads the pins
-  /// fresh; a failed read throws (nothing is sent on a guess).
-  /// `epochMustAdvance` is no part of it.
+  /// Audit M2: whether a member of [id] is not attributable now (the part
+  /// of the encrypt gate that also holds a stage-encrypted row): a stored
+  /// unattributed pin, an unknown device included, or an attribution this
+  /// run has not concluded. Reads the pins fresh; a failed read throws.
   Future<bool> _attributionOwed(SecureVault vault, String id) async =>
       _contexts.of(id).attributionPending ||
       (await vault.members(id)).any((m) => m.side == MemberSide.unattributed);
@@ -1018,9 +1011,8 @@ class EncryptedSender {
   }
 
   /// The end of a drain: forgets every row of [id] a send was made for in
-  /// this run and that is no longer in the outbox (a receive pass stored
-  /// its echo, another code path deleted it). One hold of the lock, a read
-  /// only; a failed or partly unreadable read forgets nothing.
+  /// this run that is no longer in the outbox (a receive pass stored its
+  /// echo). One lock hold, a read only; a failed read forgets nothing.
   Future<void> _forgetGone(String id) async {
     final sent = _sentFor[id];
     if (sent == null) return;
