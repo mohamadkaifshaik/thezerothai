@@ -117,7 +117,9 @@ class StoredMessage {
   String toString() => 'StoredMessage($conversationId, $messageId)';
 }
 
-/// A message encrypted for sending and not yet accepted by the server.
+/// A message waiting to be sent and not yet accepted by the server: at
+/// stage `encrypted` its ciphertext, or at stage `plain` its content only,
+/// saved before it may be encrypted ([stage]).
 /// Exactly one of [conversationId] and [recipientUserId] is set.
 /// [toString] shows the idempotency key only.
 class OutboxItem {
@@ -139,9 +141,13 @@ class OutboxItem {
     this.lastError,
   });
 
+  /// The row's key, and for a stage-encrypted row the idempotency key of
+  /// its send. A stage-plain row's key is never put on the wire: whoever
+  /// encrypts makes a new key and a new expected id in the same
+  /// transaction.
   final String idempotencyKey;
 
-  /// Stable across re-keying: the first idempotency key of this send.
+  /// The caller's stable local row id, preserved across re-keying.
   final String localId;
 
   /// The message id the server will give this send (`expectedMessageId`).
@@ -335,6 +341,21 @@ abstract interface class SecureVault {
 
   /// A value stored with [VaultTx.putSetting], or null.
   Future<Uint8List?> setting(String key);
+
+  /// The check an encrypted send makes after its outbox row was committed
+  /// and before any network call (addendum R7): true only when this vault
+  /// holds the outbox row [idempotencyKey] at stage `encrypted`. Read-only;
+  /// reads no sealed column.
+  ///
+  /// STATED LIMIT (R7 allows it): this is NOT the web persistence barrier.
+  /// The read uses this vault's own connection. Drift awaits the file system
+  /// flush after a statement that leaves SQLite in autocommit, including
+  /// COMMIT. Persistence at this point has not been verified in a browser.
+  /// A second, independent, read-only connection is what the barrier
+  /// needs, and drift 2.35 cannot open one (see `vault_open_web.dart`). On
+  /// Android a SQLite commit is durable when `transaction()` returns, so the
+  /// answer is exact there.
+  Future<bool> confirmStored(String idempotencyKey);
 
   /// Deletes every row (one transaction), compacts the file (`VACUUM`; with
   /// `secure_delete` on, freed pages are zeroed), then destroys the cipher
@@ -1280,6 +1301,19 @@ class _DriftSecureVault implements SecureVault {
     )..where((t) => t.settingKey.equals(key))).getSingleOrNull();
     if (row == null) return null;
     return _openOrCorrupt(_tSettings, 'value', [key], row.value);
+  }
+
+  @override
+  Future<bool> confirmStored(String idempotencyKey) async {
+    _checkOpen();
+    final row = await _db
+        .customSelect(
+          'SELECT stage FROM vault_outbox WHERE idempotency_key = ?',
+          variables: [Variable.withString(idempotencyKey)],
+          readsFrom: {_db.vaultOutbox},
+        )
+        .getSingleOrNull();
+    return row != null && row.read<String>('stage') == OutboxStage.encrypted;
   }
 
   @override

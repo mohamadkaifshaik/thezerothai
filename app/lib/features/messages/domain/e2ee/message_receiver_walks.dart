@@ -282,13 +282,16 @@ extension _Walks on MessageReceiver {
 
     if (pulled) {
       // M10: a pass that saved the since token (or found it stored) at the
-      // group's current pair.
+      // group's current pair. Audit M1: only against the server pair the
+      // LAST catch-up read (an interrupted one leaves an older answer).
       final pair = await _currentPair(pass.vault, id);
       if (pair != null) {
         context
           ..livePulledAt = pair
           ..syncedSinceStart =
-              !context.attributionPending && context.serverPair == pair;
+              !context.attributionPending &&
+              context.serverPairFresh &&
+              context.serverPair == pair;
       }
     }
     var after = await _readReceive(pass.vault, id);

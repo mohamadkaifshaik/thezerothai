@@ -2305,6 +2305,65 @@ void main() {
       }
     });
 
+    test('confirmStored is true for a stored encrypted row and false for a '
+        'missing or plain one', () async {
+      await vault.transaction((tx) async {
+        await tx.putOutbox(_outbox('k1'));
+        await tx.putOutbox(
+          OutboxItem(
+            idempotencyKey: 'k2',
+            localId: 'local-2',
+            expectedMessageId: expectedMessageId(_uid, 'k2'),
+            conversationId: 'c1',
+            generation: 0,
+            epoch: 0,
+            ciphertext: Uint8List(0),
+            reportCommitment: Uint8List(0),
+            content: _b('not encrypted yet'),
+            createdAtMicros: 11,
+            stage: OutboxStage.plain,
+          ),
+        );
+      });
+      expect(await vault.confirmStored('k1'), isTrue);
+      expect(await vault.confirmStored('k2'), isFalse, reason: 'stage plain');
+      expect(await vault.confirmStored('zz'), isFalse, reason: 'no such row');
+      // A row that is gone is no longer confirmed.
+      await vault.transaction((tx) => tx.deleteOutbox('k1'));
+      expect(await vault.confirmStored('k1'), isFalse);
+      // A transaction that failed stored nothing to confirm.
+      await expectLater(
+        vault.transaction((tx) async {
+          await tx.putOutbox(_outbox('k3'));
+          throw StateError('the body failed');
+        }),
+        throwsStateError,
+      );
+      expect(await vault.confirmStored('k3'), isFalse);
+    });
+
+    test('confirmStored reads no sealed column and writes nothing', () async {
+      await vault.transaction((tx) => tx.putOutbox(_outbox('k1')));
+      Future<String> rows() async => [
+        for (final r
+            in await db
+                .customSelect('SELECT * FROM vault_outbox ORDER BY rowid')
+                .get())
+          r.data,
+      ].toString();
+      final before = await rows();
+      final seals = cipher.sealCalls;
+      final opens = cipher.openCalls;
+      cipher.throwsEverything = true; // any open or seal would throw
+      expect(await vault.confirmStored('k1'), isTrue);
+      expect(await vault.confirmStored('zz'), isFalse);
+      cipher.throwsEverything = false;
+      expect(cipher.sealCalls, seals);
+      expect(cipher.openCalls, opens);
+      expect(await rows(), before);
+      expect(await _count(db, 'vault_outbox'), 1);
+    });
+
     test('clearSentBefore keeps the current pair', () async {
       String d(int i) => i.toRadixString(16).padLeft(64, '0');
       await vault.transaction((tx) async {

@@ -416,6 +416,13 @@ class FakeWorldVault implements SecureVault {
     return v == null ? null : Uint8List.fromList(v);
   }
 
+  /// The fake keeps no outbox: nothing is ever stored at stage `encrypted`.
+  @override
+  Future<bool> confirmStored(String idempotencyKey) async {
+    if (closed) throw StateError('closed');
+    return false;
+  }
+
   @override
   Future<void> wipe() async {
     _world.calls.add('vault.wipe:$uid');
