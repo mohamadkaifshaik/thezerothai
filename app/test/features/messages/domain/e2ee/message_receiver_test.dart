@@ -4344,6 +4344,99 @@ void main() {
       expect(rig.contexts.of(_c1).engineHoldUntil, isNotNull);
     });
 
+    test('a retry whose probes both fail writes nothing, and one that hangs '
+        'with a failing describe probe only counts an unwitnessed '
+        'crash', () async {
+      await setUpJoined();
+      final m1 = await say(bobGroup(), 1);
+      failAlways(m1, internal);
+      await rig.receiver.pullLive(_c1);
+      final held = (await deferred()).encode();
+
+      // The breaker: no strike, nothing durable, the pass's retries stop.
+      nextRun();
+      engine().failAlways['describe'] = internal;
+      engine().failAlways['randomBytes'] = internal;
+      await rig.receiver.pullLive(_c1);
+      expect((await deferred()).encode(), held);
+      expect(rig.receiver.breakerOpened, 1);
+      expect(rig.contexts.of(_c1).engineHoldUntil, isNotNull);
+      expect(await row(_mid(1)), isNull);
+
+      // A hang with a failing describe probe: an unwitnessed crash, counted
+      // durably, never a strike and never a row.
+      rig.clock.advance(kEngineBackoff);
+      failAlways(m1, deadline);
+      await rig.receiver.pullLive(_c1);
+      final item = (await deferred()).items.single;
+      expect((item.k, item.cc, item.cu), (1, 0, 1));
+      expect(await row(_mid(1)), isNull);
+      expect(processedCount(m1.ciphertext), 3);
+    });
+
+    test('a group-level failure at a retry counts against the group, not the '
+        'message', () async {
+      await setUpJoined();
+      final m1 = await say(bobGroup(), 1);
+      failNext(m1, [internal]);
+      await rig.receiver.pullLive(_c1);
+      final held = (await deferred()).encode();
+      engine().failState[RigEngine.key(await groupState())] = internal;
+
+      nextRun();
+      await rig.receiver.pullLive(_c1);
+
+      expect((await receiveRecord()).gf!.n, 1);
+      expect((await deferred()).encode(), held);
+      expect(await row(_mid(1)), isNull);
+    });
+
+    test('on the web a crashing message replaces the worker at most twice, '
+        'ever, and two crashing messages in one run leave the second one '
+        'untried until the next resume', () async {
+      await setUpJoined();
+      engine().webLike = true;
+      final m1 = await say(bobGroup(), 1);
+      final m2 = await say(bobGroup(), 2, at: seconds(1));
+      await say(bobGroup(), 3, at: seconds(2));
+      failAlways(m1, deadline);
+      failAlways(m2, deadline);
+
+      // The first crash is witnessed on the replacement worker; the second
+      // makes the engine unavailable: device-down, nothing counted for it.
+      final first = await rig.receiver.pullLive(_c1);
+      expect(first.kind, ReceiveOutcomeKind.stopped);
+      final one = (await deferred()).items.single;
+      expect((one.id, one.k, one.cc, one.cu), (_mid(1), 1, 1, 0));
+      expect(await row(_mid(2)), isNull);
+      expect(await row(_mid(3)), isNull);
+
+      // The next resume: the second message crashes once and is deferred
+      // with its witness; no crash-class retry in a run with a crash.
+      resume();
+      rig.clock.advance(kDeferredRetrySpacing);
+      await rig.receiver.pullLive(_c1);
+      expect(await deferredIds(), [_mid(1), _mid(2)]);
+      expect((await row(_mid(3)))!.state, StoredMessageState.visible);
+      expect(processedCount(m1.ciphertext), 1);
+
+      // One crash-class retry per run, each a row at its second COUNTED
+      // crash.
+      for (final m in [m1, m2]) {
+        resume();
+        rig.clock.advance(kDeferredRetrySpacing);
+        await rig.receiver.pullLive(_c1);
+        expect((await row(m.id))!.state, StoredMessageState.undecryptable);
+      }
+      expect(await deferredIds(), isEmpty);
+      expect(processedCount(m1.ciphertext), kDeferredCrashStrikes);
+      // The second message's crash in the first run was answered
+      // device-down (the describe probe said `unavailable`), so §7.2 counted
+      // nothing for it: it reached the engine once more than its two
+      // counted crashes.
+      expect(processedCount(m2.ciphertext), kDeferredCrashStrikes + 1);
+    });
+
     test('a deferred item past 30 days from the earlier of its server time '
         'and its local time becomes a row', () async {
       await setUpJoined();
