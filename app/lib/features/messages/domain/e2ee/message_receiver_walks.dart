@@ -87,6 +87,10 @@ extension _Walks on MessageReceiver {
         _reportIfBug(e, s, 'receive.welcomes');
       }
     }
+    // A complete pass (every return site): nothing waits, the streak ends.
+    if (outcome.kind == ReceiveOutcomeKind.complete) {
+      _resetCatchUpWait(_contexts.of(id));
+    }
     return outcome;
   }
 
@@ -165,14 +169,25 @@ extension _Walks on MessageReceiver {
     if (seen != null && (kept == null || seen.compareTo(kept) > 0)) {
       context.laterPairSeen = seen;
     }
-    // M7: a seen pair the current pair has reached is no longer a reason.
-    _clearLaterPairReached(context, current);
+    // M7: a seen pair the current pair has reached, or a due pair it has
+    // passed, is no longer a reason (the fast path or another catch-up
+    // applied the commit); a fruitless streak at another pair ends.
+    _clearReached(context, current);
     if (!probe.caughtUp &&
         current != null &&
         !_commitWalksLeft(after) &&
         (_closeEndedAt(after, current) ||
             context.laterPairSeen != null ||
-            context.catchUpDue)) {
+            context.catchUpDueAt != null)) {
+      // The catch-up's own wait (after fruitless runs at this pair): only
+      // this trigger waits, the walks above ran. A commit still waits, so
+      // never `complete`.
+      final notBefore = context.catchUpNotBefore;
+      if (notBefore != null && _now().isBefore(notBefore)) {
+        return _walksLeft(after)
+            ? ReceiveOutcome.more
+            : ReceiveOutcome.stopped(notBefore);
+      }
       // The pass finishes the job (I2): the walks the commit gate reads
       // have ended and a commit waits (the current pair's close walk ended,
       // the probe showed a later pair, or a catch-up was refused behind an
@@ -192,41 +207,76 @@ extension _Walks on MessageReceiver {
       final now = await _currentPair(pass.vault, id);
       final moved = now != current;
       // A failed (`interrupted`) catch-up keeps both facts for the next
-      // pass (its sink may have set `catchUpDue` again in this run).
+      // pass (its sink may have set `catchUpDueAt` again in this run).
       if (result != null && result != CatchUpResult.interrupted) {
         context
           ..laterPairSeen = null
-          ..catchUpDue = false;
+          ..catchUpDueAt = null;
       }
-      _clearLaterPairReached(context, now);
+      _clearReached(context, now);
       after = await _readReceive(pass.vault, id);
       if (!moved && !_walksLeft(after)) {
         // Nothing applied and no walk left (no commit visible yet, a
         // failed call, a later pair the server does not have): the next
         // pass waits, never an immediate `more` or a `complete` with a
         // commit left. A walk the catch-up's sink left pending is `more`.
-        // The second such run in a row waits with the doubling walk
-        // backoff (at least twice the first wait).
-        if (context.fruitlessCatchUp) {
-          context.walkBackoff ??= kWalkBackoff;
-          return _backOff(context);
-        }
-        context.fruitlessCatchUp = true;
-        return ReceiveOutcome.stopped(_now().add(kWalkBackoff));
+        return _fruitlessCatchUp(context, current);
       }
-      context.fruitlessCatchUp = false;
+      _resetCatchUpWait(context);
     }
     return pulled && !_walksLeft(after)
         ? ReceiveOutcome.complete
         : ReceiveOutcome.more;
   }
 
-  /// Clears [context]'s later pair once [current] has reached it.
-  void _clearLaterPairReached(ConversationContext context, MlsPair? current) {
+  /// With the group's [current] pair known: clears [context]'s later pair
+  /// once [current] has reached it, its due pair once [current] is strictly
+  /// past it, and a fruitless streak kept at another pair. An unknown pair
+  /// clears nothing.
+  void _clearReached(ConversationContext context, MlsPair? current) {
+    if (current == null) return;
     final later = context.laterPairSeen;
-    if (later != null && current != null && later.compareTo(current) <= 0) {
+    if (later != null && later.compareTo(current) <= 0) {
       context.laterPairSeen = null;
     }
+    final due = context.catchUpDueAt;
+    if (due != null && current.compareTo(due) > 0) {
+      context.catchUpDueAt = null;
+    }
+    final streak = context.fruitlessCatchUpAt;
+    if (streak != null && streak != current) _resetCatchUpWait(context);
+  }
+
+  /// An end-of-pass catch-up at [current] applied nothing and left no walk.
+  /// The first at a pair waits the flat [kWalkBackoff] and arms nothing;
+  /// each next one at the same pair doubles the catch-up's own wait (up to
+  /// [kWalkBackoffMax]) and holds only the trigger, never the walks.
+  ReceiveOutcome _fruitlessCatchUp(
+    ConversationContext context,
+    MlsPair current,
+  ) {
+    if (context.fruitlessCatchUpAt != current) {
+      context
+        ..fruitlessCatchUpAt = current
+        ..catchUpBackoff = kWalkBackoff
+        ..catchUpNotBefore = null;
+      return ReceiveOutcome.stopped(_now().add(kWalkBackoff));
+    }
+    var d = (context.catchUpBackoff ?? kWalkBackoff) * 2;
+    if (d > kWalkBackoffMax) d = kWalkBackoffMax;
+    final until = _now().add(d);
+    context
+      ..catchUpBackoff = d
+      ..catchUpNotBefore = until;
+    return ReceiveOutcome.stopped(until);
+  }
+
+  /// Ends a fruitless streak and the catch-up's own wait.
+  void _resetCatchUpWait(ConversationContext context) {
+    context
+      ..fruitlessCatchUpAt = null
+      ..catchUpBackoff = null
+      ..catchUpNotBefore = null;
   }
 
   /// A close, orphan or open walk of [r] has pages left.
@@ -448,7 +498,8 @@ extension _Walks on MessageReceiver {
           id,
           record.copyWith(
             rec: armed,
-            anchor: anchor.isEmpty || anchor.length > kMaxTokenChars
+            // A token outside the one shape is refused as an anchor.
+            anchor: anchor.isEmpty || !isTokenShape(anchor)
                 ? record.anchor
                 : anchor,
           ),
@@ -537,7 +588,8 @@ extension _Walks on MessageReceiver {
   }
 
   /// One ordered page at [w]'s token. `page` null with no outcome: the token
-  /// was refused (or an answer's token is over [kMaxTokenChars]).
+  /// was refused (or an answer's next or resume token is outside the one
+  /// token shape, [isTokenShape]).
   Future<({pb.ListEpochMessagesResponse? page, ReceiveOutcome? outcome})>
   _listOrdered(String id, WalkEntry w) async {
     try {
@@ -548,8 +600,8 @@ extension _Walks on MessageReceiver {
         pageToken: w.t,
         order: EpochMessageOrder.EPOCH_MESSAGE_ORDER_CREATED_AT,
       );
-      if (page.nextPageToken.length > kMaxTokenChars ||
-          page.resumePageToken.length > kMaxTokenChars) {
+      if (!isTokenShape(page.nextPageToken) ||
+          !isTokenShape(page.resumePageToken)) {
         return (page: null, outcome: null);
       }
       return (page: page, outcome: null);
@@ -689,12 +741,21 @@ extension _Walks on MessageReceiver {
       final token = saveEnd && sync.sinceToken == end.sentWith
           ? end.token
           : null;
+      // §6 "whoever reaches it": a close walk that ends the last epoch of a
+      // generation below the current one (read fresh here) is that
+      // generation's final step too, as the orphan walk's end is.
+      final current = slot == _Slot.close && next.end && !gone
+          ? await _currentPair(v, id)
+          : null;
+      final closeFinal =
+          current != null && w.pair.generation < current.generation;
+      final last = orphanFinal || closeFinal;
       tokenWritten = token != null;
       recordInUpdate = true;
       return (
-        record: _withSlot(record, slot, orphanFinal ? null : next),
+        record: _withSlot(record, slot, last ? null : next),
         sinceToken: token,
-        deleteGroup: orphanFinal && !gone ? w.pair.generation : null,
+        deleteGroup: last && !gone ? w.pair.generation : null,
       );
     }
 

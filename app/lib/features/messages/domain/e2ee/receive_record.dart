@@ -13,6 +13,18 @@ const String kVaultSettingReceivePrefix = 'messages.e2ee.receive.';
 /// A token longer than this is treated as refused (§3.1).
 const int kMaxTokenChars = 1024;
 
+/// The one token shape (next, resume, settle, reconcile, anchor): printable
+/// ASCII without `"` or `\`, at most [kMaxTokenChars] characters. JSON writes
+/// each of these characters as one byte, so a record of tokens in this shape
+/// stays within [kMaxReceiveRecordBytes]; a token outside it is treated as
+/// refused and is never recorded. The server's tokens are base64url.
+final RegExp _tokenShape = RegExp(
+  '^[\\x21\\x23-\\x5b\\x5d-\\x7e]{0,$kMaxTokenChars}\$',
+);
+
+/// [token] has the one token shape ([kMaxTokenChars]).
+bool isTokenShape(String token) => _tokenShape.hasMatch(token);
+
 /// A stored receive record longer than this reads as unreadable (§3.1).
 const int kMaxReceiveRecordBytes = 16 * 1024;
 
@@ -111,7 +123,8 @@ class WalkEntry {
 
   /// The entry after one applied page (§3.2). [last]: the page's last
   /// message (null for an empty page); [nowLocal]: set as [lt] when this
-  /// page starts a listing and [open] is true.
+  /// page starts a listing and [open] is true (0 for a local clock before
+  /// 1970, which the decoder would refuse).
   WalkEntry afterPage({
     required String next,
     required String resume,
@@ -127,7 +140,7 @@ class WalkEntry {
     var lt = this.lt;
     if (r) {
       end = false;
-      if (open) lt = nowLocal;
+      if (open) lt = nowLocal < 0 ? 0 : nowLocal;
     }
     if (c) {
       s = resume;
@@ -351,7 +364,7 @@ class ReceiveRecord {
   }
 
   static String _token(Object? raw) {
-    if (raw is! String || raw.length > kMaxTokenChars) {
+    if (raw is! String || !isTokenShape(raw)) {
       throw const FormatException('token');
     }
     return raw;

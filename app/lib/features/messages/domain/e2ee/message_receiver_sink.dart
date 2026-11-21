@@ -12,8 +12,9 @@ extension _Sink on MessageReceiver {
   /// §5.1 "the sink": with [id]'s lock held, the close walk of [pair] (the
   /// orphan walk for a pair below the current generation) is created or
   /// resumed and listed at most [kSinkPagesPerHold] pages per lock hold with
-  /// [SyncBudget.tryTake]. Returns once the walk has ended (an orphan's
-  /// final transaction deletes its group); otherwise throws [_WalkPending].
+  /// [SyncBudget.tryTake]. Returns once the walk has ended (the final
+  /// transaction of an orphan walk, or of a close walk of a generation below
+  /// the current one, deletes its group); otherwise throws [_WalkPending].
   Future<void> _sinkWalk(
     String id,
     MlsPair pair,
@@ -27,6 +28,9 @@ extension _Sink on MessageReceiver {
     if (pass == null) throw const _Stopped();
     final context = _contexts.of(id);
     final current = await _currentPair(pass.vault, id);
+    // The pair the waiting commit is due at (the sink's own pair when the
+    // group's is not known: never null, so the marker is never lost).
+    _WalkPending pending() => _pending(context, current ?? pair);
 
     // 1-3: read fresh; ended; create or resume.
     final record = await _readReceive(pass.vault, id);
@@ -52,33 +56,33 @@ extension _Sink on MessageReceiver {
     // One slot per kind: an unfinished walk of another pair (a `u` walk
     // whose group is gone, or a kept generation's) is finished first, by
     // the passes; it is never replaced and its unlisted rest never dropped.
-    if (w != null && w.pair != pair && !w.end) throw _pending(context);
+    if (w != null && w.pair != pair && !w.end) throw pending();
     final wantMode = slot == _Slot.close ? mode : null;
     if (w == null ||
         w.pair != pair ||
         (wantMode == WalkMode.undecryptable && w.mode != wantMode)) {
       if (!await _createSlotLocked(pass, id, slot, pair, wantMode)) {
-        throw _pending(context);
+        throw pending();
       }
     }
 
     // 3-5: at most kSinkPagesPerHold pages per hold, never waiting.
     while (true) {
       final hold = _locks.holdToken(id);
-      if (hold == null) throw _pending(context);
+      if (hold == null) throw pending();
       final used = _sinkPagesByHold[hold] ?? 0;
       final fresh = _slotOf(await _readReceive(pass.vault, id), slot);
       if (fresh == null || fresh.pair != pair) {
         // The orphan's final transaction ran.
         if (slot == _Slot.orphan) return;
-        throw _pending(context);
+        throw pending();
       }
       if (fresh.end) return;
       final backoff = context.walkBackoffUntil;
       if ((backoff != null && _now().isBefore(backoff)) ||
           used >= kSinkPagesPerHold ||
           !_syncBudget.tryTake(priority)) {
-        throw _pending(context);
+        throw pending();
       }
       _sinkPagesByHold[hold] = used + 1;
       final seq = ++_seq;
@@ -87,7 +91,7 @@ extension _Sink on MessageReceiver {
         if (listed.outcome!.kind == ReceiveOutcomeKind.stopped) {
           _backOff(context);
         }
-        throw _pending(context);
+        throw pending();
       }
       final _StepEnd step;
       if (listed.page == null) {
@@ -109,17 +113,18 @@ extension _Sink on MessageReceiver {
           break;
         case _StepKind.stale:
         case _StepKind.stop:
-          throw _pending(context);
+          throw pending();
       }
     }
   }
 
-  /// The walk is left pending: the commit waits, so the end of a later
-  /// pass runs a catch-up once no walk of the current pair is left (also
-  /// when the walk that blocked is an older pair's, whose end does not clear
-  /// it).
-  _WalkPending _pending(ConversationContext context) {
-    context.catchUpDue = true;
+  /// The walk is left pending: the commit waits at [at], so the end of a
+  /// later pass runs a catch-up once no walk of the current pair is left
+  /// (also when the walk that blocked is an older pair's, whose end does not
+  /// clear it). The marker keeps the higher of its pair and [at].
+  _WalkPending _pending(ConversationContext context, MlsPair at) {
+    final due = context.catchUpDueAt;
+    if (due == null || at.compareTo(due) > 0) context.catchUpDueAt = at;
     return const _WalkPending();
   }
 

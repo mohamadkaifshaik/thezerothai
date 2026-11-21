@@ -100,6 +100,28 @@ void main() {
         false,
       ),
       (
+        'a token with a control character',
+        (r) => _slot(r, 'open')['t'] = 'a\u0001b',
+        false,
+      ),
+      (
+        'a token with a non-ASCII character',
+        (r) => _slot(r, 'close')['s'] = 'aéb',
+        false,
+      ),
+      ('a token with a quote', (r) => r['anchor'] = 'a"b', false),
+      ('a token with a backslash', (r) => _slot(r, 'rec')['t'] = r'a\b', false),
+      ('a token with a space', (r) => _slot(r, 'orphan')['t'] = 'a b', false),
+      (
+        'a token of every allowed character',
+        (r) => _slot(r, 'open')['s'] = String.fromCharCodes([
+          for (var c = 0x21; c <= 0x7e; c++)
+            if (c != 0x22 && c != 0x5c) c,
+        ]),
+        true,
+      ),
+      ('a negative lt', (r) => _slot(r, 'open')['lt'] = -1, false),
+      (
         'an upper-case id in l',
         (r) => _slot(r, 'open')['l'] = [10, 'A' * 32],
         false,
@@ -216,6 +238,55 @@ void main() {
       ).read(_Vault(null, error: const VaultCorruptException('x')), _c1);
       expect(read, same(ReceiveRecord.empty));
       expect(reported, hasLength(1));
+    });
+
+    test('a worst-case record (every token slot at 1,024 allowed characters) '
+        'encodes under the 16 KiB bound', () {
+      // The widest allowed character JSON can write is still one byte.
+      final token = '~' * kMaxTokenChars;
+      final pos = WalkPos(kMaxPairComponent, _hex);
+      WalkEntry walk({WalkMode? mode, int? lt}) => WalkEntry(
+        pair: const MlsPair(kMaxPairComponent, kMaxPairComponent),
+        t: token,
+        s: token,
+        r: false,
+        c: false,
+        end: true,
+        l: pos,
+        f: pos,
+        lt: lt,
+        mode: mode,
+      );
+      final r = ReceiveRecord(
+        open: walk(lt: kMaxPairComponent),
+        close: walk(mode: WalkMode.undecryptable),
+        orphan: walk(),
+        rec: ReconcileEntry(
+          armed: true,
+          t: token,
+          n: kMaxPairComponent,
+          l: _hex,
+        ),
+        anchor: token,
+      );
+      final bytes = r.encode();
+      expect(bytes.length, lessThan(kMaxReceiveRecordBytes));
+      expect(ReceiveRecord.decode(bytes).anchor, token);
+    });
+
+    test('a local clock before 1970 is written as lt 0 and decodes', () {
+      const w = WalkEntry(pair: MlsPair(1, 1));
+      final next = w.afterPage(
+        next: '',
+        resume: '',
+        settled: true,
+        last: null,
+        open: true,
+        nowLocal: -5,
+      );
+      expect(next.lt, 0);
+      final r = ReceiveRecord(open: next);
+      expect(ReceiveRecord.decode(r.encode()).open!.lt, 0);
     });
 
     test('a record round-trips', () {

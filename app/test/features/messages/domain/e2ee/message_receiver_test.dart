@@ -82,6 +82,7 @@ void main() {
     bool fromSelf = false,
     Uint8List? bytes,
     Uint8List? commitment,
+    int generation = 1,
   }) async {
     final content = bytes ?? _content(text);
     final r = await g.owner.engine.encrypt(g.owner.state, g.state, content);
@@ -93,7 +94,7 @@ void main() {
       state: MessageState.MESSAGE_STATE_VISIBLE,
       createdAt: ts.Timestamp.fromDateTime(t0.add(at)),
       ciphertext: r.ciphertext,
-      mlsGeneration: Int64(1),
+      mlsGeneration: Int64(generation),
       mlsEpoch: Int64(r.epoch),
       reportCommitment: commitment ?? reportCommitment(content),
     );
@@ -186,6 +187,21 @@ void main() {
     for (var i = 0; i < count; i++)
       await say(bobGroup(), from + i, at: start + Duration(milliseconds: i)),
   ];
+
+  /// A message of (1, [epoch]), a pair the server has no commit for, stored
+  /// as message [n] created [at] after t0.
+  void noCommitMessage(int n, int epoch, Duration at) => rig.server.addMessage(
+    pb.Message(
+      id: _mid(n),
+      conversationId: _c1,
+      state: MessageState.MESSAGE_STATE_VISIBLE,
+      createdAt: ts.Timestamp.fromDateTime(t0.add(at)),
+      ciphertext: [1, 2, 3],
+      reportCommitment: List.filled(32, 1),
+      mlsGeneration: Int64(1),
+      mlsEpoch: Int64(epoch),
+    ),
+  );
 
   /// The stored receive record, as stored (not normalized).
   Future<ReceiveRecord> receiveRecord() =>
@@ -1304,7 +1320,7 @@ void main() {
 
         // The sink lists 2 pages under the lock, then leaves the walk pending.
         expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
-        expect(rig.contexts.of(_c1).catchUpDue, isTrue);
+        expect(rig.contexts.of(_c1).catchUpDueAt, const MlsPair(1, 1));
         var passes = 0;
         var killed = false;
         // The pass that ends the close walk applies the commit (I2).
@@ -1418,6 +1434,46 @@ void main() {
         expect((await row(_mid(i)))!.state, StoredMessageState.visible);
       }
       expect((await receiveRecord()).open!.end, isTrue);
+    });
+
+    test('a page whose next token holds control characters is refused and the '
+        'record still decodes', () async {
+      await setUpJoined();
+      final sent = await sayMany(1, 60, start: const Duration(minutes: -10));
+      final shape = RegExp(r'^[\x21\x23-\x5b\x5d-\x7e]*$');
+      // Page 1 is full; its next and resume tokens are 1,024 × U+0001 (six
+      // bytes each in JSON).
+      final bad = '\u0001' * kMaxTokenChars;
+      var n = 0;
+      rig.server.rewriteEpoch = (real) => ++n == 1
+          ? (real.deepCopy()
+              ..nextPageToken = bad
+              ..resumePageToken = bad)
+          : real;
+      // Before the second listing: nothing of page 1 was processed.
+      final before = <StoredMessage?>[];
+      rig.server.afterEpochAnswer = () async {
+        if (n == 1 && before.isEmpty) before.add(await row(_mid(1)));
+      };
+
+      await rig.receiver.pullLive(_c1);
+
+      expect(before, [null]);
+      // The token was refused: the walk listed again from the start, and no
+      // token outside the shape was ever sent or stored.
+      final tokens = orderedTokens(const MlsPair(1, 1));
+      expect(tokens.take(2), ['', '']);
+      expect(tokens.where((t) => !shape.hasMatch(t)), isEmpty);
+      expect(rig.contexts.of(_c1).orderViolation, 0);
+      final bytes = await rig.device.vault.setting(ReceiveRecords.keyOf(_c1));
+      final stored = ReceiveRecord.decode(bytes!);
+      for (final t in [stored.open!.t, stored.open!.s, stored.anchor]) {
+        expect(shape.hasMatch(t), isTrue);
+      }
+      expect(stored.open!.end, isTrue);
+      for (final m in sent) {
+        expect((await row(m.id))!.state, StoredMessageState.visible);
+      }
     });
 
     test('a page goes stale when only the record serial changed', () async {
@@ -1999,12 +2055,12 @@ void main() {
       await sayMany(1, 200, start: const Duration(minutes: -10));
       await bobSelfUpdate();
       expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
-      expect(rig.contexts.of(_c1).catchUpDue, isTrue);
+      expect(rig.contexts.of(_c1).catchUpDueAt, const MlsPair(1, 1));
 
       await rig.receiver.pullLive(_c1);
 
       // The pass ended the close walk and applied the commit itself (I2).
-      expect(rig.contexts.of(_c1).catchUpDue, isFalse);
+      expect(rig.contexts.of(_c1).catchUpDueAt, isNull);
       expect((await rig.device.vault.group(_c1, 1))!.epoch, 2);
       expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
       for (var i = 1; i <= 200; i++) {
@@ -2198,6 +2254,110 @@ void main() {
       },
     );
 
+    test('after the fast path applied the waiting commit, the next pass runs '
+        'no catch-up and sets no walk backoff', () async {
+      await setUpJoined();
+      // This device is in generation 2 (generation 1's group is gone); the
+      // open walk of the current pair has ended and the token is saved.
+      final offer2 = await rig.offer(_c1, bob, generation: 2);
+      expect(await rig.crypto.processWelcomes(), [_c1]);
+      await rig.device.vault.transaction((tx) => tx.deleteGroup(_c1, 1));
+      await prime();
+      // An unfinished walk of an older pair holds the close slot: the sink
+      // for the current pair is refused and the commit waits.
+      await putReceiveRecord(
+        (await receiveRecord()).copyWith(
+          close: const WalkEntry(
+            pair: MlsPair(1, 1),
+            mode: WalkMode.undecryptable,
+          ),
+        ),
+      );
+      final epoch = (await rig.device.vault.group(_c1, 2))!.epoch;
+      final at = rig.server.current(_c1);
+      expect(at, MlsPair(2, epoch));
+      final g2 = offer2.add.group;
+      final c = await bob.engine.selfUpdate(bob.state, g2.state);
+      g2.state = await bob.engine.confirmCommit(bob.state, c.groupState);
+      rig.server.addCommit(_c1, at, c.commit, fromUser: 'user-b');
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.interrupted);
+      // The older walk no longer blocks (the slot is cleared by hand here; a
+      // real end leaves it with `end`, which the sink also passes over); a
+      // message of the next pair comes on an ungapped probe: the fast
+      // path's batch applies the commit.
+      await putReceiveRecord((await receiveRecord()).copyWith(close: null));
+      await say(g2, 1, at: seconds(1), generation: 2);
+      await rig.receiver.pullLive(_c1);
+      expect((await rig.device.vault.group(_c1, 2))!.epoch, epoch + 1);
+      expect((await row(_mid(1)))!.state, StoredMessageState.visible);
+      rig.server.calls.clear();
+
+      final out = await rig.receiver.pullLive(_c1);
+
+      expect(rig.server.calls, isNot(contains('listConversationCommits')));
+      expect(out.kind, isNot(ReceiveOutcomeKind.stopped));
+      expect(rig.contexts.of(_c1).walkBackoffUntil, isNull);
+    });
+
+    test(
+      'two fruitless catch-ups at different pairs do not escalate',
+      () async {
+        await setUpJoined();
+        await prime();
+        await say(bobGroup(), 1);
+        noCommitMessage(2, 5, seconds(1));
+        rig.server.livePageSize = 1;
+        final first = await rig.receiver.pullLive(_c1);
+        expect(first.until, rig.clock.now().add(kWalkBackoff));
+        // Another catch-up (the scheduler's) moves the pair to (1, 2).
+        await bobSelfUpdate();
+        expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+        expect((await rig.device.vault.group(_c1, 1))!.epoch, 2);
+        rig.clock.advance(kWalkBackoff);
+        await say(bobGroup(), 3, at: seconds(2));
+        noCommitMessage(4, 9, seconds(3));
+        rig.server.calls.clear();
+
+        final second = await rig.receiver.pullLive(_c1);
+
+        expect(
+          rig.server.calls.where((c) => c == 'listConversationCommits'),
+          hasLength(1),
+        );
+        // A first fruitless run at (1, 2): the flat wait, not the doubled.
+        expect(second.kind, ReceiveOutcomeKind.stopped);
+        expect(second.until, rig.clock.now().add(kWalkBackoff));
+        expect(rig.contexts.of(_c1).walkBackoffUntil, isNull);
+        expect((await row(_mid(3)))!.state, StoredMessageState.visible);
+      },
+    );
+
+    test('a fruitless catch-up never delays an honest walk', () async {
+      await setUpJoined();
+      await prime();
+      await say(bobGroup(), 1);
+      noCommitMessage(2, 5, seconds(1));
+      rig.server.livePageSize = 1;
+      final first = await rig.receiver.pullLive(_c1);
+      expect(first.until, rig.clock.now().add(kWalkBackoff));
+      rig.clock.advance(kWalkBackoff);
+      await say(bobGroup(), 3, at: seconds(2));
+      noCommitMessage(4, 6, seconds(3));
+      final second = await rig.receiver.pullLive(_c1);
+      // The second fruitless run at the same pair waits twice as long.
+      expect(second.until, rig.clock.now().add(kWalkBackoff * 2));
+      rig.clock.advance(kWalkBackoff);
+      // New messages of the current pair: the open walk has pages to fetch.
+      final sent = await sayMany(5, 60, start: seconds(4));
+
+      await rig.receiver.pullLive(_c1);
+
+      expect(rig.contexts.of(_c1).walkBackoffUntil, isNull);
+      for (final m in sent) {
+        expect((await row(m.id))!.state, StoredMessageState.visible);
+      }
+    });
+
     test('a later pair seen on the probe is not caught up again once the '
         'current pair has passed it', () async {
       await setUpJoined();
@@ -2356,7 +2516,7 @@ void main() {
 
       // The sink for (2, 1) does not take the slot: the walk is pending.
       expect(await sinkFor(const MlsPair(2, 1)), isA<Exception>());
-      expect(rig.contexts.of(_c1).catchUpDue, isTrue);
+      expect(rig.contexts.of(_c1).catchUpDueAt, const MlsPair(2, 1));
       final kept = (await receiveRecord()).close!;
       expect(kept.pair, const MlsPair(1, 1));
       expect(kept.mode, WalkMode.undecryptable);
@@ -2516,6 +2676,46 @@ void main() {
       for (var i = 1; i <= 10; i++) {
         expect((await row(_mid(i)))!.state, StoredMessageState.visible);
       }
+    });
+
+    test("a close walk of an older generation's last epoch deletes its kept "
+        'group when it ends', () async {
+      await setUpJoined(pageSize: 5);
+      // 28 messages: the last page is short, so the walk's end rides the
+      // transaction of its last message.
+      final sent = await sayMany(1, 28, start: const Duration(minutes: -10));
+      // The close walk of (1, 1) was started; then the device moved to
+      // generation 2 and kept generation 1's group.
+      final g1 = (await rig.device.vault.group(_c1, 1))!;
+      await rig.device.vault.transaction(
+        (tx) => tx.putGroup(
+          GroupRecord(
+            conversationId: _c1,
+            generation: 2,
+            epoch: 1,
+            state: g1.state,
+          ),
+        ),
+      );
+      await putReceiveRecord(
+        const ReceiveRecord(close: WalkEntry(pair: MlsPair(1, 1))),
+      );
+      rig.server.epochRequests.clear();
+
+      await rig.receiver.pullLive(_c1, priority: BudgetPriority.user);
+
+      // Six pages, the last one short: no empty page ended the walk.
+      expect(orderedTokens(const MlsPair(1, 1)), hasLength(6));
+
+      for (final m in sent) {
+        expect((await row(m.id))!.state, StoredMessageState.visible);
+      }
+      // The transaction that recorded the end deleted the kept group and
+      // freed the close slot; no orphan slot is made for the pair.
+      expect(await rig.device.vault.group(_c1, 1), isNull);
+      final r = await receiveRecord();
+      expect(r.close, isNull);
+      expect(r.orphan, isNull);
     });
 
     test('a conversation with no final group still finishes its undecryptable '
@@ -2731,6 +2931,26 @@ void main() {
       expect(record.anchor, isNot(anchor));
       expect(await row(_mid(2)), isNull);
     });
+
+    test(
+      'a since token outside the token shape is refused as an anchor',
+      () async {
+        await setUpJoined();
+        // The first probe (no since token) answers a token with a control
+        // character.
+        var n = 0;
+        rig.server.rewriteLive = (real) =>
+            ++n == 1 ? (real.deepCopy()..sinceToken = 's:0\u0001') : real;
+
+        await rig.receiver.pullLive(_c1);
+
+        expect(n, greaterThanOrEqualTo(1));
+        final bytes = await rig.device.vault.setting(ReceiveRecords.keyOf(_c1));
+        final stored = ReceiveRecord.decode(bytes!);
+        expect(stored.anchor, '');
+        expect(stored.rec!.armed, isTrue);
+      },
+    );
 
     test('an orphan entry below its group\'s epoch reads as ended', () async {
       await setUpJoined();

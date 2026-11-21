@@ -85,11 +85,15 @@ class ConversationContext {
   int? openListingSeq;
 
   /// The sink refused or left a close (or orphan) walk unfinished, so a
-  /// catch-up ended `interrupted` with a commit waiting: once no walk of the
-  /// current or a later pair is left, the end of a pass runs one catch-up,
-  /// until one answers other than `interrupted`. Not cleared when an older
-  /// walk ends (the commit that waited for it is still unapplied).
-  bool catchUpDue = false;
+  /// catch-up ended `interrupted` with a commit waiting at this pair (the
+  /// highest group pair any such signal saw; the sink's own pair when the
+  /// group's was not known): once no walk of the current or a later pair is
+  /// left, the end of a pass runs one catch-up. Cleared when one answers
+  /// other than `interrupted`, or once the group's current pair is strictly
+  /// past it (the fast path or another catch-up applied the commit). Not
+  /// cleared when an older walk ends (the commit that waited for it is
+  /// still unapplied). Null: none due.
+  MlsPair? catchUpDueAt;
 
   /// The highest pair above the group's that an unprocessed probe page held
   /// (its since token may be saved past it): the end of a pass runs one
@@ -97,10 +101,18 @@ class ConversationContext {
   /// than `interrupted`. Null: none.
   MlsPair? laterPairSeen;
 
-  /// The end-of-pass catch-up applied nothing and left no walk the last
-  /// time it ran: a second such run in a row waits with the doubling walk
-  /// backoff instead of the flat minute.
-  bool fruitlessCatchUp = false;
+  /// The group pair at which the end-of-pass catch-up last applied nothing
+  /// and left no walk: a second such run at the same pair waits twice as
+  /// long, doubling up to the walk backoff's cap. Reset (with the two
+  /// fields below) when the pair moves, a catch-up there applies something
+  /// or leaves a walk, or a pass returns `complete`. Null: no streak.
+  MlsPair? fruitlessCatchUpAt;
+
+  /// The end-of-pass catch-up's own wait (never the walks'): no end-of-pass
+  /// catch-up before [catchUpNotBefore]; [catchUpBackoff] is the last wait
+  /// of the streak. The walks and the sink are not held by it.
+  DateTime? catchUpNotBefore;
+  Duration? catchUpBackoff;
 
   /// The walk backoff after an order violation, a missing order echo, an
   /// RPC failure or the restart cap: no walk before [walkBackoffUntil];
