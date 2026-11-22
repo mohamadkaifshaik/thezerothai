@@ -175,7 +175,10 @@ class TimerThreadPoller implements ThreadPoller {
     _inFlight = true;
     try {
       final result = await _pull();
-      if (result.newMessages) _lastActivity = _elapsed();
+      if (result.newMessages) {
+        _lastActivity = _elapsed();
+        _stoppedIdle = false;
+      }
     } on RateLimitedException catch (error) {
       _hold.record(error);
     } catch (error, stack) {

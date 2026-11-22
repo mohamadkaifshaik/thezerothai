@@ -560,10 +560,28 @@ class RigServer {
   /// (an error answered for a message the server kept, or a lost answer).
   final List<({Object error, bool stored})> sendScript = [];
 
+  /// Message id -> the request `sendEncrypted` stored it from (the real
+  /// server's request hash: the conversation, the pair, the ciphertext, the
+  /// commitment and the init). A message put there with [addMessage] has
+  /// none, and any request of its key replays it.
+  final Map<String, RigSend> _requests = {};
+
   /// Runs at the start of every `sendEncrypted` call, after it is recorded
   /// (a race: something happens while the request is in flight).
   Future<void> Function(RigSend send)? beforeSend;
   String? sendResponseId;
+
+  /// Recipient reference -> the conversation a send addressed by that
+  /// recipient lands in (the server's deterministic id). A recipient not
+  /// listed here is not implemented by the rig.
+  final Map<String, String> recipients = {};
+
+  /// Conversation ids the drift cache's ever-encrypted set holds
+  /// (`cachedEverEncrypted`).
+  final Set<String> everEncrypted = {};
+
+  /// Runs while a `cachedConversationWith` read is in flight (a race).
+  Future<void> Function()? onCacheRead;
 
   /// A repository for the user [user] (its commits come back `from_self`).
   RigMessaging viewFor(String user) => RigMessaging(this, user);
@@ -595,6 +613,8 @@ class RigSend {
     required this.ciphertext,
     required this.pair,
     required this.commitment,
+    this.recipientUserId,
+    this.mlsInit,
   });
 
   final String key;
@@ -603,13 +623,32 @@ class RigSend {
   final MlsPair pair;
   final Uint8List commitment;
 
+  /// The recipient reference of a send addressed by recipient.
+  final String? recipientUserId;
+
+  /// The serialized `MlsInit` of a send that starts encryption.
+  final Uint8List? mlsInit;
+
   /// Byte for byte the same request.
   bool same(RigSend other) =>
       key == other.key &&
       conversationId == other.conversationId &&
+      recipientUserId == other.recipientUserId &&
       pair == other.pair &&
       rigEq(ciphertext, other.ciphertext) &&
-      rigEq(commitment, other.commitment);
+      rigEq(commitment, other.commitment) &&
+      (mlsInit == null) == (other.mlsInit == null) &&
+      rigEq(mlsInit ?? const [], other.mlsInit ?? const []);
+
+  /// The same request as the real server hashes it: the conversation is the
+  /// resolved one (not compared here), so the addressing does not count;
+  /// the pair, the bytes and the init (its presence and its bytes) do.
+  bool sameRequest(RigSend other) =>
+      pair == other.pair &&
+      rigEq(ciphertext, other.ciphertext) &&
+      rigEq(commitment, other.commitment) &&
+      (mlsInit == null) == (other.mlsInit == null) &&
+      rigEq(mlsInit ?? const [], other.mlsInit ?? const []);
 }
 
 class _Stored {
@@ -645,6 +684,22 @@ class RigMessaging implements MessagingRepository {
   @override
   Future<pb.Conversation?> cachedConversation(String conversationId) async =>
       _server.rows[conversationId];
+
+  /// The cached row whose header names [peerUserId] (the first one).
+  @override
+  Future<pb.Conversation?> cachedConversationWith(String peerUserId) async {
+    await _server.onCacheRead?.call();
+    for (final row in _server.rows.values) {
+      if (row.peer.userId == peerUserId) return row;
+    }
+    return null;
+  }
+
+  /// The ever-encrypted set, or the cached row's marker.
+  @override
+  Future<bool> cachedEverEncrypted(String conversationId) async =>
+      _server.everEncrypted.contains(conversationId) ||
+      (_server.rows[conversationId]?.lastMessage.encrypted ?? false);
 
   @override
   Future<void> noteEverEncrypted(
@@ -823,11 +878,16 @@ class RigMessaging implements MessagingRepository {
     );
   }
 
-  /// The contract for a send addressed by conversation id: the message id
-  /// is `expectedMessageId(user, key)`; a key seen before answers with the
+  /// The contract for a send: the message id is
+  /// `expectedMessageId(user, key)`; a key seen before answers with the
   /// stored message; a pair that is not the conversation's current one is
-  /// STALE_EPOCH with the current pair. [RigServer.sendScript] replaces the
-  /// answer of a call.
+  /// STALE_EPOCH with the current pair. A send addressed by recipient lands
+  /// in [RigServer.recipients]' conversation (its STALE_EPOCH names that
+  /// id). With an `mls_init` on a conversation that has no commit, the
+  /// init's commit is stored at (1, 0) with a welcome labelled (1, 0) per
+  /// welcome device id, and the message at (1, 1); on a conversation that
+  /// has one it is STALE_EPOCH. [RigServer.sendScript] replaces the answer
+  /// of a call.
   @override
   Future<pb.SendMessageResponse> sendEncrypted({
     required String idempotencyKey,
@@ -845,11 +905,15 @@ class RigMessaging implements MessagingRepository {
       ciphertext: Uint8List.fromList(ciphertext),
       pair: pair,
       commitment: Uint8List.fromList(reportCommitment),
+      recipientUserId: recipientUserId,
+      mlsInit: mlsInit == null ? null : Uint8List.fromList(mlsInit),
     );
     _server.sends.add(send);
     await _server.beforeSend?.call(send);
+    final byRecipient = conversationId == null;
+    conversationId ??= _server.recipients[recipientUserId];
     if (conversationId == null) {
-      throw UnimplementedError('rig: a send addressed by recipient');
+      throw UnimplementedError('rig: a send to an unlisted recipient');
     }
     final scripted = _server.sendScript.isEmpty
         ? null
@@ -860,13 +924,39 @@ class RigMessaging implements MessagingRepository {
     for (final s in _server._messages[conversationId] ?? const <_Stored>[]) {
       if (s.message.id == id) stored = s.message.deepCopy();
     }
+    // The real server (`repo_firestore.go`, `Send` and `replayOrRefuse`): a
+    // stored message of this key replays only for the same request hash;
+    // another request under the key (other bytes, or the init left out) is
+    // VALIDATION idempotency_key. The replay is permanent and wins over
+    // STALE_EPOCH (`service_init_test.go`, TestSendInit_Replay).
+    final earlier = _server._requests[id];
+    if (stored != null && earlier != null && !earlier.sameRequest(send)) {
+      throw const IdempotencyKeyReusedException('idempotency_key');
+    }
     if (stored == null) {
       final current = _server.current(conversationId);
-      if (pair != current && scripted == null) {
+      if (mlsInit != null && current == const MlsPair(0, 0)) {
+        final init = pb.MlsInit.fromBuffer(mlsInit);
+        _server.addCommit(
+          conversationId,
+          const MlsPair(1, 0),
+          Uint8List.fromList(init.commit),
+          fromUser: user,
+        );
+        for (final device in init.welcomeDeviceIds) {
+          _server.addWelcome(
+            device,
+            conversationId,
+            const MlsPair(1, 0),
+            Uint8List.fromList(init.welcome),
+          );
+        }
+      } else if ((mlsInit != null || pair != current) && scripted == null) {
         throw StaleEpochException(
           'stale',
           generation: current.generation,
           epoch: current.epoch,
+          conversationId: byRecipient ? conversationId : null,
         );
       }
       stored = pb.Message(
@@ -881,6 +971,7 @@ class RigMessaging implements MessagingRepository {
         reportCommitment: reportCommitment,
       );
       _server.addMessage(stored);
+      _server._requests[id] = send;
     }
     if (scripted != null) throw scripted.error;
     return pb.SendMessageResponse(
@@ -1410,6 +1501,43 @@ class RigKeys implements KeysRepository {
   int listCalls = 0;
   final List<List<String>> getCalls = [];
 
+  /// Thrown by every `GetKeyDevices` call while set (CANNOT_MESSAGE,
+  /// RATE_LIMITED...).
+  Object? peerError;
+
+  /// Runs while a `GetKeyDevices` call is in flight (a race).
+  Future<void> Function()? onGet;
+
+  /// `ClaimKeyPackages`: user reference -> the answer of each claim for it
+  /// (built per call: a claim hands out fresh packages). An unlisted
+  /// reference answers an empty claim.
+  final Map<String, Future<kpb.ClaimKeyPackagesResponse> Function()> claims =
+      {};
+
+  /// User reference -> thrown by every claim for it while set.
+  final Map<String, Object> claimErrors = {};
+
+  /// Every claim call, in order (a refused one too).
+  final List<({String userId, String excludeDeviceId, String key})> claimCalls =
+      [];
+
+  @override
+  Future<kpb.ClaimKeyPackagesResponse> claim({
+    required String userId,
+    String excludeDeviceId = '',
+    required String idempotencyKey,
+  }) async {
+    claimCalls.add((
+      userId: userId,
+      excludeDeviceId: excludeDeviceId,
+      key: idempotencyKey,
+    ));
+    final error = claimErrors[userId];
+    if (error != null) throw error;
+    final answer = claims[userId];
+    return answer == null ? kpb.ClaimKeyPackagesResponse() : answer();
+  }
+
   @override
   Future<kpb.ListMyKeyDevicesResponse> listMine() async {
     listCalls++;
@@ -1420,6 +1548,9 @@ class RigKeys implements KeysRepository {
   @override
   Future<kpb.GetKeyDevicesResponse> getDevices(List<String> userIds) async {
     getCalls.add([...userIds]);
+    await onGet?.call();
+    final error = peerError;
+    if (error != null) throw error;
     if (peerFails) throw const NetworkException('rig');
     return kpb.GetKeyDevicesResponse(
       users: [

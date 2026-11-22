@@ -18,6 +18,11 @@ bool _outcomeUnknown(AppException e) => switch (e) {
   _ => false,
 };
 
+/// [_outcomeUnknown] and [_errorName] for Task 8's init sends (the same
+/// classification and the same stored names; never a second copy).
+bool sendOutcomeUnknown(AppException e) => _outcomeUnknown(e);
+String sendErrorName(AppException e) => _errorName(e);
+
 /// The stored `lastError`: the type's name, written out (a runtime type
 /// name is minified on the web), never the server's text.
 String _errorName(AppException e) => switch (e) {
@@ -57,15 +62,7 @@ OutboxItem _copy(OutboxItem r, {int? attempts, required String? lastError}) =>
 
 /// The answer's `created_at` in microseconds; null when it is unset or not
 /// a time this client holds exactly.
-int? _serverMicros(pb.Message m) {
-  if (!m.hasCreatedAt()) return null;
-  final seconds = m.createdAt.seconds;
-  final nanos = m.createdAt.nanos;
-  if (seconds.isNegative || seconds > _maxSeconds) return null;
-  if (nanos < 0 || nanos > 999999999) return null;
-  final micros = seconds.toInt() * 1000000 + nanos ~/ 1000;
-  return micros > kMaxPairComponent ? null : micros;
-}
+int? _serverMicros(pb.Message m) => serverMicros(m);
 
 /// What `outgoing` says of an encrypted row held for attribution: the plain
 /// row's gate answer [gate] (it is never `none` then; `notSynced` if so).
@@ -79,10 +76,9 @@ BudgetPriority _stronger(BudgetPriority? a, BudgetPriority b) =>
 
 /// A programming error, never an expected failure (a closed vault is a
 /// [StateError]).
-bool _isBug(Object e) => e is Error && e is! StateError;
+bool _isBug(Object e) => isPipelineBug(e);
 
-String _hexOf(Uint8List b) =>
-    b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
+String _hexOf(Uint8List b) => hexOf(b);
 
 /// What a step asks of the drain: stop, take the next step, or run the live
 /// pull and then take the next step.
@@ -112,37 +108,12 @@ class _Run {
   Duration? resendAfter;
 }
 
-/// The vault the operation started with is no longer the session's.
-class _Stopped implements Exception {
-  const _Stopped();
-}
-
-/// The random source answered another length than was asked.
-class _BadRandom implements Exception {
-  const _BadRandom();
-}
-
-/// One step's vault, user and device; no `toString`.
-class _Op {
-  _Op(this.session, this.vault, this.uid, this.deviceId);
-
-  final VaultSession session;
-  final SecureVault vault;
-  final String uid;
-  final Uint8List deviceId;
-
-  bool get live {
-    final v = session.vault;
-    return identical(v, vault) && v?.uid == uid;
-  }
-
-  bool owns(SecureVault v) => identical(v, vault) && v.uid == uid && live;
-
-  /// The first thing every runWrite body does.
-  void check(SecureVault v) {
-    if (!owns(v)) throw const _Stopped();
-  }
-}
+// One body each, shared with the starter (`pipeline_support.dart`): the
+// vault the operation started with is no longer the session's; the random
+// source answered another length; one step's vault, user and device.
+typedef _Stopped = PipelineStopped;
+typedef _BadRandom = BadRandom;
+typedef _Op = PipelineOp;
 
 Future<OutboxItem?> _rowOf(SecureVault v, String id, String key) async {
   for (final r in (await v.outbox(conversationId: id)).items) {
@@ -162,8 +133,4 @@ Future<GroupRecord?> _currentGroup(SecureVault vault, String id) async {
 
 /// The server's retry time of an unknown outcome, capped at
 /// [kMaxServerRetryWait] (security read L1); null when it named none.
-Duration? _retryAfterOf(AppException e) {
-  final wait = e is ScreeningUnavailableException ? e.retryAfter : null;
-  if (wait == null || wait <= Duration.zero) return null;
-  return wait > kMaxServerRetryWait ? kMaxServerRetryWait : wait;
-}
+Duration? _retryAfterOf(AppException e) => retryAfterOf(e);
