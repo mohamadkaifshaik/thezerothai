@@ -695,6 +695,13 @@ extension _Recovery on GroupStarter {
   /// One resume of [id] after [wait] (at background priority: a timer is
   /// no user intent), armed once per conversation at a time. An end after
   /// [reset] changes nothing.
+  ///
+  /// Pre-flag-on review m-1. Decision: when a resume of [id] still runs as
+  /// the timer fires, the armed one runs AFTER it, never joins it. Why: a
+  /// margin that ends while the listing runs arms this with no wait, from
+  /// inside the resume that holds the single-flight slot until its
+  /// [_afterNext] ends; joining that one asked nothing again, and the
+  /// group waited for an unrelated trigger.
   void _armMarginResume(String id, Duration wait) {
     if (!_marginArmed.add(id)) return;
     final serial = _runSerial;
@@ -702,7 +709,17 @@ extension _Recovery on GroupStarter {
       () => _schedule(wait, () {
         if (serial != _runSerial) return;
         _marginArmed.remove(id);
-        unawaited(_resume(id, BudgetPriority.background));
+        final running = _running[id];
+        if (running == null) {
+          unawaited(_resume(id, BudgetPriority.background));
+          return;
+        }
+        unawaited(
+          running.whenComplete(() {
+            if (serial != _runSerial) return;
+            unawaited(_resume(id, BudgetPriority.background));
+          }),
+        );
       }),
     );
   }

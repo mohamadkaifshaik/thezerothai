@@ -69,7 +69,10 @@ void main() {
   /// flight, under the conversation lock).
   Completer<void>? gate;
 
-  GroupStarter build({VaultSession? session}) => starter = GroupStarter(
+  GroupStarter build({
+    VaultSession? session,
+    void Function(Duration delay, void Function() run)? schedule,
+  }) => starter = GroupStarter(
     crypto: rig.crypto,
     sender: rig.sender,
     receiver: rig.receiver,
@@ -88,7 +91,8 @@ void main() {
     removedElsewhere: () => rig.removedElsewhere,
     ownUserId: () => ownId,
     publicIdsOff: () => publicIdsOff,
-    schedule: (delay, run) => rig.scheduled.add((delay: delay, run: run)),
+    schedule:
+        schedule ?? (delay, run) => rig.scheduled.add((delay: delay, run: run)),
     onUnexpectedError: (e, _) => rig.unexpected.add(e),
   );
 
@@ -1837,6 +1841,55 @@ void main() {
       rig.scheduled.single.run();
       await done();
       expect(rig.server.sends, hasLength(4));
+      expect(await groupOf(), isNull);
+      expect((await rows()).single.lastError, 'FeatureDisabledException');
+    });
+
+    test('a margin that ends while the commit listing runs arms a resume '
+        'that fires while its resume still runs; it runs after that one and '
+        'decides with no other trigger (pre-flag-on review m-1)', () async {
+      // A timer with no wait fires at once here: while the resume that
+      // armed it still holds its single-flight slot, as a real zero-wait
+      // timer can.
+      final armed = <Duration>[];
+      build(
+        schedule: (delay, run) {
+          rig.scheduled.add((delay: delay, run: run));
+          if (delay == Duration.zero) {
+            armed.add(delay);
+            run();
+          }
+        },
+      );
+      rig.server.sendScript.addAll([unknown, unknown]);
+      await start();
+      await done();
+      expect(rig.server.sends, hasLength(2));
+      rig.scheduled.clear();
+
+      // The refusal comes 1 s before the margin's end; its listing takes
+      // 2 s, so the margin ends while it runs: the "not stored" read
+      // decides nothing and one resume is armed with no wait.
+      rig.clock.advance(kInitResendMargin - const Duration(seconds: 1));
+      rig.server.onCall = (call) async {
+        if (call == 'listConversationCommits') {
+          rig.clock.advance(const Duration(seconds: 2));
+        }
+      };
+      rig.server.sendScript.addAll([
+        (error: const FeatureDisabledException('off'), stored: false),
+        (error: const FeatureDisabledException('off'), stored: false),
+      ]);
+      await starter.resumeProvisional();
+      await done();
+      await pumpEventQueue();
+      await done();
+
+      expect(armed, [Duration.zero]);
+      // The armed resume asked again after the first one ended: the same
+      // request, refused, and the record now decides.
+      expect(rig.server.sends, hasLength(4));
+      expect(rig.server.sends[0].same(rig.server.sends[3]), isTrue);
       expect(await groupOf(), isNull);
       expect((await rows()).single.lastError, 'FeatureDisabledException');
     });
