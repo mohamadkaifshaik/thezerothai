@@ -4,6 +4,20 @@ import 'package:flutter/foundation.dart';
 
 import 'device_keys_service.dart' show kKeyPackagePoolTarget;
 
+/// The largest key package (and last-resort package) the directory
+/// accepts: the backend's `keys.MaxKeyPackageBytes`
+/// (backend/internal/keys/model.go).
+const int kMaxKeyPackageBytes = 4096;
+
+/// The base64 length of a [kMaxKeyPackageBytes] package (padded).
+const int _maxPackageBase64 = (kMaxKeyPackageBytes + 2) ~/ 3 * 4;
+
+/// The largest record: [kKeyPackagePoolTarget] one-time packages and a
+/// last-resort one at their largest, each quoted and comma-separated, and
+/// the fixed keys and count.
+const int _maxRecordBytes =
+    (kKeyPackagePoolTarget + 1) * (_maxPackageBase64 + 3) + 128;
+
 /// A generated batch whose upload is not confirmed (see
 /// `kVaultSettingPendingUpload`).
 class PendingUpload {
@@ -35,8 +49,7 @@ class PendingUpload {
   );
 
   static PendingUpload decode(Uint8List bytes) {
-    // The directory accepts at most 4096 bytes per package.
-    if (bytes.length > (kKeyPackagePoolTarget + 1) * 5500 + 128) {
+    if (bytes.length > _maxRecordBytes) {
       throw const FormatException();
     }
     final value = jsonDecode(utf8.decode(bytes));
@@ -53,9 +66,11 @@ class PendingUpload {
       throw const FormatException();
     }
     Uint8List package(Object? raw) {
-      if (raw is! String || raw.length > 5464) throw const FormatException();
+      if (raw is! String || raw.length > _maxPackageBase64) {
+        throw const FormatException();
+      }
       final decoded = base64Decode(raw);
-      if (decoded.isEmpty || decoded.length > 4096) {
+      if (decoded.isEmpty || decoded.length > kMaxKeyPackageBytes) {
         throw const FormatException();
       }
       return decoded;

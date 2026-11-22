@@ -38,6 +38,14 @@ void main() {
     expect(PendingUpload.decode(_json(_record())).failed, isFalse);
   });
 
+  test('the largest record encode() can write decodes', () {
+    final max = Uint8List(kMaxKeyPackageBytes)..fillRange(0, 4096, 255);
+    final p = PendingUpload(List.filled(50, max), max, 1 << 62, failed: true);
+    final back = PendingUpload.decode(p.encode());
+    expect(back.oneTime, hasLength(50));
+    expect(back.lastResort, hasLength(kMaxKeyPackageBytes));
+  });
+
   test('a record with no packages is empty', () {
     expect(PendingUpload.decode(PendingUpload.empty.encode()).isEmpty, isTrue);
   });
