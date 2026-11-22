@@ -121,7 +121,8 @@ const fieldStuckRemovals = "stuck_removals_finished"
 
 // Register validates, then publishes or refreshes the device. At the cap, when the repository reports device documents
 // carrying removedAt (StuckRemovalsError: REMOTE removals that stopped after their mark), it finishes each of them with
-// repo.Remove (the ids are already marked, so no sign-in is needed and the marks stay) and runs the repository's Register
+// repo.RemoveRemoving (never a live document; the ids are already marked, so no sign-in is needed and the marks stay)
+// and runs the repository's Register
 // once more; a second StuckRemovalsError is LIMIT_REACHED, never a loop. Without this, up to MaxDevicesPerUser
 // interrupted removals would hold every slot for good, with nothing in ListMyKeyDevices to remove.
 func (s *service) Register(ctx context.Context, uid, deviceID string, signatureKey []byte) (Device, error) {
@@ -138,7 +139,7 @@ func (s *service) Register(ctx context.Context, uid, deviceID string, signatureK
 	var stuck *StuckRemovalsError
 	if errors.As(err, &stuck) {
 		for _, id := range stuck.DeviceIDs {
-			if rerr := s.repo.Remove(ctx, uid, id); rerr != nil {
+			if rerr := s.repo.RemoveRemoving(ctx, uid, id); rerr != nil {
 				return Device{}, s.mapErr(ctx, "register", uid, logger.RedactErr(rerr, id))
 			}
 		}

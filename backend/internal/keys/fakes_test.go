@@ -26,9 +26,10 @@ type fakeRepo struct {
 	// markErr fails MarkRemoved only; removeErr fails Remove only.
 	markErr   error
 	removeErr error
-	// afterRemove, when set, runs inside Remove (under the lock) after a successful delete.
-	afterRemove func()
-	calls       int
+	// beforeRemove and afterRemove, when set, run inside Remove and RemoveRemoving (under the lock), before the work and
+	// after a successful delete.
+	beforeRemove, afterRemove func()
+	calls                     int
 	// listCalls and activeCalls count the device reads of GetDevices (List and ActiveDevices) separately from calls.
 	listCalls, activeCalls int
 	// ops is every repository call in order (by method name).
@@ -152,16 +153,34 @@ func (f *fakeRepo) List(_ context.Context, uid string) ([]Device, error) {
 func (f *fakeRepo) Remove(_ context.Context, uid, deviceID string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.calls++
 	f.ops = append(f.ops, "Remove")
+	return f.removeLocked(uid, deviceID, false)
+}
+
+// RemoveRemoving mirrors FirestoreRepo.RemoveRemoving: a live device document is left alone (nil, nothing deleted).
+func (f *fakeRepo) RemoveRemoving(_ context.Context, uid, deviceID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.ops = append(f.ops, "RemoveRemoving")
+	return f.removeLocked(uid, deviceID, true)
+}
+
+func (f *fakeRepo) removeLocked(uid, deviceID string, onlyRemoving bool) error {
+	f.calls++
 	if f.err != nil {
 		return f.err
 	}
 	if f.removeErr != nil {
 		return f.removeErr
 	}
+	if f.beforeRemove != nil {
+		f.beforeRemove()
+	}
 	i := f.find(uid, deviceID)
 	if i < 0 {
+		return nil
+	}
+	if onlyRemoving && f.live(uid, deviceID) {
 		return nil
 	}
 	f.devices[uid] = append(f.devices[uid][:i:i], f.devices[uid][i+1:]...)

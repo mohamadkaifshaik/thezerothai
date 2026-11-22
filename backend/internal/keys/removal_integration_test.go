@@ -353,7 +353,66 @@ func transientErr(err error) bool {
 	return store.IsContention(err) || errors.Is(err, context.DeadlineExceeded) || status.Code(err) == codes.DeadlineExceeded
 }
 
-// TestRemoval_RaceWithRegister: a REMOTE Remove and a Register of the same id, in 50 pairs (one uid each) run
+// TestRemoval_RemoveRemovingNeverDeletesALiveDevice (Minor 1): the stuck-finish delete removes a document carrying
+// removedAt (and a missing one's orphans) but never a live one: not up front, and not in its delete transaction when the
+// document turned live during the pool sweep (the stuck one deleted and the id registered again after its mark expired).
+func TestRemoval_RemoveRemovingNeverDeletesALiveDevice(t *testing.T) {
+	ctx := context.Background()
+	now := it0.Add(time.Hour)
+
+	t.Run("a live document is left as it is", func(t *testing.T) {
+		e := newRepoEnv(t)
+		uid := uniqueUID()
+		e.seed(t, uid, 1, 3)
+		if err := e.repo.RemoveRemoving(ctx, uid, dvc(0)); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := e.snap(t, uid, dvc(0)).Data()["removedAt"]; ok || len(e.poolDocs(t, uid, dvc(0))) != 3 {
+			t.Fatal("a live device was touched")
+		}
+	})
+
+	t.Run("a removing document is deleted with its pool; a missing one is nil", func(t *testing.T) {
+		e := newRepoEnv(t)
+		uid := uniqueUID()
+		e.seed(t, uid, 1, 3)
+		if err := e.repo.MarkRemoved(ctx, uid, dvc(0), now, true); err != nil {
+			t.Fatal(err)
+		}
+		if err := e.repo.RemoveRemoving(ctx, uid, dvc(0)); err != nil {
+			t.Fatal(err)
+		}
+		if n := e.deviceDocs(t, uid); n != 0 {
+			t.Fatalf("%d device refs left", n)
+		}
+		if err := e.repo.RemoveRemoving(ctx, uid, dvc(5)); err != nil {
+			t.Fatalf("missing device: %v", err)
+		}
+	})
+
+	t.Run("a document that turns live during the sweep is not deleted", func(t *testing.T) {
+		e := newRepoEnv(t)
+		uid := uniqueUID()
+		e.seed(t, uid, 1, 3)
+		if err := e.repo.MarkRemoved(ctx, uid, dvc(0), now, true); err != nil {
+			t.Fatal(err)
+		}
+		e.repo.afterPoolSweep = func() {
+			// The stuck document is deleted and the id registered again as live (an expired mark).
+			if _, err := e.repo.deviceRef(uid, dvc(0)).Set(ctx, deviceDoc{SignatureKey: skey(1), CreatedAt: now, LastSeenAt: now}); err != nil {
+				t.Error(err)
+			}
+		}
+		if err := e.repo.RemoveRemoving(ctx, uid, dvc(0)); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := e.snap(t, uid, dvc(0)).Data()["removedAt"]; ok {
+			t.Fatal("the live document carries removedAt")
+		}
+	})
+}
+
+// TestRemoval_RaceWithRegister:a REMOTE Remove and a Register of the same id, in 50 pairs (one uid each) run
 // concurrently, raceInFlight at a time, with both calls of a pair released together (code review Minor 4: concurrent,
 // not one pair after another). A transient answer is retried, as a client would, up to raceAttempts. Whatever the order
 // inside a pair, once both returned that uid has a mark and no device document (the register either landed first and

@@ -347,6 +347,34 @@ func (r *FirestoreRepo) listDocs(ctx context.Context, uid string) ([]Device, []P
 // those documents (Upload, Remove, Claim; see deviceDoc.PoolCount); the eraser deletes by listing documents, never by the
 // counter.
 func (r *FirestoreRepo) Remove(ctx context.Context, uid, deviceID string) error {
+	return r.remove(ctx, uid, deviceID, false)
+}
+
+// RemoveRemoving implements Repo: Remove for a document carrying removedAt only (Minor 1: the stuck-removal finish must
+// never delete a live device, even when the stuck document was deleted and the id registered again after its mark
+// expired). One device read first: a live document returns nil with nothing written, so its pool is not swept. The
+// delete transaction checks again and leaves a document that turned live during the sweep (nil). The one residue of that
+// double race: pool documents the sweep took before the document turned live are gone (the counter stays true, the
+// device uploads more). Reads: Remove's, plus that one device read.
+func (r *FirestoreRepo) RemoveRemoving(ctx context.Context, uid, deviceID string) error {
+	snap, err := r.deviceRef(uid, deviceID).Get(ctx)
+	switch {
+	case err == nil:
+		var cur deviceDoc
+		if err := snap.DataTo(&cur); err != nil {
+			return logger.RedactErr(fmt.Errorf("keys: decode device: %w", err), uid, deviceID)
+		}
+		if !cur.removed() {
+			return nil
+		}
+	case status.Code(err) != codes.NotFound:
+		return logger.RedactErr(fmt.Errorf("keys: get device: %w", err), uid, deviceID)
+	}
+	return r.remove(ctx, uid, deviceID, true)
+}
+
+// remove is Remove; onlyRemoving makes its delete transaction leave a live device document (no removedAt) in place.
+func (r *FirestoreRepo) remove(ctx context.Context, uid, deviceID string, onlyRemoving bool) error {
 	for round := 0; round < removeRounds; round++ {
 		if err := r.sweepPool(ctx, uid, deviceID); err != nil {
 			return err
@@ -362,6 +390,16 @@ func (r *FirestoreRepo) Remove(ctx context.Context, uid, deviceID string) error 
 			exists := err == nil
 			if err != nil && status.Code(err) != codes.NotFound {
 				return fmt.Errorf("keys: get device: %w", err)
+			}
+			if exists && onlyRemoving {
+				var cur deviceDoc
+				if err := snap.DataTo(&cur); err != nil {
+					return fmt.Errorf("keys: decode device: %w", err)
+				}
+				if !cur.removed() {
+					done = true // live (again): never deleted by the removing-only path
+					return nil
+				}
 			}
 			left, err := tx.Documents(r.poolCol(uid, deviceID).Select().Limit(1)).GetAll()
 			if err != nil {

@@ -196,6 +196,9 @@ type Repo interface {
 	List(ctx context.Context, uid string) ([]Device, error)
 	// Remove deletes the device, its pool and its last-resort package; a missing device is nil.
 	Remove(ctx context.Context, uid, deviceID string) error
+	// RemoveRemoving is Remove for a document that carries removedAt only (the stuck-removal finish): a live device
+	// document is never deleted, nor its pool swept, and the answer is nil. A missing one is nil (orphans deleted).
+	RemoveRemoving(ctx context.Context, uid, deviceID string) error
 	// Upload stores packages (deduplicated by bytes, oldest stay when the pool is full), sets lastResort when non-nil and
 	// refreshes LastSeenAt on the same rule as Register. A device document carrying removedAt, or a missing one with a
 	// removed mark, is ErrDeviceRemoved; any other unknown device is ErrNotFound.

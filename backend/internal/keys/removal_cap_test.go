@@ -45,8 +45,8 @@ func TestRegister_AtCapFinishesStuckRemovals(t *testing.T) {
 		stuck   []int
 		wantOps []string
 	}{
-		{"one stuck removal frees its slot", []int{2}, []string{"Register", "Remove", "Register"}},
-		{"every stuck removal is finished", []int{1, 3}, []string{"Register", "Remove", "Remove", "Register"}},
+		{"one stuck removal frees its slot", []int{2}, []string{"Register", "RemoveRemoving", "Register"}},
+		{"every stuck removal is finished", []int{1, 3}, []string{"Register", "RemoveRemoving", "RemoveRemoving", "Register"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -102,8 +102,27 @@ func TestRegister_StuckRemovalRetriesOnce(t *testing.T) {
 	}
 	_, err := s.Register(context.Background(), uidA, devID2, sigKey(9))
 	wantErr(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED, "limit", "key_devices")
-	if !slices.Equal(repo.ops, []string{"Register", "Remove", "Register"}) {
-		t.Fatalf("repository calls = %v, want Register, Remove, Register", repo.ops)
+	if !slices.Equal(repo.ops, []string{"Register", "RemoveRemoving", "Register"}) {
+		t.Fatalf("repository calls = %v, want Register, RemoveRemoving, Register", repo.ops)
+	}
+}
+
+// TestRegister_StuckFinishNeverDeletesALiveDevice (Minor 1): the finish uses the removing-only delete. If the id's
+// document is live by the time the finish runs (the stuck one was deleted and the id registered again, its mark having
+// expired), it is left as it is: device, pool and last resort. The retry then finds the cap full: LIMIT_REACHED.
+func TestRegister_StuckFinishNeverDeletesALiveDevice(t *testing.T) {
+	s, repo, _ := newRemovalService(t)
+	fillToCap(t, s, repo, 2)
+	k := devKey(uidA, capID(2))
+	delete(repo.marks, k)
+	repo.beforeRemove = func() { delete(repo.removing, k) } // live again before the delete
+	_, err := s.Register(context.Background(), uidA, devID2, sigKey(9))
+	wantErr(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED, "limit", "key_devices")
+	if repo.find(uidA, capID(2)) < 0 || len(repo.pool[k]) != 3 || len(repo.lastResort[k]) == 0 {
+		t.Fatal("the finish deleted (part of) a live device")
+	}
+	if slices.Contains(repo.ops, "Remove") {
+		t.Fatalf("the finish used the unconditional Remove: %v", repo.ops)
 	}
 }
 
@@ -114,8 +133,8 @@ func TestRegister_StuckRemovalFailureIsMapped(t *testing.T) {
 	repo.removeErr = errUnavailableForTest()
 	_, err := s.Register(context.Background(), uidA, devID2, sigKey(9))
 	wantErr(t, err, connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
-	if !slices.Equal(repo.ops, []string{"Register", "Remove"}) {
-		t.Fatalf("repository calls = %v, want Register, Remove", repo.ops)
+	if !slices.Equal(repo.ops, []string{"Register", "RemoveRemoving"}) {
+		t.Fatalf("repository calls = %v, want Register, RemoveRemoving", repo.ops)
 	}
 }
 
@@ -124,9 +143,10 @@ func TestRegister_StuckRemovalFailureIsMapped(t *testing.T) {
 func TestFakeRepo_RecordsOpBeforeError(t *testing.T) {
 	ctx := context.Background()
 	calls := map[string]func(*fakeRepo) error{
-		"Register": func(f *fakeRepo) error { _, err := f.Register(ctx, uidA, Device{ID: devID}, t0); return err },
-		"Remove":   func(f *fakeRepo) error { return f.Remove(ctx, uidA, devID) },
-		"Upload":   func(f *fakeRepo) error { _, _, err := f.Upload(ctx, uidA, devID, pkgs(0, 1), nil, t0); return err },
+		"Register":       func(f *fakeRepo) error { _, err := f.Register(ctx, uidA, Device{ID: devID}, t0); return err },
+		"Remove":         func(f *fakeRepo) error { return f.Remove(ctx, uidA, devID) },
+		"RemoveRemoving": func(f *fakeRepo) error { return f.RemoveRemoving(ctx, uidA, devID) },
+		"Upload":         func(f *fakeRepo) error { _, _, err := f.Upload(ctx, uidA, devID, pkgs(0, 1), nil, t0); return err },
 	}
 	for name, call := range calls {
 		t.Run(name, func(t *testing.T) {
