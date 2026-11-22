@@ -44,6 +44,7 @@ import 'sync_budget.dart';
 export 'pipeline_support.dart' show kServerRequestDeadline;
 
 part 'group_starter_discard.dart';
+part 'group_starter_expiry.dart';
 part 'group_starter_recovery.dart';
 part 'group_starter_reset.dart';
 part 'group_starter_reset_resume.dart';
