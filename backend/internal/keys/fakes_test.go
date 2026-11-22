@@ -10,7 +10,8 @@ import (
 // fakeRepo mirrors the Firestore repository's rules in memory: the cap of 5 devices, key mismatch, the 24 h last-seen
 // refresh, the pool cap with excess dropped (oldest stay), dedupe by package bytes, unknown device, remove of a missing
 // device succeeding, and the claim rules (one-time package consumed, last resort reused, exclusion, inactivity); and the
-// removed marks: a marked id is refused by Register (before the cap) and Upload (before NOT_FOUND), and a device whose
+// removed marks: a marked id is refused by Register (before the cap; a live document under a mark is stamped removedAt
+// as it is refused) and Upload (before NOT_FOUND), and a device whose
 // document carries removedAt (removing) is skipped by every read but still holds its slot under the cap (at the cap,
 // Register names the removing ids in a StuckRemovalsError).
 type fakeRepo struct {
@@ -22,7 +23,7 @@ type fakeRepo struct {
 	marks    map[string]RemovalMark
 	removing map[string]bool
 	err      error
-	// markErr fails MarkRemoved and RemovalMarked only; removeErr fails Remove only.
+	// markErr fails MarkRemoved only; removeErr fails Remove only.
 	markErr   error
 	removeErr error
 	// afterRemove, when set, runs inside Remove (under the lock) after a successful delete.
@@ -39,21 +40,10 @@ func newFakeRepo() *fakeRepo {
 		marks: map[string]RemovalMark{}, removing: map[string]bool{}}
 }
 
-// RemovalMarked mirrors FirestoreRepo.RemovalMarked: one get of the mark.
-func (f *fakeRepo) RemovalMarked(_ context.Context, uid, deviceID string) (bool, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.ops = append(f.ops, "RemovalMarked")
-	if f.markErr != nil {
-		return false, f.markErr
-	}
-	_, ok := f.marks[devKey(uid, deviceID)]
-	return ok, nil
-}
-
-// MarkRemoved mirrors FirestoreRepo.MarkRemoved: the mark is created once (a second call keeps the first time) and a
-// present device document gets removedAt.
-func (f *fakeRepo) MarkRemoved(_ context.Context, uid, deviceID string, now time.Time) error {
+// MarkRemoved mirrors FirestoreRepo.MarkRemoved: without a recent sign-in only a retry (a mark, and no device document
+// or one already carrying removedAt) goes on, else ErrReauthRequired with nothing written; the mark is created once (a
+// second call keeps the first time) and a present device document gets removedAt.
+func (f *fakeRepo) MarkRemoved(_ context.Context, uid, deviceID string, now time.Time, recent bool) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.ops = append(f.ops, "MarkRemoved")
@@ -61,7 +51,11 @@ func (f *fakeRepo) MarkRemoved(_ context.Context, uid, deviceID string, now time
 		return f.markErr
 	}
 	k := devKey(uid, deviceID)
-	if _, ok := f.marks[k]; !ok {
+	_, marked := f.marks[k]
+	if !recent && !(marked && (f.find(uid, deviceID) < 0 || !f.live(uid, deviceID))) {
+		return ErrReauthRequired
+	}
+	if !marked {
 		f.marks[k] = RemovalMark{DeviceID: deviceID, RemovedAt: now, ExpireAt: now.Add(RemovalMarkTTL)}
 	}
 	if f.find(uid, deviceID) >= 0 {
@@ -101,6 +95,10 @@ func (f *fakeRepo) Register(_ context.Context, uid string, d Device, now time.Ti
 	}
 	if i := f.find(uid, d.ID); i >= 0 {
 		if !f.live(uid, d.ID) {
+			return Device{}, ErrDeviceRemoved
+		}
+		if _, marked := f.marks[devKey(uid, d.ID)]; marked {
+			f.removing[devKey(uid, d.ID)] = true // a live document under a mark: stamped, then refused
 			return Device{}, ErrDeviceRemoved
 		}
 		cur := f.devices[uid][i]

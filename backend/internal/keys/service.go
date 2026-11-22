@@ -176,11 +176,13 @@ func (s *service) ListMine(ctx context.Context, uid string) ([]Device, error) {
 }
 
 // Remove validates the id and the reason, then deletes the device; a missing device is success. RemoveRemote marks the id
-// first (removal-server design 2026-11-23, 2.3): (1) one get of the mark; (2) when the id is not yet marked, a recent
-// sign-in (authn.RequireRecentSignIn with ACCOUNT_DELETE_REAUTH_MAX_AGE), else REAUTH_REQUIRED with nothing written; an
-// already-marked id is a retry and needs none; (3) the mark transaction (MarkRemoved), which also stamps the device
-// document with removedAt, so every read skips it from here on; (4) the usual sweep and delete. A REMOTE removal of an id
-// that was never registered still writes a mark, so the answer tells nothing about whether the id existed.
+// first (removal-server design 2026-11-23, 2.3): (1) whether the sign-in is recent (authn.IsRecentSignIn with
+// ACCOUNT_DELETE_REAUTH_MAX_AGE; no read); (2) the mark transaction (MarkRemoved), which decides on the documents it reads:
+// a retry (a mark, and no device document or one already carrying removedAt) needs no recent sign-in, anything else
+// (no mark yet, or a mark over a live document an image without the marks wrote) does, else REAUTH_REQUIRED with nothing
+// written; it stamps the device document with removedAt, so every read skips it from here on; (3) the usual sweep and
+// delete. A REMOTE removal of an id that was never registered still writes a mark, so the answer tells nothing about
+// whether the id existed.
 func (s *service) Remove(ctx context.Context, uid, deviceID string, reason RemoveReason) error {
 	begin(ctx, "remove")
 	if err := validDeviceID(ctx, deviceID); err != nil {
@@ -191,23 +193,19 @@ func (s *service) Remove(ctx context.Context, uid, deviceID string, reason Remov
 	}
 	logger.SetRequestField(ctx, fieldReason, reason.String())
 	if reason == RemoveRemote {
-		marked, err := s.repo.RemovalMarked(ctx, uid, deviceID)
-		if err != nil {
-			return s.mapErr(ctx, "remove", uid, err)
-		}
 		now := s.now()
-		if !marked {
-			// A zero window is refused here too: authn.IsRecentSignIn with maxAge 0 still accepts an auth_time equal to now.
-			maxAge := s.reauthMaxAge
-			if maxAge <= 0 {
-				maxAge = -time.Hour
-			}
-			if err := authn.RequireRecentSignIn(ctx, maxAge, now); err != nil {
-				logger.SetRequestField(ctx, fieldOutcome, outcomeRejected+"reauth_required")
-				return err
-			}
+		// A zero window is refused here too: authn.IsRecentSignIn with maxAge 0 still accepts an auth_time equal to now.
+		maxAge := s.reauthMaxAge
+		if maxAge <= 0 {
+			maxAge = -time.Hour
 		}
-		if err := s.repo.MarkRemoved(ctx, uid, deviceID, now); err != nil {
+		recent := authn.IsRecentSignIn(ctx, maxAge, now)
+		err := s.repo.MarkRemoved(ctx, uid, deviceID, now, recent)
+		if errors.Is(err, ErrReauthRequired) {
+			logger.SetRequestField(ctx, fieldOutcome, outcomeRejected+"reauth_required")
+			return reauthRequired(ctx, maxAge, now)
+		}
+		if err != nil {
 			return s.mapErr(ctx, "remove", uid, err)
 		}
 	}
@@ -216,6 +214,16 @@ func (s *service) Remove(ctx context.Context, uid, deviceID string, reason Remov
 	}
 	logger.SetRequestField(ctx, fieldOutcome, outcomeDone)
 	return nil
+}
+
+// reauthRequired is authn's own REAUTH_REQUIRED answer (same text, and reauth_required=true on the request line), for a
+// MarkRemoved that refused (ErrReauthRequired): the sign-in that decided it was not recent, so RequireRecentSignIn with
+// the same inputs refuses too. The fallback is the same answer, should the two ever disagree.
+func reauthRequired(ctx context.Context, maxAge time.Duration, now time.Time) error {
+	if err := authn.RequireRecentSignIn(ctx, maxAge, now); err != nil {
+		return err
+	}
+	return apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_REAUTH_REQUIRED, "please sign in again to continue")
 }
 
 // Upload validates, deduplicates the packages by bytes (first occurrence wins, order kept) and hands copies to the repo.

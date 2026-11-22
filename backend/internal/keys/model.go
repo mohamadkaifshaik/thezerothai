@@ -41,6 +41,9 @@ var (
 	// ErrDeviceRemoved is a register or upload of a device id that carries a removed mark (a REMOTE removal), or whose
 	// device document carries removedAt (a REMOTE removal in progress). It never names the id.
 	ErrDeviceRemoved = errors.New("keys: device removed")
+	// ErrReauthRequired is MarkRemoved without a recent sign-in for an id that is not a retry (no mark yet, or a mark
+	// over a live device document); nothing is written. The service answers REAUTH_REQUIRED.
+	ErrReauthRequired = errors.New("keys: recent sign-in required")
 )
 
 // StuckRemovalsError is Register's ErrDeviceLimit when some of the device documents it counted carry removedAt: REMOTE
@@ -153,8 +156,9 @@ type Service interface {
 	// ListMine returns the caller's devices, at most MaxDevicesPerUser, oldest first, inactive ones included (Inactive set).
 	ListMine(ctx context.Context, uid string) ([]Device, error)
 	// Remove deletes a device with its pool and last-resort package; a missing device is success. RemoveRemote first
-	// marks the id (RemovalMarked; when not yet marked, a recent sign-in or REAUTH_REQUIRED with nothing written; then
-	// MarkRemoved), so Register and Upload refuse it with DEVICE_REMOVED. Any other reason value is VALIDATION "reason".
+	// marks the id (MarkRemoved, told whether the sign-in is recent: only a retry needs none, else REAUTH_REQUIRED with
+	// nothing written), so Register and Upload refuse it with DEVICE_REMOVED. Any other reason value is VALIDATION
+	// "reason".
 	Remove(ctx context.Context, uid, deviceID string, reason RemoveReason) error
 	// Upload adds packages to a registered device's pool (duplicates stored once, excess over MaxPoolSize dropped) and
 	// optionally replaces its last-resort package (nil or empty = keep). It returns the resulting pool size. A marked id
@@ -183,7 +187,8 @@ type Service interface {
 type Repo interface {
 	// Register creates the device (ErrDeviceLimit past the cap) or, for an existing id with the same key, refreshes
 	// LastSeenAt when older than seenRefreshInterval; a different key is ErrKeyMismatch. ErrDeviceRemoved comes before
-	// both: a device document carrying removedAt, or a new id with a removed mark (read before the count). At the cap,
+	// both: a device document carrying removedAt, a live device document under a removed mark (stamped removedAt in the
+	// same transaction), or a new id with a removed mark (read before the count). At the cap,
 	// when some counted documents carry removedAt, the error is a StuckRemovalsError naming them.
 	Register(ctx context.Context, uid string, d Device, now time.Time) (Device, error)
 	// List returns at most MaxDevicesPerUser devices, oldest first. Every reader (List, ActiveDevices, Claim) skips a
@@ -204,12 +209,12 @@ type Repo interface {
 	// else HasKeyPackage false; a device deleted meanwhile is left out. Contention on a device is never an error.
 	// LastSeenAt is not touched.
 	Claim(ctx context.Context, targetUID, excludeDeviceID string, now time.Time) ([]Claimed, error)
-	// RemovalMarked reports whether the id carries a removed mark (one direct get, no query, no index).
-	RemovalMarked(ctx context.Context, uid, deviceID string) (bool, error)
 	// MarkRemoved is the REMOTE removal's transaction: it reads the device document and the mark, creates the mark when
 	// absent (removedAt = now, expireAt = now + RemovalMarkTTL; an existing mark keeps its times) and sets removedAt on
-	// the device document when it exists and lacks it. 2 reads, at most 2 writes. Idempotent.
-	MarkRemoved(ctx context.Context, uid, deviceID string, now time.Time) error
+	// the device document when it exists and lacks it. 2 reads, at most 2 writes. Idempotent. Without recent only a retry
+	// (the mark exists and the device document is missing or already carries removedAt) goes on; anything else is
+	// ErrReauthRequired with nothing written.
+	MarkRemoved(ctx context.Context, uid, deviceID string, now time.Time, recent bool) error
 }
 
 // cloneBytes returns a copy of b (nil stays nil).

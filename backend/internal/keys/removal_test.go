@@ -64,10 +64,12 @@ func TestRemove_Reasons(t *testing.T) {
 		name     string
 		reason   RemoveReason
 		authTime time.Time
-		premark  bool   // the id already carries a mark (a retry of a REMOTE removal)
-		id       string // default devID (registered)
-		wantErr  commonv1.ErrorReason
-		wantMark bool
+		// premark: the id already carries a mark and its document (if any) removedAt (a retry of a REMOTE removal);
+		// markLive: the id carries a mark but its document is live (written by an image without the marks).
+		premark, markLive bool
+		id                string // default devID (registered)
+		wantErr           commonv1.ErrorReason
+		wantMark          bool
 		// wantOps is the repository calls after the setup, in order.
 		wantOps []string
 	}{
@@ -75,19 +77,26 @@ func TestRemove_Reasons(t *testing.T) {
 			wantOps: []string{"Remove"}},
 		{name: "sign-out with no auth_time at all", reason: RemoveSignOut, wantOps: []string{"Remove"}},
 		{name: "remote with a recent sign-in marks then removes", reason: RemoveRemote, authTime: recent, wantMark: true,
-			wantOps: []string{"RemovalMarked", "MarkRemoved", "Remove"}},
+			wantOps: []string{"MarkRemoved", "Remove"}},
 		{name: "remote with a sign-in exactly at the limit", reason: RemoveRemote, authTime: t0.Add(-testReauthMaxAge), wantMark: true,
-			wantOps: []string{"RemovalMarked", "MarkRemoved", "Remove"}},
+			wantOps: []string{"MarkRemoved", "Remove"}},
 		{name: "remote with a stale sign-in writes nothing", reason: RemoveRemote, authTime: stale,
-			wantErr: commonv1.ErrorReason_ERROR_REASON_REAUTH_REQUIRED, wantOps: []string{"RemovalMarked"}},
+			wantErr: commonv1.ErrorReason_ERROR_REASON_REAUTH_REQUIRED, wantOps: []string{"MarkRemoved"}},
 		{name: "remote with no auth_time writes nothing", reason: RemoveRemote,
-			wantErr: commonv1.ErrorReason_ERROR_REASON_REAUTH_REQUIRED, wantOps: []string{"RemovalMarked"}},
+			wantErr: commonv1.ErrorReason_ERROR_REASON_REAUTH_REQUIRED, wantOps: []string{"MarkRemoved"}},
 		{name: "remote with a future sign-in past the skew writes nothing", reason: RemoveRemote, authTime: t0.Add(time.Minute),
-			wantErr: commonv1.ErrorReason_ERROR_REASON_REAUTH_REQUIRED, wantOps: []string{"RemovalMarked"}},
+			wantErr: commonv1.ErrorReason_ERROR_REASON_REAUTH_REQUIRED, wantOps: []string{"MarkRemoved"}},
 		{name: "remote retry of a marked id needs no sign-in and finishes", reason: RemoveRemote, authTime: stale, premark: true,
-			wantMark: true, wantOps: []string{"RemovalMarked", "MarkRemoved", "Remove"}},
+			wantMark: true, wantOps: []string{"MarkRemoved", "Remove"}},
+		{name: "remote retry of a marked id whose document is gone needs no sign-in", reason: RemoveRemote, authTime: stale,
+			premark: true, id: devID2, wantMark: true, wantOps: []string{"MarkRemoved", "Remove"}},
+		{name: "remote of a live document under a mark with a stale sign-in writes nothing", reason: RemoveRemote,
+			authTime: stale, markLive: true,
+			wantErr: commonv1.ErrorReason_ERROR_REASON_REAUTH_REQUIRED, wantOps: []string{"MarkRemoved"}},
+		{name: "remote of a live document under a mark with a recent sign-in finishes", reason: RemoveRemote,
+			authTime: recent, markLive: true, wantMark: true, wantOps: []string{"MarkRemoved", "Remove"}},
 		{name: "remote of an id never registered still marks it", reason: RemoveRemote, authTime: recent, id: devID2,
-			wantMark: true, wantOps: []string{"RemovalMarked", "MarkRemoved", "Remove"}},
+			wantMark: true, wantOps: []string{"MarkRemoved", "Remove"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -97,10 +106,13 @@ func TestRemove_Reasons(t *testing.T) {
 			if id == "" {
 				id = devID
 			}
+			k := devKey(uidA, id)
 			earlier := t0.Add(-48 * time.Hour)
-			if tc.premark {
-				repo.marks[devKey(uidA, id)] = RemovalMark{DeviceID: id, RemovedAt: earlier, ExpireAt: earlier.Add(RemovalMarkTTL)}
-				repo.removing[devKey(uidA, id)] = true
+			if tc.premark || tc.markLive {
+				repo.marks[k] = RemovalMark{DeviceID: id, RemovedAt: earlier, ExpireAt: earlier.Add(RemovalMarkTTL)}
+			}
+			if tc.premark && repo.find(uidA, id) >= 0 {
+				repo.removing[k] = true
 			}
 			repo.ops = nil
 			ctx, info := signedIn(tc.authTime)
@@ -108,11 +120,12 @@ func TestRemove_Reasons(t *testing.T) {
 			if !slices.Equal(repo.ops, tc.wantOps) {
 				t.Errorf("repository calls = %v, want %v", repo.ops, tc.wantOps)
 			}
-			mark, marked := repo.marks[devKey(uidA, id)]
+			mark, marked := repo.marks[k]
 			if tc.wantErr != commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED {
 				wantErr(t, err, connect.CodeFailedPrecondition, tc.wantErr)
-				if marked || repo.find(uidA, devID) < 0 {
-					t.Fatalf("a refused removal wrote something: marked=%v device present=%v", marked, repo.find(uidA, devID) >= 0)
+				if marked != tc.markLive || repo.find(uidA, devID) < 0 || repo.removing[devKey(uidA, devID)] {
+					t.Fatalf("a refused removal wrote something: marked=%v device present=%v stamped=%v",
+						marked, repo.find(uidA, devID) >= 0, repo.removing[devKey(uidA, devID)])
 				}
 				if v, _ := info.Get(fieldOutcome); v != outcomeRejected+"reauth_required" {
 					t.Errorf("outcome = %v, want rejected:reauth_required", v)
@@ -130,7 +143,7 @@ func TestRemove_Reasons(t *testing.T) {
 			}
 			if tc.wantMark {
 				want := t0
-				if tc.premark {
+				if tc.premark || tc.markLive {
 					want = earlier // a retry keeps the first removal's time
 				}
 				if !mark.RemovedAt.Equal(want) || !mark.ExpireAt.Equal(want.Add(90*24*time.Hour)) {
@@ -209,6 +222,11 @@ func TestRegister_RemovedDevice(t *testing.T) {
 			r.marks[devKey(uidA, devID)] = RemovalMark{DeviceID: devID, RemovedAt: t0}
 			r.removing[devKey(uidA, devID)] = true
 		}, devID, "removed"},
+		// A live document under a mark: written by an image without the marks (a rollback). Refused and stamped, so a
+		// rollback cannot reopen H1 once the marks are back.
+		{"a live document under a mark is refused", func(_ *testing.T, _ Service, r *fakeRepo) {
+			r.marks[devKey(uidA, devID)] = RemovalMark{DeviceID: devID, RemovedAt: t0}
+		}, devID, "removed"},
 		{"after a remote removal the same id is refused", func(t *testing.T, s Service, _ *fakeRepo) {
 			ctx, _ := signedIn(t0)
 			if err := s.Remove(ctx, uidA, devID, RemoveRemote); err != nil {
@@ -238,6 +256,9 @@ func TestRegister_RemovedDevice(t *testing.T) {
 			wantDeviceRemoved(t, err)
 			if v, _ := info.Get(fieldOutcome); v != outcomeRejected+"device_removed" {
 				t.Errorf("outcome = %v, want rejected:device_removed", v)
+			}
+			if repo.find(uidA, tc.id) >= 0 && repo.live(uidA, tc.id) {
+				t.Fatal("the refused id's document is still live (not stamped removedAt)")
 			}
 		})
 	}

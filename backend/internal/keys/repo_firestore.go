@@ -127,23 +127,14 @@ func (r *FirestoreRepo) marks(uid string) *firestore.CollectionRef {
 
 func (r *FirestoreRepo) markRef(uid, id string) *firestore.DocumentRef { return r.marks(uid).Doc(id) }
 
-// RemovalMarked implements Repo: one direct get of the mark (no query, no index).
-func (r *FirestoreRepo) RemovalMarked(ctx context.Context, uid, deviceID string) (bool, error) {
-	_, err := r.markRef(uid, deviceID).Get(ctx)
-	switch {
-	case err == nil:
-		return true, nil
-	case status.Code(err) == codes.NotFound:
-		return false, nil
-	}
-	return false, logger.RedactErr(fmt.Errorf("keys: get removal mark: %w", err), uid, deviceID)
-}
-
 // MarkRemoved implements Repo: one transaction that reads the device document and the mark (one GetAll of 2) and writes
 // the mark (create, when absent) and the device's removedAt (when the document exists without it): at most 2 writes, none
-// on a repeat. A Register of the same id runs its transaction on the same two documents, so Firestore serialises the two:
-// either the Register lands first and is stamped here, or it reads the mark and is refused.
-func (r *FirestoreRepo) MarkRemoved(ctx context.Context, uid, deviceID string, now time.Time) error {
+// on a repeat. recent is whether the caller signed in recently; it is required unless this is a retry, decided on the
+// documents read here: the mark exists AND the device document is missing or already carries removedAt. A mark over a
+// live document (one an image without the marks re-created, security audit M3) is not a retry. Without it the answer is
+// ErrReauthRequired and nothing is written. A Register of the same id runs its transaction on the same two documents, so
+// Firestore serialises the two: either the Register lands first and is stamped here, or it reads the mark and is refused.
+func (r *FirestoreRepo) MarkRemoved(ctx context.Context, uid, deviceID string, now time.Time, recent bool) error {
 	now = now.UTC()
 	return r.run(ctx, uid, deviceID, func(_ context.Context, tx *firestore.Transaction) error {
 		devRef, markRef := r.deviceRef(uid, deviceID), r.markRef(uid, deviceID)
@@ -154,18 +145,23 @@ func (r *FirestoreRepo) MarkRemoved(ctx context.Context, uid, deviceID string, n
 		if len(snaps) != 2 {
 			return fmt.Errorf("keys: read device and mark: got %d documents, want 2", len(snaps))
 		}
-		b := store.NewFirestoreTxBatch(tx)
-		if !snaps[1].Exists() {
-			b.Create(markRef, markDoc{RemovedAt: now, ExpireAt: now.Add(RemovalMarkTTL)})
-		}
-		if snaps[0].Exists() {
-			var cur deviceDoc
+		devExists, marked := snaps[0].Exists(), snaps[1].Exists()
+		var cur deviceDoc
+		if devExists {
 			if err := snaps[0].DataTo(&cur); err != nil {
 				return fmt.Errorf("keys: decode device: %w", err)
 			}
-			if !cur.removed() {
-				b.Update(devRef, []firestore.Update{{Path: "removedAt", Value: now}})
-			}
+		}
+		retry := marked && (!devExists || cur.removed())
+		if !recent && !retry {
+			return ErrReauthRequired
+		}
+		b := store.NewFirestoreTxBatch(tx)
+		if !marked {
+			b.Create(markRef, markDoc{RemovedAt: now, ExpireAt: now.Add(RemovalMarkTTL)})
+		}
+		if devExists && !cur.removed() {
+			b.Update(devRef, []firestore.Update{{Path: "removedAt", Value: now}})
 		}
 		return b.Err()
 	})
@@ -204,27 +200,44 @@ func (r *FirestoreRepo) run(ctx context.Context, uid, deviceID string, fn store.
 // refreshDue reports whether a stored last-seen time is old enough to move (strictly more than seenRefreshInterval).
 func refreshDue(lastSeen, now time.Time) bool { return now.Sub(lastSeen) > seenRefreshInterval }
 
-// Register implements Repo. Reads: the device document and, for a new id, the removed mark and then a query of at most
-// MaxDevicesPerUser+1 devices. Writes: one (create, or a last-seen update; nothing when the refresh is not due).
-// ErrDeviceRemoved comes first: an existing document carrying removedAt, or a marked new id (the mark is read before the
-// count, so a marked id never learns about the cap). The count includes documents carrying removedAt (see
+// Register implements Repo. Reads: one GetAll of the device document and the removed mark (2 reads) and, for a new id, a
+// query of at most MaxDevicesPerUser+1 devices. Writes: one (create, a last-seen update or a removedAt stamp; nothing when
+// the refresh is not due). ErrDeviceRemoved comes first: an existing document carrying removedAt; an existing live
+// document under a mark (re-created by an image without the marks: it is stamped removedAt in this transaction, then
+// refused); or a marked new id (decided before the count, so a marked id never learns about the cap). The count includes documents carrying removedAt (see
 // deviceDoc.RemovedAt); at the cap, when some of the counted documents carry it, the answer is a StuckRemovalsError
 // naming them (still ErrDeviceLimit to errors.Is), decided on the documents the count query already read.
 func (r *FirestoreRepo) Register(ctx context.Context, uid string, d Device, now time.Time) (Device, error) {
 	now = now.UTC()
 	var out Device
+	stamped := false
 	err := r.run(ctx, uid, d.ID, func(_ context.Context, tx *firestore.Transaction) error {
-		out = Device{}
+		out, stamped = Device{}, false
 		ref := r.deviceRef(uid, d.ID)
-		snap, err := tx.Get(ref)
-		switch {
-		case err == nil:
+		snaps, err := tx.GetAll([]*firestore.DocumentRef{ref, r.markRef(uid, d.ID)})
+		if err != nil {
+			return fmt.Errorf("keys: read device and mark: %w", err)
+		}
+		if len(snaps) != 2 {
+			return fmt.Errorf("keys: read device and mark: got %d documents, want 2", len(snaps))
+		}
+		marked := snaps[1].Exists()
+		if snaps[0].Exists() {
 			var cur deviceDoc
-			if err := snap.DataTo(&cur); err != nil {
+			if err := snaps[0].DataTo(&cur); err != nil {
 				return fmt.Errorf("keys: decode device: %w", err)
 			}
 			if cur.removed() {
 				return ErrDeviceRemoved
+			}
+			if marked {
+				// A live document under a mark: an image without the marks (a rollback) registered the id again. Stamp it
+				// in this transaction, so every reader skips it, and refuse after the commit (an error here would roll the
+				// stamp back).
+				b := store.NewFirestoreTxBatch(tx)
+				b.Update(ref, []firestore.Update{{Path: "removedAt", Value: now}})
+				stamped = true
+				return b.Err()
 			}
 			if !bytes.Equal(cur.SignatureKey, d.SignatureKey) {
 				return ErrKeyMismatch
@@ -239,14 +252,9 @@ func (r *FirestoreRepo) Register(ctx context.Context, uid string, d Device, now 
 			}
 			out = cur.device(d.ID)
 			return nil
-		case status.Code(err) != codes.NotFound:
-			return fmt.Errorf("keys: get device: %w", err)
 		}
-		switch _, err := tx.Get(r.markRef(uid, d.ID)); {
-		case err == nil:
+		if marked {
 			return ErrDeviceRemoved
-		case status.Code(err) != codes.NotFound:
-			return fmt.Errorf("keys: get removal mark: %w", err)
 		}
 		existing, err := tx.Documents(r.devices(uid).Limit(MaxDevicesPerUser + 1)).GetAll()
 		if err != nil {
@@ -281,6 +289,9 @@ func (r *FirestoreRepo) Register(ctx context.Context, uid string, d Device, now 
 	})
 	if err != nil {
 		return Device{}, err
+	}
+	if stamped {
+		return Device{}, ErrDeviceRemoved
 	}
 	return out, nil
 }

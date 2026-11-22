@@ -87,7 +87,7 @@ func TestRemoval_RemoteRefusesRegisterAndUpload(t *testing.T) {
 
 	// Fill the freed slot, then a marked id at the cap still answers DEVICE_REMOVED, never LIMIT_REACHED.
 	e.mustRegister(t, uid, dvc(6), skey(6), now)
-	if err := e.repo.MarkRemoved(ctx, uid, dvc(9), now); err != nil {
+	if err := e.repo.MarkRemoved(ctx, uid, dvc(9), now, true); err != nil {
 		t.Fatal(err)
 	}
 	_, err = svc.Register(ctx, uid, dvc(9), skey(9))
@@ -115,10 +115,6 @@ func TestRemoval_SignOutMarksNothing(t *testing.T) {
 	if _, ok := e.markData(t, uid, dvc(1)); ok {
 		t.Fatal("a sign-out removal wrote a mark")
 	}
-	marked, err := e.repo.RemovalMarked(ctx, uid, dvc(1))
-	if err != nil || marked {
-		t.Fatalf("RemovalMarked = %v, %v", marked, err)
-	}
 	if _, err := svc.Register(ctx, uid, dvc(1), skey(1)); err != nil {
 		t.Fatalf("register again after sign-out: %v", err)
 	}
@@ -141,7 +137,7 @@ func TestRemoval_StaleSignInWritesNothing(t *testing.T) {
 	if _, ok := e.snap(t, uid, dvc(0)).Data()["removedAt"]; ok || len(e.poolDocs(t, uid, dvc(0))) != 3 {
 		t.Fatal("a refused removal touched the device")
 	}
-	if err := e.repo.MarkRemoved(ctx, uid, dvc(0), now); err != nil {
+	if err := e.repo.MarkRemoved(ctx, uid, dvc(0), now, true); err != nil {
 		t.Fatal(err)
 	}
 	if err := svc.Remove(signedInAt(uid, time.Time{}), uid, dvc(0), RemoveRemote); err != nil {
@@ -152,7 +148,66 @@ func TestRemoval_StaleSignInWritesNothing(t *testing.T) {
 	}
 }
 
-// TestRemoval_CrashAfterMark: a removal that stopped after the mark transaction leaves a device document carrying
+// putMark writes a removed mark directly, without stamping the device document: what an image from before the marks
+// leaves behind when it re-registers an id that a newer image had marked (a rollback, security audit M3).
+func (e *repoEnv) putMark(t *testing.T, uid, id string, at time.Time) {
+	t.Helper()
+	if _, err := e.repo.markRef(uid, id).Create(context.Background(), markDoc{RemovedAt: at, ExpireAt: at.Add(RemovalMarkTTL)}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestRemoval_LiveDocumentUnderMark (code review Minor 2, security audit M3 defence): a live device document whose id has
+// a mark must not survive a rollback to an image without the marks. Register refuses it with DEVICE_REMOVED and stamps
+// removedAt in the same transaction (so every reader skips it from then on); a REMOTE removal of it is not a retry and
+// still needs a recent sign-in.
+func TestRemoval_LiveDocumentUnderMark(t *testing.T) {
+	ctx := context.Background()
+	now := it0.Add(time.Hour)
+
+	t.Run("register is refused and stamps the document", func(t *testing.T) {
+		e := newRepoEnv(t)
+		uid := uniqueUID()
+		e.seed(t, uid, 2, 3)
+		e.putMark(t, uid, dvc(1), it0)
+		_, err := e.removalSvc(now).Register(ctx, uid, dvc(1), skey(2))
+		wantReason(t, err, commonv1.ErrorReason_ERROR_REASON_DEVICE_REMOVED)
+		got := e.snap(t, uid, dvc(1)).Data()["removedAt"]
+		if got == nil || !got.(time.Time).Equal(now) {
+			t.Fatalf("device removedAt = %v, want %v (stamped by the refused Register)", got, now)
+		}
+		if list, err := e.repo.List(ctx, uid); err != nil || len(list) != 1 || list[0].ID != dvc(0) {
+			t.Fatalf("List = %+v, %v; want only %s", list, err, dvc(0))
+		}
+		if _, _, err := e.repo.Upload(ctx, uid, dvc(1), [][]byte{pkgN(900)}, nil, now); !errors.Is(err, ErrDeviceRemoved) {
+			t.Fatalf("Upload after the stamp: %v, want ErrDeviceRemoved", err)
+		}
+	})
+
+	t.Run("remote with a stale sign-in is refused and writes nothing", func(t *testing.T) {
+		e := newRepoEnv(t)
+		uid := uniqueUID()
+		e.seed(t, uid, 1, 3)
+		e.putMark(t, uid, dvc(0), it0)
+		svc := e.removalSvc(now)
+		err := svc.Remove(signedInAt(uid, now.Add(-itReauth-time.Second)), uid, dvc(0), RemoveRemote)
+		wantReason(t, err, commonv1.ErrorReason_ERROR_REASON_REAUTH_REQUIRED)
+		if _, ok := e.snap(t, uid, dvc(0)).Data()["removedAt"]; ok || len(e.poolDocs(t, uid, dvc(0))) != 3 {
+			t.Fatal("a refused removal touched the live device")
+		}
+		if data, _ := e.markData(t, uid, dvc(0)); !data["removedAt"].(time.Time).Equal(it0) {
+			t.Fatalf("a refused removal moved the mark: %v", data)
+		}
+		if err := svc.Remove(signedInAt(uid, now), uid, dvc(0), RemoveRemote); err != nil {
+			t.Fatalf("remote with a recent sign-in: %v", err)
+		}
+		if n := e.deviceDocs(t, uid); n != 0 {
+			t.Fatalf("%d device refs left", n)
+		}
+	})
+}
+
+// TestRemoval_CrashAfterMark:a removal that stopped after the mark transaction leaves a device document carrying
 // removedAt. Every reader skips it (List, ActiveDevices, Claim, Claim's exclude), Register and Upload refuse the id, it
 // still holds its slot under the cap (so there are never more than MaxDevicesPerUser device documents for the Limit 5
 // readers), and a retry deletes it. The mark is created once: a second MarkRemoved keeps the first time.
@@ -162,10 +217,10 @@ func TestRemoval_CrashAfterMark(t *testing.T) {
 	uid, peer := uniqueUID(), uniqueUID()
 	e.seed(t, uid, MaxDevicesPerUser-1, 2) // dvc(0)..dvc(3), each with a pool and a last resort
 	now := it0.Add(time.Hour)
-	if err := e.repo.MarkRemoved(ctx, uid, dvc(1), now); err != nil {
+	if err := e.repo.MarkRemoved(ctx, uid, dvc(1), now, true); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.repo.MarkRemoved(ctx, uid, dvc(1), now.Add(time.Hour)); err != nil {
+	if err := e.repo.MarkRemoved(ctx, uid, dvc(1), now.Add(time.Hour), false); err != nil { // a retry: no sign-in needed
 		t.Fatal(err)
 	}
 	if data, _ := e.markData(t, uid, dvc(1)); !data["removedAt"].(time.Time).Equal(now) {
@@ -242,7 +297,7 @@ func TestRemoval_RegisterAtCapFinishesStuckRemoval(t *testing.T) {
 	uid := uniqueUID()
 	e.seed(t, uid, MaxDevicesPerUser, 3) // dvc(0)..dvc(4), each with a pool of 3 and a last resort
 	now := it0.Add(time.Hour)
-	if err := e.repo.MarkRemoved(ctx, uid, dvc(2), now); err != nil { // the crash: mark written, nothing deleted
+	if err := e.repo.MarkRemoved(ctx, uid, dvc(2), now, true); err != nil { // the crash: mark written, nothing deleted
 		t.Fatal(err)
 	}
 	if _, err := e.register(t, uid, dvc(9), skey(9), now); !errors.Is(err, ErrDeviceLimit) {
@@ -333,7 +388,7 @@ func TestRemoval_ExportListsPendingRemoval(t *testing.T) {
 	ctx := context.Background()
 	uid := uniqueUID()
 	e.seed(t, uid, 2, 3)
-	if err := e.repo.MarkRemoved(ctx, uid, dvc(1), it0); err != nil { // stopped after the mark
+	if err := e.repo.MarkRemoved(ctx, uid, dvc(1), it0, true); err != nil { // stopped after the mark
 		t.Fatal(err)
 	}
 	type row struct {
@@ -386,7 +441,7 @@ func TestRemoval_ListRemovalMarksPagesByID(t *testing.T) {
 	ctx := context.Background()
 	uid := uniqueUID()
 	for i := 0; i < 5; i++ {
-		if err := e.repo.MarkRemoved(ctx, uid, dvc(i), it0.Add(time.Duration(i)*time.Minute)); err != nil {
+		if err := e.repo.MarkRemoved(ctx, uid, dvc(i), it0.Add(time.Duration(i)*time.Minute), true); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -414,11 +469,11 @@ func TestPurge_ErasesRemovalMarks(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, id := range []string{dvc(1), dvc(7)} { // dvc(1): removing (document carries removedAt); dvc(7): orphan mark
-		if err := e.repo.MarkRemoved(ctx, uid, id, it0); err != nil {
+		if err := e.repo.MarkRemoved(ctx, uid, id, it0, true); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := e.repo.MarkRemoved(ctx, other, dvc(0), it0); err != nil {
+	if err := e.repo.MarkRemoved(ctx, other, dvc(0), it0, true); err != nil {
 		t.Fatal(err)
 	}
 	er := NewEraser(e.repo)
