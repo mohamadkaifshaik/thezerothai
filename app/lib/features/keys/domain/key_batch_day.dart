@@ -1,6 +1,9 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+/// The largest stored record read (a real one is under 70 bytes).
+const int kMaxKeyBatchDayBytes = 256;
+
 /// The key package batches generated on one IST day (see
 /// `kVaultSettingKeyBatchDay` and `kMaxKeyBatchesPerDay`).
 class KeyBatchDay {
@@ -63,7 +66,7 @@ class KeyBatchDay {
   static final RegExp _day = RegExp(r'^\d{4}-\d{2}-\d{2}$');
 
   static KeyBatchDay decode(Uint8List bytes) {
-    if (bytes.length > 256) throw const FormatException();
+    if (bytes.length > kMaxKeyBatchDayBytes) throw const FormatException();
     final value = jsonDecode(utf8.decode(bytes));
     if (value is! Map || value['v'] != 1) throw const FormatException();
     final day = value['day'];

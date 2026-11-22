@@ -125,7 +125,23 @@ void main() {
       throwsFormatException,
       reason: 'an empty package',
     );
-    expect(() => _decode(Uint8List(51 * 5500 + 1024)), throwsFormatException);
+  });
+
+  test('a valid record padded with JSON whitespace past the limit is '
+      'unreadable; padded to the limit it decodes', () {
+    Uint8List padded(int length) {
+      final valid = utf8.encode(jsonEncode(_record()));
+      return Uint8List.fromList([
+        ...valid,
+        ...List.filled(length - valid.length, 0x20),
+      ]);
+    }
+
+    expect(_decode(padded(kMaxPendingUploadBytes)).countBefore, 3);
+    expect(
+      () => _decode(padded(kMaxPendingUploadBytes + 1)),
+      throwsFormatException,
+    );
   });
 
   test('a missing lastResort key is unreadable (null is not)', () {

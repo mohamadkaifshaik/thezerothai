@@ -64,8 +64,22 @@ void main() {
         reason: raw,
       );
     }
-    final big = Uint8List(257);
-    expect(read(big).count, 4);
+  });
+
+  test('a valid record padded with JSON whitespace past the limit is '
+      'unreadable; padded to the limit it is read', () {
+    Uint8List padded(int length) {
+      final valid = KeyBatchDay(today, 1).encode();
+      return Uint8List.fromList([
+        ...valid,
+        ...List.filled(length - valid.length, 0x20),
+      ]);
+    }
+
+    final atLimit = read(padded(kMaxKeyBatchDayBytes));
+    expect((atLimit.count, atLimit.invalid), (1, false));
+    final over = read(padded(kMaxKeyBatchDayBytes + 1));
+    expect((over.count, over.invalid), (4, true));
   });
 
   test('invalid is never stored', () {

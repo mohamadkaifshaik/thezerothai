@@ -16,7 +16,7 @@ const int _maxPackageBase64 = (kMaxKeyPackageBytes + 2) ~/ 3 * 4;
 /// last-resort one at their largest, each quoted and comma-separated, and
 /// the fixed keys, the count and `lastResortAt` (about 140 bytes with both
 /// integers at 19 digits).
-const int _maxRecordBytes =
+const int kMaxPendingUploadBytes =
     (kKeyPackagePoolTarget + 1) * (_maxPackageBase64 + 3) + 192;
 
 /// A generated batch whose upload is not confirmed (see
@@ -61,7 +61,7 @@ class PendingUpload {
   /// then records: what every upload wrote before. Safe: no such record has
   /// shipped.
   static PendingUpload decode(Uint8List bytes, {required int nowMicros}) {
-    if (bytes.length > _maxRecordBytes) {
+    if (bytes.length > kMaxPendingUploadBytes) {
       throw const FormatException();
     }
     final value = jsonDecode(utf8.decode(bytes));
