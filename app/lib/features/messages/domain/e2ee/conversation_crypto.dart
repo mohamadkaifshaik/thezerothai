@@ -203,6 +203,42 @@ class ConversationCrypto {
   /// conversation lock held.
   void Function(String conversationId)? onOwnResetEnded;
 
+  /// Task 8 concern 4, set by the `GroupStarter`: called with a
+  /// conversation id once the join path found this device's own init
+  /// stored while a row still carries it (it left the group provisional,
+  /// review W1), so the starter resumes it and the group settles with the
+  /// message's answer without waiting for another trigger. Called after
+  /// the transaction, with the conversation lock held: the callee must not
+  /// await anything that takes that lock (the starter starts its resume
+  /// outside the lock's zone, unawaited).
+  ///
+  /// Pre-flag-on review m-2: called at most once per provisional group per
+  /// run ([_initHandedOver]).
+  void Function(String conversationId)? onOwnInitUnanswered;
+
+  /// Pre-flag-on fix round 2, ruling 8 (code review nit), set by the
+  /// `GroupStarter`: called with a conversation id once the join path
+  /// discarded this device's own provisional INIT there (another device's
+  /// commit was first), so the starter forgets what it remembers for that
+  /// init's row, as every discard of its own does. Memory only; called
+  /// after the transaction, with the conversation lock held.
+  void Function(String conversationId)? onOwnInitDiscarded;
+
+  /// Pre-flag-on review m-2. Conversation -> the provisional group (its
+  /// generation and creation time) [onOwnInitUnanswered] was last called
+  /// for in this run. Decision: once per group, not once per welcome poll.
+  /// Why: a welcome of a higher generation over an own unanswered lower
+  /// group is answered `transient` and not acked, so every later poll met
+  /// the same group and started one more resume (a listing and a replay)
+  /// each time; with a permanent refusal that turned "every trigger" into
+  /// "every welcome poll". The resume it starts is single flight and is
+  /// itself re-triggered by the starter's own triggers. A NEW provisional
+  /// group of the conversation (a rebuild, a new start) has another
+  /// creation time and is handed over again. Memory only; forgotten at
+  /// [forgetOwnCommits] (sign-out or a new vault).
+  final Map<String, ({int generation, int? createdAtMicros})> _initHandedOver =
+      {};
+
   /// Conversation -> the pair of the last commit of THIS device that this
   /// run confirmed (by its bytes, in catch-up or in
   /// [confirmOwnCommitLocked]). Memory only: the commit runner reads it
@@ -267,6 +303,7 @@ class ConversationCrypto {
   void forgetOwnCommits() {
     _ownAdds.clear();
     _ownConfirmed.clear();
+    _initHandedOver.clear();
   }
 
   /// Task 9, for the commit runner, which HOLDS [id]'s conversation lock:

@@ -277,6 +277,48 @@ void main() {
     });
   });
 
+  group('the 24 h rebuild slot (Task 8 audit L1)', () {
+    const hour = Duration(hours: 1);
+
+    test('takeRebuild allows one rebuild per conversation per spacing, kept '
+        'in the stored record', () async {
+      final l = ledger();
+      expect(await l.takeRebuild(_conv, spacing: hour), isTrue);
+      expect(await l.takeRebuild(_conv, spacing: hour), isFalse);
+      // Another conversation has its own slot.
+      expect(await l.takeRebuild('c2', spacing: hour), isTrue);
+      // A reopened ledger reads the stored time.
+      clock = clock.add(const Duration(minutes: 59));
+      expect(await ledger().takeRebuild(_conv, spacing: hour), isFalse);
+      clock = clock.add(const Duration(minutes: 1));
+      expect(await ledger().takeRebuild(_conv, spacing: hour), isTrue);
+      final stored = await l.read();
+      expect(stored.rebuiltAt[_conv], clock.microsecondsSinceEpoch);
+      // The field round-trips; a record without it decodes as before.
+      expect(DailyRecord.decode(stored.encode()).rebuiltAt, stored.rebuiltAt);
+      expect(
+        DailyRecord.decode(DailyRecord(day: istDay(clock)).encode()).rebuiltAt,
+        isEmpty,
+      );
+    });
+
+    test('takeRebuild refuses a time stored after now and an exhausted '
+        'record, and writes nothing then', () async {
+      final l = ledger();
+      expect(await l.takeRebuild(_conv, spacing: hour), isTrue);
+      final at = (await l.read()).rebuiltAt[_conv];
+      // The clock moved back: the age of the stored time cannot be told.
+      clock = clock.subtract(const Duration(minutes: 5));
+      expect(await l.takeRebuild(_conv, spacing: hour), isFalse);
+      expect((await l.read()).rebuiltAt[_conv], at);
+
+      await storeGarbage();
+      expect(await ledger().takeRebuild('c2', spacing: hour), isFalse);
+      expect((await ledger().read()).rebuiltAt, isEmpty);
+      expect(reported, hasLength(1));
+    });
+  });
+
   test('another version of the value is unreadable too', () async {
     await store(Uint8List.fromList(utf8.encode('{"v":2,"day":"x"}')));
     expect(await ledger().lostSendUpdateDone(_conv), isTrue);

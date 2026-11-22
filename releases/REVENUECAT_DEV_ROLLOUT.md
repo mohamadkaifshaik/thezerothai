@@ -1,5 +1,7 @@
 # RevenueCat dev rollout review
 
+For the current single-plan launch, use [the Plus setup guide](GOOGLE_PLAY_BILLING_SETUP.md). This file records the earlier rollout.
+
 Current implementation/setup: [Google Play billing setup](GOOGLE_PLAY_BILLING_SETUP.md).
 The Test Store foundation was deployed to dev after PR #854. The real-store
 extension is prepared separately and remains disabled pending store setup.

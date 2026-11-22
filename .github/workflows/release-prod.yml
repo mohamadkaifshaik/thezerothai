@@ -130,12 +130,22 @@ jobs:
           PROJECT: ${{ vars.PROD_PROJECT_ID }}
           REGION: ${{ vars.PROD_REGION }}
           IMAGE: ${{ steps.build.outputs.image }}
+          BILLING_CONFIG_ENABLED: ${{ vars.PROD_BILLING_CONFIG_ENABLED }}
+          BILLING_PURCHASES_ENABLED: ${{ vars.PROD_BILLING_PURCHASES_ENABLED }}
+          REVENUECAT_PURCHASE_ENVIRONMENT: PRODUCTION
+          REVENUECAT_WEBHOOK_APP_IDS: ${{ vars.PROD_REVENUECAT_WEBHOOK_APP_IDS }}
+          REVENUECAT_PRODUCTS_JSON: ${{ vars.PROD_REVENUECAT_PRODUCTS_JSON }}
+          REVENUECAT_SECRET_API_KEY_REF: ${{ vars.PROD_REVENUECAT_SECRET_API_KEY_REF }}
+          REVENUECAT_WEBHOOK_AUTHORIZATION_REF: ${{ vars.PROD_REVENUECAT_WEBHOOK_AUTHORIZATION_REF }}
+          REVENUECAT_WEBHOOK_SIGNING_SECRET_REF: ${{ vars.PROD_REVENUECAT_WEBHOOK_SIGNING_SECRET_REF }}
         run: |
+          bash scripts/promotion/billing-config.sh > "$RUNNER_TEMP/billing-args"
+          mapfile -d '' -t billing_args < "$RUNNER_TEMP/billing-args"
           gcloud run deploy "${SERVICE}" \
             --project="${PROJECT}" \
             --region="${REGION}" \
             --image="${IMAGE}" \
-            --no-traffic --tag=candidate \
+            --no-traffic --tag=candidate "${billing_args[@]}" \
             --quiet
 
       - name: Resolve candidate revision URL
@@ -231,8 +241,12 @@ jobs:
           API_BASE_URL: ${{ vars.PROD_API_BASE_URL }}
           RECAPTCHA_SITE_KEY: ${{ vars.PROD_RECAPTCHA_SITE_KEY }}
           GOOGLE_WEB_CLIENT_ID: ${{ vars.PROD_GOOGLE_WEB_CLIENT_ID }}
+          BILLING_CONFIG_ENABLED: ${{ vars.PROD_BILLING_CONFIG_ENABLED }}
+          REVENUECAT_PRODUCTS_JSON: ${{ vars.PROD_REVENUECAT_PRODUCTS_JSON }}
+          REVENUECAT_PUBLIC_API_KEY: ${{ vars.PROD_REVENUECAT_ANDROID_PUBLIC_API_KEY }}
         run: |
-          flutter build appbundle --release \
+          bash ../scripts/promotion/mobile-billing-defines.sh android > "$RUNNER_TEMP/billing.json"
+          flutter build appbundle --dart-define-from-file="$RUNNER_TEMP/billing.json" --release \
             --dart-define=USE_EMULATORS=false \
             --dart-define=FIREBASE_ENV=prod \
             --dart-define=API_BASE_URL="${API_BASE_URL}" \
@@ -314,8 +328,12 @@ jobs:
           API_BASE_URL: ${{ vars.PROD_API_BASE_URL }}
           RECAPTCHA_SITE_KEY: ${{ vars.PROD_RECAPTCHA_SITE_KEY }}
           GOOGLE_WEB_CLIENT_ID: ${{ vars.PROD_GOOGLE_WEB_CLIENT_ID }}
+          BILLING_CONFIG_ENABLED: ${{ vars.PROD_BILLING_CONFIG_ENABLED }}
+          REVENUECAT_PRODUCTS_JSON: ${{ vars.PROD_REVENUECAT_PRODUCTS_JSON }}
+          REVENUECAT_PUBLIC_API_KEY: ${{ vars.PROD_REVENUECAT_IOS_PUBLIC_API_KEY }}
         run: |
-          flutter build ios --release --no-codesign \
+          bash ../scripts/promotion/mobile-billing-defines.sh ios > "$RUNNER_TEMP/billing.json"
+          flutter build ios --dart-define-from-file="$RUNNER_TEMP/billing.json" --release --no-codesign \
             --dart-define=USE_EMULATORS=false \
             --dart-define=FIREBASE_ENV=prod \
             --dart-define=API_BASE_URL="${API_BASE_URL}" \

@@ -33,7 +33,7 @@ func TestStorePublishingRequiresFreshMatchingEnvironmentAndOwner(t *testing.T) {
 	}{
 		{name: "no subscription", missing: true, wantLimit: 280, wantCode: connect.CodePermissionDenied},
 		{name: "verified free", wantLimit: 280, wantCode: connect.CodePermissionDenied},
-		{name: "plus", entitlement: billing.PlusEntitlement, wantLimit: 3000, wantCode: connect.CodePermissionDenied},
+		{name: "plus", entitlement: billing.PlusEntitlement, wantLimit: 15000},
 		{name: "premium", entitlement: billing.ProEntitlement, wantLimit: 15000},
 		{name: "provider failure", outage: true, wantCode: connect.CodeUnavailable},
 		{name: "different owner", wrongOwner: true, wantCode: connect.CodeUnavailable},

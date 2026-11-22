@@ -1,7 +1,7 @@
 import 'package:intl/intl.dart';
 
-/// One planned paid plan shown (never sold) in the Premium pop-up
-///Prices are in paise, monthly, inclusive of GST.
+/// India launch pricing used for the preview and INR product validation.
+/// Prices are in paise, monthly, inclusive of GST.
 class PremiumPlan {
   const PremiumPlan({required this.name, required this.pricePaise});
 
@@ -13,22 +13,20 @@ class PremiumPlan {
   /// The billing period. Only monthly exists; there is no annual price.
   static const period = 'month';
 
-  /// "₹235/month" (no decimals for whole rupees).
+  /// "₹99/month" (no decimals for whole rupees).
   String get priceLabel => '${formatRupees(pricePaise)}/$period';
 
-  /// "₹235 a month" for speech.
+  /// "₹99 a month" for speech.
   String get spokenPrice => '${formatRupees(pricePaise)} a $period';
 }
 
-/// The only place a Premium price lives. A change is a one-line, reviewed
-/// copy change approved by the founder.
+/// The single paid launch plan in India.
 const kPremiumPlans = <PremiumPlan>[
-  PremiumPlan(name: 'Plus', pricePaise: 23500),
-  PremiumPlan(name: 'Premium', pricePaise: 85000),
+  PremiumPlan(name: 'Plus', pricePaise: 9900),
 ];
 
 /// Formats [paise] as rupees in the `en_IN` format with a "₹" sign: no
-/// decimals for whole rupees, two otherwise ("₹235", "₹1,000", "₹99.50").
+/// decimals for whole rupees, two otherwise ("₹99", "₹1,000", "₹99.50").
 String formatRupees(int paise) {
   final whole = paise % 100 == 0;
   return NumberFormat.currency(

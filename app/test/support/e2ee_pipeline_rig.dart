@@ -46,9 +46,13 @@ import 'fake_vault_world.dart';
 // with FakeVaultCipher, a FakeCryptoEngine and a VaultSession built from
 // FakeVaultWorld's parts.
 
-/// A fixed, injectable clock.
+/// A fixed, injectable clock. With no [start] it begins at [rigMidIstDay],
+/// so no test can fail because its run started close before an IST midnight
+/// (the pipeline counts calls and claims by IST day, and many tests move the
+/// clock by minutes or hours). Nothing under lib/features/messages/domain/e2ee
+/// reads the real clock, so the shifted start moves no other time.
 class RigClock {
-  RigClock([DateTime? start]) : value = start ?? DateTime.now().toUtc();
+  RigClock([DateTime? start]) : value = start ?? rigMidIstDay();
 
   DateTime value;
   DateTime now() => value;

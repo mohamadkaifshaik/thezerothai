@@ -45,21 +45,10 @@ void main() {
   }
 
   group('kPremiumPlans', () {
-    test('Plus and Premium, monthly, in paise', () {
-      expect(kPremiumPlans.map((p) => p.name), ['Plus', 'Premium']);
-      expect(kPremiumPlans.map((p) => p.pricePaise), [23500, 85000]);
-      expect(PremiumPlan.period, 'month');
-    });
-
-    test('labels are formatted from paise', () {
-      expect(kPremiumPlans.map((p) => p.priceLabel), [
-        '₹235/month',
-        '₹850/month',
-      ]);
-      expect(kPremiumPlans.map((p) => p.spokenPrice), [
-        '₹235 a month',
-        '₹850 a month',
-      ]);
+    test('single monthly Plus plan', () {
+      expect(kPremiumPlans.single.name, 'Plus');
+      expect(kPremiumPlans.single.pricePaise, 9900);
+      expect(kPremiumPlans.single.priceLabel, '₹99/month');
     });
 
     test('formatRupees: en_IN grouping, decimals only when needed', () {
@@ -86,36 +75,11 @@ void main() {
               textScale: scale,
             );
 
-            expect(find.text('COMING SOON'), findsOneWidget);
-            expect(find.text('A little extra.'), findsOneWidget);
-            expect(
-              find.text(
-                'Paid plans are not available yet. Planned monthly prices '
-                'are inclusive of GST.',
-              ),
-              findsOneWidget,
-            );
-            expect(find.text('₹235/month'), findsOneWidget);
-            expect(find.text('₹850/month'), findsOneWidget);
-            expect(find.text('incl. GST'), findsNWidgets(2));
-            expect(find.text('Coming soon'), findsNWidgets(2));
-            expect(
-              find.text(
-                'No payment details are asked for anywhere in the app.',
-              ),
-              findsOneWidget,
-            );
-
-            // Side by side from 600 dp below text scale 2.0; stacked else.
-            final plus = tester.getRect(find.text('₹235/month'));
-            final premium = tester.getRect(find.text('₹850/month'));
-            if (width >= 600 && scale < 2) {
-              expect(plus.top, closeTo(premium.top, 1));
-              expect(plus.right, lessThan(premium.left));
-            } else {
-              expect(plus.bottom, lessThan(premium.top));
-              expect(plus.left, closeTo(premium.left, 1));
-            }
+            expect(find.text('Compare plans'), findsOneWidget);
+            expect(find.text('No subscription needed'), findsOneWidget);
+            expect(find.text('₹99/month'), findsOneWidget);
+            expect(find.textContaining('15,000'), findsOneWidget);
+            expect(find.textContaining('280 characters'), findsOneWidget);
             expectNoOverflow(tester);
           });
         }
@@ -141,23 +105,6 @@ void main() {
       handle.dispose();
     });
 
-    shellsTest('the text carries both prices with GST and "coming soon"', (
-      tester,
-    ) async {
-      await openDialog(tester);
-      final text = dialogText(tester);
-
-      expect(text, contains('₹235/month'));
-      expect(text, contains('₹850/month'));
-      expect(
-        RegExp(r'₹235/month\s+incl\. GST').hasMatch(text),
-        isTrue,
-        reason: 'Plus price is followed by incl. GST',
-      );
-      expect(RegExp(r'₹850/month\s+incl\. GST').hasMatch(text), isTrue);
-      expect(text.toLowerCase(), contains('coming soon'));
-    });
-
     shellsTest('copy guard: no purchase, urgency or other amounts', (
       tester,
     ) async {
@@ -174,19 +121,17 @@ void main() {
       await openDialog(tester, size: const Size(1200, 800));
       final handle = tester.ensureSemantics();
 
-      for (final label in [
-        'Plus, ₹235 a month including GST, coming soon',
-        'Premium, ₹850 a month including GST, coming soon',
-      ]) {
-        final finder = find.bySemanticsLabel(label);
-        expect(finder, findsOneWidget, reason: label);
-        final data = tester.getSemantics(finder).getSemanticsData();
-        expect(data.flagsCollection.isButton, isFalse);
-        expect(data.hasAction(SemanticsAction.tap), isFalse);
+      for (final details in ['280 characters', 'article publishing']) {
+        final finder = find.bySemanticsLabel(RegExp(details));
+        expect(finder, findsOneWidget);
+        expect(
+          tester
+              .getSemantics(finder)
+              .getSemanticsData()
+              .hasAction(SemanticsAction.tap),
+          isFalse,
+        );
       }
-      // The loose texts inside a card are not read again.
-      expect(find.bySemanticsLabel('₹235/month'), findsNothing);
-      expect(find.bySemanticsLabel('Coming soon'), findsNothing);
       handle.dispose();
     });
 
