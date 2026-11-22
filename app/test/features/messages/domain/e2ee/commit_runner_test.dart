@@ -1009,6 +1009,56 @@ void main() {
       expect(rig.crypto.takeOwnCommitConfirmedAt(_c1), isNull);
     });
 
+    test('a confirmed pair an earlier step left unread is dropped before the '
+        'runner\'s catch-up, so a superseded record never reads as '
+        'applied', () async {
+      await setUpJoined();
+      await synced();
+      rig.server.commitScript
+        ..add((error: offline, stored: false))
+        ..add((error: offline, stored: false));
+      expect(await rig.commits.selfUpdate(_c1), CommitOutcome.pending);
+      final held = await groupRecord();
+      final heldSync = await sync();
+      expect(held.pending!.builtOn, const MlsPair(1, 1));
+
+      // Another caller's catch-up confirms the record at (1, 1) by its
+      // bytes (the listing shows them as this user's) and nobody reads
+      // that: the entry for (1, 1) stays.
+      rig.server.rewriteCommits = (real) => pb.ListConversationCommitsResponse(
+        commits: [
+          pb.ConversationCommit(
+            mlsGeneration: Int64(1),
+            mlsEpoch: Int64(1),
+            commit: held.pending!.commit,
+            fromSelf: true,
+            createdAt: ts.Timestamp.fromDateTime(rig.clock.now()),
+          ),
+        ],
+        mlsGeneration: Int64(1),
+        mlsEpoch: Int64(2),
+      );
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      rig.server.rewriteCommits = null;
+      expect((await groupRecord()).epoch, 2);
+
+      // The group and its sync record are back at (1, 1) holding the same
+      // record, and the server's commit at (1, 1) is bob's.
+      await rig.device.vault.transaction((tx) async {
+        await tx.putGroup(held);
+        await tx.putConversationSync(_c1, heldSync);
+      });
+      await bobSelfUpdate();
+      rig.clock.advance(kRequestInFlightMargin);
+
+      expect(await rig.commits.resumePending(_c1), CommitOutcome.superseded);
+
+      final g = await groupRecord();
+      expect(g.epoch, 2);
+      expect(g.pending, isNull);
+      expect(requests(), hasLength(2));
+    });
+
     test(
       'a server retry time holds a commit for five minutes at most',
       () async {
