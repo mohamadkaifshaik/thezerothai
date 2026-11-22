@@ -41,6 +41,10 @@ env:
 
 jobs:
   build-and-stage:
+    concurrency:
+      # A newer tag replaces an older pending run while staging is busy.
+      group: prod-candidate-staging
+      cancel-in-progress: false
     name: Build image, deploy --no-traffic --tag candidate, smoke test
     runs-on: ubuntu-latest
     environment: prod
@@ -159,8 +163,8 @@ jobs:
         run: |
           curl -fsS --retry 5 --retry-delay 5 "${RC_URL}/health"
 
-  # Mobile release artifacts. These never touch GCP (no WIF, no `environment:
-  # prod`) — they just need the tagged source and the PROD_* repo variables
+  # Mobile compilation jobs use no GCP identity and no `prod` environment.
+  # They need the tagged source and the PROD_* repo variables
   # that describe how a prod client should be configured. Every prod client
   # build passes --dart-define=FIREBASE_ENV=prod (selects the prod Firebase
   # project's options, see PR #5 `app/lib/app/app_config.dart`) and
@@ -220,10 +224,10 @@ jobs:
         with:
           version: "28.2.13676358"
 
-      - name: flutter build appbundle
+      - name: Build the unsigned release bundle
         working-directory: app
         env:
-          # Mobile talks to Cloud Run directly (no Hosting rewrite available).
+          ORG_GRADLE_PROJECT_dzerothExternalReleaseSigning: "true"
           API_BASE_URL: ${{ vars.PROD_API_BASE_URL }}
           RECAPTCHA_SITE_KEY: ${{ vars.PROD_RECAPTCHA_SITE_KEY }}
           GOOGLE_WEB_CLIENT_ID: ${{ vars.PROD_GOOGLE_WEB_CLIENT_ID }}
@@ -237,8 +241,51 @@ jobs:
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
+          name: android-unsigned
+          path: app/build/app/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
+
+  sign-android:
+    name: Sign and verify the Android AAB
+    environment: prod
+    needs: [build-and-stage, build-android]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: android-unsigned
+          path: unsigned
+
+      - name: Sign the bundle with the Play upload key
+        env:
+          UPLOAD_STORE_BASE64: ${{ secrets.DZEROTH_UPLOAD_STORE_BASE64 }}
+          DZEROTH_UPLOAD_STORE_PASSWORD: ${{ secrets.DZEROTH_UPLOAD_STORE_PASSWORD }}
+          DZEROTH_UPLOAD_KEY_ALIAS: ${{ secrets.DZEROTH_UPLOAD_KEY_ALIAS }}
+          DZEROTH_UPLOAD_KEY_PASSWORD: ${{ secrets.DZEROTH_UPLOAD_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+          DZEROTH_UPLOAD_STORE_FILE=$(mktemp "$RUNNER_TEMP/upload-key.XXXXXX")
+          export DZEROTH_UPLOAD_STORE_FILE
+          trap 'rm -f "$DZEROTH_UPLOAD_STORE_FILE"' EXIT
+          printf '%s' "${UPLOAD_STORE_BASE64:?Missing Android upload keystore}" | base64 --decode > "$DZEROTH_UPLOAD_STORE_FILE"
+          unset UPLOAD_STORE_BASE64
+          mkdir signed
+          "${JAVA_HOME:?}/bin/jarsigner" -keystore "$DZEROTH_UPLOAD_STORE_FILE" -storepass:env DZEROTH_UPLOAD_STORE_PASSWORD \
+            -keypass:env DZEROTH_UPLOAD_KEY_PASSWORD -signedjar signed/app-release.aab \
+            unsigned/app-release.aab "$DZEROTH_UPLOAD_KEY_ALIAS"
+          "${JAVA_HOME:?}/bin/jarsigner" -verify -strict -keystore "$DZEROTH_UPLOAD_STORE_FILE" -storepass:env DZEROTH_UPLOAD_STORE_PASSWORD \
+            signed/app-release.aab "$DZEROTH_UPLOAD_KEY_ALIAS"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          if-no-files-found: error
           name: android-aab-${{ needs.build-and-stage.outputs.tag }}
-          path: app/build/app/outputs/bundle/release/*.aab
+          path: signed/app-release.aab
           retention-days: 30
 
   build-ios:

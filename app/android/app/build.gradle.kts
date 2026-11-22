@@ -83,6 +83,9 @@ android {
                         "DZEROTH_UPLOAD_STORE_PASSWORD, DZEROTH_UPLOAD_KEY_ALIAS and " +
                         "DZEROTH_UPLOAD_KEY_PASSWORD. See app/README.md."
                 )
+            } else if (project.findProperty("dzerothExternalReleaseSigning") == "true") {
+                // Tagged releases sign the AAB on a separate runner holding the upload key.
+                signingConfig = null
             } else {
                 logger.warn(
                     "WARNING: no release upload key configured; signing the release build with the " +
