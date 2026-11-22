@@ -328,7 +328,14 @@ func TestRemoval_RegisterAtCapFinishesStuckRemoval(t *testing.T) {
 	if _, err := e.register(t, uid, dvc(9), skey(9), now); !errors.Is(err, ErrDeviceLimit) {
 		t.Fatalf("repository Register at the cap with a removing device: %v, want ErrDeviceLimit", err)
 	}
-	d, err := e.removalSvc(now).Register(ctx, uid, dvc(9), skey(9))
+	// Minor 3: under StuckRemovalMinAge the removal may still be in flight, so it is left alone: LIMIT_REACHED.
+	_, err := e.removalSvc(now.Add(StuckRemovalMinAge-time.Second)).Register(ctx, uid, dvc(9), skey(9))
+	wantReason(t, err, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED)
+	if got := e.snap(t, uid, dvc(2)).Data()["removedAt"]; got == nil || len(e.poolDocs(t, uid, dvc(2))) != 3 {
+		t.Fatal("a fresh stuck removal was finished")
+	}
+	later := now.Add(StuckRemovalMinAge)
+	d, err := e.removalSvc(later).Register(ctx, uid, dvc(9), skey(9))
 	if err != nil {
 		t.Fatalf("Register past a stuck removal: %v", err)
 	}

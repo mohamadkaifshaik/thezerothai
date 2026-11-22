@@ -205,8 +205,8 @@ func refreshDue(lastSeen, now time.Time) bool { return now.Sub(lastSeen) > seenR
 // the refresh is not due). ErrDeviceRemoved comes first: an existing document carrying removedAt; an existing live
 // document under a mark (re-created by an image without the marks: it is stamped removedAt in this transaction, then
 // refused with ErrDeviceStamped, which the service follows with RemoveRemoving); or a marked new id (decided before the count, so a marked id never learns about the cap). The count includes documents carrying removedAt (see
-// deviceDoc.RemovedAt); at the cap, when some of the counted documents carry it, the answer is a StuckRemovalsError
-// naming them (still ErrDeviceLimit to errors.Is), decided on the documents the count query already read.
+// deviceDoc.RemovedAt); at the cap, when some of the counted documents carry it since at least StuckRemovalMinAge, the
+// answer is a StuckRemovalsError naming them (still ErrDeviceLimit to errors.Is), decided on the documents the count query already read.
 func (r *FirestoreRepo) Register(ctx context.Context, uid string, d Device, now time.Time) (Device, error) {
 	now = now.UTC()
 	var out Device
@@ -269,7 +269,8 @@ func (r *FirestoreRepo) Register(ctx context.Context, uid string, d Device, now 
 				if err := s.DataTo(&have); err != nil {
 					return fmt.Errorf("keys: decode device: %w", err)
 				}
-				if have.removed() {
+				// A younger removedAt may be a REMOTE removal still in flight: not stuck (yet).
+				if have.removed() && now.Sub(*have.RemovedAt) >= StuckRemovalMinAge {
 					stuck = append(stuck, s.Ref.ID)
 				}
 			}

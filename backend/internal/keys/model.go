@@ -95,6 +95,10 @@ func (r RemoveReason) String() string {
 // can lag by a day or more, which only makes the mark last longer).
 const RemovalMarkTTL = 90 * 24 * time.Hour
 
+// StuckRemovalMinAge is how old a device document's removedAt must be before Register at the cap treats it as stuck and
+// finishes it (Minor 3): a younger one may belong to a REMOTE removal still in flight, which is left to finish itself.
+const StuckRemovalMinAge = 60 * time.Second
+
 // RemovalMark is users/{uid}/keyDeviceRemovals/{deviceId} as the export reads it.
 type RemovalMark struct {
 	DeviceID  string
@@ -194,7 +198,8 @@ type Repo interface {
 	// LastSeenAt when older than seenRefreshInterval; a different key is ErrKeyMismatch. ErrDeviceRemoved comes before
 	// both: a device document carrying removedAt, a live device document under a removed mark (stamped removedAt in the
 	// same transaction, then ErrDeviceStamped), or a new id with a removed mark (read before the count). At the cap,
-	// when some counted documents carry removedAt, the error is a StuckRemovalsError naming them.
+	// when some counted documents carry removedAt since at least StuckRemovalMinAge, the error is a StuckRemovalsError
+	// naming them.
 	Register(ctx context.Context, uid string, d Device, now time.Time) (Device, error)
 	// List returns at most MaxDevicesPerUser devices, oldest first. Every reader (List, ActiveDevices, Claim) skips a
 	// device document carrying removedAt.

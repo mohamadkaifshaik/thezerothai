@@ -22,7 +22,9 @@ type fakeRepo struct {
 	// marks is uid|deviceID -> the removed mark; removing is uid|deviceID -> the device document carries removedAt.
 	marks    map[string]RemovalMark
 	removing map[string]bool
-	err      error
+	// removedAt is uid|deviceID -> the removing document's removedAt; absent reads as long ago.
+	removedAt map[string]time.Time
+	err       error
 	// markErr fails MarkRemoved only; removeErr fails Remove only.
 	markErr   error
 	removeErr error
@@ -38,7 +40,7 @@ type fakeRepo struct {
 
 func newFakeRepo() *fakeRepo {
 	return &fakeRepo{devices: map[string][]Device{}, pool: map[string][][]byte{}, lastResort: map[string][]byte{},
-		marks: map[string]RemovalMark{}, removing: map[string]bool{}}
+		marks: map[string]RemovalMark{}, removing: map[string]bool{}, removedAt: map[string]time.Time{}}
 }
 
 // MarkRemoved mirrors FirestoreRepo.MarkRemoved: without a recent sign-in only a retry (a mark, and no device document
@@ -60,8 +62,9 @@ func (f *fakeRepo) MarkRemoved(_ context.Context, uid, deviceID string, now time
 	if !marked {
 		f.marks[k] = RemovalMark{DeviceID: deviceID, RemovedAt: now, ExpireAt: now.Add(RemovalMarkTTL)}
 	}
-	if f.find(uid, deviceID) >= 0 {
+	if f.find(uid, deviceID) >= 0 && f.live(uid, deviceID) {
 		f.removing[k] = true
+		f.removedAt[k] = now
 	}
 	return nil
 }
@@ -101,6 +104,7 @@ func (f *fakeRepo) Register(_ context.Context, uid string, d Device, now time.Ti
 		}
 		if _, marked := f.marks[devKey(uid, d.ID)]; marked {
 			f.removing[devKey(uid, d.ID)] = true // a live document under a mark: stamped, then refused
+			f.removedAt[devKey(uid, d.ID)] = now
 			return Device{}, ErrDeviceStamped
 		}
 		cur := f.devices[uid][i]
@@ -119,8 +123,8 @@ func (f *fakeRepo) Register(_ context.Context, uid string, d Device, now time.Ti
 	if len(f.devices[uid]) >= MaxDevicesPerUser { // a removing device still holds its slot
 		var stuck []string
 		for _, have := range f.devices[uid] {
-			if !f.live(uid, have.ID) {
-				stuck = append(stuck, have.ID)
+			if !f.live(uid, have.ID) && now.Sub(f.removedAt[devKey(uid, have.ID)]) >= StuckRemovalMinAge {
+				stuck = append(stuck, have.ID) // a fresher one may be a REMOTE removal still in flight
 			}
 		}
 		if len(stuck) > 0 {
@@ -187,6 +191,7 @@ func (f *fakeRepo) removeLocked(uid, deviceID string, onlyRemoving bool) error {
 	delete(f.pool, devKey(uid, deviceID))
 	delete(f.lastResort, devKey(uid, deviceID))
 	delete(f.removing, devKey(uid, deviceID))
+	delete(f.removedAt, devKey(uid, deviceID))
 	if f.afterRemove != nil {
 		f.afterRemove()
 	}

@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 
@@ -138,7 +139,44 @@ func TestRegister_StuckRemovalFailureIsMapped(t *testing.T) {
 	}
 }
 
-// TestRegister_StampedLiveDocumentIsFinished (Minor 2): a live document under a mark that Register stamps is then
+// TestRegister_StuckFinishWaitsForAge (Minor 3): the finish leaves a removedAt younger than StuckRemovalMinAge (60 s)
+// alone, since it may be a REMOTE removal still in flight; at the cap that is a plain LIMIT_REACHED with nothing removed.
+// From 60 s on it is finished.
+func TestRegister_StuckFinishWaitsForAge(t *testing.T) {
+	cases := []struct {
+		age      time.Duration
+		finished bool
+	}{
+		{0, false},
+		{StuckRemovalMinAge - time.Second, false},
+		{StuckRemovalMinAge, true},
+		{10 * time.Minute, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.age.String(), func(t *testing.T) {
+			s, repo, _ := newRemovalService(t)
+			fillToCap(t, s, repo, 2)
+			k := devKey(uidA, capID(2))
+			repo.removedAt[k] = t0.Add(-tc.age) // the clock is at t0
+			_, err := s.Register(context.Background(), uidA, devID2, sigKey(9))
+			if !tc.finished {
+				wantErr(t, err, connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED, "limit", "key_devices")
+				if !slices.Equal(repo.ops, []string{"Register"}) || repo.find(uidA, capID(2)) < 0 {
+					t.Fatalf("a fresh removal was touched: ops %v", repo.ops)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("register past an old stuck removal: %v", err)
+			}
+			if repo.find(uidA, capID(2)) >= 0 {
+				t.Fatal("the old stuck removal was not finished")
+			}
+		})
+	}
+}
+
+// TestRegister_StampedLiveDocumentIsFinished(Minor 2): a live document under a mark that Register stamps is then
 // finished by the service (removing-only delete: device, pool and last resort), so no key material stays behind
 // without a deadline; the answer is DEVICE_REMOVED and the mark stays. A failed finish still answers DEVICE_REMOVED (the
 // id is refused either way; the document is then a stuck removal that a Register at the cap finishes).
