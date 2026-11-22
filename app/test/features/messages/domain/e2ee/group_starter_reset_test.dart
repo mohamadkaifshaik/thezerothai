@@ -20,6 +20,7 @@ import 'package:dzeroth/features/messages/domain/e2ee/e2ee_types.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/group_starter.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/sync_budget.dart';
 import 'package:dzeroth/gen/dzeroth/keys/v1/keys.pb.dart' as kpb;
+import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../../support/e2ee_pipeline_rig.dart';
@@ -1232,6 +1233,31 @@ void main() {
       expect(resets(), hasLength(4));
       expect(resets()[0].sameBytes(resets()[3]), isTrue);
       expect((await sync()).commitCallsToday, 4);
+      expect((await groupAt(2))!.provisional, isTrue);
+    });
+
+    test('audit L2: a repeated page with more stops the record listing at '
+        'the first page that does not move forward', () async {
+      await setUpJoined();
+      await makeStuck();
+      rig.server.commitScript.addAll([unknown, unknown]);
+      pb.ListConversationCommitsResponse? page;
+      var listings = 0;
+      rig.server.onCall = (call) async {
+        if (call == 'commitConversation') {
+          // From here on every listing answers the same page, with more.
+          rig.server.rewriteCommits = (real) =>
+              page ??= real.deepCopy()..more = true;
+          listings = 0;
+        }
+        if (call == 'listConversationCommits') listings++;
+      };
+      await reset();
+      expect(resets(), hasLength(2));
+      expect(page!.commits, isNotEmpty);
+      // The first page moves the listing to its last pair; the same page
+      // again is no answer: one more listing, not up to the page cap.
+      expect(listings, 2);
       expect((await groupAt(2))!.provisional, isTrue);
     });
 

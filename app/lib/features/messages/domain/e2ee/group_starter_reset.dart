@@ -6,9 +6,19 @@ const String kLimitResetsDaily = 'messages_resets_daily';
 const String kLimitCommitsPerConversationDaily =
     'messages_commits_per_conversation_daily';
 
-/// The most `ListConversationCommits` pages read to find a reset's record
-/// (50 commits a page; a generation never comes near it).
-const int _kResetPagesMax = 200;
+/// The most `ListConversationCommits` pages read to find a reset's record:
+/// the commits of generation g from the stored after-pair, then (g + 1, 0).
+///
+/// Audit L2: 20 pages of 50 is 1,000 commits. Why that is enough for one
+/// generation: the server stores at most 20 commit calls a user a
+/// conversation a day (`messages_commits_per_conversation_daily`), so the
+/// two users of a 1:1 add at most 40 a day, and 1,000 cover 25 days of
+/// both at their cap since this device's last applied commit. It is also
+/// catch-up's one-pass bound (`_kCommitPagesMax`). A listing that ends at
+/// the cap answers `unknown` (nothing decided). Each page is one sync unit,
+/// so a server that pages forever costs at most 20 units a listing (was
+/// 200).
+const int _kResetPagesMax = 20;
 
 /// The reset's own fresh lists, for the settle's `attributeAfterReset`,
 /// kept with the bytes they were checked for. Memory only; no `toString`.
@@ -656,6 +666,10 @@ extension _Reset on GroupStarter {
           final cg = pairComponentFromInt64(c.mlsGeneration);
           final ce = pairComponentFromInt64(c.mlsEpoch);
           if (cg == null || ce == null) return _Record.unknown;
+          // Audit L2: every listed pair moves the listing forward. One that
+          // does not (a repeated page with `more`, a page out of order) is
+          // no answer, and the listing stops there.
+          if (!MlsPair.above(MlsPair(cg, ce), after)) return _Record.unknown;
           if (cg == at.generation) {
             if (ce != 0) return _Record.unknown;
             return _same(c.commit, pending.commit)
