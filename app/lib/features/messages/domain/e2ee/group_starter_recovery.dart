@@ -5,10 +5,11 @@ part of 'group_starter.dart';
 /// before a send.
 extension _Recovery on GroupStarter {
   /// Resumes or expires every provisional group this class owns (its
-  /// pending commit is an init), one conversation lock at a time: a young
-  /// one has its init resent byte for byte; one [kProvisionalExpiry] old
-  /// is decided by the server's first stored commit ([_expireLocked]).
-  /// Never throws.
+  /// pending commit is an init or, Task 10, a reset), one conversation lock
+  /// at a time. An init: a young one has its init resent byte for byte; one
+  /// [kProvisionalExpiry] old is decided by the server's first stored commit
+  /// ([_expireLocked]). A reset: its record at (g + 1, 0) decides, and a
+  /// young one is resent only as [_resetResumeLocked] allows. Never throws.
   Future<void> _resumeAll(BudgetPriority priority) async {
     final vault = _session.vault;
     if (vault == null) return;
