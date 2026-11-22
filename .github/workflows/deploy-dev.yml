@@ -254,15 +254,7 @@ jobs:
         timeout-minutes: 12
         env:
           PROJECT: ${{ vars.DEV_PROJECT_ID }}
-        run: |
-          for _ in $(seq 1 40); do # 40 x 15 s = 10 min, inside the 12 min step timeout
-            gcloud firestore indexes composite list --project="${PROJECT}" --format=json > "${RUNNER_TEMP}/indexes.json"
-            not_ready=$(jq '[.[] | select(.state != "READY")] | length' "${RUNNER_TEMP}/indexes.json")
-            if [ "${not_ready}" = "0" ]; then exit 0; fi
-            sleep 15
-          done
-          echo "::error::Firestore indexes are still building; nothing was promoted (indexes already deployed are additive and stay)"
-          exit 1
+        run: bash scripts/promotion/wait-firestore-indexes.sh "$PROJECT"
 
       # The promote step has its own timeout, shorter than the job's, so the recover step below always has time to run. The runner
       # signals only this step's shell on cancel/timeout, so the script persists PROMOTE_MARKER before traffic moves instead of

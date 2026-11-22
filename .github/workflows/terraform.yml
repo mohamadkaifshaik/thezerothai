@@ -90,7 +90,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        env: [dev, prod]
+        include:
+          - env: dev
+            prefix: DEV
+          - env: prod
+            prefix: PROD
     defaults:
       run:
         working-directory: infra/terraform/envs/${{ matrix.env }}
@@ -102,8 +106,10 @@ jobs:
         id: gate
         env:
           # Secrets (not vars): the provider resource name embeds the project number; secrets are auto-masked in logs.
-          WIP: ${{ matrix.env == 'dev' && secrets.DEV_PLAN_WORKLOAD_IDENTITY_PROVIDER || secrets.PROD_PLAN_WORKLOAD_IDENTITY_PROVIDER }}
+          WIP: ${{ secrets[format('{0}_PLAN_WORKLOAD_IDENTITY_PROVIDER', matrix.prefix)] }}
           ENV_NAME: ${{ matrix.env }}
+          PLAN_SA: ${{ secrets[format('{0}_PLAN_SA_EMAIL', matrix.prefix)] }}
+          PROJECT: ${{ vars[format('{0}_PROJECT_ID', matrix.prefix)] }}
           ACTOR: ${{ github.actor }}
           EVENT: ${{ github.event_name }}
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
@@ -123,6 +129,10 @@ jobs:
               echo "A maintainer must review the change locally or by pushing it to a branch in this repo."
             } >> "$GITHUB_STEP_SUMMARY"
           elif [ -n "$WIP" ]; then
+            if [ -z "$PLAN_SA" ] || [ -z "$PROJECT" ]; then
+              echo "::error::Missing plan service account or project for $ENV_NAME"
+              exit 1
+            fi
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
             echo "run=false" >> "$GITHUB_OUTPUT"
@@ -136,9 +146,9 @@ jobs:
         if: steps.gate.outputs.run == 'true'
         env:
           M_BILLING: ${{ secrets.BILLING_ACCOUNT }}
-          M_EMAILS: ${{ matrix.env == 'dev' && secrets.DEV_FOUNDER_EMAILS_JSON || secrets.PROD_FOUNDER_EMAILS_JSON }}
-          M_SA: ${{ matrix.env == 'dev' && secrets.DEV_PLAN_SA_EMAIL || secrets.PROD_PLAN_SA_EMAIL }}
-          M_PROJECT: ${{ matrix.env == 'dev' && vars.DEV_PROJECT_ID || vars.PROD_PROJECT_ID }}
+          M_EMAILS: ${{ secrets[format('{0}_FOUNDER_EMAILS_JSON', matrix.prefix)] }}
+          M_SA: ${{ secrets[format('{0}_PLAN_SA_EMAIL', matrix.prefix)] }}
+          M_PROJECT: ${{ vars[format('{0}_PROJECT_ID', matrix.prefix)] }}
         run: |
           for v in "$M_BILLING" "$M_SA" "$M_PROJECT"; do
             [ -n "$v" ] && echo "::add-mask::$v"
@@ -161,8 +171,8 @@ jobs:
         id: auth
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
-          workload_identity_provider: ${{ matrix.env == 'dev' && secrets.DEV_PLAN_WORKLOAD_IDENTITY_PROVIDER || secrets.PROD_PLAN_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ matrix.env == 'dev' && secrets.DEV_PLAN_SA_EMAIL || secrets.PROD_PLAN_SA_EMAIL }}
+          workload_identity_provider: ${{ secrets[format('{0}_PLAN_WORKLOAD_IDENTITY_PROVIDER', matrix.prefix)] }}
+          service_account: ${{ secrets[format('{0}_PLAN_SA_EMAIL', matrix.prefix)] }}
           create_credentials_file: true
 
       - name: terraform init
@@ -182,12 +192,12 @@ jobs:
         # TF_VAR_* env vars instead of -var="..." flags: the JSON list values contain double quotes that
         # broke shell quoting, and env indirection keeps repo variables out of the script text.
         env:
-          TF_VAR_project_id: ${{ matrix.env == 'dev' && vars.DEV_PROJECT_ID || vars.PROD_PROJECT_ID }}
+          TF_VAR_project_id: ${{ vars[format('{0}_PROJECT_ID', matrix.prefix)] }}
           TF_VAR_billing_account: ${{ secrets.BILLING_ACCOUNT }}
           TF_VAR_github_repo: ${{ github.repository }}
-          TF_VAR_founder_emails: ${{ matrix.env == 'dev' && secrets.DEV_FOUNDER_EMAILS_JSON || secrets.PROD_FOUNDER_EMAILS_JSON }}
-          TF_VAR_hosting_site_id: ${{ matrix.env == 'dev' && vars.DEV_HOSTING_SITE_ID || vars.PROD_HOSTING_SITE_ID }}
-          TF_VAR_cors_origins: ${{ matrix.env == 'dev' && vars.DEV_CORS_ORIGINS_JSON || vars.PROD_CORS_ORIGINS_JSON }}
+          TF_VAR_founder_emails: ${{ secrets[format('{0}_FOUNDER_EMAILS_JSON', matrix.prefix)] }}
+          TF_VAR_hosting_site_id: ${{ vars[format('{0}_HOSTING_SITE_ID', matrix.prefix)] }}
+          TF_VAR_cors_origins: ${{ vars[format('{0}_CORS_ORIGINS_JSON', matrix.prefix)] }}
         run: |
           # -lock=false: the plan SA is read-only on the state bucket and must not take the apply lock.
           # Output goes to a file, NOT the public log (a plan embeds project numbers, SA emails, IAM members).
