@@ -300,8 +300,9 @@ jobs:
           API_BASE_URL: /api
           RECAPTCHA_SITE_KEY: ${{ vars.PROD_RECAPTCHA_SITE_KEY }}
           GOOGLE_WEB_CLIENT_ID: ${{ vars.PROD_GOOGLE_WEB_CLIENT_ID }}
+          BILLING_STATUS_ENABLED: ${{ vars.PROD_BILLING_CONFIG_ENABLED }}
         run: |
-          flutter build web --release \
+          flutter build web --dart-define=BILLING_STATUS_ENABLED="${BILLING_STATUS_ENABLED}" --release \
             --dart-define=USE_EMULATORS=false \
             --dart-define=FIREBASE_ENV=prod \
             --dart-define=API_BASE_URL="${API_BASE_URL}" \

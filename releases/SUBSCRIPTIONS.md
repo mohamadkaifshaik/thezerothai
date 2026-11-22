@@ -1,5 +1,9 @@
 # Subscription integration
 
+The current launch plan is Free plus a single ₹99/month Plus subscription. See
+[the launch plan and billing flow](REVENUECAT_FLUTTER_SETUP.md). The entries below
+record earlier implementation stages and former pricing.
+
 ## Security audit fixes (2026-11-12)
 
 New article publication now fails closed when its server-injected subscription

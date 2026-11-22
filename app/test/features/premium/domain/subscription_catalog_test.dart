@@ -5,12 +5,9 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   test('maps reviewed Google subscription/base-plan identifiers', () {
     final products = parseMonthlySubscriptionProducts(
-      '{"plus:monthly":"plus","premium:monthly":"premium"}',
+      '{"plus:monthly":"plus"}',
     );
-    expect(products, {
-      'plus:monthly': SubscriptionTier.plus,
-      'premium:monthly': SubscriptionTier.premium,
-    });
+    expect(products, {'plus:monthly': SubscriptionTier.plus});
     expect(() => products.clear(), throwsUnsupportedError);
   });
 
@@ -22,6 +19,7 @@ void main() {
         '{',
         '[]',
         '{}',
+        '{"old":"premium"}',
         '{"monthly":"free"}',
         '{"monthly":"premium","other":"unknown"}',
         '{"":"premium"}',

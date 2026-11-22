@@ -38,6 +38,7 @@ class _Gateway
   final calls = <String>[];
   Completer<SubscriptionPurchaseResult>? delayedPurchase;
   Object? purchaseError;
+  PurchaseDisposition restoreDisposition = PurchaseDisposition.verifying;
 
   @override
   Future<SubscriptionPurchaseResult> presentPaywall() async {
@@ -72,7 +73,7 @@ class _Gateway
   @override
   Future<SubscriptionPurchaseResult> restore() async {
     calls.add('restore');
-    return const SubscriptionPurchaseResult(PurchaseDisposition.verifying);
+    return SubscriptionPurchaseResult(restoreDisposition);
   }
 }
 
@@ -113,6 +114,7 @@ void main() {
         sessionEpoch: epoch,
         currentUid: () => currentUid,
       );
+      expect(statusOnly.hasStoreUi, isFalse);
       source.identity = 'invalid-store-identity';
       expect((await statusOnly.getAccess('a')).tier, SubscriptionTier.free);
       expect(await statusOnly.getOfferings('a'), isEmpty);
@@ -136,6 +138,18 @@ void main() {
       expect(result.disposition, PurchaseDisposition.verifying);
       await expectLater(repository.presentPaywall('a'), throwsStateError);
       expect(gateway.calls, ['identify', 'paywall']);
+    },
+  );
+
+  test(
+    'empty restore preserves eligibility and any earlier pending charge',
+    () async {
+      gateway.restoreDisposition = PurchaseDisposition.refreshed;
+      await repository.restore('a');
+      expect(await repository.getOfferings('a'), [_offer]);
+      await repository.purchase('a', _offer);
+      await repository.restore('a');
+      expect(await repository.getOfferings('a'), isEmpty);
     },
   );
 

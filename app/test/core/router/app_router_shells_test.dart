@@ -127,7 +127,8 @@ void main() {
 
       expect(find.byType(PremiumDialog), findsOneWidget);
       expect(find.byKey(PremiumDialog.titleKey), findsOneWidget);
-      expect(find.text('Coming soon'), findsNWidgets(2));
+      expect(find.text('Compare plans'), findsOneWidget);
+      expect(find.text('₹99/month'), findsOneWidget);
       // The page below is still there.
       expect(find.byType(Scaffold, skipOffstage: false), findsWidgets);
 

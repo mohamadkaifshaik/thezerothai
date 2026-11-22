@@ -26,8 +26,8 @@ func loadBillingWebhook(env string) (BillingWebhookConfig, error) {
 	if sales != "" && sales != "false" && sales != "true" {
 		return c, fmt.Errorf("config: BILLING_PURCHASES_ENABLED must be true or false")
 	}
-	if sales == "true" && env != "dev" {
-		return c, fmt.Errorf("config: real purchase rollout is restricted to ENV=dev")
+	if sales == "true" && env != "dev" && env != "prod" {
+		return c, fmt.Errorf("config: real purchase rollout requires dev or prod")
 	}
 	v := os.Getenv("BILLING_WEBHOOK_ENABLED")
 	if v == "" || v == "false" {

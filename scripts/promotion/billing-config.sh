@@ -2,7 +2,7 @@
 # Emit NUL-delimited candidate deployment arguments. Pure validation: no cloud
 # calls and no secret contents. References must name pinned Secret Manager versions.
 set -euo pipefail
-fail() { echo "FAIL: dev billing configuration $*" >&2; exit 2; }
+fail() { echo "FAIL: billing configuration $*" >&2; exit 2; }
 case ${BILLING_CONFIG_ENABLED:-false} in
   '' | false) exit 0 ;;
   true) ;;
