@@ -14,6 +14,7 @@ import 'package:dzeroth/core/vault/vault_session.dart';
 import 'package:dzeroth/core/vault/vault_status.dart';
 import 'package:dzeroth/features/keys/data/keys_repository.dart';
 import 'package:dzeroth/features/messages/data/messaging_repository.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/commit_runner.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_context.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_crypto.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_locks.dart';
@@ -583,6 +584,22 @@ class RigServer {
   /// Runs while a `cachedConversationWith` read is in flight (a race).
   Future<void> Function()? onCacheRead;
 
+  /// Every `commitConversation` request, in order (a refused one too).
+  final List<RigCommitCall> commitRequests = [];
+
+  /// When not empty, the next `commitConversation` call takes its first
+  /// entry: the call throws `error`, after the commit was stored as usual
+  /// when `stored` (a lost answer), without storing anything otherwise.
+  final List<({Object error, bool stored})> commitScript = [];
+
+  /// The bytes of the commit stored at [pair], or null.
+  Uint8List? commitAt(String conversationId, MlsPair pair) {
+    for (final c in _commits[conversationId] ?? const <_Commit>[]) {
+      if (c.pair == pair) return c.bytes;
+    }
+    return null;
+  }
+
   /// A repository for the user [user] (its commits come back `from_self`).
   RigMessaging viewFor(String user) => RigMessaging(this, user);
 
@@ -649,6 +666,38 @@ class RigSend {
       rigEq(commitment, other.commitment) &&
       (mlsInit == null) == (other.mlsInit == null) &&
       rigEq(mlsInit ?? const [], other.mlsInit ?? const []);
+}
+
+/// One `commitConversation` request as the rig server received it.
+class RigCommitCall {
+  RigCommitCall({
+    required this.key,
+    required this.conversationId,
+    required this.builtOn,
+    required this.commit,
+    required this.welcome,
+    required this.welcomeDeviceIds,
+    required this.reset,
+  });
+
+  final String key;
+  final String conversationId;
+  final MlsPair builtOn;
+  final Uint8List commit;
+  final Uint8List? welcome;
+  final List<String> welcomeDeviceIds;
+  final bool reset;
+
+  /// The same commit, byte for byte (the key is not part of it: the server
+  /// recognises a retry by the stored bytes).
+  bool sameBytes(RigCommitCall other) =>
+      conversationId == other.conversationId &&
+      builtOn == other.builtOn &&
+      reset == other.reset &&
+      rigEq(commit, other.commit) &&
+      (welcome == null) == (other.welcome == null) &&
+      rigEq(welcome ?? const [], other.welcome ?? const []) &&
+      welcomeDeviceIds.join('|') == other.welcomeDeviceIds.join('|');
 }
 
 class _Stored {
@@ -978,6 +1027,82 @@ class RigMessaging implements MessagingRepository {
       message: stored.deepCopy()..id = _server.sendResponseId ?? stored.id,
       conversation: _server.rows[conversationId],
     );
+  }
+
+  /// The contract for a commit (`backend/internal/messaging/mls.go`): a
+  /// record at [builtOn] from this user with identical bytes, on a
+  /// conversation that has left that pair, is a retry and answers the
+  /// current pair; otherwise a pair that is not the current one is
+  /// STALE_EPOCH with the current pair; otherwise the commit is stored, with
+  /// a welcome labelled [builtOn] per welcome device id, and the answer is
+  /// the pair after it. [RigServer.commitScript] replaces the answer of a
+  /// call. A reset is not implemented here.
+  @override
+  Future<MlsPair> commitConversation({
+    required String idempotencyKey,
+    required String conversationId,
+    required MlsPair builtOn,
+    required Uint8List commit,
+    Uint8List? welcome,
+    List<String> welcomeDeviceIds = const [],
+    bool reset = false,
+  }) async {
+    // Recorded first: an `onCall` hook of this call can read the request.
+    _server.commitRequests.add(
+      RigCommitCall(
+        key: idempotencyKey,
+        conversationId: conversationId,
+        builtOn: builtOn,
+        commit: Uint8List.fromList(commit),
+        welcome: welcome == null ? null : Uint8List.fromList(welcome),
+        welcomeDeviceIds: [...welcomeDeviceIds],
+        reset: reset,
+      ),
+    );
+    await _server._enter('commitConversation');
+    if (reset) throw UnimplementedError('rig: a reset commit');
+    final scripted = _server.commitScript.isEmpty
+        ? null
+        : _server.commitScript.removeAt(0);
+    if (scripted != null && !scripted.stored) throw scripted.error;
+    final current = _server.current(conversationId);
+    _Commit? record;
+    for (final c in _server._commits[conversationId] ?? const <_Commit>[]) {
+      if (c.pair == builtOn) record = c;
+    }
+    final MlsPair answer;
+    if (record != null &&
+        record.fromUser == user &&
+        rigEq(record.bytes, commit) &&
+        MlsPair.above(current, builtOn)) {
+      answer = current;
+    } else if (builtOn != current) {
+      throw StaleEpochException(
+        'stale',
+        generation: current.generation,
+        epoch: current.epoch,
+      );
+    } else {
+      _server.addCommit(
+        conversationId,
+        builtOn,
+        Uint8List.fromList(commit),
+        fromUser: user,
+      );
+      if (welcome != null) {
+        for (final device in welcomeDeviceIds) {
+          _server.addWelcome(
+            device,
+            conversationId,
+            builtOn,
+            Uint8List.fromList(welcome),
+          );
+        }
+      }
+      answer = builtOn.next;
+    }
+    if (scripted != null) throw scripted.error;
+    return answer;
   }
 
   /// RATE_LIMITED hold of the list reads (the rig's [RigServer.readHold]).
@@ -1615,6 +1740,13 @@ class RigCrypto {
   Future<void> Function(String conversationId)? onAcceptForReply;
   final List<String> acceptCalls = [];
 
+  /// The commit runner (Task 9), over this rig's crypto, receiver and ledger.
+  late CommitRunner commits;
+
+  /// What the commit runner asked to run later (its `schedule` seam): never
+  /// run by the rig; a test runs an entry itself.
+  final List<({Duration delay, void Function() run})> commitScheduled = [];
+
   /// Task 12's "removed elsewhere" fact, as the sender reads it.
   bool removedElsewhere = false;
 
@@ -1728,6 +1860,21 @@ class RigCrypto {
       },
       removedElsewhere: () => removedElsewhere,
       schedule: (delay, run) => scheduled.add((delay: delay, run: run)),
+      onUnexpectedError: (e, _) => unexpected.add(e),
+    );
+    commits = CommitRunner(
+      crypto: crypto,
+      receiver: receiver,
+      session: device.session,
+      engine: () => device.engine,
+      messaging: messaging,
+      ledger: ledger,
+      locks: locks,
+      contexts: contexts,
+      now: clock.now,
+      onChanged: changed.add,
+      removedElsewhere: () => removedElsewhere,
+      schedule: (delay, run) => commitScheduled.add((delay: delay, run: run)),
       onUnexpectedError: (e, _) => unexpected.add(e),
     );
   }
