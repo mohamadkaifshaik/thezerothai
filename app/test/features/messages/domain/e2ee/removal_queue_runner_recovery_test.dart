@@ -41,6 +41,24 @@ void main() {
     });
   });
 
+  group('removed by the user (amendment 6, review M3)', () {
+    test('wasRemovedByUser still answers true once the entry left the '
+        'queue', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await join(_c1, others: [sibling]);
+      await synced();
+
+      await removeAndSettle(sibling);
+
+      // Committed and pruned: nothing names it in the queue any more.
+      expect(await pin(sibling), isNull);
+      expect(runner.queuedFor(_c1), isEmpty);
+      expect((await stored())!.entries, isEmpty);
+      expect(runner.wasRemovedByUser(sibling.id), isTrue);
+    });
+  });
+
   group('the own-device list (review M2)', () {
     test('a removal refreshes the cached own-device list', () async {
       final sibling = await RigPeer.create('sibling');
