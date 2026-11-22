@@ -43,6 +43,7 @@ import 'sync_budget.dart';
 // built on it; it is still read through this file.
 export 'pipeline_support.dart' show kServerRequestDeadline;
 
+part 'group_starter_discard.dart';
 part 'group_starter_recovery.dart';
 part 'group_starter_reset.dart';
 part 'group_starter_restart.dart';
@@ -93,6 +94,25 @@ const String kStartErrorPeerHasNoDevice = 'PeerHasNoDevice';
 /// [kStartErrorPeerHasNoDevice]: `failed`, retryable, a null `error`.
 const String kStartErrorLookupFailed = 'LookupFailed';
 const String kStartErrorUnavailable = 'StartUnavailable';
+
+/// Gate 6 (audit L10): the stored error name of a row whose pending init
+/// the user discarded ([GroupStarter.discardInit]). As with
+/// [kStartErrorPeerHasNoDevice]: `failed`, retryable, a null `error`; the
+/// user's retry starts again from fresh claims ([GroupStarter.retryStart]).
+const String kStartErrorInitDiscarded = 'InitDiscarded';
+
+/// What [GroupStarter.discardInit] did.
+///
+/// `discarded`: the provisional group is gone and its init row failed with
+/// [kStartErrorInitDiscarded]. `settled`: the server's first page held the
+/// message, so the group settled with that answer instead (nothing to
+/// discard). `held`: the server holds the init as this device's and an
+/// answer may still come (the group is younger than [kProvisionalExpiry],
+/// or a call of it may still land): nothing changed; the UI explains that
+/// the message is being delivered. `notDecided`: what the server holds
+/// could not be read now (the commits, or the page): nothing changed, the
+/// user may try again. `none`: no pending init row for that conversation.
+enum InitDiscard { discarded, settled, held, notDecided, none }
 
 /// What [GroupStarter.startOrRoute] did with a first message.
 ///
@@ -571,6 +591,40 @@ class GroupStarter {
   /// The body, and the new start it may make, are in the part file
   /// `group_starter_restart.dart`.
   Future<void> retryStart(String localId) => _retryStart(localId);
+
+  /// Gate 6 (audit L10, Task 8 concern 1): the user's discard of the
+  /// pending init row of [conversationId] ([pendingInit]), for an init
+  /// whose replay keeps being refused, or which stays provisional. Takes
+  /// the conversation lock. [ArgumentError] for an invalid id; never
+  /// throws otherwise (a failure is [InitDiscard.notDecided]).
+  ///
+  /// The group is discarded, and the row fails with
+  /// [kStartErrorInitDiscarded] (and `InitSettle.replay`'s endless retry
+  /// ends), only when:
+  /// - the server's record says this init is NOT stored (the stored
+  ///   commits, read with the margin rules: no call of it may still land);
+  /// - or the server holds it as this device's, the group is
+  ///   [kProvisionalExpiry] old with no answer for its message (the first
+  ///   `ListMessages` page does not hold it), no call of it is out, and
+  ///   the margin after the last one has passed;
+  /// - or the marks are already at or past the init (`InitSettle.replay`):
+  ///   it can never be settled, whatever the server holds.
+  ///
+  /// Never for a group the server holds as this device's while an answer
+  /// may still come ([InitDiscard.held]). A page that holds the message
+  /// settles the group with it ([InitDiscard.settled]).
+  ///
+  /// Binding for Task 13b: offer this on a pending init row only; after
+  /// `discarded` the row is the sender's (failed, retryable): a retry goes
+  /// through [retryStart], and a discard of the row through
+  /// `EncryptedSender.discard`. Show `held` as "still being delivered" and
+  /// `notDecided` as "try again".
+  Future<InitDiscard> discardInit(String conversationId) {
+    if (!isConversationId(conversationId)) {
+      throw ArgumentError('Invalid conversation id.');
+    }
+    return _discardInit(conversationId);
+  }
 
   // -------------------------------------------------------------------------
   // Routing

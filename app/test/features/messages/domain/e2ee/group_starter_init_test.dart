@@ -3462,6 +3462,207 @@ void main() {
     );
   });
 
+  group('discardInit (gate 6, audit L10)', () {
+    /// A started init whose two attempts got no answer; nothing stored at
+    /// the server unless [stored].
+    Future<OutboxItem> unanswered({bool stored = false}) async {
+      rig.server.sendScript.addAll([stored ? lostAnswer : unknown, unknown]);
+      gate = Completer<void>();
+      await start();
+      final row = (await rows()).single;
+      gate!.complete();
+      await done();
+      expect((await groupOf())!.provisional, isTrue);
+      return row;
+    }
+
+    Future<void> expectUnchanged(OutboxItem row, String why) async {
+      expect((await groupOf())!.provisional, isTrue, reason: why);
+      final kept = (await rows()).single;
+      expect(kept.idempotencyKey, row.idempotencyKey, reason: why);
+      expect(kept.init, isNotNull, reason: why);
+      expect(kept.stage, OutboxStage.encrypted, reason: why);
+      expect(kept.lastError, isNull, reason: why);
+    }
+
+    Future<void> expectDiscarded(String why) async {
+      expect(await groupOf(), isNull, reason: why);
+      expect(await rig.device.vault.members(_c1), isEmpty, reason: why);
+      final row = (await rows()).single;
+      expect(row.stage, OutboxStage.plain, reason: why);
+      expect(row.init, isNull, reason: why);
+      expect(row.lastError, kStartErrorInitDiscarded, reason: why);
+      expect(await starter.pendingInit(conversationId: _c1), isNull);
+      final shown = (await rig.sender.outgoing(_c1)).single;
+      expect(shown.status, OutgoingStatus5a.failed, reason: why);
+      expect(shown.retryable, isTrue, reason: why);
+      expect(shown.error, isNull, reason: why);
+      expect(rig.known.contains(_c1), isTrue, reason: why);
+    }
+
+    test('the server\'s record says not stored: the group goes and the row '
+        'fails with a reason the UI can show', () async {
+      await unanswered();
+      rig.clock.advance(kInitResendMargin);
+      final sends = rig.server.sends.length;
+
+      expect(await starter.discardInit(_c1), InitDiscard.discarded);
+
+      await expectDiscarded('not stored');
+      expect(rig.server.sends, hasLength(sends));
+      // The user's retry starts again from fresh claims (review F1 c).
+      rig.keys.claimCalls.clear();
+      await starter.retryStart('local-1');
+      await done();
+      expect(rig.keys.claimCalls.single.userId, _bob);
+    });
+
+    test('the server holds the init as this device\'s and it is younger '
+        'than 24 h: held, nothing changes', () async {
+      final row = await unanswered(stored: true);
+      failListMessages();
+      rig.clock.advance(kInitResendMargin);
+
+      expect(await starter.discardInit(_c1), InitDiscard.held);
+
+      await expectUnchanged(row, 'held');
+      expect(
+        rig.server.calls.where((c) => c == 'listMlsMessages'),
+        isEmpty,
+        reason: 'a young group is held on the commits alone',
+      );
+    });
+
+    test('the server holds the init as this device\'s for 24 h: the first '
+        'page decides between settled, not decided and discarded', () async {
+      final row = await unanswered(stored: true);
+      rig.clock.advance(kProvisionalExpiry + const Duration(minutes: 1));
+
+      // The page cannot be had: nothing is decided.
+      failListMessages();
+      expect(await starter.discardInit(_c1), InitDiscard.notDecided);
+      await expectUnchanged(row, 'no page');
+
+      // The page does not hold the message (50 newer ones): no answer for
+      // 24 h, no call out, past the margin: discarded.
+      rig.server.onCall = null;
+      rig.server.rewriteLive = (real) =>
+          pb.ListMessagesResponse(conversation: real.conversation);
+      expect(await starter.discardInit(_c1), InitDiscard.discarded);
+      await expectDiscarded('ours, unanswered for 24 h');
+    });
+
+    test('a page that holds the message settles the group instead of '
+        'discarding it', () async {
+      final row = await unanswered(stored: true);
+      rig.clock.advance(kProvisionalExpiry + const Duration(minutes: 1));
+
+      expect(await starter.discardInit(_c1), InitDiscard.settled);
+      await done();
+
+      expect((await groupOf())!.provisional, isFalse);
+      expect(await rows(), isEmpty);
+      expect(
+        await rig.device.vault.hasMessage(_c1, row.expectedMessageId),
+        isTrue,
+      );
+    });
+
+    test(
+      'the commits cannot be listed: not decided, nothing changes',
+      () async {
+        final row = await unanswered();
+        rig.clock.advance(kInitResendMargin);
+        rig.server.onCall = (call) async {
+          if (call == 'listConversationCommits') {
+            throw const NetworkException('no network');
+          }
+        };
+
+        expect(await starter.discardInit(_c1), InitDiscard.notDecided);
+        await expectUnchanged(row, 'no listing');
+      },
+    );
+
+    test('an init call that may still land is held', () async {
+      // The second attempt outlives the client's wait and still runs.
+      final ended = Completer<void>();
+      rig.server.beforeSend = (send) async {
+        if (rig.server.sends.length != 2) return;
+        rig.clock.advance(kMlsRpcTimeout);
+        rig.server.abandon(send.key, ended.future);
+      };
+      rig.server.sendScript.addAll([lostAnswer, unknown]);
+      await start();
+      await done();
+      rig.server.beforeSend = null;
+      final row = (await rows()).single;
+      rig.clock.advance(kProvisionalExpiry);
+
+      expect(await starter.discardInit(_c1), InitDiscard.held);
+      await expectUnchanged(row, 'a call is out');
+      ended.complete();
+      await pumpEventQueue();
+    });
+
+    test('a group the marks already passed (InitSettle.replay) is discarded '
+        'without asking the server: the way out of replay', () async {
+      // The marks are at the init's pair (written before the group: the
+      // vault writes no mark for a provisional group), so no settle can
+      // ever be written for it.
+      await rig.device.vault.transaction(
+        (tx) => tx.setAfterPair(_c1, const MlsPair(1, 0)),
+      );
+      await rig.seedProvisional(_c1, [bob]);
+      await rig.known.add(_c1, peerUserId: _bob);
+      final key = 'a' * 32;
+      await rig.device.vault.transaction(
+        (tx) => tx.putOutbox(
+          OutboxItem(
+            idempotencyKey: key,
+            localId: 'local-1',
+            expectedMessageId: expectedMessageId(_me, key),
+            recipientUserId: _bob,
+            generation: 1,
+            epoch: 1,
+            ciphertext: Uint8List.fromList([1, 2, 3]),
+            reportCommitment: Uint8List(32),
+            content: rigBytes('hello'),
+            createdAtMicros: rig.clock.now().microsecondsSinceEpoch,
+            init: Uint8List.fromList([9, 9]),
+          ),
+        ),
+      );
+      expect(
+        await rig.locks.run(
+          _c1,
+          () => rig.crypto.settleOwnInitLocked(
+            _c1,
+            1,
+            delivered: const InitDelivered(accepted: true),
+          ),
+        ),
+        InitSettle.replay,
+      );
+      rig.server.calls.clear();
+
+      expect(await starter.discardInit(_c1), InitDiscard.discarded);
+
+      expect(rig.server.calls, isEmpty);
+      await expectDiscarded('replay');
+    });
+
+    test('nothing to discard: none; an invalid id throws', () async {
+      expect(await starter.discardInit(_c1), InitDiscard.none);
+      expect(() => starter.discardInit('x'), throwsArgumentError);
+      // A settled group has no pending init.
+      await start();
+      await done();
+      expect((await groupOf())!.provisional, isFalse);
+      expect(await starter.discardInit(_c1), InitDiscard.none);
+    });
+  });
+
   group('resumeProvisional', () {
     test('a provisional group dated after now (the clock moved back) counts '
         'as expired: its init is not resent', () async {
