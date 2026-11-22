@@ -1,4 +1,5 @@
 import 'package:dzeroth/core/network/app_exception.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/commit_runner.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/device_directory.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/removal_record.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -56,6 +57,46 @@ void main() {
       expect(runner.queuedFor(_c1), isEmpty);
       expect((await stored())!.entries, isEmpty);
       expect(runner.wasRemovedByUser(sibling.id), isTrue);
+    });
+  });
+
+  group('a pending record (review M4)', () {
+    test('a pass resumes it, never builds a second commit, and the entry '
+        'leaves once it is confirmed', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await join(_c1, others: [sibling]);
+      await synced();
+      // No answer to the call or its one resend: the outcome is unknown
+      // and the record stays.
+      for (var i = 0; i < 2; i++) {
+        rig.server.commitScript.add((
+          error: const NetworkException('rig: no answer'),
+          stored: false,
+        ));
+      }
+
+      await removeAndSettle(sibling);
+
+      final sent = requests(_c1);
+      expect(sent, hasLength(2));
+      expect(sent.last.sameBytes(sent.first), isTrue);
+      expect((await rig.device.vault.groups(_c1)).last.hasPending, isTrue);
+      expect(queued(_c1, sibling), isTrue);
+
+      rig.clock.advance(kCommitRetryWaitMax + const Duration(minutes: 1));
+      await runner.runPass();
+
+      final made = requests(_c1);
+      expect(made, hasLength(3), reason: 'one more call');
+      expect(
+        made.last.sameBytes(made.first),
+        isTrue,
+        reason: 'resumed, not rebuilt',
+      );
+      expect(await pin(sibling), isNull);
+      expect(runner.queuedFor(_c1), isEmpty);
+      expect(runner.pending.value, 0);
     });
   });
 
