@@ -213,19 +213,27 @@ class ConversationCrypto {
   final Map<String, _OwnAdds> _ownAdds = {};
 
   /// Task 9, for the commit runner: the pending commit it just built on
-  /// [builtOn] adds the devices of [sides] (device id hex -> the side each
-  /// was claimed and checked for). Replaces what was remembered for the
-  /// conversation (one pending commit at a time).
+  /// [builtOn] adds the devices behind [adds] (claimed and checked, R3).
+  /// Kept per device: the side it was checked for AND the signature key it
+  /// was checked with (review m5): the side is pinned only for a member
+  /// whose leaf key in the group is that key. Replaces what was remembered
+  /// for the conversation (one pending commit at a time).
   void rememberOwnAdds(
     String conversationId,
     MlsPair builtOn,
-    Map<String, ClaimSide> sides,
+    List<UsableClaim> adds,
   ) {
-    if (sides.isEmpty) {
+    if (adds.isEmpty) {
       _ownAdds.remove(conversationId);
-    } else {
-      _ownAdds[conversationId] = _OwnAdds(builtOn, Map.of(sides));
+      return;
     }
+    _ownAdds[conversationId] = _OwnAdds(builtOn, {
+      for (final a in adds)
+        vaultDeviceIdHex(a.deviceId): _CheckedAdd(
+          a.side,
+          Uint8List.fromList(a.signatureKey),
+        ),
+    });
   }
 
   /// The pending commit of [conversationId] is gone without being applied
@@ -740,8 +748,17 @@ class _OwnAdds {
 
   final MlsPair builtOn;
 
-  /// Device id hex -> the checked side.
-  final Map<String, ClaimSide> sides;
+  /// Device id hex -> what the device was checked as.
+  final Map<String, _CheckedAdd> sides;
+}
+
+/// The side a claimed device was checked for and the signature key it was
+/// checked with (R3). No `toString`.
+class _CheckedAdd {
+  const _CheckedAdd(this.side, this.signatureKey);
+
+  final ClaimSide side;
+  final Uint8List signatureKey;
 }
 
 /// One operation's fixed facts (a welcome poll, a catch-up pass, an

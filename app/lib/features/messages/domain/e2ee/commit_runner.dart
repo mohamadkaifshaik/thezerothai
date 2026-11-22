@@ -391,7 +391,6 @@ class CommitRunner {
     final PipelineOp op;
     final PendingCommit pending;
     final String key;
-    final sides = <String, ClaimSide>{};
     try {
       final started = await _op();
       if (started == null) return CommitOutcome.notAllowed;
@@ -406,14 +405,14 @@ class CommitRunner {
             return CommitOutcome.notAllowed;
           }
         }
+        final added = <String>{};
         for (final a in adds) {
           final hex = hexOf(a.deviceId);
           if (_same(a.deviceId, op.deviceId) ||
               removed.contains(hex) ||
-              sides.containsKey(hex)) {
+              !added.add(hex)) {
             return CommitOutcome.notAllowed;
           }
-          sides[hex] = a.side;
           // The server addresses a welcome by the device id as text.
           welcomeDeviceIds.add(utf8.decode(a.deviceId));
         }
@@ -442,10 +441,10 @@ class CommitRunner {
       _reportIfBug(e, s, 'commit.build');
       return CommitOutcome.notAllowed;
     }
-    // The checked sides of the adds, for whichever step confirms this
-    // commit in this run (review m2): the direct confirm, a resume, or a
-    // catch-up of any caller that meets it by its bytes.
-    _crypto.rememberOwnAdds(id, pending.builtOn, sides);
+    // The checked side and key of each add, for whichever step confirms
+    // this commit in this run (review m2, m5): the direct confirm, a
+    // resume, or a catch-up of any caller that meets it by its bytes.
+    _crypto.rememberOwnAdds(id, pending.builtOn, adds);
     _onChanged(id);
     return _send(
       op,

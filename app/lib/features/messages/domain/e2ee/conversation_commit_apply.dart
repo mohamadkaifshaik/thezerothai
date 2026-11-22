@@ -22,7 +22,7 @@ extension _CommitApply on ConversationCrypto {
     final remembered = _ownAdds[id];
     final ownAdds = remembered != null && remembered.builtOn == at
         ? remembered.sides
-        : const <String, ClaimSide>{};
+        : const <String, _CheckedAdd>{};
     try {
       final sink = this.sink;
       if (sink != null) {
@@ -136,8 +136,8 @@ extension _CommitApply on ConversationCrypto {
   /// or a changed key); `knownGrew`: the id was added to the known set.
   ///
   /// [ownPending]: the commit is this device's own (its pending record);
-  /// [ownAdds]: the sides its added devices were checked for, when this run
-  /// still knows them.
+  /// [ownAdds]: the side and signature key its added devices were checked
+  /// with, when this run still knows them.
   ///
   /// M5, in this same transaction (`DailyLedger.writeIn`): a commit by
   /// another device that undoes an own change of today raises the undo
@@ -158,7 +158,7 @@ extension _CommitApply on ConversationCrypto {
     required List<MemberRecord> pins,
     required Uint8List thisDevice,
     PendingCommit? ownPending,
-    Map<String, ClaimSide> ownAdds = const {},
+    Map<String, _CheckedAdd> ownAdds = const {},
   }) async {
     final nextPair = at.next;
     final sync = record?.sync ?? const ConversationSync();
@@ -326,13 +326,20 @@ extension _CommitApply on ConversationCrypto {
           final refusal = history.admit(entry.key, entry.value);
           // Task 9: a device this device's own commit added keeps the side
           // it was claimed and checked for (R3), when this run still knows
-          // it and the history admits the pair. Every other new member is
-          // unattributed until a list shows it (an own commit confirmed
-          // after a restart included).
+          // it and the history admits the pair. Review m5 (plan-constraints
+          // item 1, defence in depth): only when the key the group holds
+          // for the member IS the key the claim was checked with; the
+          // engine built the leaf from the checked package, so the two
+          // agree unless something is wrong, and then the lists decide.
+          // Every other new member is unattributed until a list shows it
+          // (an own commit confirmed after a restart included).
           final checked = ownPending == null ? null : ownAdds[entry.key];
-          final side = checked == null || refusal != KeyRefusal.none
+          final side =
+              checked == null ||
+                  refusal != KeyRefusal.none ||
+                  !_sameBytes(checked.signatureKey, entry.value)
               ? MemberSide.unattributed
-              : (checked == ClaimSide.mine
+              : (checked.side == ClaimSide.mine
                     ? MemberSide.mine
                     : MemberSide.theirs);
           if (side == MemberSide.unattributed) newMember = true;

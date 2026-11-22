@@ -871,6 +871,36 @@ void main() {
       expect((await sync()).commitCallsToday, 2);
     });
 
+    test('an add whose leaf key is not the key it was checked with is '
+        'pinned unattributed, with the key the group holds', () async {
+      await setUpJoined();
+      await synced();
+      final carol = await RigPeer.create('carol');
+      final other = await RigPeer.create('other');
+      // The claim was checked for another signature key than the one the
+      // key package (and so the group's leaf) carries.
+      final outcome = await rig.commits.change(
+        _c1,
+        adds: [
+          UsableClaim(
+            deviceId: carol.id,
+            signatureKey: other.key,
+            keyPackage: await carol.keyPackage(),
+            side: ClaimSide.theirs,
+          ),
+        ],
+      );
+
+      expect(outcome, CommitOutcome.applied);
+      final carolPin = (await pin(carol))!;
+      expect(carolPin.side, MemberSide.unattributed);
+      expect(rigEq(carolPin.signatureKey, carol.key), isTrue);
+      expect([
+        for (final l in await rig.lines(_c1))
+          if (l.line == SystemLine.deviceAdded) l,
+      ], isEmpty);
+    });
+
     test('an own commit records as its own adds only the devices its '
         'welcome was addressed to', () async {
       await setUpJoined();
