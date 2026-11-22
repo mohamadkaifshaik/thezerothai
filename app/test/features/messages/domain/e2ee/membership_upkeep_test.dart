@@ -988,10 +988,7 @@ void main() {
       expect(rig.contexts.of(_c1).syncedSinceStart, isFalse);
       expect(requests(), isEmpty);
       expect(liveRechecks(), 1);
-      expect(
-        rig.clock.now().add(rig.upkeepScheduled.last.delay),
-        rig.clock.now().add(kPeerRemovalFetchGap),
-      );
+      expect(rig.upkeepScheduled.last.delay, kPeerRemovalFetchGap);
 
       // Every re-check's pull fails: no commit. Each arms one more, and
       // the third chained one arms none (no loop).

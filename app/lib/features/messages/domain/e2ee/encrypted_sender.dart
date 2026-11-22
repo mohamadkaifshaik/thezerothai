@@ -79,8 +79,9 @@ const int _kMaxOutboxCiphertext = kMaxOutboxCiphertext;
 class EncryptedSender {
   /// [acceptForReplyLocked] is Task 9's `acceptForReply` for a caller that
   /// HOLDS the conversation lock (`AcceptMessageRequest`, then the
-  /// acceptance steps: `requestAccepted`, queued removals, attribution,
-  /// reconcile). A throw leaves the row waiting; partial progress is safe
+  /// acceptance steps: `requestAccepted` with the own-device alerts,
+  /// attribution, then reconcile, whose one commit also carries the queued
+  /// removals). A throw leaves the row waiting; partial progress is safe
   /// (every gate is read again before an encrypt). It must bound its own
   /// waits: it runs under the conversation lock. It is handed the drain's
   /// priority and is called only from a [BudgetPriority.user] drain (Task 9
@@ -529,8 +530,9 @@ class EncryptedSender {
         return _stop(id, SendBlock.notSynced);
       }
       // The acceptance steps ran: every gate is read again before the
-      // encrypt. Amendment 3 (review m1): they may have committed (queued
-      // removals, reconcile), which moves the pair and clears
+      // encrypt. Amendment 3 (review m1): they may have committed
+      // (reconcile's one commit, queued removals included), which moves
+      // the pair and clears
       // `syncedSinceStart`; this lets the same drain sync once more, so the
       // first reply goes out now. Bounded: the accept runs once per drain.
       run.synced = false;

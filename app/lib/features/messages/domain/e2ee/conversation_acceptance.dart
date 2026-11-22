@@ -11,9 +11,12 @@ enum AcceptanceMark { marked, alreadyAccepted, unavailable }
 /// The first of Task 9's acceptance steps (R10, security read H2), and the
 /// own-device alert that the init settle shares with it.
 extension _Acceptance on ConversationCrypto {
-  Future<AcceptanceMark> _markAcceptedLocked(String id) async {
+  Future<AcceptanceMark> _markAcceptedLocked(
+    String id,
+    BudgetPriority priority,
+  ) async {
     try {
-      final pass = await _startOperation(BudgetPriority.user);
+      final pass = await _startOperation(priority);
       if (pass == null) return AcceptanceMark.unavailable;
       final result = await _session.runWrite((v) async {
         pass.check(v);

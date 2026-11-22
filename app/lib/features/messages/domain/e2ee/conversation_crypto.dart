@@ -364,11 +364,15 @@ class ConversationCrypto {
   /// H2 for every own-side member the vault never pinned mine in another
   /// accepted conversation (none on a brand-new vault; this conversation's
   /// request pins never count). Members still unattributed are left to
-  /// attribution, which writes rows from now on. Never throws (asserts the
-  /// lock is held).
-  Future<AcceptanceMark> markAcceptedLocked(String id) {
+  /// attribution, which writes rows from now on. [priority] is the
+  /// caller's (the acceptance's own: user for the user's reply, background
+  /// for a header's ACCEPTED). Never throws (asserts the lock is held).
+  Future<AcceptanceMark> markAcceptedLocked(
+    String id, {
+    required BudgetPriority priority,
+  }) {
     assert(_locks.isHeld(id), 'The caller must hold the conversation lock.');
-    return _markAcceptedLocked(id);
+    return _markAcceptedLocked(id, priority);
   }
 
   /// The one [DeviceKeyHistory] of the pipeline (its report-once set is per

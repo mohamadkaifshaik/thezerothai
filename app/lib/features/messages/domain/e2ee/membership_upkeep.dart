@@ -375,7 +375,7 @@ class MembershipUpkeep {
 
   /// False when `requestAccepted` could not be stored (nothing else ran).
   Future<bool> _onAcceptedLocked(String id, BudgetPriority priority) async {
-    final mark = await _crypto.markAcceptedLocked(id);
+    final mark = await _crypto.markAcceptedLocked(id, priority: priority);
     if (mark == AcceptanceMark.unavailable) return false;
     final context = _contexts.of(id)
       ..incomingRequest = false
