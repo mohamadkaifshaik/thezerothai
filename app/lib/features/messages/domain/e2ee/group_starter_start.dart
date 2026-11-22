@@ -315,6 +315,9 @@ extension _Start on GroupStarter {
   /// Proof that the conversation [id] a claim named is [peer]'s: the caller
   /// addressed the draft by that id, the id was computed from the two raw
   /// uids ([verified]), or the vault stores [peer] as that id's peer ref.
+  /// Pre-flag-on audit M-A: none of it is proof when the vault stores
+  /// ANOTHER peer ref for [id]; [_create] refuses that first, under the
+  /// lock.
   bool _proven(String id, String peer, _Draft draft, bool verified) =>
       draft.conversationId == id ||
       draft.expectId == id ||
@@ -415,6 +418,26 @@ extension _Start on GroupStarter {
     required List<kpb.ClaimedKeyPackage> claimedMine,
     required List<KeyPackageInfo?> inspectedMine,
   }) async {
+    // Pre-flag-on audit M-A. Decision: under the lock, before anything is
+    // answered, the stored peer ref of [id] and the cache are asked again.
+    // A stored ref that is not [peer] (another person, or the other id
+    // kind) is `unavailable`, and so is a cache that disagrees. Why: the
+    // checks in [_begin] ran before the lock, around awaits (the own-device
+    // claim, the inspection) in which another peer's routing can commit
+    // [id] under its own peer ref; a hostile server answering two claims
+    // with one id would then have this draft, even one addressed by [id]
+    // (whose id is no proof once a stored ref names someone else), saved
+    // into the other person's group and encrypted to their devices. The
+    // known set only grows under this lock, so this read stands for the
+    // body below. Cost: an id-kind drift of the stored ref refuses here
+    // (fail closed, never plaintext; the routing's own check routes it).
+    final storedPeer = _known.peerOf(id);
+    if (storedPeer != null && storedPeer != peer) {
+      return const _Created(_CreatedKind.unavailable);
+    }
+    if (!await _cacheAgrees(id, peer)) {
+      return const _Created(_CreatedKind.unavailable);
+    }
     // Review I2: an existing conversation takes the row only with proof
     // that it is this peer's (read again here, under the lock).
     final existing = _proven(id, peer, draft, verified)

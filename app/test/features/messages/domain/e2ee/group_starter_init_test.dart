@@ -667,6 +667,67 @@ void main() {
       expect(r.conversationId, _c3);
       expect(rig.keys.claimCalls, isEmpty);
     });
+
+    test('a conversation another peer\'s routing commits while this routing '
+        'claims is refused under the lock, even for a draft addressed by its '
+        'id (pre-flag-on audit M-A)', () async {
+      // _c1 is the thread with bob (Q). A hostile server answers carol's
+      // (P's) claim with _c1 too; the cache holds no header for _c1, so the
+      // checks before the lock cannot tell.
+      final carol = await RigPeer.create('carol');
+      person('ref-carol', _c1, [carol]);
+      rig.server.rows.remove(_c1);
+      await sibling('sib');
+      // Bob's routing holds at its own-device claim.
+      final own = rig.keys.claims[_me]!;
+      final hold = Completer<void>();
+      var ownClaims = 0;
+      rig.keys.claims[_me] = () async {
+        if (ownClaims++ == 0) await hold.future;
+        return own();
+      };
+
+      final q = start(localId: 'local-q', conversationId: _c1, text: 'to bob');
+      await pumpEventQueue();
+      expect(rig.keys.claimCalls.map((c) => c.userId), [_bob, _me]);
+      // Carol's routing commits _c1 meanwhile, stored as carol's.
+      final p = await start(localId: 'local-p', peer: 'ref-carol');
+      expect(p.result, StartResult.started);
+      expect(p.conversationId, _c1);
+      expect(rig.known.peerOf(_c1), 'ref-carol');
+      hold.complete();
+      final r = await q;
+      await done();
+
+      expect(r.result, StartResult.unavailable);
+      expect(r.conversationId, isNull);
+      // Bob's text was never saved into _c1, and only carol's init went
+      // out.
+      expect((await rows()).where((x) => x.localId == 'local-q'), isEmpty);
+      expect(rig.server.sends, hasLength(1));
+      expect(inits(), hasLength(1));
+    });
+
+    test('a cache that comes to disagree while this routing claims refuses '
+        'under the lock (pre-flag-on audit M-A)', () async {
+      rig.server.rows.remove(_c1);
+      await sibling('sib');
+      final own = rig.keys.claims[_me]!;
+      rig.keys.claims[_me] = () async {
+        // While the own-device claim is in flight the cache learns that _c1
+        // is the conversation with carol.
+        rig.server.rows[_c1] = header(_c1, 'ref-carol');
+        return own();
+      };
+
+      final r = await start(conversationId: _c1);
+
+      expect(r.result, StartResult.unavailable);
+      expect(await rows(), isEmpty);
+      expect(await groupOf(), isNull);
+      expect(rig.known.contains(_c1), isFalse);
+      expect(rig.server.sends, isEmpty);
+    });
   });
 
   group('the own-device alert', () {
