@@ -73,7 +73,10 @@ extension _CommitSend on CommitRunner {
             _notBefore[id] = _now().add(kRequestInFlightMargin);
             // The identical bytes once more now (this step's one resend),
             // as one more counted call.
-            if (left > 0 && await _countCall(op, id, pending.kind)) continue;
+            if (left > 0 &&
+                await _countCall(op, id, pending.kind) == _Count.counted) {
+              continue;
+            }
             return CommitOutcome.pending;
           }
           // A refusal. Remembered whatever becomes of the commit.
@@ -288,16 +291,18 @@ extension _CommitSend on CommitRunner {
   }
 
   /// One more commit call is about to be made: counted first, in its own
-  /// transaction. False (make no call) at the day's cap for [kind], or when
-  /// nothing could be written.
-  Future<bool> _countCall(PipelineOp op, String id, PendingKind kind) async {
+  /// transaction. Only `counted` allows the call. `atCap`: the day's cap
+  /// for [kind] is reached, so these bytes cannot be sent again today.
+  /// `failed`: nothing could be written; that says nothing about the cap
+  /// (review m1), so the record just waits for the next resume.
+  Future<_Count> _countCall(PipelineOp op, String id, PendingKind kind) async {
     try {
       return await _session.runWrite((v) async {
         op.check(v);
         final sync =
             (await v.conversation(id))?.sync ?? const ConversationSync();
         final calls = _callsToday(sync);
-        if (calls >= _cap(kind)) return false;
+        if (calls >= _cap(kind)) return _Count.atCap;
         await v.transaction(
           (tx) => tx.putConversationSync(
             id,
@@ -307,11 +312,11 @@ extension _CommitSend on CommitRunner {
             ),
           ),
         );
-        return true;
+        return _Count.counted;
       });
     } on Object catch (e, s) {
       _reportIfBug(e, s, 'commit.count');
-      return false;
+      return _Count.failed;
     }
   }
 
@@ -368,8 +373,12 @@ extension _CommitSend on CommitRunner {
       // they are dropped rather than left to hold the conversation's sends:
       // the catch-up above showed the server does not hold them, and the
       // margin makes sure no earlier call can still be stored.
-      if (!await _maySendAgain(op.vault, id, pending) ||
-          !await _countCall(op, id, pending.kind)) {
+      final sendable = await _maySendAgain(op.vault, id, pending);
+      final count = sendable ? await _countCall(op, id, pending.kind) : null;
+      // The count could not be written: nothing is known about the cap, so
+      // nothing is sent and nothing dropped.
+      if (count == _Count.failed) return CommitOutcome.pending;
+      if (!sendable || count == _Count.atCap) {
         return await _discardProven(
           op,
           id,

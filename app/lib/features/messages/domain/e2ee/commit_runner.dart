@@ -570,6 +570,10 @@ class CommitRunner {
   }
 }
 
+/// What counting one more commit call ended with
+/// (`_CommitSend._countCall`).
+enum _Count { counted, atCap, failed }
+
 /// A pending commit's bytes and the time its discard margin is counted from
 /// (`CommitRunner._marginStart`). No `toString`.
 class _MarginStart {

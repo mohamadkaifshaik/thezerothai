@@ -1064,6 +1064,40 @@ void main() {
       expect(requests(), hasLength(4));
       expect(requests()[0].sameBytes(requests()[3]), isTrue);
     });
+
+    test('a call count that could not be written is not the cap: the record '
+        'stays and is sent by the next resume', () async {
+      await setUpJoined();
+      await synced();
+      rig.server.commitScript
+        ..add((error: offline, stored: false))
+        ..add((error: offline, stored: false));
+      expect(await rig.commits.selfUpdate(_c1), CommitOutcome.pending);
+      // Past the margin, so nothing but the count stands before a discard.
+      rig.clock.advance(kRequestInFlightMargin);
+      rig.device.engine.calls.clear();
+      // The write asked for after the resume's commit listing is the count
+      // of the call it is about to make: that write fails.
+      rig.server.onCall = (call) async {
+        if (call == 'listConversationCommits') {
+          rig.device.failNextWriteAsked = true;
+        }
+      };
+
+      expect(await rig.commits.resumePending(_c1), CommitOutcome.pending);
+
+      rig.server.onCall = null;
+      expect(rig.device.writesRefused, 1);
+      expect(rig.device.failNextWriteAsked, isFalse);
+      expect(engineCalls('discardCommit'), 0);
+      expect((await groupRecord()).pending, isNotNull);
+      expect(requests(), hasLength(2));
+      expect((await sync()).commitCallsToday, 2);
+
+      expect(await rig.commits.resumePending(_c1), CommitOutcome.applied);
+      expect(requests(), hasLength(3));
+      expect((await sync()).commitCallsToday, 3);
+    });
   });
 
   group('when a commit may be made', () {
