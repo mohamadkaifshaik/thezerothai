@@ -80,32 +80,16 @@ extension _Provisional on ConversationCrypto {
     final sync = stored?.sync ?? const ConversationSync();
     final accepted = sync.requestAccepted || (delivered?.accepted ?? false);
     final nowMicros = _now().microsecondsSinceEpoch;
-    final thisHex = vaultDeviceIdHex(thisDevice);
 
     // H2, read inside this body: this conversation's own pins never count.
-    final alerts = <StoredMessage>[];
-    if (accepted && !await _formerPins.brandNewVault(v, excluding: id)) {
-      final ever = await _formerPins.everPinnedMine(v, excluding: id);
-      for (final m in await v.members(id)) {
-        final hex = vaultDeviceIdHex(m.deviceId);
-        if (m.side != MemberSide.mine || hex == thisHex) continue;
-        if (ever.contains((
-          deviceIdHex: hex,
-          keyB64: base64Encode(m.signatureKey),
-        ))) {
-          continue;
-        }
-        final row = _systemRow(
-          id,
-          m.since,
-          SystemLine.deviceAdded,
-          nowMicros,
-          deviceId: m.deviceId,
-          side: MemberSide.mine,
-        );
-        if (!await v.hasMessage(id, row.messageId)) alerts.add(row);
-      }
-    }
+    final alerts = accepted
+        ? await _ownDeviceAlertsIn(
+            v,
+            id,
+            thisDevice: thisDevice,
+            nowMicros: nowMicros,
+          )
+        : const <StoredMessage>[];
 
     final rows = await _provisionalRows(v, id, g);
     final cleared = sync.clearedAtMicros;

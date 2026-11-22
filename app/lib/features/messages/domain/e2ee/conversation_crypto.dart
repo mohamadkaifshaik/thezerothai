@@ -29,6 +29,7 @@ import 'sync_budget.dart';
 // poll, joining from one welcome, member attribution. This file keeps the
 // public entry points, the locking, describeState, allowNewDevices and the
 // operation context.
+part 'conversation_acceptance.dart';
 part 'conversation_attribution.dart';
 part 'conversation_catch_up.dart';
 part 'conversation_commit_apply.dart';
@@ -355,6 +356,19 @@ class ConversationCrypto {
   }) {
     assert(_locks.isHeld(id), 'The caller must hold the conversation lock.');
     return _attributeEntry(id, priority);
+  }
+
+  /// Task 9's first acceptance step (R10), for a caller that HOLDS [id]'s
+  /// conversation lock: ONE `runWrite` body and ONE transaction store
+  /// `requestAccepted` (sticky) and the own-device alert of security read
+  /// H2 for every own-side member the vault never pinned mine in another
+  /// accepted conversation (none on a brand-new vault; this conversation's
+  /// request pins never count). Members still unattributed are left to
+  /// attribution, which writes rows from now on. Never throws (asserts the
+  /// lock is held).
+  Future<AcceptanceMark> markAcceptedLocked(String id) {
+    assert(_locks.isHeld(id), 'The caller must hold the conversation lock.');
+    return _markAcceptedLocked(id);
   }
 
   /// The one [DeviceKeyHistory] of the pipeline (its report-once set is per
