@@ -54,11 +54,14 @@ const Duration kCommitRetryWaitMax = Duration(minutes: 5);
 /// epoch on. `superseded`: another commit won the pair; the device caught
 /// up, its own commit is gone, and the caller reconciles again on the new
 /// group (a rebuilt copy of the same change is never sent from here).
-/// `pending`: the outcome is not known, or the confirm could not be stored
-/// yet; the pending record stays and [CommitRunner.resumePending] settles
-/// it. `refused`: the server refused it and the commit was discarded.
-/// `notAllowed`: no commit was made (see [CommitRunner.mayCommit]) and
-/// nothing was stored.
+/// `pending`: the outcome is not known, the confirm could not be stored
+/// yet, or a discard is waiting for its margin; the pending record stays
+/// and [CommitRunner.resumePending] settles it. `refused`: the server
+/// refused it and the commit was discarded. `notAllowed`: from `change` and
+/// `selfUpdate`, no commit was made (see [CommitRunner.mayCommit]) and
+/// nothing was stored; from `resumePending`, there was no pending record
+/// of this runner's, or the record could no longer be sent and was
+/// discarded (the group is as it was before the commit was built).
 enum CommitOutcome { applied, superseded, pending, refused, notAllowed }
 
 /// Commits by this device (Task 9; M1 to M5, R9, R10): membership changes
@@ -85,10 +88,16 @@ enum CommitOutcome { applied, superseded, pending, refused, notAllowed }
 ///    device is then at the server's pair and still holds it, i.e. no
 ///    commit was stored at P (plan-own-leaf.md: a discarded commit the
 ///    server stored would come back as an own-leaf answer and force a
-///    reset).
+///    reset), and only [kRequestInFlightMargin] after the last call (a
+///    call with no answer can still be stored until then); before that the
+///    outcome is `pending` and one resume is scheduled for the margin's
+///    end.
 /// 3. [resumePending], after a restart or an unknown outcome: catch-up
 ///    first; when the server's pair is still P, the identical bytes are sent
-///    once more (a counted call).
+///    once more (a counted call), not before the retry time of the last
+///    unknown outcome (the server's, five minutes at most, else the
+///    margin). A record that can no longer be sent is discarded on the
+///    same proof and after the same margin.
 ///
 /// Locking (plan "Global Constraints"): the public entries take the
 /// conversation lock; the `...Locked` variants are for a caller that holds
@@ -372,11 +381,21 @@ class CommitRunner {
   /// sent once more (one more counted call).
   ///
   /// `notAllowed`: there was no such record, or it could no longer be sent
-  /// (the flag for an add, the daily cap, M5, a read-only thread) and was
-  /// discarded, which is safe because catch-up just showed that no commit
-  /// is stored at its pair. `pending`: still not known (the catch-up did
-  /// not reach the server's pair, the server's retry time has not come, or
-  /// the call got no answer). Takes the conversation lock. Never throws.
+  /// (the flag for an add, the daily cap, M5, a read-only thread, an
+  /// unaccepted conversation) and was discarded, which is safe because
+  /// catch-up just showed that no commit is stored at its pair and the
+  /// in-flight margin has passed. `refused`: an earlier resend of it was
+  /// refused and it was discarded on the same proof. `pending`: still not
+  /// known (the catch-up did not reach the server's pair, the retry time
+  /// or the discard margin has not passed, the device is removed
+  /// elsewhere, or the call got no answer).
+  ///
+  /// Callers (controller ruling, 2026-11-22): step 9b's `reconcile` calls
+  /// [resumePendingLocked] FIRST, before any list call, whenever the group
+  /// holds a pending record; Task 13 calls this on app open and on resume.
+  /// The sender does not, and catch-up does not (this runs catch-up
+  /// itself). Besides them only this runner's own scheduled resume calls
+  /// it. Takes the conversation lock. Never throws.
   Future<CommitOutcome> resumePending(
     String conversationId, {
     BudgetPriority priority = BudgetPriority.background,
