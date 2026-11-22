@@ -184,6 +184,13 @@ class EncryptedSender {
   void rememberRefusal(String localId, AppException error) =>
       _errors[localId] = error;
 
+  /// Task 8 (review F3): the row [localId] is an init row again (a new
+  /// start took it), so the typed error of its earlier failure is
+  /// forgotten. Why: [retry] returns at a row with an init before it
+  /// clears anything, and a later failure with no typed error of its own
+  /// would otherwise be shown with the old one. Memory only.
+  void forgetRefusal(String localId) => _errors.remove(localId);
+
   // -------------------------------------------------------------------------
   // The public entries
 

@@ -2388,6 +2388,42 @@ void main() {
       expect(await rows(), isEmpty);
     });
 
+    test('a failed row that becomes an init row again loses the error this '
+        'run remembered for it (review F3)', () async {
+      // The first init is refused at a daily limit: the typed error is
+      // remembered and shown.
+      rig.server.sendScript.add((
+        error: const RateLimitedException('daily', limitName: 'dm_sends_daily'),
+        stored: false,
+      ));
+      await start();
+      await done();
+      var shown = (await rig.sender.outgoing(_c1)).single;
+      expect(shown.error, isA<RateLimitedException>());
+      expect(shown.tryTomorrow, isTrue);
+
+      // The user's retry starts again: the row is an init row once more.
+      rig.server.sendScript.addAll([unknown, unknown]);
+      await starter.retryStart('local-1');
+      await done();
+      expect((await groupOf())!.provisional, isTrue);
+      expect((await rows()).single.init, isNotNull);
+
+      // 24 h later the rebuild finds no device, in the same run.
+      rig.clock.advance(kProvisionalExpiry + const Duration(minutes: 1));
+      rig.keys.peers[_bob] = [];
+      await starter.resumeProvisional();
+      await done();
+
+      shown = (await rig.sender.outgoing(_c1)).single;
+      expect(shown.status, OutgoingStatus5a.failed);
+      expect((await rows()).single.lastError, kStartErrorPeerHasNoDevice);
+      // Not the daily limit of the day before.
+      expect(shown.error, isNull);
+      expect(shown.tryTomorrow, isFalse);
+      expect(shown.retryable, isTrue);
+    });
+
     test(
       'pendingInit never says sending for a group older than 24 h',
       () async {

@@ -516,6 +516,9 @@ class GroupStarter {
         _restarting.remove(id);
       }
       if (outcome.result == StartResult.started) {
+        // Review F3: the head row is an init row again; the typed error of
+        // its earlier failure is not shown with a later one.
+        _sender.forgetRefusal(head.localId);
         _onChanged(id);
         unawaited(_resume(id, BudgetPriority.user));
         return _Restart.started;
