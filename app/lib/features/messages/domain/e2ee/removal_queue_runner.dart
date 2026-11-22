@@ -114,10 +114,13 @@ const String kLimitCommitsPerConversationDaily =
 ///
 /// **Persistence (amendment 7).** The queue lives in the vault under
 /// [kVaultSettingRemovalQueue] (sealed) and is written after every change;
-/// it survives a restart ([onVaultReady] loads it). A stored value that
-/// cannot be read is "unknown": nothing is queued, removed or written
-/// (fail closed), [unreadable] says so, and [removeDevice] refuses before
-/// any call.
+/// it survives a restart ([onVaultReady] loads it). The runner's own record
+/// ([kVaultSettingRemovalRecord]) holds the intents (M1) and the devices
+/// the user removed, for [kRemovedByUserLimit] and at most
+/// [kMaxRemovalIntents] (concern 1, [wasRemovedByUser]). A stored value
+/// (either one) that cannot be read is "unknown": nothing is queued,
+/// removed or written (fail closed), [unreadable] says so, [removeDevice]
+/// refuses before any call and [wasRemovedByUser] throws.
 ///
 /// Never logs; an unexpected failure is reported as [E2eePipelineError]
 /// with a step name only. Defines no `toString` (it holds device ids).
@@ -178,17 +181,16 @@ class RemovalQueueRunner {
   SecureVault? _loadedFor;
 
   /// The image of the runner's record ([kVaultSettingRemovalRecord]):
-  /// removals asked for whose call's outcome is not known (review M1).
-  final List<RemovalIntent> _intents = [];
+  /// removals asked for whose call's outcome is not known (review M1), and
+  /// the devices the user removed, for [kRemovedByUserLimit] (concern 1).
+  final List<RemovalMark> _intents = [];
+  final List<RemovalMark> _removed = [];
 
   /// Device ids [removeDevice] is sending now (a pass leaves them alone).
   final Set<String> _sending = {};
 
   /// The vault whose stored queue could not be read (reported once).
   SecureVault? _unreadableFor;
-
-  /// Device ids (hex) removed with [removeDevice] in this run.
-  final Set<String> _removedThisRun = {};
 
   /// Conversations whose last pass kept a queued peer-side device because
   /// it is the peer's last peer-side member (amendment 1).
@@ -229,18 +231,32 @@ class RemovalQueueRunner {
     };
   }
 
-  /// Amendment 6, for Task 10's `_createReset` (a follow-up after Task 10
-  /// merges): whether the user removed [deviceId] — it is queued for any
-  /// conversation, or was removed with [removeDevice] in this run. Read
-  /// only. Stated limit: once every entry of a device has left the queue
-  /// and the app restarted, this answers false; the directory no longer
-  /// lists the device then (RemoveKeyDevice succeeded), and a vault-held
-  /// "never add this device" list is a later design (plan Task 11, M11).
-  bool wasRemovedByUser(Uint8List deviceId) {
-    if (_removedThisRun.contains(vaultDeviceIdHex(deviceId))) return true;
-    if (!_loaded) return false;
+  /// Amendment 6 and concern 1, for Task 10's `_createReset` and
+  /// reconcile's own-device adds (a follow-up after Task 10 merges):
+  /// whether the user removed [deviceId]. True when RemoveKeyDevice of it
+  /// succeeded less than [kRemovedByUserLimit] ago (stored in the vault, so
+  /// it survives a restart), while an intent for it waits (review M1), or
+  /// while it is queued for any conversation. Loads the stored record
+  /// first. Throws [StateError] when there is no vault or the record cannot
+  /// be read: the answer is UNKNOWN then, and the caller must use only
+  /// devices from a fresh directory. Read only.
+  Future<bool> wasRemovedByUser(Uint8List deviceId) async {
+    final vault = _session.vault;
+    if (vault == null) throw StateError('The vault is not ready.');
+    if (!await _ensureLoaded(vault)) {
+      throw StateError('The removal record cannot be read.');
+    }
+    final now = _now();
+    bool names(RemovalMark m) => _same(utf8.encode(m.deviceId), deviceId);
+    if (_removed.any((m) => names(m) && !_older(m, now, kRemovedByUserLimit))) {
+      return true;
+    }
+    if (_intents.any(names)) return true;
     return _entries.any((e) => _same(e.deviceId, deviceId));
   }
+
+  static bool _older(RemovalMark m, DateTime now, Duration limit) =>
+      now.microsecondsSinceEpoch - m.atMicros > limit.inMicroseconds;
 
   /// Amendment 1: the last pass of [conversationId] kept a queued device
   /// because it is the peer's last peer-side member. The entry stays.
@@ -299,7 +315,7 @@ class RemovalQueueRunner {
     _intents
       ..removeWhere((i) => i.deviceId == deviceId)
       ..add(
-        RemovalIntent(
+        RemovalMark(
           deviceId: deviceId,
           atMicros: _now().microsecondsSinceEpoch,
         ),
@@ -326,7 +342,6 @@ class RemovalQueueRunner {
     } finally {
       _sending.remove(deviceId);
     }
-    _removedThisRun.add(vaultDeviceIdHex(id));
     if (!identical(_session.vault, vault) || !_loaded) {
       throw StateError('The vault changed.');
     }
@@ -352,8 +367,9 @@ class RemovalQueueRunner {
       e is AppException && e is! NetworkException && e is! UnknownApiException;
 
   /// [deviceId] was removed from the directory: it is queued for every
-  /// conversation with group state, most recently active first, and its
-  /// intent goes, in one write.
+  /// conversation with group state, most recently active first, it is
+  /// remembered as removed by the user (concern 1), and its intent goes,
+  /// in one write.
   Future<void> _queueRemoved(
     SecureVault vault,
     String deviceId,
@@ -370,6 +386,17 @@ class RemovalQueueRunner {
       );
       if (already) continue;
       _entries.add(RemovalQueueEntry(deviceId: id, conversationId: c));
+    }
+    final now = _now();
+    _removed
+      ..removeWhere(
+        (m) => m.deviceId == deviceId || _older(m, now, kRemovedByUserLimit),
+      )
+      ..add(
+        RemovalMark(deviceId: deviceId, atMicros: now.microsecondsSinceEpoch),
+      );
+    while (_removed.length > kMaxRemovalIntents) {
+      _removed.removeAt(0);
     }
     _intents.removeWhere((i) => i.deviceId == deviceId);
     await _save(vault);
@@ -388,15 +415,7 @@ class RemovalQueueRunner {
   Future<void> _runIntents(SecureVault vault, BudgetPriority priority) async {
     final now = _now();
     final before = _intents.length;
-    _intents.removeWhere(
-      (i) =>
-          now
-              .difference(
-                DateTime.fromMicrosecondsSinceEpoch(i.atMicros, isUtc: true),
-              )
-              .compareTo(kRemovalIntentLimit) >
-          0,
-    );
+    _intents.removeWhere((i) => _older(i, now, kRemovalIntentLimit));
     if (_intents.length != before) await _save(vault, queue: false);
     for (final intent in List.of(_intents)) {
       if (_sending.contains(intent.deviceId)) continue;
@@ -408,9 +427,6 @@ class RemovalQueueRunner {
         continue;
       }
       if (!identical(_session.vault, vault) || !_loaded) return;
-      _removedThisRun.add(
-        vaultDeviceIdHex(Uint8List.fromList(utf8.encode(intent.deviceId))),
-      );
       await _queueRemoved(vault, intent.deviceId, priority);
     }
   }
@@ -446,7 +462,7 @@ class RemovalQueueRunner {
     _notBeforeMicros = null;
     _loadedFor = null;
     _unreadableFor = null;
-    _removedThisRun.clear();
+    _removed.clear();
     _lastKept.clear();
     _holds.clear();
     _publish();
@@ -822,6 +838,9 @@ class RemovalQueueRunner {
       _intents
         ..clear()
         ..addAll(record.intents);
+      _removed
+        ..clear()
+        ..addAll(record.removed);
       _notBeforeMicros = queue.notBeforeMicros;
       _loadedFor = vault;
       _unreadableFor = null;
@@ -836,6 +855,7 @@ class RemovalQueueRunner {
       _loadedFor = null;
       _entries.clear();
       _intents.clear();
+      _removed.clear();
       _publish();
       return false;
     } on Object catch (e, s) {
@@ -856,7 +876,10 @@ class RemovalQueueRunner {
             notBeforeMicros: _notBeforeMicros,
           ).encode()
         : null;
-    final record = RemovalRecord(intents: List.of(_intents)).encode();
+    final record = RemovalRecord(
+      intents: List.of(_intents),
+      removed: List.of(_removed),
+    ).encode();
     await _session.runWrite((v) async {
       if (!identical(v, vault) || !identical(_loadedFor, vault)) {
         throw StateError('The vault changed.');

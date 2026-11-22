@@ -56,7 +56,42 @@ void main() {
       expect(await pin(sibling), isNull);
       expect(runner.queuedFor(_c1), isEmpty);
       expect((await stored())!.entries, isEmpty);
-      expect(runner.wasRemovedByUser(sibling.id), isTrue);
+      expect(await runner.wasRemovedByUser(sibling.id), isTrue);
+    });
+
+    test('the answer survives a restart after the entry left, and is '
+        'forgotten after 30 days (concern 1)', () async {
+      final sibling = await RigPeer.create('sibling');
+      final other = await RigPeer.create('other');
+      await setUpRig(ownListed: [sibling]);
+      await join(_c1, others: [sibling]);
+      await synced();
+      await removeAndSettle(sibling);
+      expect((await stored())!.entries, isEmpty);
+
+      await rig.restart();
+      runner = build();
+
+      // Not loaded yet: the query loads it.
+      expect(await runner.wasRemovedByUser(sibling.id), isTrue);
+      expect(await runner.wasRemovedByUser(other.id), isFalse);
+
+      rig.clock.advance(kRemovedByUserLimit + const Duration(minutes: 1));
+      expect(await runner.wasRemovedByUser(sibling.id), isFalse);
+    });
+
+    test('a record that cannot be read answers unknown (concern 1)', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await rig.device.vault.transaction(
+        (tx) => tx.putSetting(kVaultSettingRemovalRecord, rigBytes('not json')),
+      );
+      expectedErrors = ['removalQueue.read'];
+
+      await expectLater(
+        runner.wasRemovedByUser(sibling.id),
+        throwsA(isA<StateError>()),
+      );
     });
   });
 

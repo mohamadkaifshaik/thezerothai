@@ -100,7 +100,7 @@ void main() {
       expect(queued(_c1, sibling), isTrue);
       expect(queued(_c2, sibling), isTrue);
       expect(runner.pending.value, 2);
-      expect(runner.wasRemovedByUser(sibling.id), isTrue);
+      expect(await runner.wasRemovedByUser(sibling.id), isTrue);
     });
 
     test('removing this device\'s own id is refused', () async {
@@ -667,8 +667,8 @@ void main() {
 
       await removeAndSettle(sibling);
 
-      expect(runner.wasRemovedByUser(sibling.id), isTrue);
-      expect(runner.wasRemovedByUser(other.id), isFalse);
+      expect(await runner.wasRemovedByUser(sibling.id), isTrue);
+      expect(await runner.wasRemovedByUser(other.id), isFalse);
     });
   });
 
