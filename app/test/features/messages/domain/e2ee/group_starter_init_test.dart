@@ -1692,6 +1692,44 @@ void main() {
       expect((await groupOf(_c2))!.provisional, isFalse);
     });
 
+    test(
+      'no new start while a row of the conversation no longer opens',
+      () async {
+        await refusedOnce();
+        // The first row's sealed content no longer opens: only its place in
+        // the order is known.
+        await rig.device.db.customStatement(
+          "UPDATE vault_outbox SET content = x'0102030405'",
+        );
+        expect(
+          (await rig.device.vault.outbox(conversationId: _c1)).unreadableKeys,
+          hasLength(1),
+        );
+
+        // A later message would become the new group's first message.
+        final r = await start(localId: 'local-2', text: 'second');
+        expect(r.result, StartResult.joinedExisting);
+        await done();
+        expect(rig.keys.claimCalls, isEmpty);
+        expect(await groupOf(), isNull);
+
+        await starter.retryStart('local-2');
+        await done();
+        expect(rig.keys.claimCalls, isEmpty);
+        expect(await groupOf(), isNull);
+        final row = (await rows()).single;
+        expect(row.localId, 'local-2');
+        expect(row.stage, OutboxStage.plain);
+        expect(rig.server.sends, hasLength(1));
+        // The sender's own stop at that row.
+        final reports = [
+          for (final e in rig.unexpected) (e as E2eePipelineError).step,
+        ];
+        rig.unexpected.clear();
+        expect(reports, ['send.outbox.unreadable']);
+      },
+    );
+
     test('a retry at the per-target claim cap leaves the row failed with '
         'tryTomorrow', () async {
       await refusedOnce();

@@ -416,7 +416,16 @@ class GroupStarter {
         return _Restart.notEligible;
       }
       if (!await _neverMember(vault, id, peer)) return _Restart.notEligible;
-      final rows = (await vault.outbox(conversationId: id)).items;
+      final read = await vault.outbox(conversationId: id);
+      // Review N4. Decision: no new start while a row of the conversation
+      // no longer opens. Why: only that row's place in the order is known;
+      // taking the oldest READABLE row would make a later message the first
+      // one, ahead of a message the user still expects to go out. The
+      // sender stops at such a row for the same reason (Task 7), and the
+      // way out is the same: the row is deleted by key (Task 13b).
+      // `notStarted`, not `notEligible`: a failed row keeps its failure.
+      if (read.unreadableKeys.isNotEmpty) return _Restart.notStarted;
+      final rows = read.items;
       // The oldest waiting row becomes the new group's first message, so
       // the order the user typed is kept.
       if (rows.isEmpty) return _Restart.notStarted;
