@@ -122,6 +122,22 @@ void main() {
     });
   });
 
+  test('a push with a new message restarts polling after idle', () {
+    fakeAsync((async) {
+      final h = _Harness(async)..poller.start();
+      h.elapse(const Duration(minutes: 6));
+      expect(h.poller.isRunning, isFalse);
+      h.nextResult = () => const PollResult(newMessages: true);
+      h.poller.onPush();
+      h.elapse(Duration.zero);
+      expect(h.poller.isRunning, isTrue);
+      final count = h.pulls.length;
+      h.elapse(kThreadHotInterval);
+      expect(h.pulls, hasLength(count + 1));
+      h.poller.dispose();
+    });
+  });
+
   test('a hidden app sends 0 polls and resumes with an immediate pull', () {
     fakeAsync((async) {
       final h = _Harness(async, visible: false)..poller.start();

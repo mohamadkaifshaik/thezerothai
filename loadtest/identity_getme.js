@@ -15,6 +15,7 @@
 //
 // See loadtest/README.md for prerequisites, environment variables and how to read the results.
 import http from 'k6/http';
+import crypto from 'k6/crypto';
 import { check } from 'k6';
 import { Counter } from 'k6/metrics';
 
@@ -63,11 +64,13 @@ export function setup() {
     }
     const idToken = signUpRes.json('idToken');
 
+    // Each fresh Auth account gets a handle within the 15-character limit.
+    const suffix = crypto.sha256(signUpRes.json('localId'), 'hex').slice(0, 13);
     const createRes = http.post(
       `${API_URL}/dzeroth.identity.v1.IdentityService/CreateProfile`,
       JSON.stringify({
         idempotencyKey: `loadtest-identity-getme-${i}-0123456789`,
-        handle: `ltgetme${i}`,
+        handle: `lt${suffix}`,
         displayName: `Load Test User ${i}`,
       }),
       { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` } },
