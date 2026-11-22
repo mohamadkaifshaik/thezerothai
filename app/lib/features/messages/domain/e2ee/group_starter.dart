@@ -236,8 +236,9 @@ class GroupStarter {
   /// group whose pending commit is an init is resumed (its init resent byte
   /// for byte under the same key) or, once older than [kProvisionalExpiry],
   /// settled from the server's first stored commit: cleared when that
-  /// commit is this init, else discarded and started again from fresh
-  /// claims. One conversation lock at a time. Never throws.
+  /// commit is this init, else replaced by a new group from fresh
+  /// claims (claimed first; a failed claim changes nothing). One
+  /// conversation lock at a time. Never throws.
   Future<void> resumeProvisional({
     BudgetPriority priority = BudgetPriority.background,
   }) => _resumeAll(priority);
