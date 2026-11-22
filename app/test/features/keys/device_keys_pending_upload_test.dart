@@ -672,6 +672,29 @@ void main() {
       expect(reported(), ['DeviceKeysError(batchCap)']);
     });
 
+    test('at the cap, a full pool on a server without a last-resort package: '
+        'a last-resort-only batch, ready, and no report (the cap holds '
+        'nothing back)', () async {
+      toNextIstDay();
+      await rig.signIn(_a);
+      final device = rig.devices.values.single;
+      for (var i = 2; i <= kMaxKeyBatchesPerDay; i++) {
+        device.pool.clear();
+        await nextRun();
+      }
+      expect(rig.engine.generated, hasLength(kMaxKeyBatchesPerDay));
+      expect(device.pool, hasLength(50));
+      device.lastResort = null;
+
+      await nextRun();
+      expect(rig.engine.generated, hasLength(kMaxKeyBatchesPerDay + 1));
+      expect(rig.engine.generated.last, (0, true));
+      expect(device.lastResort, isNotNull);
+      expect(device.pool, hasLength(50));
+      expect(rig.service.status.value, DeviceKeysStatus.ready);
+      expect(reported(), isEmpty);
+    });
+
     test('at the cap, a cleared batch without a last-resort package still '
         'gets one when the server reports none (counted)', () async {
       toNextIstDay();
