@@ -1722,6 +1722,10 @@ class RigKeys implements KeysRepository {
   /// Thrown by every `RemoveKeyDevice` call while set.
   Object? removeError;
 
+  /// Runs after a `RemoveKeyDevice` the server carried out, before the
+  /// answer reaches the caller (a crash or a vault change in between).
+  Future<void> Function()? onRemoved;
+
   /// `RemoveKeyDevice` (Task 11): as the server does, the device leaves the
   /// own list.
   @override
@@ -1733,6 +1737,7 @@ class RigKeys implements KeysRepository {
     final error = removeError;
     if (error != null) throw error;
     own.removeWhere((d) => d.deviceId == deviceId);
+    await onRemoved?.call();
     return kpb.RemoveKeyDeviceResponse();
   }
 

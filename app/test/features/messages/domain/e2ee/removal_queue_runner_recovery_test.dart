@@ -1,4 +1,5 @@
 import 'package:dzeroth/core/network/app_exception.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/removal_record.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../../support/e2ee_pipeline_rig.dart';
@@ -37,5 +38,114 @@ void main() {
       expect(await pin(sibling), isNull);
       expect(runner.pending.value, 0);
     });
+  });
+
+  group('the intent (review M1)', () {
+    /// Restarts the app and lets the new runner start.
+    Future<void> restartAndStart() async {
+      await rig.restart();
+      runner = build();
+      await runner.onVaultReady();
+      await runner.idle();
+    }
+
+    test('a crash between RemoveKeyDevice and the save, then a restart, '
+        'queues the device', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await stateOnly(_c1, accepted: false, mine: [sibling]);
+      // The server removed it; the app stops before the queue is stored.
+      rig.keys.onRemoved = () async {
+        rig.keys.onRemoved = null;
+        await rig.restart();
+      };
+
+      await expectLater(
+        runner.removeDevice(sibling.idString),
+        throwsA(isA<StateError>()),
+      );
+      expect(await stored(), isNull, reason: 'nothing queued before it');
+
+      runner = build();
+      await runner.onVaultReady();
+      await runner.idle();
+
+      // The leftover intent ran RemoveKeyDevice again (a success for a
+      // removed device), then queued it.
+      expect(rig.keys.removeCalls, hasLength(2));
+      expect(rig.keys.removeCalls.last.deviceId, sibling.idString);
+      expect(queued(_c1, sibling), isTrue);
+      expect((await stored())!.entries, hasLength(1));
+
+      // The intent is gone: the next start sends nothing.
+      await restartAndStart();
+      expect(rig.keys.removeCalls, hasLength(2));
+      expect(queued(_c1, sibling), isTrue);
+    });
+
+    test('a definite refusal removes the intent; a restart sends '
+        'nothing', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await stateOnly(_c1, accepted: false, mine: [sibling]);
+      rig.keys.removeError = const ValidationException('rig');
+
+      await expectLater(
+        runner.removeDevice(sibling.idString),
+        throwsA(isA<ValidationException>()),
+      );
+      rig.keys.removeError = null;
+      await restartAndStart();
+
+      expect(rig.keys.removeCalls, hasLength(1));
+      expect(runner.queuedFor(_c1), isEmpty);
+      expect(await stored(), isNull);
+    });
+
+    test('an unknown outcome keeps the intent; the next start sends it '
+        'again and queues', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await stateOnly(_c1, accepted: false, mine: [sibling]);
+      rig.keys.removeError = const NetworkException('rig: timed out');
+
+      await expectLater(
+        runner.removeDevice(sibling.idString),
+        throwsA(isA<NetworkException>()),
+      );
+      expect(runner.queuedFor(_c1), isEmpty);
+      rig.keys.removeError = null;
+      await restartAndStart();
+
+      expect(rig.keys.removeCalls, hasLength(2));
+      expect(queued(_c1, sibling), isTrue);
+    });
+
+    test(
+      'a record that cannot be read is unknown and changes nothing',
+      () async {
+        final sibling = await RigPeer.create('sibling');
+        await setUpRig(ownListed: [sibling]);
+        await stateOnly(_c1, accepted: false, mine: [sibling]);
+        await rig.device.vault.transaction(
+          (tx) =>
+              tx.putSetting(kVaultSettingRemovalRecord, rigBytes('not json')),
+        );
+        final sealed = await rig.sealedSetting(kVaultSettingRemovalRecord);
+        expectedErrors = ['removalQueue.read'];
+
+        await runner.onVaultReady();
+        await runner.idle();
+        await expectLater(
+          runner.removeDevice(sibling.idString),
+          throwsA(isA<StateError>()),
+        );
+
+        expect(rig.keys.removeCalls, isEmpty);
+        expect(runner.unreadable, isTrue);
+        expect(await stored(), isNull);
+        expect(await rig.sealedSetting(kVaultSettingRemovalRecord), sealed);
+      },
+    );
   });
 }

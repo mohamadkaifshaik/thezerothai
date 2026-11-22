@@ -20,6 +20,7 @@ import 'e2ee_types.dart';
 import 'membership_upkeep.dart';
 import 'message_receiver.dart';
 import 'pipeline_support.dart';
+import 'removal_record.dart';
 import 'sync_budget.dart';
 
 /// The `limit_name` of the per-caller, per-conversation daily commit cap
@@ -40,6 +41,15 @@ const String kLimitCommitsPerConversationDaily =
 /// a conversation are the remaining choices). Only on success is the device
 /// queued, once for every conversation with group state, most recently
 /// active first (the newest stored message).
+///
+/// **The intent (review M1).** Before the call, an intent `{deviceId, at}`
+/// is stored in the runner's own record ([kVaultSettingRemovalRecord]). A
+/// definite refusal removes it and rethrows; on success it becomes the
+/// queue entries, in the same write. An intent left by a crash, a vault
+/// change or an unknown outcome (a network failure, a timeout, an unknown
+/// server error) is sent again at the start of the next pass
+/// (RemoveKeyDevice of a removed device answers success) and then queued;
+/// one older than [kRemovalIntentLimit] is dropped.
 ///
 /// **A pass** visits the queued conversations in order and makes at most
 /// ONE attempt in each (one `CommitConversation` change carrying every
@@ -162,6 +172,13 @@ class RemovalQueueRunner {
   int? _notBeforeMicros;
   SecureVault? _loadedFor;
 
+  /// The image of the runner's record ([kVaultSettingRemovalRecord]):
+  /// removals asked for whose call's outcome is not known (review M1).
+  final List<RemovalIntent> _intents = [];
+
+  /// Device ids [removeDevice] is sending now (a pass leaves them alone).
+  final Set<String> _sending = {};
+
   /// The vault whose stored queue could not be read (reported once).
   SecureVault? _unreadableFor;
 
@@ -268,6 +285,52 @@ class RemovalQueueRunner {
     if (!mine.devices.any((d) => d.deviceId == deviceId)) {
       throw ArgumentError('Not one of this user\'s devices.');
     }
+    if (!identical(_session.vault, vault) || !_loaded) {
+      throw StateError('The vault changed.');
+    }
+    // Review M1: the intent is stored BEFORE the call, so a crash or a
+    // vault change between the call and the queue's write leaves it, and
+    // the next pass sends it again and queues.
+    _intents
+      ..removeWhere((i) => i.deviceId == deviceId)
+      ..add(
+        RemovalIntent(
+          deviceId: deviceId,
+          atMicros: _now().microsecondsSinceEpoch,
+        ),
+      );
+    while (_intents.length > kMaxRemovalIntents) {
+      _intents.removeAt(0);
+    }
+    await _save(vault, queue: false);
+    _sending.add(deviceId);
+    try {
+      await _sendRemove(deviceId);
+    } on Object catch (e) {
+      if (_definiteRefusal(e) && identical(_loadedFor, vault)) {
+        // Not removed: the intent goes. When this write fails the intent
+        // stays and a pass sends it again; that is the user's own ask.
+        _intents.removeWhere((i) => i.deviceId == deviceId);
+        try {
+          await _save(vault, queue: false);
+        } on Object catch (e, s) {
+          _reportIfBug(e, s, 'removalQueue.intentWrite');
+        }
+      }
+      rethrow;
+    } finally {
+      _sending.remove(deviceId);
+    }
+    _removedThisRun.add(vaultDeviceIdHex(id));
+    if (!identical(_session.vault, vault) || !_loaded) {
+      throw StateError('The vault changed.');
+    }
+    await _queueRemoved(vault, deviceId);
+    _startPass(BudgetPriority.live);
+  }
+
+  /// One `RemoveKeyDevice` with a fresh key, bounded by [kMlsRpcTimeout].
+  Future<void> _sendRemove(String deviceId) async {
     final key = hexOf(await randomOf(_engine(), 16));
     await _keys
         .removeDevice(deviceId: deviceId, idempotencyKey: key)
@@ -275,22 +338,67 @@ class RemovalQueueRunner {
           kMlsRpcTimeout,
           onTimeout: () => throw const NetworkException('timed out'),
         );
-    _removedThisRun.add(vaultDeviceIdHex(id));
+  }
+
+  /// An answer that says RemoveKeyDevice was not carried out. A network
+  /// failure, a timeout, an unknown server error and anything that is not
+  /// an [AppException] leave the outcome unknown.
+  static bool _definiteRefusal(Object e) =>
+      e is AppException && e is! NetworkException && e is! UnknownApiException;
+
+  /// [deviceId] was removed from the directory: it is queued for every
+  /// conversation with group state, most recently active first, and its
+  /// intent goes, in one write.
+  Future<void> _queueRemoved(SecureVault vault, String deviceId) async {
+    final id = Uint8List.fromList(utf8.encode(deviceId));
+    final ranked = await _byRecentActivity(vault);
     if (!identical(_session.vault, vault) || !_loaded) {
       throw StateError('The vault changed.');
     }
-    final ranked = await _byRecentActivity(vault);
-    var changed = false;
     for (final c in ranked) {
       final already = _entries.any(
         (e) => e.conversationId == c && _same(e.deviceId, id),
       );
       if (already) continue;
       _entries.add(RemovalQueueEntry(deviceId: id, conversationId: c));
-      changed = true;
     }
-    if (changed) await _save(vault);
-    _startPass(BudgetPriority.live);
+    _intents.removeWhere((i) => i.deviceId == deviceId);
+    await _save(vault);
+  }
+
+  /// Review M1: every intent left from a call whose outcome is unknown is
+  /// sent again (RemoveKeyDevice of a removed device answers success), then
+  /// queued. A failure keeps it for the next pass; one older than
+  /// [kRemovalIntentLimit] is dropped. An intent [removeDevice] is sending
+  /// is left to it.
+  Future<void> _runIntents(SecureVault vault) async {
+    final now = _now();
+    final before = _intents.length;
+    _intents.removeWhere(
+      (i) =>
+          now
+              .difference(
+                DateTime.fromMicrosecondsSinceEpoch(i.atMicros, isUtc: true),
+              )
+              .compareTo(kRemovalIntentLimit) >
+          0,
+    );
+    if (_intents.length != before) await _save(vault, queue: false);
+    for (final intent in List.of(_intents)) {
+      if (_sending.contains(intent.deviceId)) continue;
+      if (!identical(_session.vault, vault) || !_loaded) return;
+      try {
+        await _sendRemove(intent.deviceId);
+      } on Object catch (e, s) {
+        _reportIfBug(e, s, 'removalQueue.intent');
+        continue;
+      }
+      if (!identical(_session.vault, vault) || !_loaded) return;
+      _removedThisRun.add(
+        vaultDeviceIdHex(Uint8List.fromList(utf8.encode(intent.deviceId))),
+      );
+      await _queueRemoved(vault, intent.deviceId);
+    }
   }
 
   /// One pass: one attempt per queued conversation, then stop. Joins a
@@ -320,6 +428,7 @@ class RemovalQueueRunner {
   void reset() {
     cancelScheduled();
     _entries.clear();
+    _intents.clear();
     _notBeforeMicros = null;
     _loadedFor = null;
     _unreadableFor = null;
@@ -398,6 +507,10 @@ class RemovalQueueRunner {
     if (!await _ensureLoaded(vault)) return;
     final thisDevice = await vault.deviceId();
     if (thisDevice == null) return;
+    // Review M1: a leftover intent first (a keys call, not a commit: the
+    // queue's hold does not apply to it).
+    await _runIntents(vault);
+    if (!identical(_session.vault, vault) || !_loaded) return;
     final notBefore = _notBeforeMicros;
     if (notBefore != null) {
       final at = DateTime.fromMicrosecondsSinceEpoch(notBefore, isUtc: true);
@@ -672,9 +785,10 @@ class RemovalQueueRunner {
     return [for (final e in indexed) e.$2];
   }
 
-  /// Loads the stored queue for [vault] when this image is not of it.
-  /// False: it cannot be read (amendment 7: unknown, nothing changes; the
-  /// stored value is left as it is) or the vault changed meanwhile.
+  /// Loads the stored queue and the runner's record for [vault] when this
+  /// image is not of it. False: either cannot be read (amendment 7:
+  /// unknown, nothing changes; the stored values are left as they are) or
+  /// the vault changed meanwhile.
   Future<bool> _ensureLoaded(SecureVault vault) async {
     if (identical(_loadedFor, vault)) return true;
     try {
@@ -682,11 +796,18 @@ class RemovalQueueRunner {
       final queue = raw == null
           ? const RemovalQueue()
           : RemovalQueue.decode(raw);
+      final rawRecord = await vault.setting(kVaultSettingRemovalRecord);
+      final record = rawRecord == null
+          ? const RemovalRecord()
+          : RemovalRecord.decode(rawRecord);
       if (!identical(_session.vault, vault)) return false;
       if (identical(_loadedFor, vault)) return true;
       _entries
         ..clear()
         ..addAll(queue.entries);
+      _intents
+        ..clear()
+        ..addAll(record.intents);
       _notBeforeMicros = queue.notBeforeMicros;
       _loadedFor = vault;
       _unreadableFor = null;
@@ -700,6 +821,7 @@ class RemovalQueueRunner {
       }
       _loadedFor = null;
       _entries.clear();
+      _intents.clear();
       _publish();
       return false;
     } on Object catch (e, s) {
@@ -708,22 +830,29 @@ class RemovalQueueRunner {
     }
   }
 
-  /// Writes the image to [vault] (one transaction). The image stays as it
-  /// is when the write fails (a removal is kept rather than lost; the next
-  /// change writes it again).
-  Future<void> _save(SecureVault vault) async {
+  /// Writes the image to [vault] in one transaction: the runner's record,
+  /// and the queue unless [queue] is false (an intent change only). The
+  /// image stays as it is when the write fails (a removal is kept rather
+  /// than lost; the next change writes it again).
+  Future<void> _save(SecureVault vault, {bool queue = true}) async {
     _publish();
-    final queue = RemovalQueue(
-      entries: List.of(_entries),
-      notBeforeMicros: _notBeforeMicros,
-    );
+    final image = queue
+        ? RemovalQueue(
+            entries: List.of(_entries),
+            notBeforeMicros: _notBeforeMicros,
+          ).encode()
+        : null;
+    final record = RemovalRecord(intents: List.of(_intents)).encode();
     await _session.runWrite((v) async {
       if (!identical(v, vault) || !identical(_loadedFor, vault)) {
         throw StateError('The vault changed.');
       }
-      await v.transaction(
-        (tx) => tx.putSetting(kVaultSettingRemovalQueue, queue.encode()),
-      );
+      await v.transaction((tx) async {
+        if (image != null) {
+          await tx.putSetting(kVaultSettingRemovalQueue, image);
+        }
+        await tx.putSetting(kVaultSettingRemovalRecord, record);
+      });
     });
   }
 
