@@ -14,13 +14,13 @@ import '../../../core/vault/vault_session.dart';
 import '../../../core/vault/vault_status.dart' show VaultCorruptException;
 import '../../../gen/dzeroth/keys/v1/keys.pb.dart' as pb;
 import '../data/keys_repository.dart';
+import 'key_batch_day.dart';
+import 'key_limits.dart';
+import 'pending_upload.dart';
 
-/// One-time key packages uploaded at first registration, and the level a
-/// top-up restores.
-const int kKeyPackagePoolTarget = 50;
+export 'key_limits.dart';
 
-/// A top-up runs when the server reports fewer than this many.
-const int kKeyPackageTopUpBelow = 20;
+part 'key_package_batches.dart';
 
 /// The last-resort package is replaced once it is this old.
 const Duration kLastResortMaxAge = Duration(days: 30);
@@ -76,6 +76,14 @@ const String kVaultSettingDeviceLastSeen = 'keys.device.lastSeenMicros';
 /// Microseconds since the epoch (UTF-8 decimal) of the last-resort package
 /// the server accepted; "0" = none.
 const String kVaultSettingLastResortAt = 'keys.device.lastResortMicros';
+
+/// A generated batch whose upload is not confirmed: sealed JSON
+/// {"v":1,"oneTime":[base64...],"lastResort":base64|null,"lastResortAt":micros|null,"countBefore":n,"outcome":"failed"|"unknown"}.
+/// `lastResortAt` is when the last-resort package was generated (null with
+/// no last-resort package).
+/// A record with no packages = none saved. The private parts of its
+/// packages are already in the device state ([PendingUpload]).
+const String kVaultSettingPendingUpload = 'keys.device.pendingUpload';
 
 /// Builds the periodic check (injected so tests drive it by hand).
 typedef DeviceKeysTimerFactory = Timer Function(
@@ -276,6 +284,7 @@ class DeviceKeysService {
   /// The vault for which nothing is retried (device limit, key mismatch)
   /// until a new vault opens.
   SecureVault? _latchedVault;
+  final _reportedPending = Expando<bool>();
 
   /// A sign-out removal started (and for which vault); every run stops
   /// before publishing anything, and a run whose registration or upload
@@ -517,6 +526,14 @@ class DeviceKeysService {
       // Offline, UNAVAILABLE, unknown (the gate reports unknown ones), or a
       // call past the client deadline ([kDeviceKeysRpcTimeout]).
       _status.value = const DeviceKeysStatus.failed(retryable: true);
+    } on _BatchCap {
+      // Retried hourly; generation resumes on the next IST day.
+      _status.value = const DeviceKeysStatus.failed(retryable: true);
+    } on _BadPoolCount catch (_, stack) {
+      // Nothing generated or saved; reported on every run (hourly at most)
+      // so a server that keeps answering it is not silenced.
+      _status.value = const DeviceKeysStatus.failed(retryable: true);
+      _report('poolCount', stack);
     } on _DeviceUnusable catch (_, stack) {
       // Fail closed: nothing written, nothing sent, no new id; latched.
       _latchedVault = vault;
@@ -586,7 +603,7 @@ class DeviceKeysService {
       if (mine == null) {
         mustRegister = true;
       } else {
-        count = mine.keyPackageCount;
+        count = _poolCount(mine.keyPackageCount);
         hasLastResort = mine.hasLastResort;
       }
     }
@@ -603,7 +620,7 @@ class DeviceKeysService {
       );
       check();
       _forceRegister = false;
-      count = r.device.keyPackageCount;
+      count = _poolCount(r.device.keyPackageCount);
       hasLastResort = r.device.hasLastResort;
       await _persistRegistered(vault, uid, nowMicros);
     }
@@ -615,56 +632,86 @@ class DeviceKeysService {
     final lastResort =
         !hasLastResort ||
         _olderThan(local.lastResortMicros, nowMicros, kLastResortMaxAge);
-    if (oneTime <= 0 && !lastResort) return;
     check();
-    final packages = await _session.runWrite((v) async {
-      if (!identical(v, vault) || _currentUid() != uid) {
-        throw const _Cancelled();
-      }
-      final state = await v.deviceState();
-      if (state == null) throw StateError('No device state.');
-      final r = await _engine().generateKeyPackages(
-        state,
-        count: oneTime < 0 ? 0 : oneTime,
-        lastResort: lastResort,
-      );
-      // The private parts are saved BEFORE any package is sent.
-      await v.transaction((tx) => tx.putDeviceState(r.deviceState));
-      return r.keyPackages;
-    });
+    final (batch, previousUnknown, cap) = await _takeOrGenerateBatch(
+      vault,
+      uid,
+      count: count,
+      oneTime: oneTime,
+      lastResort: lastResort,
+      hasLastResort: hasLastResort,
+    );
+    if (batch.isEmpty) return;
     check();
-    final oneTimePackages = lastResort
-        ? packages.sublist(0, packages.length - 1)
-        : packages;
-    final lastResortPackage = lastResort ? packages.last : null;
-    // One logical upload: an unknown outcome is retried ONCE with the same
-    // request and key (the server stores nothing twice while unclaimed);
-    // after that, the next run lists and tops up with fresh packages.
     final key = _newKey();
     Future<pb.UploadKeyPackagesResponse> upload() => _publish(
       local.id,
       epoch,
       () => _repo.uploadKeyPackages(
         deviceId: local.id,
-        keyPackages: oneTimePackages,
-        lastResortKeyPackage: lastResortPackage,
+        keyPackages: batch.oneTime,
+        lastResortKeyPackage: batch.lastResort,
         idempotencyKey: key,
       ),
     );
     try {
       await upload();
     } on AppException catch (e) {
-      if (!_unknownOutcome(e)) rethrow;
+      // A typed refusal is rethrown BEFORE check(): a removal that started
+      // mid-upload must not turn it into a cancel and lose the back-off
+      // (RATE_LIMITED), the forced register or the latch. The "failed"
+      // record is written only while no removal is under way.
+      if (!_unknownOutcome(e)) {
+        if (!previousUnknown && !_removing && _removalEpoch == epoch) {
+          final refused = PendingUpload(
+            batch.oneTime,
+            batch.lastResort,
+            batch.countBefore,
+            failed: true,
+            lastResortMicros: batch.lastResortMicros,
+          );
+          // Best effort: the typed refusal (back-off, forced register,
+          // latch) must survive a failed write; the saved record then stays
+          // "unknown", which only makes the next run read the count first.
+          try {
+            await _persist(
+              vault,
+              uid,
+              (tx) =>
+                  tx.putSetting(kVaultSettingPendingUpload, refused.encode()),
+            );
+          } on _Cancelled {
+            // The vault or the user changed: the run is over, not a failed
+            // write.
+            rethrow;
+          } catch (_, stack) {
+            _report('pendingUploadWrite', stack);
+          }
+        }
+        rethrow;
+      }
       check();
+      // A refusal on this retry cannot resolve the first attempt.
       await upload();
     }
     check();
     await _persist(vault, uid, (tx) async {
+      await tx.putSetting(
+        kVaultSettingPendingUpload,
+        PendingUpload.empty.encode(),
+      );
       await tx.putSetting(kVaultSettingDeviceLastSeen, _micros(nowMicros));
-      if (lastResort) {
-        await tx.putSetting(kVaultSettingLastResortAt, _micros(nowMicros));
+      if (batch.lastResort != null) {
+        // When it was generated, not now: a resend must not extend the
+        // package's 30 days (SA L2).
+        await tx.putSetting(
+          kVaultSettingLastResortAt,
+          _micros(batch.lastResortMicros),
+        );
       }
     });
+    // A last-resort-only batch sent at the cap: the pool is still capped.
+    if (cap != null) throw cap;
   }
 
   /// [call] under the client deadline: past [_rpcTimeout] it is a
