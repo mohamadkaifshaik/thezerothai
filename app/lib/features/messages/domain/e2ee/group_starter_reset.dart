@@ -587,19 +587,28 @@ extension _Reset on GroupStarter {
   /// What the server holds at the reset's record pair (g + 1, 0), read from
   /// the stored after-pair on, and decided under the lock held:
   ///
-  /// - this device's bytes: accepted, settled ([_resetSettleLocked]);
+  /// - this device's bytes: accepted, remembered as held (audit M1) and
+  ///   settled ([_resetSettleLocked]);
   /// - another record (another reset or commit won), or the server already
   ///   past g + 1 without it: the provisional group goes and this device
   ///   joins from the winner's welcome. Amendment 1: only while no call of
   ///   the reset's bytes that outlived the client's wait still runs (a
   ///   reset can then no longer reach the server; one that reached it names
-  ///   generation g, which is no longer current, so it cannot be stored);
+  ///   generation g, which is no longer current, so it cannot be stored).
+  ///   While one runs nothing is decided; its end schedules the resume that
+  ///   decides ([CommitCallTracker.trackAbandoned]);
   /// - nothing at the pair while the server is still at g: NOT stored now.
-  ///   The group is dropped only after a refusal ([refusal]) or at the
-  ///   expiry ([expire]), and only when the margin had passed when the
-  ///   listing STARTED and no such call runs (Task 8 B / Task 9 N); else
-  ///   nothing is decided (one resume is scheduled for the margin's end);
-  /// - an answer that does not say: nothing is decided.
+  ///   Without a refusal ([refusal]) or the expiry ([expire]) nothing is
+  ///   decided and nothing is scheduled here (the caller resends, or the
+  ///   next trigger lists again). With one, the group is dropped only when
+  ///   no such call runs (else: nothing decided; that call's end schedules
+  ///   the resume) and the margin had passed when the listing STARTED (Task
+  ///   8 B / Task 9 N). Inside the margin, nothing is decided and the
+  ///   answer carries the wait to the margin's end as `resendAfter`: the
+  ///   caller's `_afterNext` schedules one resume then (review m-4: only
+  ///   in this case is one scheduled);
+  /// - an answer that does not say, or a listing not asked: nothing is
+  ///   decided and nothing is scheduled.
   Future<_Next> _resetDecideLocked(
     _Op op,
     String id,

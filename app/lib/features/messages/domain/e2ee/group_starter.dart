@@ -392,15 +392,28 @@ class GroupStarter {
       _running[conversationId] ?? Future<void>.value();
 
   /// R6 step 4: called at vault ready and before any send. Every provisional
-  /// group whose pending commit is an init is resumed (its init resent byte
-  /// for byte under the same key, until [kInitResendMargin] before
-  /// [kProvisionalExpiry]) or, once [kProvisionalExpiry] old, decided by
-  /// the server's first stored commit. That commit is this init: the
-  /// identical request is sent once more and the group is cleared with the
-  /// server's replayed answer (review W1; with no answer nothing changes).
-  /// Else it is replaced by a new group from fresh claims (claimed first;
-  /// a failed claim changes nothing). One conversation lock at a time.
+  /// group this class owns is resumed, one conversation lock at a time.
   /// Never throws.
+  ///
+  /// An INIT: its init is resent byte for byte under the same key, until
+  /// [kInitResendMargin] before [kProvisionalExpiry]; once
+  /// [kProvisionalExpiry] old it is decided by the server's first stored
+  /// commit. That commit is this init: the identical request is sent once
+  /// more and the group is cleared with the server's replayed answer (review
+  /// W1; with no answer nothing changes). Else it is replaced by a new group
+  /// from fresh claims (claimed first; a failed claim changes nothing).
+  ///
+  /// A RESET (Task 10 amendment 4, review m-3): its record at (g + 1, 0)
+  /// decides, at any age. This device's: settled (the server holds it, so
+  /// it is never sent again, audit M1). Another record, or the server past
+  /// g + 1: the group goes and the winner's welcome is joined. Not stored:
+  /// a young reset is resent with the same bytes (spaced, counted, never
+  /// inside the margin before expiry, never after a refusal of them); a
+  /// [kProvisionalExpiry] old one, or one whose resend was refused, goes
+  /// only on a listing that started after [kRequestInFlightMargin] with no
+  /// call of it still out. A record the server could not answer: resent at
+  /// most once per margin; one the local budget kept from being asked:
+  /// nothing. Nothing is done while a call of it may still land.
   Future<void> resumeProvisional({
     BudgetPriority priority = BudgetPriority.background,
   }) => _resumeAll(priority);
