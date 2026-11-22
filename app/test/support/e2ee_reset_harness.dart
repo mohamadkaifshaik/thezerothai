@@ -10,6 +10,7 @@ import 'package:dzeroth/core/crypto/mls_pair.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/vault/secure_vault.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_crypto.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/daily_ledger.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/e2ee_types.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/group_starter.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/sync_budget.dart';
@@ -52,7 +53,8 @@ var expectedErrors = <String>[];
 /// reset cannot be read in this run).
 var listingsFail = false;
 
-GroupStarter build() => starter = GroupStarter(
+/// The starter over the rig; [ledger] replaces the rig's (same vault).
+GroupStarter build({DailyLedger? ledger}) => starter = GroupStarter(
   crypto: rig.crypto,
   sender: rig.sender,
   receiver: rig.receiver,
@@ -61,7 +63,7 @@ GroupStarter build() => starter = GroupStarter(
   messaging: rig.messaging,
   keys: rig.keys,
   directory: rig.directory,
-  ledger: rig.ledger,
+  ledger: ledger ?? rig.ledger,
   known: rig.known,
   syncBudget: rig.syncBudget,
   locks: rig.locks,
@@ -82,6 +84,20 @@ Future<kpb.ClaimedKeyPackage> packageOf(RigPeer p) async =>
       keyPackage: await p.keyPackage(),
       hasKeyPackage_4: true,
     );
+
+/// The rig's ledger, with one hook: [beforeEmptyClaim] runs (and is waited
+/// for) before every `markEmptyClaim`.
+class HookedLedger extends DailyLedger {
+  HookedLedger() : super(session: rig.device.session, now: rig.clock.now);
+
+  Future<void> Function()? beforeEmptyClaim;
+
+  @override
+  Future<void> markEmptyClaim(Uint8List deviceId) async {
+    await beforeEmptyClaim?.call();
+    return super.markEmptyClaim(deviceId);
+  }
+}
 
 /// Bob's listed devices; each claim for him hands out one package each.
 void peers(List<RigPeer> devices) {

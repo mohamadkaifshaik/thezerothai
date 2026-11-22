@@ -1124,6 +1124,41 @@ void main() {
       expect((await groupAt(3))!.provisional, isFalse);
     });
 
+    test('review N-2: a resume that sends the new reset right after its '
+        'create keeps its call memory: the reset is not sent again as a '
+        'first call', () async {
+      final bob2 = await RigPeer.create('bob2');
+      await setUpJoined();
+      // bob2 is listed but his claim hands out nothing: the create is
+      // followed by a markEmptyClaim, after the lock is released.
+      peers([bob, bob2]);
+      rig.keys.claims[_bob] = () async => kpb.ClaimKeyPackagesResponse(
+        conversationId: _c1,
+        keyPackages: [await packageOf(bob)],
+      );
+      final ledger = HookedLedger();
+      build(ledger: ledger);
+      await pauseCommitting();
+      rig.server.commitScript.addAll([unknown, unknown, unknown]);
+      var ran = false;
+      ledger.beforeEmptyClaim = () async {
+        if (ran || await groupAt(2) == null) return;
+        ran = true;
+        // A resume takes the lock the create just released, and sends the
+        // reset: its outcome is unknown.
+        await starter.resumeProvisional();
+        expect(resets(), hasLength(1));
+      };
+      await reset();
+      expect(ran, isTrue);
+      expect(
+        resets(),
+        hasLength(1),
+        reason: 'the resume made its call; no first call follows',
+      );
+      expect((await groupAt(2))!.provisional, isTrue);
+    });
+
     test('review m-2: a reset made while a resume of the same conversation '
         'runs its after-lock steps still makes its call', () async {
       await setUpJoined();

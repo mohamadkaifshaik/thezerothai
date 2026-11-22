@@ -172,9 +172,8 @@ extension _Reset on GroupStarter {
     final inspectedMine = await _inspect(mine);
 
     // 4. The provisional group of g + 1, under the lock.
-    final created = await _locks.run(
-      id,
-      () => _createReset(
+    final created = await _locks.run(id, () async {
+      final made = await _createReset(
         op,
         id,
         g,
@@ -185,8 +184,26 @@ extension _Reset on GroupStarter {
         claimedMine: mine,
         inspectedMine: inspectedMine,
         automatic: automatic,
-      ),
-    );
+      );
+      if (made.kind == _CreatedKind.created) {
+        // Review m-1: what this run remembered for an earlier reset of
+        // this conversation (its wait after an unknown outcome, its
+        // margin, a refusal, "the server holds it") is not this reset's:
+        // an earlier one ended on the crypto side (a join) leaves it
+        // behind, and its wait would hold this reset's first call although
+        // its count is spent. The new reset's own lists stay.
+        //
+        // Review N-2: forgotten here, before the lock is released. Why: a
+        // resume queued on the lock may send this reset as soon as it is
+        // released; forgotten later, its call memory (its wait, a call
+        // still out, "the server holds it") would be wiped, and step 5
+        // would send the bytes again as a first call.
+        _resetCalls.forget(id);
+        _resetRefused.remove(id);
+        _resetHeld.remove(id);
+      }
+      return made;
+    });
     final omitted = [
       for (final d in active)
         if (!claimed.keyPackages.any(
@@ -203,15 +220,8 @@ extension _Reset on GroupStarter {
     }
     switch (created.kind) {
       case _CreatedKind.created:
-        // Review m-1: what this run remembered for an earlier reset of this
-        // conversation (its wait after an unknown outcome, its margin, a
-        // refusal, "the server holds it") is not this reset's: an earlier
-        // one ended on the crypto side (a join) leaves it behind, and its
-        // wait would hold this reset's first call although its count is
-        // spent. The new reset's own lists stay.
-        _resetCalls.forget(id);
-        _resetRefused.remove(id);
-        _resetHeld.remove(id);
+        // Its memory was cleared under the lock (review m-1, N-2).
+        break;
       case _CreatedKind.noDevice:
         throw const E2eeActionException(E2eeRefusal.peerHasNoDevice);
       case _CreatedKind.existing:
