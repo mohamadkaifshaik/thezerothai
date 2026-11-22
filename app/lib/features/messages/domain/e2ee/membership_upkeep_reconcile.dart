@@ -272,14 +272,19 @@ extension _Reconcile on MembershipUpkeep {
         if (m.side == MemberSide.unattributed) {
           final key = removedKeyOf?.call(m.deviceId);
           if (key == null || !_same(key, m.signatureKey)) continue;
-          // Task 11 fix round 4, ruling 11 (SA N2): M2's key-history guard
-          // holds for the mark path too (the runner reports it).
-          final refusal = history.refusal(
-            vaultDeviceIdHex(m.deviceId),
-            m.signatureKey,
-          );
-          if (refusal == KeyRefusal.unrecorded ||
-              refusal == KeyRefusal.unreadable) {
+          // Task 11 fix round 4, ruling 11 (SA N2), and fix round 5, ruling
+          // 1: M2's full key-history guard holds for the mark path too
+          // (`tainted` with a list that shows the pair included; the runner
+          // reports it).
+          if (keyHistoryRefuses(
+            member: m,
+            refusal: history.refusal(
+              vaultDeviceIdHex(m.deviceId),
+              m.signatureKey,
+            ),
+            ownList: own,
+            peerList: peer,
+          )) {
             continue;
           }
         } else if (m.side != MemberSide.mine) {

@@ -355,6 +355,26 @@ bool mayRemoveOwnDevice({
   return _entry(ownList, member.deviceId) == null;
 }
 
+/// The key history's refusal of removing an `unattributed` [member]
+/// (device-key-history-design.md, "Removal rule (Task 9)"): true for an
+/// `unrecorded` or `unreadable` pair, and for a `tainted` pair a readable
+/// list shows. M2 ([mayRemoveUnattributed]) and the removal queue's mark
+/// path in reconcile both apply it (Task 11 fix round 5, ruling 1: the mark
+/// path is never weaker than M2).
+bool keyHistoryRefuses({
+  required MemberRecord member,
+  required KeyRefusal refusal,
+  required DeviceList ownList,
+  required DeviceList peerList,
+}) {
+  if (refusal == KeyRefusal.unrecorded || refusal == KeyRefusal.unreadable) {
+    return true;
+  }
+  return refusal == KeyRefusal.tainted &&
+      (_listsPair(ownList, member.deviceId, member.signatureKey) ||
+          _listsPair(peerList, member.deviceId, member.signatureKey));
+}
+
 /// M2. True only when the member is unattributed against both lists (each
 /// readable, non-empty, with a counting fetch) and was first seen unattributed
 /// at least [kUnattributedRecheck] before the EARLIER of the two fetches: both
@@ -378,12 +398,12 @@ bool mayRemoveUnattributed({
   required KeyRefusal refusal,
 }) {
   if (member.side != MemberSide.unattributed) return false;
-  if (refusal == KeyRefusal.unrecorded || refusal == KeyRefusal.unreadable) {
-    return false;
-  }
-  if (refusal == KeyRefusal.tainted &&
-      (_listsPair(ownList, member.deviceId, member.signatureKey) ||
-          _listsPair(peerList, member.deviceId, member.signatureKey))) {
+  if (keyHistoryRefuses(
+    member: member,
+    refusal: refusal,
+    ownList: ownList,
+    peerList: peerList,
+  )) {
     return false;
   }
   if (!ownList.readableNonEmpty || !peerList.readableNonEmpty) return false;

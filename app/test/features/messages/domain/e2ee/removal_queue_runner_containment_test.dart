@@ -131,8 +131,9 @@ void main() {
     /// The sibling, added by bob while this device was behind, is pinned
     /// unattributed and queued with a mark carrying its key; then the
     /// conversation's key history answers `unrecorded` for it (held, not
-    /// admitted).
-    Future<RigPeer> markedButUnrecorded() async {
+    /// admitted). [tainted]: it answers `tainted` instead (the id was seen
+    /// with another key; fix round 5, ruling 1).
+    Future<RigPeer> markedButUnrecorded({bool tainted = false}) async {
       final sibling = await RigPeer.create('sibling');
       await setUpRig(ownListed: [sibling]);
       await join(_c1);
@@ -145,11 +146,42 @@ void main() {
       await rig.putKeyHistory(
         _c1,
         ids: [(bob.id, bob.key)],
-        held: [(sibling.id, sibling.key)],
-        closed: true,
+        held: tainted ? const [] : [(sibling.id, sibling.key)],
+        changed: tainted ? [sibling.id] : const [],
+        closed: !tainted,
       );
       return sibling;
     }
+
+    test('a tainted pair: a pass keeps the entry and reports it (fix round '
+        '5, m1)', () async {
+      final sibling = await markedButUnrecorded(tainted: true);
+      expectedErrors = ['removalQueue.keyHistory'];
+
+      await runner.runPass();
+      await runner.runPass();
+
+      expect(requests(), isEmpty);
+      expect((await pin(sibling))!.side, MemberSide.unattributed);
+      expect(queued(_c1, sibling), isTrue);
+    });
+
+    test('a tainted pair a readable list shows: reconcile keeps it, as M2 '
+        'would (fix round 5, m1)', () async {
+      final sibling = await markedButUnrecorded(tainted: true);
+      // Bob's list now shows the sibling's very (id, key) pair.
+      rig.keys.peers['ref-bob']!.add(
+        rigKeyDevice(sibling.idString, sibling.key),
+      );
+      await rig.directory.peer('ref-bob', fresh: true);
+      await rig.receiver.pullLive(_c1);
+      expect(rig.contexts.of(_c1).syncedSinceStart, isTrue);
+
+      await rig.upkeep.reconcile(_c1);
+
+      expect(requests(), isEmpty);
+      expect((await pin(sibling))!.side, MemberSide.unattributed);
+    });
 
     test('a pass keeps the entry and reports it', () async {
       final sibling = await markedButUnrecorded();

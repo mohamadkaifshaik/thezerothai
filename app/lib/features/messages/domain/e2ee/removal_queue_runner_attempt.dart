@@ -184,8 +184,9 @@ extension _RemovalAttempt on RemovalQueueRunner {
   /// could reach, is gone).
   ///
   /// Fix round 4, ruling 11 (SA N2): a marked `unattributed` pin goes only
-  /// when [history] answers neither `unrecorded` nor `unreadable` for its
-  /// (id, key) pair, the guard M2 has (`mayRemoveUnattributed`): a hostile
+  /// when [history] answers `none` for its (id, key) pair (not `unrecorded`,
+  /// `unreadable`, nor, fix round 5, ruling 1, `tainted`), never weaker
+  /// than the guard M2 has (`mayRemoveUnattributed`): a hostile
   /// own list must not let the mark skip the key-history guards. Otherwise
   /// the entry stays and is reported (`removalQueue.keyHistory`, once per
   /// conversation and run). No [history]: unreadable.
@@ -208,8 +209,12 @@ extension _RemovalAttempt on RemovalQueueRunner {
         final refusal =
             history?.refusal(vaultDeviceIdHex(m.deviceId), m.signatureKey) ??
             KeyRefusal.unreadable;
+        // Fix round 5, ruling 1 (m1): `tainted` too. The runner holds no
+        // lists here, so it cannot tell whether a list shows the pair (M2's
+        // allowance); it refuses every tainted pair, never weaker than M2.
         if (refusal == KeyRefusal.unrecorded ||
-            refusal == KeyRefusal.unreadable) {
+            refusal == KeyRefusal.unreadable ||
+            refusal == KeyRefusal.tainted) {
           if (_historyReported.add(id)) _reportBug('removalQueue.keyHistory');
           continue;
         }
