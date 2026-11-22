@@ -35,7 +35,7 @@ extension _CommitSend on CommitRunner {
         key = null;
         // The discard margin counts from this call: until it has passed,
         // the call may still be stored whatever answer the client saw.
-        _noteCall(id, pending);
+        _calls.noteCall(id, pending.commit);
         final MlsPair answer;
         try {
           answer = await _messaging.commitConversation(
@@ -64,22 +64,18 @@ extension _CommitSend on CommitRunner {
             isFirst = false;
             left--;
             final named = retryAfterOf(e);
+            // The server named a time: nothing is sent before it (never
+            // longer than [kCommitRetryWaitMax]: this record holds every
+            // send here), and one resume is scheduled for it. It named
+            // none (review I2): a later resume sends nothing before the
+            // margin's end; without this every resume would be one more
+            // counted call while the commit RPC times out, and the day's
+            // cap would be spent in a row.
+            final wait = _calls.noteUnknown(id, named);
             if (named != null) {
-              // The server named a time: nothing is sent before it, and
-              // one resume is scheduled for it. Never longer than
-              // [kCommitRetryWaitMax]: this record holds every send here.
-              final wait = named > kCommitRetryWaitMax
-                  ? kCommitRetryWaitMax
-                  : named;
-              _notBefore[id] = _now().add(wait);
               if (left > 0) _scheduleResume(id, wait, priority);
               return CommitOutcome.pending;
             }
-            // The server named none (review I2): a later resume sends
-            // nothing before the margin's end. Without this every resume
-            // would be one more counted call while the commit RPC times
-            // out, and the day's cap would be spent in a row.
-            _notBefore[id] = _now().add(kRequestInFlightMargin);
             // The identical bytes once more now (this step's one resend),
             // as one more counted call.
             if (left > 0 &&
@@ -200,8 +196,8 @@ extension _CommitSend on CommitRunner {
   }) async {
     // Audit M2: a call of these bytes still runs (it may not even have left
     // the client): no margin has started, and its end schedules the resume.
-    if (_callStillOut(id, pending)) return CommitOutcome.pending;
-    final left = _marginLeft(id, pending, provedAt);
+    if (_calls.callStillOut(id, pending.commit)) return CommitOutcome.pending;
+    final left = _calls.marginLeft(id, pending.commit, provedAt);
     if (left != null) {
       _scheduleResume(id, left, priority);
       return CommitOutcome.pending;
@@ -209,74 +205,24 @@ extension _CommitSend on CommitRunner {
     return await _discard(op, id, pending) ? dropped : CommitOutcome.pending;
   }
 
-  /// This run meets [pending]: the margin of a record it has no call time
-  /// for counts from now (a call of an earlier run was made before now).
-  void _noteSeen(String id, PendingCommit pending) {
-    final start = _marginStart[id];
-    if (start == null || !_same(start.commit, pending.commit)) {
-      _marginStart[id] = _MarginStart(pending.commit, _now());
-    }
-  }
-
-  /// A call of [pending]'s bytes starts now: its margin counts from now,
-  /// and what this run knows of earlier calls of the same bytes still
-  /// running is kept.
-  void _noteCall(String id, PendingCommit pending) {
-    final start = _marginStart[id];
-    if (start == null || !_same(start.commit, pending.commit)) {
-      _marginStart[id] = _MarginStart(pending.commit, _now());
-    } else if (_now().isAfter(start.at)) {
-      start.at = _now();
-    }
-  }
-
   /// Audit M2: the call under [key] got no answer in the client's wait.
   /// When it still runs (`MessagingRepository.abandonedMlsCall`), the
   /// margin waits for its end: then the margin counts from that end, and
   /// once no call of the bytes runs, one resume is scheduled for the
-  /// margin's end. An end after the record was settled, discarded or
-  /// forgotten (a sign-out) changes nothing.
+  /// margin's end ([CommitCallTracker.trackAbandoned]). An end after the
+  /// record was settled, discarded or forgotten (a sign-out) changes
+  /// nothing.
   void _trackAbandoned(
     String id,
     PendingCommit pending,
     String key,
     BudgetPriority priority,
-  ) {
-    final call = _messaging.abandonedMlsCall(key);
-    final start = _marginStart[id];
-    if (call == null || start == null || !_same(start.commit, pending.commit)) {
-      return;
-    }
-    start.running++;
-    unawaited(
-      call.then((_) {
-        if (!identical(_marginStart[id], start)) return;
-        start.running--;
-        if (_now().isAfter(start.at)) start.at = _now();
-        if (start.running == 0) {
-          _scheduleResume(id, kRequestInFlightMargin, priority);
-        }
-      }),
-    );
-  }
-
-  /// Whether a call of [pending]'s bytes that outlived the client's wait
-  /// still runs (audit M2).
-  bool _callStillOut(String id, PendingCommit pending) {
-    _noteSeen(id, pending);
-    return _marginStart[id]!.running > 0;
-  }
-
-  /// Null when [pending]'s discard margin had passed at [provedAt] (the
-  /// start of the proof's listing). Otherwise the wait until its end from
-  /// now: zero when the end lies between [provedAt] and now.
-  Duration? _marginLeft(String id, PendingCommit pending, DateTime provedAt) {
-    _noteSeen(id, pending);
-    final end = _marginStart[id]!.at.add(kRequestInFlightMargin);
-    if (!provedAt.isBefore(end)) return null;
-    final now = _now();
-    return now.isBefore(end) ? end.difference(now) : Duration.zero;
-  }
+  ) => _calls.trackAbandoned(
+    id,
+    pending.commit,
+    key,
+    () => _scheduleResume(id, kRequestInFlightMargin, priority),
+  );
 
   /// Null while the group still holds [pending] at its built-on pair.
   /// Otherwise how it ended: this run confirmed it, or it is gone.
@@ -337,8 +283,7 @@ extension _CommitSend on CommitRunner {
   /// The pending record of [id] is gone (settled or discarded): what this
   /// run remembered about it goes too.
   void _forgetRecord(String id) {
-    _notBefore.remove(id);
-    _marginStart.remove(id);
+    _calls.forget(id);
     _refusedResend.remove(id);
     _pauseExempt.remove(id);
     _crypto.forgetOwnAdds(id);
@@ -388,23 +333,14 @@ extension _CommitSend on CommitRunner {
   /// (review m1), so the record just waits for the next resume.
   Future<_Count> _countCall(PipelineOp op, String id, PendingKind kind) async {
     try {
-      return await _session.runWrite((v) async {
-        op.check(v);
-        final sync =
-            (await v.conversation(id))?.sync ?? const ConversationSync();
-        final calls = _callsToday(sync);
-        if (calls >= _cap(kind)) return _Count.atCap;
-        await v.transaction(
-          (tx) => tx.putConversationSync(
-            id,
-            sync.copyWith(
-              commitCallsDay: istDay(_now()),
-              commitCallsToday: calls + 1,
-            ),
-          ),
-        );
-        return _Count.counted;
-      });
+      final count = await countCommitCall(
+        session: _session,
+        op: op,
+        conversationId: id,
+        cap: _cap(kind),
+        now: _now,
+      );
+      return count == CommitCallCount.counted ? _Count.counted : _Count.atCap;
     } on Object catch (e, s) {
       _reportIfBug(e, s, 'commit.count');
       return _Count.failed;
@@ -430,7 +366,7 @@ extension _CommitSend on CommitRunner {
         return CommitOutcome.notAllowed;
       }
       // The first sight of a record an earlier run left starts its margin.
-      _noteSeen(id, pending);
+      _calls.noteSeen(id, pending.commit);
       // A device removed elsewhere sends and decides nothing.
       if (_removedElsewhere()) return CommitOutcome.pending;
       // Review N1: the margin of a discard below is measured at the start
@@ -459,10 +395,7 @@ extension _CommitSend on CommitRunner {
           dropped: CommitOutcome.refused,
         );
       }
-      final notBefore = _notBefore[id];
-      if (notBefore != null && _now().isBefore(notBefore)) {
-        return CommitOutcome.pending;
-      }
+      if (_calls.heldBack(id)) return CommitOutcome.pending;
       if (!_usable(id)) return CommitOutcome.pending;
       // May these bytes still be sent? When not (and never again today),
       // they are dropped rather than left to hold the conversation's sends:
