@@ -1,0 +1,107 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
+/// The largest stored record read (a real one is under 100 bytes).
+const int kMaxKeyBatchDayBytes = 256;
+
+/// The key package batches generated on one IST day (see
+/// `kVaultSettingKeyBatchDay` and `kMaxKeyBatchesPerDay`).
+class KeyBatchDay {
+  const KeyBatchDay(
+    this.day,
+    this.count, {
+    this.reportedCap = false,
+    this.reportedInvalid = false,
+    this.invalid = false,
+  });
+
+  /// `YYYY-MM-DD` at UTC+05:30 (`istDay`).
+  final String day;
+  final int count;
+
+  /// A real cap (`batchCap`) was reported on [day].
+  final bool reportedCap;
+
+  /// An invalid counter (`batchDay`) was reported on [day]. Kept apart from
+  /// [reportedCap] so both reports can show on the same day: a corrupt
+  /// counter, then the real cap the marked record holds.
+  final bool reportedInvalid;
+
+  /// Read only, never stored: the stored record did not open, did not
+  /// decode or was dated more than one day ahead, so [count] is the cap.
+  /// Reported as `batchDay`, apart from a real cap (`batchCap`).
+  final bool invalid;
+
+  /// The record for [today], with the rule of `DailyLedger` (daily_ledger.dart):
+  /// - none stored (null bytes): a new day with no batches;
+  /// - stored on a day EARLIER than [today]: a new day with no batches;
+  /// - stored on [today] or [tomorrow] (a clock set back by up to a day):
+  ///   its count is kept, so moving the clock back never resets the cap;
+  ///   its reports are kept only when it is of [today];
+  /// - stored on a later day (a clock once set far forward), or unreadable:
+  ///   the cap already reached today ([cap], not reported, [invalid]). Fail
+  ///   closed for today only; the caller stores a record of [today].
+  static KeyBatchDay read(
+    Uint8List? stored, {
+    required String today,
+    required String tomorrow,
+    required int cap,
+  }) {
+    if (stored == null) return KeyBatchDay(today, 0);
+    final KeyBatchDay value;
+    try {
+      value = decode(stored);
+    } on FormatException {
+      return capped(today, cap);
+    }
+    // 'YYYY-MM-DD' strings order like the days they name.
+    if (value.day.compareTo(today) < 0) return KeyBatchDay(today, 0);
+    if (value.day.compareTo(tomorrow) > 0) return capped(today, cap);
+    if (value.day == today) return value;
+    // A record of tomorrow keeps its count, not its reports: they were made
+    // on another day, so today reports again (once).
+    return KeyBatchDay(value.day, value.count);
+  }
+
+  /// The cap for [today] from a record that cannot be used.
+  static KeyBatchDay capped(String today, int cap) =>
+      KeyBatchDay(today, cap, invalid: true);
+
+  Uint8List encode() => Uint8List.fromList(
+    utf8.encode(
+      jsonEncode({
+        'v': 1,
+        'day': day,
+        'n': count,
+        'reportedCap': reportedCap,
+        'reportedInvalid': reportedInvalid,
+      }),
+    ),
+  );
+
+  static final RegExp _day = RegExp(r'^\d{4}-\d{2}-\d{2}$');
+
+  static KeyBatchDay decode(Uint8List bytes) {
+    if (bytes.length > kMaxKeyBatchDayBytes) throw const FormatException();
+    final value = jsonDecode(utf8.decode(bytes));
+    if (value is! Map || value['v'] != 1) throw const FormatException();
+    final day = value['day'];
+    final n = value['n'];
+    final reportedCap = value['reportedCap'];
+    final reportedInvalid = value['reportedInvalid'];
+    if (day is! String ||
+        !_day.hasMatch(day) ||
+        n is! int ||
+        n < 0 ||
+        reportedCap is! bool ||
+        reportedInvalid is! bool) {
+      throw const FormatException();
+    }
+    return KeyBatchDay(
+      day,
+      n,
+      reportedCap: reportedCap,
+      reportedInvalid: reportedInvalid,
+    );
+  }
+}

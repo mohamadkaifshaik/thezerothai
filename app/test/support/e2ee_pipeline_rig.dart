@@ -46,13 +46,31 @@ import 'fake_vault_world.dart';
 // with FakeVaultCipher, a FakeCryptoEngine and a VaultSession built from
 // FakeVaultWorld's parts.
 
-/// A fixed, injectable clock.
+/// A fixed, injectable clock. With no [start] it begins at [rigMidIstDay],
+/// so no test can fail because its run started close before an IST midnight
+/// (the pipeline counts calls and claims by IST day, and many tests move the
+/// clock by minutes or hours). Nothing under lib/features/messages/domain/e2ee
+/// reads the real clock, so the shifted start moves no other time.
 class RigClock {
-  RigClock([DateTime? start]) : value = start ?? DateTime.now().toUtc();
+  RigClock([DateTime? start]) : value = start ?? rigMidIstDay();
 
   DateTime value;
   DateTime now() => value;
   void advance(Duration d) => value = value.add(d);
+}
+
+/// A start for a [RigClock] well inside one IST day: 06:00 UTC of the real
+/// clock's UTC day, which is 11:30 IST, eleven and a half hours after the IST
+/// day began (18:30 UTC the evening before) and twelve and a half before it
+/// ends. A test that moves the clock by up to a few hours and expects the
+/// same IST day (a daily ledger fact) starts here; from the real time it
+/// fails when a run starts that close before 18:30 UTC. Built from the real
+/// date, not a fixed one (test/guards/fixed_date_guard_test.dart): the start
+/// stays within a day of the real clock, so nothing that reads the real
+/// clock is moved.
+DateTime rigMidIstDay() {
+  final now = DateTime.now().toUtc();
+  return DateTime.utc(now.year, now.month, now.day, 6);
 }
 
 Uint8List rigBytes(String s) => Uint8List.fromList(utf8.encode(s));
@@ -1936,15 +1954,19 @@ class RigCrypto {
   /// [messaging] replaces the repository view of user `user-a`; [locks]
   /// the first run's conversation locks (a test that watches them);
   /// [engine] the device's engine; [syncBudget] the sync budget (a test
-  /// that watches the units taken).
+  /// that watches the units taken); [start] the clock's first value (the
+  /// real time when null; a test that moves the clock within one IST day
+  /// and expects the same day pins a start well inside one, see
+  /// [rigMidIstDay]).
   static Future<RigCrypto> create({
     RigMessaging Function(RigServer server)? messaging,
     int epochPageSize = kEpochPageSize,
     ConversationLocks? locks,
     RigEngine? engine,
     SyncBudget Function(RigClock clock)? syncBudget,
+    DateTime? start,
   }) async {
-    final clock = RigClock();
+    final clock = RigClock(start);
     final rig = RigCrypto._(
       Directory.systemTemp.createTempSync('e2ee_crypto'),
       clock,
