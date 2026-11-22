@@ -190,12 +190,18 @@ class ConversationCrypto {
   /// [confirmOwnCommitLocked]). Memory only: the commit runner reads it
   /// right after its own locked catch-up to tell "my commit was the one
   /// stored" from "another commit won the pair". Nothing is written on it.
+  /// An entry is removed when it is read and all go at
+  /// [forgetOwnCommits] (review m3): the conversation id is the same for
+  /// both participants, so an entry that outlived a sign-out could equal
+  /// the pair of the next account's pending commit and make a superseded
+  /// commit read as applied.
   final Map<String, MlsPair> _ownConfirmed = {};
 
   /// The pair this device's last confirmed own commit of [conversationId]
-  /// was built on, as this run saw it; null when it confirmed none.
-  MlsPair? ownCommitConfirmedAt(String conversationId) =>
-      _ownConfirmed[conversationId];
+  /// was built on, as this run saw it; null when it confirmed none since
+  /// the last read. The read removes it.
+  MlsPair? takeOwnCommitConfirmedAt(String conversationId) =>
+      _ownConfirmed.remove(conversationId);
 
   /// Conversation -> the sides the devices added by this device's pending
   /// commit were claimed and checked for (R3), with the pair the commit was
@@ -230,6 +236,7 @@ class ConversationCrypto {
   /// device's own commits (called by `CommitRunner.reset`).
   void forgetOwnCommits() {
     _ownAdds.clear();
+    _ownConfirmed.clear();
   }
 
   /// Task 9, for the commit runner, which HOLDS [id]'s conversation lock:
@@ -257,6 +264,8 @@ class ConversationCrypto {
     try {
       final pass = await _startOperation(priority);
       if (pass == null) return false;
+      // Nothing an earlier step left is this confirm's.
+      _ownConfirmed.remove(id);
       final group = await pass.vault.group(id, at.generation);
       final pending = group?.pending;
       if (group == null ||
@@ -277,7 +286,9 @@ class ConversationCrypto {
           fromSelf: true,
         ),
       );
-      return applied == _Applied.ok && _ownConfirmed[id] == at;
+      // Read once: the entry is this confirm's own.
+      final confirmedAt = _ownConfirmed.remove(id);
+      return applied == _Applied.ok && confirmedAt == at;
     } on Object catch (e, s) {
       _reportIfBug(e, s, 'confirmOwnCommit');
       return false;

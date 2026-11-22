@@ -139,7 +139,7 @@ extension _CommitSend on CommitRunner {
     BudgetPriority priority, {
     bool refused = false,
   }) async {
-    final result = await _crypto.catchUpLocked(id, priority: priority);
+    final result = await _catchUpFor(id, priority);
     if (!op.live) return CommitOutcome.pending;
     final settled = await _settled(op.vault, id, pending);
     if (settled != null) {
@@ -212,9 +212,18 @@ extension _CommitSend on CommitRunner {
   ) async {
     final at = pending.builtOn;
     if (await _holds(vault, id, pending) != null) return null;
-    return _crypto.ownCommitConfirmedAt(id) == at
+    // Read once (the read removes it): this record's verdict only.
+    return _crypto.takeOwnCommitConfirmedAt(id) == at
         ? CommitOutcome.applied
         : CommitOutcome.superseded;
+  }
+
+  /// The runner's own catch-up for [pending], under the lock it has held
+  /// since it read the record: whatever an earlier step remembered as
+  /// "confirmed" is not about this record and is dropped first (review m3).
+  Future<CatchUpResult> _catchUpFor(String id, BudgetPriority priority) {
+    _crypto.takeOwnCommitConfirmedAt(id);
+    return _crypto.catchUpLocked(id, priority: priority);
   }
 
   /// The group that still holds [pending] at its built-on pair, or null.
@@ -342,7 +351,7 @@ extension _CommitSend on CommitRunner {
       _noteSeen(id, pending);
       // A device removed elsewhere sends and decides nothing.
       if (_removedElsewhere()) return CommitOutcome.pending;
-      final result = await _crypto.catchUpLocked(id, priority: priority);
+      final result = await _catchUpFor(id, priority);
       if (!op.live) return CommitOutcome.pending;
       final settled = await _settled(op.vault, id, pending);
       if (settled != null) {

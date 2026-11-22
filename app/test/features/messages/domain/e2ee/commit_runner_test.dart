@@ -871,6 +871,27 @@ void main() {
       expect((await sync()).commitCallsToday, 2);
     });
 
+    test('what this run remembers of a confirmed own commit is read once '
+        'and forgotten at reset', () async {
+      await setUpJoined();
+      await synced();
+      // Confirmed by the runner: the runner read it, so it is gone.
+      expect(await rig.commits.selfUpdate(_c1), CommitOutcome.applied);
+      expect(rig.crypto.takeOwnCommitConfirmedAt(_c1), isNull);
+
+      // Confirmed by another caller's catch-up: nobody reads it, and a
+      // sign-out must not leave it for the next account's same pair.
+      await synced();
+      rig.server.commitScript
+        ..add((error: offline, stored: true))
+        ..add((error: offline, stored: false));
+      expect(await rig.commits.selfUpdate(_c1), CommitOutcome.pending);
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      expect((await groupRecord()).epoch, 3);
+      rig.commits.reset();
+      expect(rig.crypto.takeOwnCommitConfirmedAt(_c1), isNull);
+    });
+
     test(
       'a server retry time holds a commit for five minutes at most',
       () async {
