@@ -384,6 +384,71 @@ void main() {
     });
   });
 
+  group('a prune on pins this device has not caught up (fix round 3, '
+      'F1)', () {
+    test('a peer commit that adds the device is not applied yet: the prune '
+        'keeps the entry; after the catch-up the device leaves', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await join(_c1);
+      await synced();
+      // Bob adds the user's sibling; this device has not listed it.
+      await bobAdds(_c1, [sibling]);
+      // A new run (no catch-up yet), and the thread cannot be answered:
+      // the pass parks the entry with a prune from the stored pins, which
+      // do not name the sibling yet.
+      // (Accepted long before this run, so attribution concludes, as in
+      // bobAdds.)
+      rig.contexts.clear();
+      rig.contexts.of(_c1)
+        ..canReply = false
+        ..acceptedSeenAt = rig.clock.now().subtract(
+          kConversationCopyStale + const Duration(minutes: 1),
+        );
+      rig.server.rows[_c1] = headerRow(_c1, canReply: false);
+
+      await removeAndSettle(sibling);
+
+      expect(await pin(sibling), isNull, reason: 'not applied yet');
+      expect(queued(_c1, sibling), isTrue, reason: 'the entry stays');
+      expect((await stored())!.entries.single.parked, isTrue);
+
+      // The thread can be answered again: un-parked; the pass catches up
+      // (bob's add pins the sibling unattributed) and takes it out (the
+      // commit may wait for the next pass: fix round 3, F2).
+      rig.server.rows[_c1] = headerRow(_c1);
+      rig.contexts.of(_c1).canReply = true;
+      await runner.noteConversation(_c1);
+      await runner.idle();
+      await runner.runPass();
+
+      expect(await pin(sibling), isNull, reason: 'left the group');
+      expect(requests(_c1), hasLength(1));
+      expect(runner.pending.value, 0);
+    });
+
+    test('a pass that cannot catch up keeps the entry while the listed '
+        'server pair is ahead', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await join(_c1);
+      await synced();
+      await bobAdds(_c1, [sibling]);
+      // The group's pair is behind the pair the last listing answered.
+      final context = rig.contexts.of(_c1);
+      context
+        ..serverPair = rig.server.current(_c1)
+        ..serverPairFresh = true
+        ..canReply = false;
+      rig.server.rows[_c1] = headerRow(_c1, canReply: false);
+
+      await removeAndSettle(sibling);
+
+      expect(queued(_c1, sibling), isTrue);
+      expect(rig.server.calls.where((c) => c == 'commitConversation'), isEmpty);
+    });
+  });
+
   group('an own device removed on another own device (SA M2)', () {
     /// The user's other phone removed the sibling: the own list no longer
     /// names it, and this device never ran removeDevice.

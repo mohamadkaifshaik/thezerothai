@@ -130,6 +130,12 @@ void main() {
         reason: 'resumed, not rebuilt',
       );
       expect(await pin(sibling), isNull);
+      // Fix round 3, ruling 1: the resend's answer is not a listing, so the
+      // pins after it are not caught up and the entry stays; the next
+      // pass's catch-up lets it go, with no commit call.
+      expect(queued(_c1, sibling), isTrue);
+      await runner.runPass();
+      expect(requests(_c1), hasLength(3));
       expect(runner.queuedFor(_c1), isEmpty);
       expect(runner.pending.value, 0);
     });

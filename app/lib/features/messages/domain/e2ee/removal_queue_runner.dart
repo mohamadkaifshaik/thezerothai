@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 
 import '../../../../core/crypto/crypto_engine.dart';
+import '../../../../core/crypto/mls_pair.dart';
 import '../../../../core/network/app_exception.dart';
 import '../../../../core/vault/secure_vault.dart';
 import '../../../../core/vault/vault_session.dart';
@@ -59,7 +60,10 @@ const String kLimitCommitsPerConversationDaily =
 /// ONE attempt in each (one `CommitConversation` change carrying every
 /// queued device of it, or the resume of its pending record), then stops.
 /// An entry leaves the queue when its device is no longer a pinned member
-/// (removed by this commit or by anyone's). CANNOT_MESSAGE, and a thread
+/// (removed by this commit or by anyone's), read on pins this device has
+/// caught up (fix round 3, ruling 1: after the attempt's own catch-up, or
+/// at the server pair the last listing of this run answered; otherwise the
+/// entry stays). CANNOT_MESSAGE, and a thread
 /// that cannot be answered, park the entry until [noteConversation] sees
 /// the conversation usable again; an unaccepted conversation parks it
 /// until [onAccepted]. RATE_LIMITED stops the pass and stores
@@ -639,7 +643,8 @@ class RemovalQueueRunner {
     // Parked entries wait for their hook; no call. CR Minor 6 (fix round 2,
     // ruling 8): they are pruned first, under the lock and from the stored
     // pins only (read only, no call), so one whose device another commit
-    // already removed lets go now instead of at the un-park.
+    // already removed lets go now instead of at the un-park. Fix round 3,
+    // ruling 1: only while those pins are caught up ([_pinsCaughtUp]).
     if (_entries.every((e) => e.conversationId != id || e.parked)) {
       await _locks.run(id, () async {
         if (!_current(vault, resets)) return;
@@ -681,11 +686,14 @@ class RemovalQueueRunner {
     if (!identical(_session.vault, vault)) return false;
     final groups = await vault.groups(id);
     if (groups.isEmpty || groups.any((g) => g.provisional)) {
-      // No current group yet: pins decide whether the entry stays.
+      // No current group yet: no pin is caught up, so only this device's
+      // own entries go (fix round 3, ruling 1); the rest wait for it.
       if (await _prune(vault, id, thisDevice)) await _save(vault);
       return false;
     }
     final limitBefore = _commits.lastRateLimitIn(id);
+    // Ruling 1 (fix round 3): this hold's own catch-up ended current.
+    var caughtUp = false;
     CommitOutcome outcome;
     if (groups.last.hasPending) {
       // The one attempt is the resume of the pending record (it may be this
@@ -698,8 +706,11 @@ class RemovalQueueRunner {
         return false;
       }
       if (!identical(_session.vault, vault)) return false;
+      caughtUp = true;
       final members = await vault.members(id);
-      if (_pruneAgainst(id, members, thisDevice)) await _save(vault);
+      if (_pruneAgainst(id, members, thisDevice, caughtUp: true)) {
+        await _save(vault);
+      }
       var removes = _removable(id, members);
       if (removes.isEmpty) return false;
       // Ruling H: a removal the user asked for is exempt from the M5 pause
@@ -738,7 +749,7 @@ class RemovalQueueRunner {
         outcome == CommitOutcome.refused &&
         limit != null &&
         !identical(limit, limitBefore);
-    var changed = await _prune(vault, id, thisDevice);
+    var changed = await _prune(vault, id, thisDevice, caughtUp: caughtUp);
     if (rateLimited) {
       final at = _now().add(_retryWait(limit));
       if (limit.limitName == kLimitCommitsPerConversationDaily) {
@@ -798,27 +809,61 @@ class RemovalQueueRunner {
   // -------------------------------------------------------------------------
   // The queue
 
-  /// Drops [id]'s entries whose device is no longer pinned there, any
-  /// naming this device, and (review I1) any whose device is pinned on the
-  /// peer's side: it is not this user's device to remove. That last case is
-  /// reported (`removalQueue.notOwn`): an own id was attributed to the peer.
-  /// True when the queue changed.
+  /// [_pruneAgainst] from the stored pins of [id]. [caughtUp]: the caller
+  /// read them after its own catch-up ended `current` in this lock hold;
+  /// otherwise they count as caught up only when [_pinsCaughtUp] says so.
   Future<bool> _prune(
     SecureVault vault,
     String id,
-    Uint8List thisDevice,
-  ) async => _pruneAgainst(id, await vault.members(id), thisDevice);
+    Uint8List thisDevice, {
+    bool caughtUp = false,
+  }) async => _pruneAgainst(
+    id,
+    await vault.members(id),
+    thisDevice,
+    caughtUp: caughtUp || await _pinsCaughtUp(vault, id),
+  );
 
+  /// Fix round 3, ruling 1 (F1): the stored pins of [id] hold every commit
+  /// this device knows of: the current group's pair is the server pair the
+  /// last catch-up of this run listed (`serverPairFresh`). False with no
+  /// current group, a provisional one, no listing this run (a restart), or
+  /// a listed pair this device has not reached. A commit posted after that
+  /// listing is not known to it (stated limit, the fix-round-3 report).
+  Future<bool> _pinsCaughtUp(SecureVault vault, String id) async {
+    final context = _contexts.of(id);
+    final server = context.serverPair;
+    if (!context.serverPairFresh || server == null) return false;
+    final groups = await vault.groups(id);
+    if (groups.isEmpty || groups.any((g) => g.provisional)) return false;
+    final group = groups.last;
+    return MlsPair(group.generation, group.epoch) == server;
+  }
+
+  /// Drops [id]'s entries naming this device, and, when [caughtUp], those
+  /// whose device is no longer pinned there and (review I1) those whose
+  /// device is pinned on the peer's side: it is not this user's device to
+  /// remove. That last case is reported (`removalQueue.notOwn`): an own id
+  /// was attributed to the peer. True when the queue changed.
+  ///
+  /// Fix round 3, ruling 1 (F1): on pins this device has not caught up
+  /// ([caughtUp] false) only this device's own entries go. A peer's commit
+  /// not applied yet may add the device (it is then pinned `unattributed`
+  /// once applied, and the entry with the removed mark's key removes it);
+  /// dropping the entry on the stale pins would leave the lost device
+  /// reading until reconcile's M2 removal found it.
   bool _pruneAgainst(
     String id,
     List<MemberRecord> members,
-    Uint8List thisDevice,
-  ) {
+    Uint8List thisDevice, {
+    required bool caughtUp,
+  }) {
     final before = _entries.length;
     final notOwn = <Uint8List>[];
     _entries.removeWhere((e) {
       if (e.conversationId != id) return false;
       if (_same(e.deviceId, thisDevice)) return true;
+      if (!caughtUp) return false;
       final pinned = members.where((m) => _same(m.deviceId, e.deviceId));
       if (pinned.isEmpty) return true;
       if (pinned.any((m) => m.side == MemberSide.theirs)) {
