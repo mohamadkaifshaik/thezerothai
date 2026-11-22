@@ -212,12 +212,19 @@ extension _Start on GroupStarter {
   /// (and the own list decides "this id is not ours"). A deferred answer
   /// of any age could add a device its owner removed days ago, so an old
   /// one is `lookupFailed`: nothing is sent, and the caller may try again.
+  ///
+  /// Review N8. Decision: a list dated AFTER now (the device clock moved
+  /// back) has no age that can be told, so it is too old as well; a
+  /// negative difference would otherwise pass as "young" for as long as
+  /// the clock stays behind.
   DeviceList? _lastReadable(DeviceList list) {
     if (list.readable) return list;
     final at = list.fetchedAt;
+    final now = _now();
     if (list.state == ListState.deferred &&
         at != null &&
-        _now().difference(at) < kDeviceListReuse) {
+        !at.isAfter(now) &&
+        now.difference(at) < kDeviceListReuse) {
       return DeviceList(ListState.readable, list.devices, at);
     }
     return null;

@@ -346,6 +346,26 @@ void main() {
       expect((await groupOf())!.provisional, isFalse);
     });
 
+    test('a deferred list dated in the future is not used', () async {
+      await rig.directory.own();
+      await rig.directory.peer(_bob);
+      // The device clock moved back by a day: the kept lists are dated in
+      // the future, so their age cannot be told.
+      rig.clock.advance(const Duration(days: -1));
+      rig.keys.peerError = const RateLimitedException(
+        'slow down',
+        retryAfter: Duration(minutes: 1),
+      );
+
+      final r = await start();
+
+      expect(r.result, StartResult.lookupFailed);
+      expect(rig.keys.claimCalls, isEmpty);
+      expect(await rows(), isEmpty);
+      expect(await groupOf(), isNull);
+      expect(rig.server.sends, isEmpty);
+    });
+
     test('a conversation that becomes known while routing waits is not '
         'routed to plaintext', () async {
       // During the device lookup (a readable, empty list).
