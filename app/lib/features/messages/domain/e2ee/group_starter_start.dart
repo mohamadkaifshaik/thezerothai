@@ -110,6 +110,8 @@ extension _Start on GroupStarter {
         return _out(StartResult.unavailable);
       }
     }
+    // (c) Task 8 audit M2: the cache's word against the server's.
+    if (!await _cacheAgrees(id, peer)) return _out(StartResult.unavailable);
     // Review I2. Decision: the claim's id is the server's word. An id this
     // vault already knows (or holds a group for) is used only with proof
     // that it is THIS peer's conversation; without it the message could be
@@ -209,6 +211,28 @@ extension _Start on GroupStarter {
       case _CreatedKind.unavailable:
         return _out(StartResult.unavailable);
     }
+  }
+
+  /// Task 8 audit M2. Whether the drift cache agrees that the conversation
+  /// [id] a claim named is the one with [peer]: (i) the cached header of
+  /// [id], when there is one, names [peer]; (ii) the cached conversation
+  /// with [peer], when there is one, is [id]. Read before the lock, after
+  /// the claim (the id is not known before it).
+  ///
+  /// Decision: either disagreement is `unavailable`; nothing is stored and
+  /// the claimed packages are wasted. Why: with public ids on the client
+  /// cannot compute the id, and a hostile server could answer another
+  /// conversation's id (A's with Q for a start with P); the group would be
+  /// made with P's devices, and every later send in thread X would then be
+  /// encrypted to P. An honest server never disagrees with its own headers
+  /// (the id is deterministic per pair). A header with no peer says
+  /// nothing. A header of the other id kind (audit L8) disagrees too: fail
+  /// closed, never plaintext.
+  Future<bool> _cacheAgrees(String id, String peer) async {
+    final named = (await _messaging.cachedConversation(id))?.peer.userId;
+    if (named != null && named.isNotEmpty && named != peer) return false;
+    final withPeer = await _messaging.cachedConversationWith(peer);
+    return withPeer == null || withPeer.id.isEmpty || withPeer.id == id;
   }
 
   /// Proof that the conversation [id] a claim named is [peer]'s: the caller

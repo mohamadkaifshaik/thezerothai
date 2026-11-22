@@ -275,6 +275,8 @@ void main() {
 
       final real = dmConversationId(_me, _bob);
       person(_bob, real, [bob]);
+      // Audit M2 (ii): the cache's conversation with bob is the real id.
+      rig.server.rows.remove(_c1);
       r = await start();
       expect(r.result, StartResult.started);
       expect(r.conversationId, real);
@@ -584,6 +586,82 @@ void main() {
       expect(rig.keys.listCalls, 0);
       expect(rig.keys.claimCalls, isEmpty);
       expect(rig.server.sends, isEmpty);
+    });
+  });
+
+  group('the claim\'s conversation is bound to its peer (Task 8 audit M2)', () {
+    test('(i) a claim naming a conversation whose cached header names '
+        'another peer is refused before the lock', () async {
+      // The server answers bob's claim with _c2, the cached conversation
+      // with carol (not in the known set: public ids on, so nothing else
+      // could tell).
+      rig.server.rows
+        ..remove(_c1)
+        ..[_c2] = header(_c2, 'ref-carol');
+      rig.keys.claims[_bob] = () async => kpb.ClaimKeyPackagesResponse(
+        conversationId: _c2,
+        keyPackages: [await packageOf(bob)],
+      );
+
+      final r = await start();
+
+      expect(r.result, StartResult.unavailable);
+      expect(r.conversationId, isNull);
+      expect(rig.keys.claimCalls, hasLength(1));
+      expect(await rows(), isEmpty);
+      expect(await groupOf(_c2), isNull);
+      expect(rig.known.contains(_c2), isFalse);
+      expect(rig.server.sends, isEmpty);
+    });
+
+    test('(ii) a claim naming another id than the cached conversation with '
+        'this peer is refused before the lock', () async {
+      // The cache holds _c1 as the conversation with bob; the claim names
+      // _c2, of which nothing is cached.
+      expect(rig.server.rows[_c1]!.peer.userId, _bob);
+      rig.keys.claims[_bob] = () async => kpb.ClaimKeyPackagesResponse(
+        conversationId: _c2,
+        keyPackages: [await packageOf(bob)],
+      );
+
+      final r = await start();
+
+      expect(r.result, StartResult.unavailable);
+      expect(rig.keys.claimCalls, hasLength(1));
+      expect(await rows(), isEmpty);
+      expect(await groupOf(_c2), isNull);
+      expect(await groupOf(), isNull);
+      expect(rig.server.sends, isEmpty);
+
+      // The claim naming the cached id starts.
+      person(_bob, _c1, [bob]);
+      expect((await start()).result, StartResult.started);
+      await done();
+    });
+
+    test('(iii) a known id whose stored ref is of the same id kind and '
+        'another peer is refused when routed to; a ref of the other kind is '
+        'not compared', () async {
+      await rig.known.add(_c2, peerUserId: 'ref-carol');
+
+      var r = await start(conversationId: _c2);
+
+      expect(r.result, StartResult.unavailable);
+      expect(r.conversationId, isNull);
+      expect(await rows(), isEmpty);
+      expect(rig.keys.claimCalls, isEmpty);
+      expect(rig.server.sends, isEmpty);
+
+      // A stored ref that is a public id cannot be compared with a raw uid
+      // (audit L8, id-kind drift): the row goes to the known conversation
+      // as before, never plaintext.
+      const publicRef = 'u0123456789abcdefghjkmnpqrs';
+      expect(publicRef, hasLength(27));
+      await rig.known.add(_c3, peerUserId: publicRef);
+      r = await start(conversationId: _c3);
+      expect(r.result, StartResult.joinedExisting);
+      expect(r.conversationId, _c3);
+      expect(rig.keys.claimCalls, isEmpty);
     });
   });
 
@@ -1012,6 +1090,8 @@ void main() {
         'refused before any claim (code review M5)', () async {
       publicIdsOff = true;
       person(_bob, dmConversationId(_me, _bob), [bob]);
+      // Audit M2 (ii): the cache's conversation with bob is the real id.
+      rig.server.rows.remove(_c1);
       for (final unknownId in [null, '']) {
         ownId = unknownId;
         final r = await start();
@@ -2342,11 +2422,28 @@ void main() {
       await expectNoNewStart();
     });
 
-    test('no new start for another peer than the stored peer ref', () async {
+    test('no new start for another peer than the stored peer ref, and '
+        '(audit M2 iii) no row for that peer either', () async {
       await refusedOnce();
       final carol = await RigPeer.create('carol');
       rig.keys.peers['ref-carol'] = [rigKeyDevice(carol.idString, carol.key)];
-      await expectNoNewStart(peer: 'ref-carol', conversationId: _c1);
+      await discardFailed();
+      // Audit M2 (iii), a behaviour change: the stored ref of _c1 is bob's,
+      // of the same id kind, so a send for carol into _c1 is refused; it
+      // used to be enqueued there and wait (encrypted to bob's devices).
+      final r = await start(
+        localId: 'local-2',
+        peer: 'ref-carol',
+        conversationId: _c1,
+        text: 'second',
+      );
+      expect(r.result, StartResult.unavailable);
+      expect(r.conversationId, isNull);
+      await done();
+      expect(rig.keys.claimCalls, isEmpty);
+      expect(await groupOf(), isNull);
+      expect(await rows(), isEmpty);
+      expect(rig.server.sends, hasLength(1));
     });
 
     test('no new start with the flag not on', () async {

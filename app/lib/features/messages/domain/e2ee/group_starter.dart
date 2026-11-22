@@ -135,6 +135,19 @@ String dmConversationId(String a, String b) {
   return sha256.convert(utf8.encode('dm1|$lo|$hi')).toString().substring(0, 32);
 }
 
+/// The shape of a public user id (`backend/internal/identity/publicid.go`,
+/// `ValidPublicID`): `u`, then 26 characters of the lower-case Crockford
+/// alphabet, the first one 0-7.
+final RegExp _publicIdShape = RegExp(r'^u[0-7][0-9a-hjkmnp-tv-z]{25}$');
+
+/// Task 8 audit M2 (iii): whether two user references are of the same id
+/// kind (both public ids, or both raw uids). A raw uid is
+/// `[A-Za-z0-9-]{1,128}` (`backend/pkg/platform/ids`); it can take the
+/// public shape only by chance, and then reads as one (compared: fail
+/// closed).
+bool sameIdKind(String a, String b) =>
+    _publicIdShape.hasMatch(a) == _publicIdShape.hasMatch(b);
+
 /// Starting encryption in a conversation (Task 8; R6 steps 1 to 4, K2, R3,
 /// R11; security reads C1, H1, H2): where a first message goes (encrypted,
 /// plaintext or nowhere), the claim of key packages, the provisional group
@@ -630,6 +643,18 @@ class GroupStarter {
     // sticky marker are asked BEFORE the flag and before any lookup.
     String? known;
     if (conversationId != null) {
+      // Task 8 audit M2 (iii). Decision: a known id whose stored peer ref is
+      // of the same id kind as [peer] and names someone else is not routed
+      // to: `unavailable`, nothing saved, nothing plaintext. Why: the row
+      // would be encrypted to the stored peer's devices, a person the
+      // caller did not address. A ref of the other id kind cannot be
+      // compared (audit L8, a stated limit): routed as before.
+      final stored = _known.contains(conversationId)
+          ? _known.peerOf(conversationId)
+          : null;
+      if (stored != null && stored != peer && sameIdKind(stored, peer)) {
+        return _out(StartResult.unavailable);
+      }
       if (_known.contains(conversationId) ||
           await _messaging.cachedEverEncrypted(conversationId)) {
         known = conversationId;
