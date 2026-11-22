@@ -18,13 +18,16 @@ class RateLimitHold {
   /// Remembers [error] until its `retry_after` (5 minutes for a daily limit
   /// and 30 seconds otherwise when the server sent none).
   void record(RateLimitedException error) {
-    _limit = error;
-    _until =
+    final next =
         _elapsed() +
         (error.retryAfter ??
             (error.isDaily
                 ? const Duration(minutes: 5)
                 : const Duration(seconds: 30)));
+    final current = _until;
+    if (current != null && next < current) return;
+    _until = next;
+    _limit = error;
   }
 
   /// The answer still being held back, with `retryAfter` reduced to the time
