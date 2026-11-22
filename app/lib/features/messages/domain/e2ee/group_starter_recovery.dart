@@ -281,6 +281,33 @@ extension _Recovery on GroupStarter {
       // is exempt: the commits already said "stored", and no answer to it
       // deletes anything.
       if (!replay && _sendsNoMore(group)) return none;
+      // Task 9 concern 1: when this call's outcome stays unknown, its
+      // request may reach the server until [kInitResendMargin] after now.
+      // Not for a replay: the commits already said "stored", and a later
+      // store cannot undo that.
+      final callStartedAt = _now();
+      // Pre-flag-on review I-1: only the answer to the LAST request counts
+      // as a refused replay ([GroupStarter._replayRefused]).
+      _replayRefused.remove(row.localId);
+      // Fix round 3, ruling 1 (audit L-2, code review Minor 3). Decision:
+      // the row's FIRST request in this run, with attempts stored by an
+      // earlier run, counts that run's last request as an unknown outcome
+      // that started when this run began: every "not stored" read (here in
+      // the resume, and in [GroupStarter.discardInit]) decides nothing until
+      // [kInitResendMargin] after it, and the discard is held until then
+      // ([GroupStarter._earlierRunRows]). Why: the earlier process may have
+      // sent it just before it ended, and it can still be stored after this
+      // run's refusal and listing; a discard then deletes a group the
+      // server holds (no welcome exists for its creator). This closes the
+      // Task 9 restart limit of [_noteUnknownStart]. A replay too: harmless,
+      // the commits already said "stored".
+      if (row.attempts > 0 && !_sentThisRun.contains(key)) {
+        _earlierRunRows.add(key);
+        _noteUnknownStart(id, _runStartedAt);
+      }
+      // Fix round 2, ruling 3: this run made a request of the row.
+      _sentThisRun.add(key);
+      _initRowOf[id] = row.localId;
       final pb.SendMessageResponse response;
       try {
         response = await _messaging.sendEncrypted(
@@ -310,7 +337,16 @@ extension _Recovery on GroupStarter {
         }
         // The commits say this init is stored: the page answers, or nothing
         // is decided. Never a discard.
-        if (replay) return _answerFromPage(id, group, row, priority);
+        if (replay) {
+          // Fix round 3, ruling 2 (code review Minor 1). Decision: the
+          // evidence only when the refusal names THIS conversation; one
+          // naming none (a send addressed by id) is an unknown outcome, as
+          // the replay's other refusals that do not last. Why: a refusal
+          // that does not say which conversation it is about says nothing
+          // of this group, and the discard it would allow cannot be undone.
+          if (named == id) _replayRefused.add(row.localId);
+          return _answerFromPage(id, group, row, priority);
+        }
         if (!first) {
           final kept = await _keptIfStored(id, group, row, priority);
           if (kept != null) return kept;
@@ -322,6 +358,7 @@ extension _Recovery on GroupStarter {
         return const _Next(_NextKind.join);
       } on AppException catch (e) {
         if (sendOutcomeUnknown(e)) {
+          if (!replay) _noteUnknownStart(id, callStartedAt);
           // Audit M2: a call the client stopped waiting for may still
           // leave it; the expiry waits for its end.
           _trackInit(id, key);
@@ -348,6 +385,29 @@ extension _Recovery on GroupStarter {
         // one, so the stored message is this row's, whatever the request
         // it was stored from. The same for any refusal of the replay.
         if (replay || e is IdempotencyKeyReusedException) {
+          if (replay) {
+            // Pre-flag-on fix round 2, ruling 2 (code review I-A, audit
+            // M-B). Decision: only a lasting refusal of the replay is the
+            // evidence [GroupStarter.discardInit] needs to discard a group
+            // the server holds ([_lastingRefusal]). Every other refusal (a
+            // rate limit, a quota, degraded mode, a limit reached, an
+            // unverified email, a restricted account, a validation error)
+            // is an unknown outcome: nothing is recorded, and its retry
+            // time, when it names one, holds the next replay until then.
+            // Why: the server runs those checks BEFORE its replay lookup,
+            // so they say nothing about the group, and a discard on them
+            // deletes a conversation the server still holds as ours. The
+            // lasting ones are made before the lookup too, and count only
+            // because they last ([_lastingRefusal], fix round 3, ruling 5).
+            // The first page is still asked: it can only settle, never
+            // discard.
+            if (_lastingRefusal(e)) {
+              _replayRefused.add(row.localId);
+            } else {
+              final wait = _refusalRetryAfter(e);
+              if (wait != null) _notBefore[row.localId] = _now().add(wait);
+            }
+          }
           return _answerFromPage(id, group, row, priority);
         }
         // A refusal. The brief names FEATURE_DISABLED and CANNOT_MESSAGE on
@@ -359,6 +419,8 @@ extension _Recovery on GroupStarter {
         }
         return _refuse(id, g, row, e);
       } on Object catch (e, s) {
+        // An outcome nobody can tell: as an unknown one.
+        if (!replay) _noteUnknownStart(id, callStartedAt);
         _reportIfBug(e, s, 'start.sendEncrypted');
         _unknown.add(row.localId);
         return none;
@@ -557,240 +619,6 @@ extension _Recovery on GroupStarter {
     return notStored;
   }
 
-  // -------------------------------------------------------------------------
-  // Expiry
-
-  /// A provisional group [kProvisionalExpiry] old or older (with its init
-  /// row, or with none), with the lock held: the server's first stored
-  /// commit decides. This init: the identical request is replayed for the
-  /// message's answer (review W1). Another, or none: the rebuild, or (no
-  /// row) the discard.
-  Future<_Next> _expireLocked(
-    _Op op,
-    String id,
-    GroupRecord group,
-    PendingCommit pending,
-    OutboxItem? row,
-    BudgetPriority priority,
-    bool mayRebuild,
-  ) async {
-    const none = _Next(_NextKind.none);
-    // Audit M2: [kInitResendMargin] assumed that the last request left the
-    // client when its call started. An init call whose client wait ran out
-    // may still leave it: while one runs nothing is asked (a "not stored"
-    // read now could be followed by the store), and after its end the
-    // margin counts from that end. The end schedules the resume.
-    if (_initMayStillLand(id)) return none;
-    final own = await _ownInitStored(id, pending, priority);
-    if (own == null) return none;
-    if (own) {
-      if (row != null) {
-        // Review W1: the init was accepted. The identical request is sent
-        // once more, here under the lock; the server replays the stored
-        // message and the group settles WITH its answer (`requestAccepted`
-        // and the own-device alert come from it). Unanswered: nothing is
-        // settled and the next trigger asks again.
-        return _sendLocked(op, id, group, row, priority, replay: true);
-      }
-      // No row carries the init (it is gone): the same success steps,
-      // with no message to answer for.
-      final settled = await _crypto.settleOwnInitLocked(
-        id,
-        group.generation,
-        priority: priority,
-      );
-      if (settled != InitSettle.settled) return none;
-      _onChanged(id);
-      return const _Next(_NextKind.drain);
-    }
-    // Decision: while this device may not start again (the flag is not on,
-    // or it was removed elsewhere) the group is kept as it is: nothing is
-    // sent either way, and nothing is destroyed that it could not rebuild.
-    if (!mayRebuild || !_session.mayStart || _removedElsewhere()) return none;
-    if (row == null) {
-      // No row to send: there is nothing to rebuild the group for. Audit
-      // M3: the "not stored" this discard rests on is the answer read just
-      // above, in this same hold of the lock, with no await between the
-      // two; the group is 24 h old, so no request of it is in flight
-      // ([kInitResendMargin]). A second listing here would be the same
-      // call twice.
-      await _crypto.discardProvisionalLocked(id, group.generation);
-      return const _Next(_NextKind.drain);
-    }
-    // Review I3. Decision: nothing is deleted here. The fresh claims come
-    // first, under no lock; the old group goes only in the transaction
-    // that stores the new one. A claim that fails for a passing reason
-    // (no network, a rate limit, a kill) then leaves this group in place
-    // and the next resume tries again, where a discard first would leave
-    // "known, no group" with nothing to retry it.
-    return _Next(_NextKind.rebuild, localId: row.localId);
-  }
-
-  /// Whether the server's first stored commit is this device's init
-  /// ([pending]): at its `builtOn` pair, with its exact bytes. False: the
-  /// conversation has no commit, or another one first. Null: the answer
-  /// does not say, or could not be had (nothing is decided on it). One
-  /// `ListConversationCommits` call, with the lock held.
-  ///
-  /// Task 9 ruling N (the runner's audit M2 rule, here for every keep or
-  /// discard of the starter: a retry's refusal or STALE_EPOCH, the expiry,
-  /// the rebuild's discard and its replace). "Not stored" is answered only
-  /// when no init call of [id] that outlived the client's wait could still
-  /// land: none still runs, and [kInitResendMargin] had passed after the
-  /// last one's end when the listing STARTED (`provedAt`, review N1's rule).
-  /// Otherwise null: nothing is decided, and that call's end schedules the
-  /// resume that asks again ([_trackInit]). Why: a "not stored" read while
-  /// the request can still be stored deletes a group the server then holds,
-  /// which locks its creator out (no welcome exists for a creator). "Stored"
-  /// is kept as read: it cannot be undone by a later store.
-  Future<bool?> _ownInitStored(
-    String id,
-    PendingCommit pending,
-    BudgetPriority priority,
-  ) async {
-    if (!await _takeSyncUnit(priority)) return null;
-    final provedAt = _now();
-    final own = await _listOwnInit(id, pending);
-    if (own == false && _initMayStillLand(id, at: provedAt)) return null;
-    return own;
-  }
-
-  /// The one `ListConversationCommits` call of [_ownInitStored].
-  Future<bool?> _listOwnInit(String id, PendingCommit pending) async {
-    bool? own;
-    try {
-      final page = await _messaging.listConversationCommits(
-        conversationId: id,
-        after: null,
-        pageSize: kCommitPageSize,
-      );
-      if (page.commits.isEmpty) {
-        // No commit at all, and the server says the conversation has none.
-        own = page.mlsGeneration == Int64.ZERO && page.mlsEpoch == Int64.ZERO
-            ? false
-            : null;
-      } else {
-        final c = page.commits.first;
-        final cg = pairComponentFromInt64(c.mlsGeneration);
-        final ce = pairComponentFromInt64(c.mlsEpoch);
-        if (cg != null && ce != null) {
-          own =
-              MlsPair(cg, ce) == pending.builtOn &&
-              _same(c.commit, pending.commit);
-        }
-      }
-    } on NotFoundException {
-      own = false;
-    } on Object catch (e, s) {
-      _reportIfBug(e, s, 'start.listConversationCommits');
-      return null;
-    }
-    return own;
-  }
-
-  /// The 24 h rebuild (review I3): fresh claims for the init row [localId]
-  /// of [id]'s expired provisional group, then ONE transaction that
-  /// replaces the old group, its pins and its row by the new ones under a
-  /// NEW key. True when the new group was stored. A failed claim changes
-  /// nothing. At a daily claim cap (`tryAgainTomorrow`), and when the peer
-  /// lists no usable device (review N5), the group is discarded and the row
-  /// fails with that reason; the user's retry starts again then. Before
-  /// either discard, and before the replace, the stored commits are asked
-  /// again under the lock (review F2, audit M3): a delete is made only on a
-  /// "not stored" read in the same hold.
-  Future<bool> _rebuild(
-    String id,
-    String localId,
-    BudgetPriority priority,
-  ) async {
-    final vault = _session.vault;
-    final peer = _known.peerOf(id);
-    if (vault == null || peer == null) return false;
-    GroupRecord? group;
-    for (final g in await vault.groups(id)) {
-      if (g.provisional) group = g;
-    }
-    final pending = group?.pending;
-    if (group == null || pending == null) return false;
-    final row = await _initRow(vault, id, group.generation);
-    if (row == null || row.localId != localId) return false;
-    final StartOutcome outcome;
-    try {
-      outcome = await _begin(
-        peer,
-        _Draft(
-          localId: row.localId,
-          content: row.content,
-          // Addressed exactly as the old row was.
-          recipient: row.recipientUserId,
-          conversationId: row.conversationId,
-          expectId: id,
-          replaces: row.idempotencyKey,
-          replacesCommit: pending.commit,
-          createdAtMicros: row.createdAtMicros,
-        ),
-        mode: _Mode.replace,
-        priority: priority,
-      );
-    } on _BadRandom {
-      _reportOnce('start.random');
-      return false;
-    }
-    if (outcome.result == StartResult.started) {
-      _forget(localId);
-      _onChanged(id);
-      return true;
-    }
-    final cause = outcome.cause;
-    // The stored reason of a rebuild that cannot be made, or null for an
-    // outcome that may pass (the group then stays as it is).
-    final String? reason;
-    if (outcome.result == StartResult.tryAgainTomorrow && cause != null) {
-      // The daily cap: no claim can succeed today, so the row fails now
-      // (the group cannot be rebuilt, and its init was not stored).
-      reason = sendErrorName(cause);
-    } else if (outcome.result == StartResult.peerHasNoDevice) {
-      // Review N5. Decision: the peer lists no usable device (it removed
-      // them, or R3 refuses every package). The old init is never sent
-      // again after 24 h, so keeping the group would leave the first
-      // message "sending" for good, with a commit call and two lookups at
-      // every resume and no way for the user to discard it. The group goes
-      // and the row fails; the user's retry starts again (F1, option c).
-      reason = kStartErrorPeerHasNoDevice;
-    } else {
-      // `lookupFailed` and `unavailable` are kept: a passing failure (no
-      // network, a rate limit, a vault that closed), or a state in doubt
-      // (the group changed under the claim, a claim that names another
-      // conversation). Nothing is deleted on those; [pendingInit] says
-      // `waiting`, never `sending`, for such a group.
-      reason = null;
-    }
-    if (reason != null) {
-      final discarded = await _locks.run(id, () async {
-        // Review F2. Decision: the commits are asked again here, in the
-        // hold of the lock that discards, and the group goes only on "not
-        // stored". Why: the expiry's own answer is from an earlier hold,
-        // before two lookups of up to 30 s each and a claim; a request the
-        // server took long over can be stored in between, and a creator
-        // that deleted a stored group is locked out of the conversation
-        // (no welcome exists for it). An answer that does not say keeps
-        // the group; the next resume asks again.
-        if (await _ownInitStored(id, pending, priority) != false) return false;
-        return _crypto.discardProvisionalLocked(
-          id,
-          group!.generation,
-          lastError: reason,
-        );
-      });
-      if (discarded) {
-        _forget(localId);
-        if (cause != null) _sender.rememberRefusal(localId, cause);
-        _onChanged(id);
-      }
-    }
-    return false;
-  }
-
   /// The stage-plain row [key] of [id] fails with the error name [name] (a
   /// restart that met a daily claim cap, or that could not be made, review
   /// W2): one more attempt and the name. [cause], when there is a typed
@@ -835,6 +663,20 @@ extension _Recovery on GroupStarter {
   void _forget(String localId) {
     _unknown.remove(localId);
     _notBefore.remove(localId);
+    _replayRefused.remove(localId);
+    _initRowOf.removeWhere((_, l) => l == localId);
+  }
+
+  /// Fix round 2, ruling 8 (code review nit): [id]'s provisional init was
+  /// discarded where only the conversation is known (the join code, through
+  /// `ConversationCrypto.onOwnInitDiscarded`, or the expiry with no row):
+  /// the memory of the init row this run sent for it goes ([_forget]).
+  /// Decision: the conversation's margins (an abandoned call, an unknown
+  /// outcome's start) are kept. Why: such a request may still land, and a
+  /// later group of the conversation must still wait for it.
+  void _forgetInit(String id) {
+    final localId = _initRowOf.remove(id);
+    if (localId != null) _forget(localId);
   }
 
   /// Audit M2: the init call under [key] got no answer in the client's
@@ -869,11 +711,81 @@ extension _Recovery on GroupStarter {
     );
   }
 
-  /// Whether an init request of [id] may still reach the server: a call
-  /// whose client wait ran out still runs, or ended less than
-  /// [kInitResendMargin] before [at] (now when not given; ruling N passes
-  /// the start of a commit listing).
-  bool _initMayStillLand(String id, {DateTime? at}) {
+  /// Whether an init request of [id] may still reach the server, at [at]
+  /// (now when not given; ruling N passes the start of a commit listing):
+  /// an abandoned call may still land ([_abandonedMayLand]), or (Task 9
+  /// concern 1) a call whose outcome stayed unknown started less than
+  /// [kInitResendMargin] before [at] ([_unknownMarginLeft]).
+  bool _initMayStillLand(String id, {DateTime? at}) =>
+      _abandonedMayLand(id, at: at) ||
+      _unknownMarginLeft(id, at ?? _now()) != null;
+
+  /// Task 9 concern 1 (the gate). The runner's rule for the starter: a
+  /// call whose outcome stayed unknown (a timeout, a lost answer, an
+  /// error nobody can tell) started at [at] for [id]; a later "not
+  /// stored" read decides nothing until [kInitResendMargin] after the
+  /// LAST such start. Why: the client's wait is shorter than the server's
+  /// request deadline, so that request can still be stored after a
+  /// refusal of the retry and after the listing that follows it; a
+  /// discard then deletes a group the server holds (no welcome exists
+  /// for its creator). Cost: a refusal right after an unknown attempt is
+  /// decided one margin later (Task 8 decided it at once). Memory of this
+  /// run; after a restart (fix round 3, ruling 1) a row's first request in
+  /// this run notes the earlier run's last request as started when this
+  /// run began ([_sendLocked]).
+  void _noteUnknownStart(String id, DateTime at) {
+    final last = _initUnknownStartedAt[id];
+    if (last == null || at.isAfter(last)) _initUnknownStartedAt[id] = at;
+  }
+
+  /// The time left, from now, until [kInitResendMargin] has passed after
+  /// [id]'s last unknown-outcome call start; null when it had passed at
+  /// [at]. Zero when it ends between [at] and now.
+  Duration? _unknownMarginLeft(String id, DateTime at) {
+    final last = _initUnknownStartedAt[id];
+    if (last == null) return null;
+    final end = last.add(kInitResendMargin);
+    if (!at.isBefore(end)) return null;
+    final now = _now();
+    return now.isBefore(end) ? end.difference(now) : Duration.zero;
+  }
+
+  /// One resume of [id] after [wait] (at background priority: a timer is
+  /// no user intent), armed once per conversation at a time. An end after
+  /// [reset] changes nothing.
+  ///
+  /// Pre-flag-on review m-1. Decision: when a resume of [id] still runs as
+  /// the timer fires, the armed one runs AFTER it, never joins it. Why: a
+  /// margin that ends while the listing runs arms this with no wait, from
+  /// inside the resume that holds the single-flight slot until its
+  /// [_afterNext] ends; joining that one asked nothing again, and the
+  /// group waited for an unrelated trigger.
+  void _armMarginResume(String id, Duration wait) {
+    if (!_marginArmed.add(id)) return;
+    final serial = _runSerial;
+    Zone.root.run(
+      () => _schedule(wait, () {
+        if (serial != _runSerial) return;
+        _marginArmed.remove(id);
+        final running = _running[id];
+        if (running == null) {
+          unawaited(_resume(id, BudgetPriority.background));
+          return;
+        }
+        unawaited(
+          running.whenComplete(() {
+            if (serial != _runSerial) return;
+            unawaited(_resume(id, BudgetPriority.background));
+          }),
+        );
+      }),
+    );
+  }
+
+  /// Audit M2: whether an init call of [id] whose client wait ran out
+  /// still runs, or ended less than [kInitResendMargin] before [at] (now
+  /// when not given).
+  bool _abandonedMayLand(String id, {DateTime? at}) {
     if ((_initCallsOut[id] ?? 0) > 0) return true;
     final ended = _initCallEndedAt[id];
     if (ended == null) return false;
@@ -904,6 +816,38 @@ OutboxItem _withAttempt(OutboxItem r, int attempts, {String? lastError}) =>
       attempts: attempts,
       lastError: lastError ?? r.lastError,
     );
+
+/// Pre-flag-on fix round 2, ruling 2: whether the server's refusal [e] of a
+/// replay is a lasting answer about the conversation: CANNOT_MESSAGE,
+/// FEATURE_DISABLED, or NOT_FOUND for the conversation. A refusal that
+/// names a retry time never counts.
+///
+/// Fix round 3, ruling 5 (audit L-1): these three are made BEFORE the
+/// server's replay lookup, not after it; they count because they last,
+/// not because the lookup found nothing. They can be undone (an unblock, a
+/// reactivation, an allowlist change), so a discard on them may delete a
+/// group the server still holds as ours. Only a STALE_EPOCH naming this
+/// conversation (read in [_sendLocked]) comes after the lookup.
+bool _lastingRefusal(AppException e) =>
+    _refusalRetryAfter(e) == null &&
+    (e is CannotMessageException ||
+        e is FeatureDisabledException ||
+        e is NotFoundException);
+
+/// The retry time a refusal [e] names (a rate limit, a quota, degraded
+/// mode, a limit reached), capped at [kMaxServerRetryWait]; null when it
+/// names none.
+Duration? _refusalRetryAfter(AppException e) {
+  final wait = switch (e) {
+    RateLimitedException(:final retryAfter) => retryAfter,
+    QuotaExceededException(:final retryAfter) => retryAfter,
+    DegradedModeException(:final retryAfter) => retryAfter,
+    LimitReachedException(:final retryAfter) => retryAfter,
+    _ => null,
+  };
+  if (wait == null || wait <= Duration.zero) return null;
+  return wait > kMaxServerRetryWait ? kMaxServerRetryWait : wait;
+}
 
 /// What a locked step asks to run once the lock is released.
 /// `settledReset` (Task 10): an own reset settled; catch up, then drain.

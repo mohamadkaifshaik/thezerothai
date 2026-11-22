@@ -437,6 +437,24 @@ extension _WelcomeJoin on ConversationCrypto {
         (settled == _Settled.ownStored || settled == _Settled.discarded)) {
       onOwnResetEnded?.call(id);
     }
+    // Fix round 2, ruling 8: an own init discarded here is the starter's
+    // to forget.
+    if (pending?.kind == PendingKind.init && settled == _Settled.discarded) {
+      onOwnInitDiscarded?.call(id);
+    }
+    // Task 8 concern 4: the starter's replay answers for the message now.
+    // Pre-flag-on review m-2: once per provisional group per run
+    // ([ConversationCrypto._initHandedOver]).
+    if (settled == _Settled.ownUnanswered) {
+      final group = (
+        generation: provisional.generation,
+        createdAtMicros: provisional.provisionalCreatedAtMicros,
+      );
+      if (_initHandedOver[id] != group) {
+        _initHandedOver[id] = group;
+        onOwnInitUnanswered?.call(id);
+      }
+    }
     return settled;
   }
 }
