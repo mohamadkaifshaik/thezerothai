@@ -1430,6 +1430,39 @@ void main() {
       expect(await pin(sib2), isNull);
     });
 
+    test('onAccepted with a racing bobCommits arms one re-check, which makes '
+        'the removal (review m-3)', () async {
+      final sibling = await RigPeer.create('sibling');
+      final bob2 = await RigPeer.create('bob2');
+      await setUpRequest(sibling);
+      rig.upkeep.queuedRemovals = (_) => {sibling.id};
+      peerList([bob, bob2]);
+      peerClaims([bob, bob2]);
+      var raced = false;
+      rig.server.onCall = (call) async {
+        if (call != 'commitConversation' || raced) return;
+        raced = true;
+        // Bob's own add of bob2 wins the pair: the acceptance's commit is
+        // superseded, and the held steps cannot pull.
+        await bobCommits(add: [await bob2.keyPackage()]);
+      };
+
+      await rig.upkeep.onAccepted(_c1);
+
+      expect(raced, isTrue);
+      expect(requests(), hasLength(1));
+      expect((await pin(sibling))!.side, MemberSide.mine);
+      expect(liveRechecks(), 1);
+      expect(rig.upkeepScheduled.last.delay, kPeerRemovalFetchGap);
+
+      rig.clock.advance(kPeerRemovalFetchGap);
+      await runRecheck();
+      expect(requests(), hasLength(2));
+      expect(requests().last.welcome, isNull);
+      expect(await pin(sibling), isNull);
+      expect((await pin(bob2))!.side, MemberSide.theirs);
+    });
+
     test('the first reply after an accept that committed is sent in the same '
         'drain', () async {
       final sibling = await RigPeer.create('sibling');

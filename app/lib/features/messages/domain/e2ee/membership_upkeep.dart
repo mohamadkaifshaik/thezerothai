@@ -207,10 +207,9 @@ class MembershipUpkeep {
     BudgetPriority priority = BudgetPriority.background,
   }) => _reconcileUnheld(conversationId, priority, recheck: false);
 
-  /// [reconcile] for a caller that ALREADY HOLDS the conversation lock. It
-  /// cannot pull: after `superseded` its second pass commits only when the
-  /// conversation is still synced, and otherwise arms one re-check, which
-  /// pulls (review I1 c).
+  /// [reconcile] for a caller that ALREADY HOLDS the conversation lock: one
+  /// pass. It cannot pull, so a `superseded` answer arms one re-check,
+  /// which pulls and reconciles on the new group (review m-3, ruling C).
   Future<void> reconcileLocked(
     String conversationId, {
     BudgetPriority priority = BudgetPriority.background,

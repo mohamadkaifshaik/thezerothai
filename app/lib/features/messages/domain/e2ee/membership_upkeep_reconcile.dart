@@ -77,9 +77,12 @@ extension _Reconcile on MembershipUpkeep {
   }
 
   /// The held entry (the acceptance steps, [MembershipUpkeep
-  /// .reconcileLocked]). It cannot pull: after `superseded` the second pass
-  /// commits only while still synced, else it arms one re-check (review I1
-  /// c). [recheck]: no self-update (R9 runs only from an open or a send).
+  /// .reconcileLocked]): ONE pass. Review m-3: a second pass here could
+  /// never commit, because a `superseded` answer leaves the conversation
+  /// unsynced and the held steps cannot pull. Plan step 4's "once more on
+  /// the caught-up group" is the re-check that answer arms instead (ruling
+  /// C): it runs unheld, pulls first and reconciles on the new group.
+  /// [recheck]: no self-update (R9 runs only from an open or a send).
   /// Never throws.
   Future<void> _reconcileLocked(
     String id,
@@ -87,19 +90,13 @@ extension _Reconcile on MembershipUpkeep {
     required bool recheck,
   }) async {
     try {
-      // Plan step 4: after `superseded`, once more on the caught-up group.
-      for (var round = 0; round < 2; round++) {
-        if (await _reconcileOnce(
-              id,
-              priority,
-              recheck: recheck,
-              depth: 0,
-              mayRunAgain: round == 0,
-            ) !=
-            CommitOutcome.superseded) {
-          return;
-        }
-      }
+      await _reconcileOnce(
+        id,
+        priority,
+        recheck: recheck,
+        depth: 0,
+        mayRunAgain: false,
+      );
     } on Object catch (e, s) {
       _reportIfBug(e, s, 'upkeep.reconcile');
     }
