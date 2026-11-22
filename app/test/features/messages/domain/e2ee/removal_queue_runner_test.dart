@@ -499,10 +499,14 @@ void main() {
       expect((await pin(sibling))!.side, MemberSide.mine);
     });
 
-    test('a queued id pinned on the peer\'s side is never removed; the entry '
-        'is dropped and reported', () async {
+    test('a queued id pinned on the peer\'s side with another key is never '
+        'removed; the entry and its mark are dropped and reported', () async {
       final twin = await RigPeer.create('twin');
-      await setUpRig(ownListed: [twin], peerListed: [twin]);
+      final other = await RigPeer.create('other');
+      // The own list showed the twin's id with another key than the peer
+      // pin carries.
+      await setUpRig(peerListed: [twin]);
+      rig.keys.own.add(rigKeyDevice(twin.idString, other.key));
       await join(_c1, others: [twin]);
       await synced();
       await _pinAs(twin, MemberSide.theirs);
@@ -523,6 +527,31 @@ void main() {
       await rig.restart();
       runner = build();
       expect(await runner.wasRemovedByUser(twin.id), isFalse);
+    });
+
+    test('a peer-side pin that carries the removed mark\'s key is a server '
+        'mis-attribution: never removed, the entry goes, the mark stays and '
+        'a key conflict is reported (fix round 4, CR2 M-7)', () async {
+      final twin = await RigPeer.create('twin');
+      await setUpRig(ownListed: [twin], peerListed: [twin]);
+      await join(_c1, others: [twin]);
+      await synced();
+      await _pinAs(twin, MemberSide.theirs);
+      expectedErrors = ['removalQueue.keyConflict'];
+
+      await removeAndSettle(twin);
+
+      expect(rig.keys.removeCalls.single.deviceId, twin.idString);
+      expect(requests(), isEmpty);
+      expect((await pin(twin))!.side, MemberSide.theirs);
+      expect(queued(_c1, twin), isFalse);
+      expect((await stored())!.entries, isEmpty);
+      // The key the user's own list showed is evidence the device is
+      // theirs: the mark stays, after a restart too.
+      expect(await runner.wasRemovedByUser(twin.id), isTrue);
+      await rig.restart();
+      runner = build();
+      expect(await runner.wasRemovedByUser(twin.id), isTrue);
     });
 
     test('the upkeep\'s reconcile never removes a queued id pinned on the '

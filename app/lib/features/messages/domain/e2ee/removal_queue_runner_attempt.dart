@@ -260,18 +260,32 @@ extension _RemovalAttempt on RemovalQueueRunner {
   }) {
     final before = _entries.length;
     final notOwn = <Uint8List>[];
+    var conflict = false;
     _entries.removeWhere((e) {
       if (e.conversationId != id) return false;
       if (_same(e.deviceId, thisDevice)) return true;
       if (!caughtUp) return false;
       final pinned = members.where((m) => _same(m.deviceId, e.deviceId));
       if (pinned.isEmpty) return true;
-      if (pinned.any((m) => m.side == MemberSide.theirs)) {
-        notOwn.add(e.deviceId);
+      final theirs = pinned.where((m) => m.side == MemberSide.theirs);
+      if (theirs.isNotEmpty) {
+        // Fix round 4, ruling 9 (CR2 M-7): a peer-side pin with the key the
+        // user's own list showed for the removed device is evidence the
+        // device is ours, attributed to the peer by the server: the mark
+        // stays (it keeps answering wasRemovedByUser) and a key conflict is
+        // reported (5b offers a reset). The entry still goes: the queue
+        // never removes a peer-side pin.
+        final key = _removedKeyOf(e.deviceId);
+        if (key != null && theirs.any((m) => _same(m.signatureKey, key))) {
+          conflict = true;
+        } else {
+          notOwn.add(e.deviceId);
+        }
         return true;
       }
       return false;
     });
+    if (conflict) _reportBug('removalQueue.keyConflict');
     if (notOwn.isNotEmpty) {
       // SA L2 (fix round 2, ruling 13): not this user's device, so not one
       // the user removed either: its mark goes too (written with the

@@ -84,7 +84,10 @@ const Duration kLostOwnListReuse = Duration(seconds: 60);
 /// fresh `ListMyKeyDevices` lists (the server answers success for any id,
 /// so the call alone proves nothing), and a pass removes only `mine` pins:
 /// an entry whose device is pinned on the peer's side leaves the queue and
-/// is reported (`removalQueue.notOwn`); an `unattributed` one waits for its
+/// is reported (`removalQueue.notOwn`; its removed mark goes too, unless
+/// the pin carries the mark's key: then the mark stays and
+/// `removalQueue.keyConflict` is reported, fix round 4, ruling 9); an
+/// `unattributed` one waits for its
 /// attribution, unless (fix round 2, ruling 1) its key is the key the fresh
 /// own list showed when the user removed it (stored with the removed mark):
 /// then it is removed too, since no list can attribute it any more. The
@@ -291,7 +294,8 @@ class RemovalQueueRunner {
   /// is not an answer: the queue also holds own devices no user removed
   /// (ruling 11). Own side only (SA L2, ruling 13): it answers for the
   /// user's own devices; an id the queue found pinned on the peer's side
-  /// loses its mark. Loads the stored record
+  /// loses its mark, unless that pin carries the mark's key (a server
+  /// mis-attribution, fix round 4, ruling 9). Loads the stored record
   /// first. Throws [StateError] when there is no vault or the record cannot
   /// be read: the answer is UNKNOWN then, and the caller must use only
   /// devices from a fresh directory. Read only.
