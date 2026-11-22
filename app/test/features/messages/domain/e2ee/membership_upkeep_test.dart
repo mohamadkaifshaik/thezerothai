@@ -1309,6 +1309,42 @@ void main() {
       expect((await sync()).requestAccepted, isFalse);
     });
 
+    test('acceptForReply refuses a thread that cannot be answered (review '
+        'm7)', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRequest(sibling);
+      rig.contexts.of(_c1).canReply = false;
+
+      await expectLater(
+        rig.upkeep.acceptForReply(_c1, priority: BudgetPriority.user),
+        throwsA(isA<StateError>()),
+      );
+      expect(rig.server.acceptRequests, isEmpty);
+      expect((await sync()).requestAccepted, isFalse);
+    });
+
+    test('an ACCEPTED header of a plaintext conversation writes no sync '
+        'record (review m7)', () async {
+      await setUpJoined();
+      rig.watchAcceptanceNow();
+      // _c2 has no record and no group here: it is not encrypted.
+      expect(await rig.device.vault.conversation(_c2), isNull);
+      final before = await rig.dump();
+
+      rig.contexts.note(
+        headerRow(
+          id: _c2,
+          state: ConversationState.CONVERSATION_STATE_ACCEPTED,
+        ),
+      );
+      await rig.upkeep.idle();
+
+      expect(await rig.device.vault.conversation(_c2), isNull);
+      expect(await rig.device.vault.groups(_c2), isEmpty);
+      expect(await rig.dump(), before);
+      expect(requests(), isEmpty);
+    });
+
     test('acceptance writes the own-device alert for an unseen own-side '
         'member attributed during the request', () async {
       final sibling = await RigPeer.create('sibling');
