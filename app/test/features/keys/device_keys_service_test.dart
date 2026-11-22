@@ -985,6 +985,123 @@ void main() {
     );
   });
 
+  group('daily batch cap', () {
+    const ist = Duration(hours: 5, minutes: 30);
+    Future<void> nextRun() async {
+      rig.advance(_hour);
+      await rig.service.onAppResumed();
+    }
+
+    /// Moves the clock to one minute after the next IST midnight.
+    void toNextIstDay() {
+      final local = rig.now.add(ist);
+      final midnight = DateTime.utc(
+        local.year,
+        local.month,
+        local.day,
+      ).add(_day).subtract(ist);
+      rig.advance(midnight.difference(rig.now) + const Duration(minutes: 1));
+    }
+
+    List<String> reported() => rig.reported.map((e) => e.toString()).toList();
+
+    test('at $kMaxKeyBatchesPerDay batches in an IST day nothing more is '
+        'generated or sent, reported once that day; the next day generates '
+        'again', () async {
+      toNextIstDay();
+      await rig.signIn(_a); // batch 1
+      final pool = rig.devices.values.single.pool;
+      for (var i = 2; i <= kMaxKeyBatchesPerDay; i++) {
+        pool.clear();
+        await nextRun();
+        expect(rig.engine.generated, hasLength(i));
+        expect(pool, hasLength(50));
+      }
+      final state = rig.file()!.deviceState;
+      final uploads = rig.server.uploads.length;
+
+      pool.clear();
+      await nextRun();
+      expect(rig.engine.generated, hasLength(kMaxKeyBatchesPerDay));
+      expect(rig.server.uploads, hasLength(uploads));
+      expect(rig.file()!.deviceState, state);
+      expect(
+        rig.service.status.value,
+        const DeviceKeysStatus.failed(retryable: true),
+      );
+      expect(reported(), ['DeviceKeysError(batchCap)']);
+
+      // Later the same day, and after a restart: still capped, not
+      // reported again.
+      await nextRun();
+      rig.launch();
+      await rig.signIn(_a);
+      expect(rig.engine.generated, hasLength(kMaxKeyBatchesPerDay));
+      expect(rig.server.uploads, hasLength(uploads));
+      expect(reported(), ['DeviceKeysError(batchCap)']);
+
+      toNextIstDay();
+      await rig.service.onAppResumed();
+      expect(rig.engine.generated, hasLength(kMaxKeyBatchesPerDay + 1));
+      expect(rig.server.uploads.last.keyPackages, hasLength(50));
+      expect(pool, hasLength(50));
+      expect(rig.service.status.value, DeviceKeysStatus.ready);
+    });
+
+    test('at the cap a saved last-resort package is still sent', () async {
+      toNextIstDay();
+      await rig.signIn(_a);
+      final device = rig.devices.values.single;
+      for (var i = 2; i < kMaxKeyBatchesPerDay; i++) {
+        device.pool.clear();
+        await nextRun();
+      }
+      // The last batch of the day carries a last-resort package (the
+      // server lost its one); both answers are lost.
+      device
+        ..pool.clear()
+        ..lastResort = null;
+      rig.server.failAfterApply['upload'] = [
+        connect.ConnectException(connect.Code.deadlineExceeded, 'timeout'),
+        connect.ConnectException(connect.Code.deadlineExceeded, 'timeout'),
+      ];
+      await nextRun();
+      expect(rig.engine.generated, hasLength(kMaxKeyBatchesPerDay));
+      final lastResort = rig.server.uploads.last.lastResortKeyPackage;
+      expect(lastResort, isNotEmpty);
+
+      // The count changed (claims): the one-time packages are dropped, the
+      // saved last-resort package alone is sent, at the cap.
+      device.pool.removeRange(0, 45);
+      final uploads = rig.server.uploads.length;
+      await nextRun();
+      expect(rig.server.uploads, hasLength(uploads + 1));
+      expect(rig.server.uploads.last.keyPackages, isEmpty);
+      expect(rig.server.uploads.last.lastResortKeyPackage, lastResort);
+      expect(rig.engine.generated, hasLength(kMaxKeyBatchesPerDay));
+
+      // The pool is low and nothing else is saved: capped.
+      await nextRun();
+      expect(rig.server.uploads, hasLength(uploads + 1));
+      expect(reported(), ['DeviceKeysError(batchCap)']);
+    });
+
+    test('an unreadable counter counts as the cap for today', () async {
+      toNextIstDay();
+      await rig.signIn(_a);
+      rig.file()!.rows[kVaultSettingKeyBatchDay] = '{';
+      rig.devices.values.single.pool.clear();
+      final uploads = rig.server.uploads.length;
+      await nextRun();
+      expect(rig.engine.generated, hasLength(1));
+      expect(rig.server.uploads, hasLength(uploads));
+      expect(reported(), ['DeviceKeysError(batchCap)']);
+      toNextIstDay();
+      await rig.service.onAppResumed();
+      expect(rig.engine.generated, hasLength(2));
+    });
+  });
+
   group('uploads with an unknown outcome', () {
     test('one identical retry (same key, same bytes), then a fresh top-up '
         'after the next list', () async {

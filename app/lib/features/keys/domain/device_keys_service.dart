@@ -14,6 +14,7 @@ import '../../../core/vault/vault_session.dart';
 import '../../../core/vault/vault_status.dart' show VaultCorruptException;
 import '../../../gen/dzeroth/keys/v1/keys.pb.dart' as pb;
 import '../data/keys_repository.dart';
+import 'key_batch_day.dart';
 import 'pending_upload.dart';
 
 /// One-time key packages uploaded at first registration, and the level a
@@ -80,6 +81,18 @@ const String kVaultSettingLastResortAt = 'keys.device.lastResortMicros';
 
 /// Sealed public packages whose private parts are already in the device state.
 const String kVaultSettingPendingUpload = 'keys.device.pendingUpload';
+
+/// The most key package batches generated per IST day (ruling E): until the
+/// core prune exists (Open question 9), a server that keeps the outcome of
+/// uploads unknown while the pool count moves must not grow the device
+/// state without limit. An honest, flaky network rarely needs more than 4.
+/// Cost: a pool that is truly drained can stay empty until the next IST day
+/// (the last-resort package still answers claims).
+const int kMaxKeyBatchesPerDay = 4;
+
+/// Sealed JSON `{"v":1,"day":"YYYY-MM-DD","n":k,"reported":bool}`: the
+/// batches generated on that IST day and whether the cap was reported.
+const String kVaultSettingKeyBatchDay = 'keys.device.batchDay';
 
 /// Builds the periodic check (injected so tests drive it by hand).
 typedef DeviceKeysTimerFactory = Timer Function(
@@ -162,6 +175,14 @@ class _DeviceUnusable implements Exception {
 /// The server reported a pool count outside [0, [kMaxKeyPackagePool]].
 class _BadPoolCount implements Exception {
   const _BadPoolCount();
+}
+
+/// [kMaxKeyBatchesPerDay] batches were generated today: nothing more is
+/// generated; [report] once per IST day.
+class _BatchCap implements Exception {
+  const _BatchCap({required this.report});
+
+  final bool report;
 }
 
 /// The most one-time key packages the directory stores per device (the
@@ -531,6 +552,10 @@ class DeviceKeysService {
       // Offline, UNAVAILABLE, unknown (the gate reports unknown ones), or a
       // call past the client deadline ([kDeviceKeysRpcTimeout]).
       _status.value = const DeviceKeysStatus.failed(retryable: true);
+    } on _BatchCap catch (e, stack) {
+      // Retried hourly; generation resumes on the next IST day.
+      _status.value = const DeviceKeysStatus.failed(retryable: true);
+      if (e.report) _report('batchCap', stack);
     } on _BadPoolCount catch (_, stack) {
       // Nothing generated or saved; reported on every run (hourly at most)
       // so a server that keeps answering it is not silenced.
@@ -761,6 +786,28 @@ class DeviceKeysService {
       if (unreadable) await store(PendingUpload.empty);
       return (PendingUpload.empty, false);
     }
+    // The daily cap (ruling E), read again and written in the transaction
+    // that commits the generation.
+    final today = istDay(_now());
+    Future<KeyBatchDay> batchDay() async {
+      final Uint8List? bytes;
+      try {
+        bytes = await v.setting(kVaultSettingKeyBatchDay);
+      } on VaultCorruptException {
+        return KeyBatchDay(today, kMaxKeyBatchesPerDay);
+      }
+      return KeyBatchDay.read(bytes, today, kMaxKeyBatchesPerDay);
+    }
+
+    final batches = await batchDay();
+    if (batches.count >= kMaxKeyBatchesPerDay) {
+      if (batches.reported) throw const _BatchCap(report: false);
+      final marked = KeyBatchDay(today, batches.count, reported: true);
+      await v.transaction(
+        (tx) => tx.putSetting(kVaultSettingKeyBatchDay, marked.encode()),
+      );
+      throw const _BatchCap(report: true);
+    }
     final state = await v.deviceState();
     if (state == null) throw StateError('No device state.');
     final r = await _engine().generateKeyPackages(
@@ -775,8 +822,15 @@ class DeviceKeysService {
       count,
     );
     await v.transaction((tx) async {
+      final current = await batchDay();
+      final counted = KeyBatchDay(
+        today,
+        current.count + 1,
+        reported: current.reported,
+      );
       await tx.putDeviceState(r.deviceState);
       await tx.putSetting(kVaultSettingPendingUpload, pending.encode());
+      await tx.putSetting(kVaultSettingKeyBatchDay, counted.encode());
     });
     return (pending, false);
   });
