@@ -405,6 +405,8 @@ class RemovalQueueRunner {
     final id = Uint8List.fromList(utf8.encode(deviceId));
     final vault = _session.vault;
     if (vault == null) throw StateError('The vault is not ready.');
+    // Fix round 5, ruling 3: the run this call started in.
+    final resets = _resets;
     final own = await vault.deviceId();
     if (own == null) throw StateError('This device has no id yet.');
     if (_same(own, id)) {
@@ -513,6 +515,7 @@ class RemovalQueueRunner {
               vault,
               waiting,
               BudgetPriority.live,
+              resets,
             );
           }
         }

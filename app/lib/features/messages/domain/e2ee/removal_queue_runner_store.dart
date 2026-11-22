@@ -144,7 +144,7 @@ extension _RemovalStore on RemovalQueueRunner {
         return;
       } on Object catch (e, s) {
         if (_definiteRefusal(e) && _current(vault, resets)) {
-          await _settleRefusedRetry(vault, intent, priority);
+          await _settleRefusedRetry(vault, intent, priority, resets);
         } else {
           _reportIfBug(e, s, 'removalQueue.intent');
         }
@@ -173,16 +173,17 @@ extension _RemovalStore on RemovalQueueRunner {
   ///   honestly be: this device is in it): the intent stays for the next
   ///   pass.
   /// True when the device was queued. A failed intent write is reported if
-  /// it is a bug; the intent then stays.
+  /// it is a bug; the intent then stays. [resets]: the run the caller
+  /// started in (fix round 5, ruling 3: nothing is decided for a queue a
+  /// reset() and a reload replaced meanwhile).
   Future<bool> _settleRefusedRetry(
     SecureVault vault,
     RemovalMark intent,
     BudgetPriority priority,
+    int resets,
   ) async {
     final own = await _directory.own(fresh: true, priority: priority);
-    if (!identical(_session.vault, vault) || !identical(_loadedFor, vault)) {
-      return false;
-    }
+    if (!_current(vault, resets)) return false;
     if (!own.readableNonEmpty) return false;
     final id = utf8.encode(intent.deviceId);
     if (own.devices.any((d) => _same(d.deviceId, id))) {

@@ -736,6 +736,50 @@ void main() {
       expect(await pin(sibling), isNull);
     });
 
+    test('a park that waited for the lock across reset() and a reload parks '
+        'nothing (fix round 5, m3)', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await stateOnly(_c1, accepted: false, mine: [sibling]);
+      // The user's removal: an entry with its mark.
+      await rig.device.vault.transaction((tx) async {
+        await tx.putSetting(
+          kVaultSettingRemovalQueue,
+          RemovalQueue(
+            entries: [
+              RemovalQueueEntry(deviceId: sibling.id, conversationId: _c1),
+            ],
+          ).encode(),
+        );
+        await tx.putSetting(
+          kVaultSettingRemovalRecord,
+          RemovalRecord(
+            removed: [
+              RemovalMark(
+                deviceId: sibling.idString,
+                atMicros: rig.clock.now().microsecondsSinceEpoch,
+              ),
+            ],
+          ).encode(),
+        );
+      });
+      // Someone holds the conversation lock; the pass's park waits for it.
+      final release = Completer<void>();
+      final held = rig.locks.run(_c1, () => release.future);
+      final pass = runner.runPass();
+      for (var i = 0; i < 50; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      // Sign-out, and the next run loads the stored queue.
+      runner.reset();
+      expect(await runner.wasRemovedByUser(sibling.id), isTrue);
+      release.complete();
+      await held;
+      await pass;
+
+      expect((await stored())!.entries.single.parked, isFalse);
+    });
+
     test('a pass that outlives reset() and a reload during its catch-up '
         'makes no commit (fix round 4, CR2 M-2)', () async {
       final sibling = await RigPeer.create('sibling');

@@ -47,6 +47,9 @@ extension _RemovalAttempt on RemovalQueueRunner {
       // R10, and a thread that cannot be answered: parked (the device's
       // pin is checked first, so a non-member entry goes instead).
       await _locks.run(id, () async {
+        // Fix round 5, ruling 3 (m3): after the read and the lock's wait, a
+        // reset() (and a reload) must not see this pass park its queue.
+        if (!_current(vault, resets)) return;
         await _prune(vault, id, thisDevice);
         _park(id);
         await _save(vault);
