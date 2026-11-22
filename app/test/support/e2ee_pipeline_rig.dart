@@ -1716,6 +1716,26 @@ class RigKeys implements KeysRepository {
     return answer == null ? kpb.ClaimKeyPackagesResponse() : answer();
   }
 
+  /// Every `RemoveKeyDevice` call, in order (a refused one too).
+  final List<({String deviceId, String key})> removeCalls = [];
+
+  /// Thrown by every `RemoveKeyDevice` call while set.
+  Object? removeError;
+
+  /// `RemoveKeyDevice` (Task 11): as the server does, the device leaves the
+  /// own list.
+  @override
+  Future<kpb.RemoveKeyDeviceResponse> removeDevice({
+    required String deviceId,
+    required String idempotencyKey,
+  }) async {
+    removeCalls.add((deviceId: deviceId, key: idempotencyKey));
+    final error = removeError;
+    if (error != null) throw error;
+    own.removeWhere((d) => d.deviceId == deviceId);
+    return kpb.RemoveKeyDeviceResponse();
+  }
+
   @override
   Future<kpb.ListMyKeyDevicesResponse> listMine() async {
     listCalls++;

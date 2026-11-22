@@ -1,0 +1,697 @@
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:flutter/foundation.dart';
+
+import '../../../../core/crypto/crypto_engine.dart';
+import '../../../../core/network/app_exception.dart';
+import '../../../../core/vault/secure_vault.dart';
+import '../../../../core/vault/vault_session.dart';
+import '../../../../core/vault/vault_status.dart';
+import '../../../keys/data/keys_repository.dart';
+import '../../../keys/domain/device_keys_service.dart'
+    show kDeviceKeysRateLimitFallback;
+import '../../data/messaging_repository.dart' show kMlsRpcTimeout;
+import 'commit_runner.dart';
+import 'conversation_context.dart';
+import 'conversation_crypto.dart';
+import 'conversation_locks.dart';
+import 'e2ee_types.dart';
+import 'membership_upkeep.dart';
+import 'message_receiver.dart';
+import 'pipeline_support.dart';
+import 'sync_budget.dart';
+
+/// The device-removal queue (plan Task 11, R17): the user removes one of
+/// their devices; this device removes it from every encrypted conversation
+/// it holds group state for.
+///
+/// **removeDevice.** `RemoveKeyDevice` first (sent with the flag off too
+/// when this device has a vault, F-5). A failure queues nothing and
+/// rethrows: the device is still in the directory, so a removal commit
+/// would be undone by another device's next reconciliation (M11: 5b's text
+/// says the device can still read and send, and that blocking or resetting
+/// a conversation are the remaining choices). Only on success is the device
+/// queued, once for every conversation with group state, most recently
+/// active first (the newest stored message).
+///
+/// **A pass** visits the queued conversations in order and makes at most
+/// ONE attempt in each (one `CommitConversation` change carrying every
+/// queued device of it, or the resume of its pending record), then stops.
+/// An entry leaves the queue when its device is no longer a pinned member
+/// (removed by this commit or by anyone's). CANNOT_MESSAGE, and a thread
+/// that cannot be answered, park the entry until [noteConversation] sees
+/// the conversation usable again; an unaccepted conversation parks it
+/// until [onAccepted]. RATE_LIMITED stops the pass and stores
+/// `notBeforeMicros` (below).
+///
+/// **The last peer-side device (Task 9 audit L5, brief amendment 1).** A
+/// queued device pinned on the peer's side is never removed when it is the
+/// peer's last peer-side member: the entry stays queued and
+/// [lastPeerDeviceKept] reports it, so the user's choice is still shown
+/// (the 5b copy: the device can still read; block or reset are the
+/// remaining choices, M11). The upkeep's reconcile, fed from this queue,
+/// applies the same guard.
+///
+/// **Rate limits (audit L1, round P; amendment 2).** A RATE_LIMITED answer
+/// to THIS pass's change is read from [CommitRunner.lastRateLimitIn] of the
+/// conversation (compared by identity before and after), never the
+/// runner-wide [CommitRunner.lastRateLimit], which another conversation's
+/// commit may have set. The entry stays; `notBeforeMicros` = now + the
+/// server's retry time capped at [kMaxServerRetryWait] (24 h, security
+/// read L1), or [kDeviceKeysRateLimitFallback] when it named none (Open
+/// question 7); no pass starts before it, and one timer starts the pass
+/// then.
+///
+/// **The pause exemption (ruling H; amendment 3).** Every change is a
+/// user-queued removal, so it goes through [CommitRunner.mayCommit] and
+/// [CommitRunner.changeLocked] with `pauseExempt: true`: the M5 pause and
+/// the fail-closed ledger do not hold it; the 20-call cap and every other
+/// condition still do.
+///
+/// **One owner per pass (amendment 4).** The upkeep's `queuedRemovals` is
+/// [queuedFor] (set by the constructor), so `reconcile`'s one commit
+/// carries the queued removals, and the acceptance's reconcile runs them
+/// before any encrypt (R10). Both commit only under the conversation lock
+/// after reading the pins fresh, and neither calls the other: whichever
+/// holds the lock first owns that conversation's removal for that hold;
+/// the other finds the device gone (an applied commit) or a pending record
+/// (which it resumes, never rebuilds). So the same removal is never
+/// committed twice. This runner's pass never calls `reconcile`; the
+/// upkeep never calls this runner.
+///
+/// **Priorities (amendment 5).** Timer-driven passes, and the passes the
+/// vault-ready, resume and conversation hooks start, run at
+/// [BudgetPriority.background]; the pass after [removeDevice] at
+/// [BudgetPriority.live]. No pass runs at [BudgetPriority.user]: a user
+/// priority asked of [runPass] is served as live.
+///
+/// **Persistence (amendment 7).** The queue lives in the vault under
+/// [kVaultSettingRemovalQueue] (sealed) and is written after every change;
+/// it survives a restart ([onVaultReady] loads it). A stored value that
+/// cannot be read is "unknown": nothing is queued, removed or written
+/// (fail closed), [unreadable] says so, and [removeDevice] refuses before
+/// any call.
+///
+/// Never logs; an unexpected failure is reported as [E2eePipelineError]
+/// with a step name only. Defines no `toString` (it holds device ids).
+class RemovalQueueRunner {
+  /// [upkeep]: its `queuedRemovals` seam is set to [queuedFor] here, so
+  /// the wiring cannot leave it unset (amendment 4). [schedule] runs a
+  /// callback later (a [Timer] in production) and answers a handle that
+  /// cancels it: the one pass at `notBeforeMicros`.
+  RemovalQueueRunner({
+    required KeysRepository keys,
+    required CommitRunner commits,
+    required MembershipUpkeep upkeep,
+    required MessageReceiver receiver,
+    required ConversationCrypto crypto,
+    required VaultSession session,
+    required CryptoEngine Function() engine,
+    required ConversationLocks locks,
+    required ConversationContexts contexts,
+    required DateTime Function() now,
+    required bool Function() removedElsewhere,
+    void Function() Function(Duration delay, void Function() run)? schedule,
+    void Function(Object error, StackTrace stack)? onUnexpectedError,
+  }) : _keys = keys,
+       _commits = commits,
+       _receiver = receiver,
+       _crypto = crypto,
+       _session = session,
+       _engine = engine,
+       _locks = locks,
+       _contexts = contexts,
+       _now = now,
+       _removedElsewhere = removedElsewhere,
+       _schedule = schedule ?? ((delay, run) => Timer(delay, run).cancel),
+       _onUnexpectedError = onUnexpectedError {
+    upkeep.queuedRemovals = queuedFor;
+  }
+
+  final KeysRepository _keys;
+  final CommitRunner _commits;
+  final MessageReceiver _receiver;
+  final ConversationCrypto _crypto;
+  final VaultSession _session;
+  final CryptoEngine Function() _engine;
+  final ConversationLocks _locks;
+  final ConversationContexts _contexts;
+  final DateTime Function() _now;
+  final bool Function() _removedElsewhere;
+  final void Function() Function(Duration delay, void Function() run) _schedule;
+  final void Function(Object error, StackTrace stack)? _onUnexpectedError;
+
+  /// The image of the stored queue, valid for [_loadedFor] only.
+  final List<RemovalQueueEntry> _entries = [];
+  int? _notBeforeMicros;
+  SecureVault? _loadedFor;
+
+  /// The vault whose stored queue could not be read (reported once).
+  SecureVault? _unreadableFor;
+
+  /// Device ids (hex) removed with [removeDevice] in this run.
+  final Set<String> _removedThisRun = {};
+
+  /// Conversations whose last pass kept a queued peer-side device because
+  /// it is the peer's last peer-side member (amendment 1).
+  final Set<String> _lastKept = {};
+
+  final ValueNotifier<int> _pending = ValueNotifier(0);
+
+  Future<void>? _running;
+  bool _again = false;
+  BudgetPriority _againPriority = BudgetPriority.background;
+
+  void Function()? _timerCancel;
+  DateTime? _timerAt;
+
+  // -------------------------------------------------------------------------
+  // Reads
+
+  /// The queued conversations, parked ones included (5b's
+  /// `removalsPending`). Nothing is ever dropped for being slow: with more
+  /// than about 400 conversations the queue takes more than a day (500
+  /// commit calls per user per day, shared by all own devices).
+  ValueListenable<int> get pending => _pending;
+
+  /// The device ids queued for [conversationId], parked ones included (the
+  /// upkeep's `queuedRemovals`, amendment 4). Empty while the queue is not
+  /// loaded for the open vault, or cannot be read (fail closed).
+  Set<Uint8List> queuedFor(String conversationId) {
+    if (!_loaded) return <Uint8List>{};
+    return {
+      for (final e in _entries)
+        if (e.conversationId == conversationId) e.deviceId,
+    };
+  }
+
+  /// Amendment 6, for Task 10's `_createReset` (a follow-up after Task 10
+  /// merges): whether the user removed [deviceId] — it is queued for any
+  /// conversation, or was removed with [removeDevice] in this run. Read
+  /// only. Stated limit: once every entry of a device has left the queue
+  /// and the app restarted, this answers false; the directory no longer
+  /// lists the device then (RemoveKeyDevice succeeded), and a vault-held
+  /// "never add this device" list is a later design (plan Task 11, M11).
+  bool wasRemovedByUser(Uint8List deviceId) {
+    if (_removedThisRun.contains(vaultDeviceIdHex(deviceId))) return true;
+    if (!_loaded) return false;
+    return _entries.any((e) => _same(e.deviceId, deviceId));
+  }
+
+  /// Amendment 1: the last pass of [conversationId] kept a queued device
+  /// because it is the peer's last peer-side member. The entry stays.
+  bool lastPeerDeviceKept(String conversationId) =>
+      _lastKept.contains(conversationId);
+
+  /// Amendment 7: the stored queue of the open vault could not be read.
+  bool get unreadable =>
+      _unreadableFor != null && identical(_unreadableFor, _session.vault);
+
+  bool get _loaded =>
+      _loadedFor != null && identical(_loadedFor, _session.vault);
+
+  // -------------------------------------------------------------------------
+  // The public entries
+
+  /// R17: RemoveKeyDevice first; only on success the device is queued for
+  /// every conversation this device has group state for, most recently
+  /// active first. Throws [ArgumentError] for an empty id and for this
+  /// device's own id (use sign-out), [StateError] with no call when there
+  /// is no vault or the stored queue cannot be read, and rethrows a failed
+  /// RemoveKeyDevice (nothing queued). Then a pass starts at
+  /// [BudgetPriority.live]; this returns once the queue is stored.
+  Future<void> removeDevice(String deviceId) async {
+    if (deviceId.isEmpty) throw ArgumentError.value('', 'deviceId');
+    final id = Uint8List.fromList(utf8.encode(deviceId));
+    final vault = _session.vault;
+    if (vault == null) throw StateError('The vault is not ready.');
+    final own = await vault.deviceId();
+    if (own == null) throw StateError('This device has no id yet.');
+    if (_same(own, id)) {
+      throw ArgumentError('This device is removed by signing out.');
+    }
+    if (!await _ensureLoaded(vault)) {
+      throw StateError('The removal queue cannot be read.');
+    }
+    final key = hexOf(await randomOf(_engine(), 16));
+    await _keys
+        .removeDevice(deviceId: deviceId, idempotencyKey: key)
+        .timeout(
+          kMlsRpcTimeout,
+          onTimeout: () => throw const NetworkException('timed out'),
+        );
+    _removedThisRun.add(vaultDeviceIdHex(id));
+    if (!identical(_session.vault, vault) || !_loaded) {
+      throw StateError('The vault changed.');
+    }
+    final ranked = await _byRecentActivity(vault);
+    var changed = false;
+    for (final c in ranked) {
+      final already = _entries.any(
+        (e) => e.conversationId == c && _same(e.deviceId, id),
+      );
+      if (already) continue;
+      _entries.add(RemovalQueueEntry(deviceId: id, conversationId: c));
+      changed = true;
+    }
+    if (changed) await _save(vault);
+    _startPass(BudgetPriority.live);
+  }
+
+  /// One pass: one attempt per queued conversation, then stop. Joins a
+  /// running pass (one more runs after it). [priority]
+  /// [BudgetPriority.user] is served as [BudgetPriority.live]
+  /// (amendment 5). Never throws.
+  Future<void> runPass({BudgetPriority priority = BudgetPriority.background}) =>
+      _startPass(priority);
+
+  /// The vault became ready: the stored queue is loaded and a pass starts.
+  Future<void> onVaultReady() => _startPass(BudgetPriority.background);
+
+  /// The app resumed: a pass starts (none before `notBeforeMicros`).
+  Future<void> onAppResumed() => _startPass(BudgetPriority.background);
+
+  /// The app is paused: the queue timer is cancelled (no call while
+  /// paused). The next trigger arms it again.
+  void cancelScheduled() {
+    final cancel = _timerCancel;
+    _timerCancel = null;
+    _timerAt = null;
+    cancel?.call();
+  }
+
+  /// Sign-out or a new vault: the timer is cancelled and this run's memory
+  /// forgotten (the stored queue stays in its vault).
+  void reset() {
+    cancelScheduled();
+    _entries.clear();
+    _notBeforeMicros = null;
+    _loadedFor = null;
+    _unreadableFor = null;
+    _removedThisRun.clear();
+    _lastKept.clear();
+    _publish();
+  }
+
+  /// A conversation header or inbox row was taken
+  /// (`ConversationContexts.note`; Task 13 wires it): when [conversationId]
+  /// is usable again (accepted, and its thread can be answered), its parked
+  /// entries are un-parked and a pass starts. Never throws.
+  Future<void> noteConversation(String conversationId) =>
+      _unparkIfUsable(conversationId);
+
+  /// R10: [conversationId] became accepted (after the upkeep's acceptance,
+  /// whose reconcile already carried the queued removals): its parked
+  /// entries are un-parked when it can be answered, and a pass starts (it
+  /// lets go of the removed ones). Never throws.
+  Future<void> onAccepted(String conversationId) =>
+      _unparkIfUsable(conversationId);
+
+  /// Completes when no pass is running.
+  @visibleForTesting
+  Future<void> idle() async {
+    while (_running != null) {
+      await _running;
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Passes
+
+  Future<void> _startPass(BudgetPriority priority) {
+    final p = priority == BudgetPriority.user ? BudgetPriority.live : priority;
+    final running = _running;
+    if (running != null) {
+      _again = true;
+      if (p.index < _againPriority.index) _againPriority = p;
+      return running;
+    }
+    // In the root zone: a pass must not read as holding the lock of
+    // whoever started it.
+    final run = Zone.root.run(() => _passes(p));
+    _running = run;
+    unawaited(
+      run.whenComplete(() {
+        if (identical(_running, run)) _running = null;
+      }),
+    );
+    return run;
+  }
+
+  Future<void> _passes(BudgetPriority first) async {
+    var priority = first;
+    while (true) {
+      _again = false;
+      _againPriority = BudgetPriority.background;
+      try {
+        await _pass(priority);
+      } on Object catch (e, s) {
+        _reportIfBug(e, s, 'removalQueue.pass');
+      }
+      if (!_again) return;
+      priority = _againPriority;
+    }
+  }
+
+  Future<void> _pass(BudgetPriority priority) async {
+    final vault = _session.vault;
+    if (vault == null || _removedElsewhere()) return;
+    if (!await _ensureLoaded(vault)) return;
+    final thisDevice = await vault.deviceId();
+    if (thisDevice == null) return;
+    final notBefore = _notBeforeMicros;
+    if (notBefore != null) {
+      final at = DateTime.fromMicrosecondsSinceEpoch(notBefore, isUtc: true);
+      if (_now().isBefore(at)) {
+        _armTimer(at);
+        return;
+      }
+      _notBeforeMicros = null;
+      await _save(vault);
+    }
+    final order = <String>[];
+    for (final e in _entries) {
+      if (!order.contains(e.conversationId)) order.add(e.conversationId);
+    }
+    for (final id in order) {
+      if (!identical(_session.vault, vault) || _removedElsewhere()) return;
+      if (await _attempt(vault, id, thisDevice, priority)) return;
+    }
+  }
+
+  /// One conversation's turn. True: RATE_LIMITED, the pass stops.
+  Future<bool> _attempt(
+    SecureVault vault,
+    String id,
+    Uint8List thisDevice,
+    BudgetPriority priority,
+  ) async {
+    // Parked entries wait for their hook; no call.
+    if (_entries.every((e) => e.conversationId != id || e.parked)) {
+      return false;
+    }
+    final context = _contexts.of(id);
+    final accepted =
+        (await vault.conversation(id))?.sync.requestAccepted ?? false;
+    if (!accepted || !context.canReply) {
+      // R10, and a thread that cannot be answered: parked (the device's
+      // pin is checked first, so a non-member entry goes instead).
+      await _locks.run(id, () async {
+        await _prune(vault, id, thisDevice);
+        _park(id);
+        await _save(vault);
+      });
+      return false;
+    }
+    if (!context.syncedSinceStart) {
+      // A commit needs a live pull of the current pair this run; the pull
+      // takes the lock itself, so it runs before the hold.
+      await _receiver.pullLive(id, priority: priority);
+    }
+    return _locks.run(
+      id,
+      () => _attemptLocked(vault, id, thisDevice, priority),
+    );
+  }
+
+  Future<bool> _attemptLocked(
+    SecureVault vault,
+    String id,
+    Uint8List thisDevice,
+    BudgetPriority priority,
+  ) async {
+    if (!identical(_session.vault, vault)) return false;
+    final groups = await vault.groups(id);
+    if (groups.isEmpty || groups.any((g) => g.provisional)) {
+      // No current group yet: pins decide whether the entry stays.
+      if (await _prune(vault, id, thisDevice)) await _save(vault);
+      return false;
+    }
+    final limitBefore = _commits.lastRateLimitIn(id);
+    CommitOutcome outcome;
+    if (groups.last.hasPending) {
+      // The one attempt is the resume of the pending record (it may be this
+      // queue's earlier removal).
+      outcome = await _commits.resumePendingLocked(id, priority: priority);
+    } else {
+      if (await _crypto.catchUpLocked(id, priority: priority) !=
+          CatchUpResult.current) {
+        if (await _prune(vault, id, thisDevice)) await _save(vault);
+        return false;
+      }
+      if (!identical(_session.vault, vault)) return false;
+      final members = await vault.members(id);
+      if (_pruneAgainst(id, members, thisDevice)) await _save(vault);
+      final removes = _removable(id, members);
+      if (removes.isEmpty) return false;
+      if (!await _commits.mayCommit(
+        id,
+        PendingKind.change,
+        pauseExempt: true,
+      )) {
+        return false;
+      }
+      outcome = await _commits.changeLocked(
+        id,
+        removeDeviceIds: removes,
+        priority: priority,
+        pauseExempt: true,
+      );
+    }
+    if (!identical(_session.vault, vault)) return false;
+    final limit = _commits.lastRateLimitIn(id);
+    final rateLimited =
+        outcome == CommitOutcome.refused &&
+        limit != null &&
+        !identical(limit, limitBefore);
+    var changed = await _prune(vault, id, thisDevice);
+    if (rateLimited) {
+      var wait = limit.retryAfter;
+      if (wait == null || wait <= Duration.zero) {
+        wait = kDeviceKeysRateLimitFallback;
+      }
+      if (wait > kMaxServerRetryWait) wait = kMaxServerRetryWait;
+      final at = _now().add(wait);
+      _notBeforeMicros = at.microsecondsSinceEpoch;
+      await _save(vault);
+      _armTimer(at);
+      return true;
+    }
+    if (outcome == CommitOutcome.refused && !_contexts.of(id).canReply) {
+      // CANNOT_MESSAGE: parked until the conversation is usable again.
+      _park(id);
+      changed = true;
+    }
+    if (changed) await _save(vault);
+    return false;
+  }
+
+  /// The queued members of [id] this pass may remove: never this device
+  /// (pruned already), and never the peer's last peer-side member
+  /// (amendment 1; [_lastKept] records it).
+  List<Uint8List> _removable(String id, List<MemberRecord> members) {
+    final queued = queuedFor(id);
+    final out = <Uint8List>[];
+    var theirs = members.where((m) => m.side == MemberSide.theirs).length;
+    var kept = false;
+    for (final m in members) {
+      if (!queued.any((q) => _same(q, m.deviceId))) continue;
+      if (m.side == MemberSide.theirs) {
+        if (theirs <= 1) {
+          kept = true;
+          continue;
+        }
+        theirs--;
+      }
+      out.add(m.deviceId);
+    }
+    if (kept) {
+      _lastKept.add(id);
+    } else {
+      _lastKept.remove(id);
+    }
+    return out;
+  }
+
+  // -------------------------------------------------------------------------
+  // The queue
+
+  /// Drops [id]'s entries whose device is no longer pinned there (and any
+  /// naming this device). True when the queue changed.
+  Future<bool> _prune(
+    SecureVault vault,
+    String id,
+    Uint8List thisDevice,
+  ) async => _pruneAgainst(id, await vault.members(id), thisDevice);
+
+  bool _pruneAgainst(
+    String id,
+    List<MemberRecord> members,
+    Uint8List thisDevice,
+  ) {
+    final before = _entries.length;
+    _entries.removeWhere(
+      (e) =>
+          e.conversationId == id &&
+          (_same(e.deviceId, thisDevice) ||
+              !members.any((m) => _same(m.deviceId, e.deviceId))),
+    );
+    if (!_entries.any((e) => e.conversationId == id)) _lastKept.remove(id);
+    final changed = _entries.length != before;
+    if (changed) _publish();
+    return changed;
+  }
+
+  void _park(String id) => _setParked(id, parked: true);
+
+  bool _setParked(String id, {required bool parked}) {
+    var changed = false;
+    for (var i = 0; i < _entries.length; i++) {
+      final e = _entries[i];
+      if (e.conversationId != id || e.parked == parked) continue;
+      _entries[i] = RemovalQueueEntry(
+        deviceId: e.deviceId,
+        conversationId: e.conversationId,
+        parked: parked,
+      );
+      changed = true;
+    }
+    return changed;
+  }
+
+  Future<void> _unparkIfUsable(String id) async {
+    try {
+      final vault = _session.vault;
+      if (vault == null || !await _ensureLoaded(vault)) return;
+      final accepted =
+          (await vault.conversation(id))?.sync.requestAccepted ?? false;
+      if (!accepted || !_contexts.of(id).canReply) return;
+      if (_setParked(id, parked: false)) await _save(vault);
+      if (_entries.any((e) => e.conversationId == id)) {
+        await _startPass(BudgetPriority.background);
+      }
+    } on Object catch (e, s) {
+      _reportIfBug(e, s, 'removalQueue.unpark');
+    }
+  }
+
+  /// The conversations with group state, most recently active first (the
+  /// newest stored message; none counts as oldest; a tie keeps the vault's
+  /// ascending order).
+  Future<List<String>> _byRecentActivity(SecureVault vault) async {
+    final ids = await vault.groupConversationIds();
+    final at = <String, int>{};
+    for (final id in ids) {
+      final newest = await vault.messages(id, limit: 1);
+      at[id] = newest.isEmpty ? 0 : newest.first.createdAtMicros;
+    }
+    final indexed = [for (var i = 0; i < ids.length; i++) (i, ids[i])];
+    indexed.sort((a, b) {
+      final c = at[b.$2]!.compareTo(at[a.$2]!);
+      return c != 0 ? c : a.$1.compareTo(b.$1);
+    });
+    return [for (final e in indexed) e.$2];
+  }
+
+  /// Loads the stored queue for [vault] when this image is not of it.
+  /// False: it cannot be read (amendment 7: unknown, nothing changes; the
+  /// stored value is left as it is) or the vault changed meanwhile.
+  Future<bool> _ensureLoaded(SecureVault vault) async {
+    if (identical(_loadedFor, vault)) return true;
+    try {
+      final raw = await vault.setting(kVaultSettingRemovalQueue);
+      final queue = raw == null
+          ? const RemovalQueue()
+          : RemovalQueue.decode(raw);
+      if (!identical(_session.vault, vault)) return false;
+      if (identical(_loadedFor, vault)) return true;
+      _entries
+        ..clear()
+        ..addAll(queue.entries);
+      _notBeforeMicros = queue.notBeforeMicros;
+      _loadedFor = vault;
+      _unreadableFor = null;
+      _lastKept.clear();
+      _publish();
+      return true;
+    } on VaultCorruptException {
+      if (!identical(_unreadableFor, vault)) {
+        _unreadableFor = vault;
+        _reportBug('removalQueue.read');
+      }
+      _loadedFor = null;
+      _entries.clear();
+      _publish();
+      return false;
+    } on Object catch (e, s) {
+      _reportIfBug(e, s, 'removalQueue.load');
+      return false;
+    }
+  }
+
+  /// Writes the image to [vault] (one transaction). The image stays as it
+  /// is when the write fails (a removal is kept rather than lost; the next
+  /// change writes it again).
+  Future<void> _save(SecureVault vault) async {
+    _publish();
+    final queue = RemovalQueue(
+      entries: List.of(_entries),
+      notBeforeMicros: _notBeforeMicros,
+    );
+    await _session.runWrite((v) async {
+      if (!identical(v, vault) || !identical(_loadedFor, vault)) {
+        throw StateError('The vault changed.');
+      }
+      await v.transaction(
+        (tx) => tx.putSetting(kVaultSettingRemovalQueue, queue.encode()),
+      );
+    });
+  }
+
+  void _publish() {
+    final ids = <String>{for (final e in _entries) e.conversationId};
+    _pending.value = _loaded ? ids.length : 0;
+  }
+
+  /// One timer for the pass at [at] (the queue's `notBeforeMicros`),
+  /// running a background pass.
+  void _armTimer(DateTime at) {
+    if (_timerCancel != null && _timerAt == at) return;
+    cancelScheduled();
+    var delay = at.difference(_now());
+    if (delay.isNegative) delay = Duration.zero;
+    late final void Function() handle;
+    handle = Zone.root.run(
+      () => _schedule(delay, () {
+        if (!identical(_timerCancel, handle)) return;
+        _timerCancel = null;
+        _timerAt = null;
+        unawaited(_startPass(BudgetPriority.background));
+      }),
+    );
+    _timerCancel = handle;
+    _timerAt = at;
+  }
+
+  // -------------------------------------------------------------------------
+
+  void _reportBug(String step) =>
+      _onUnexpectedError?.call(E2eePipelineError(step), StackTrace.current);
+
+  void _reportIfBug(Object e, StackTrace s, String step) {
+    if (isPipelineBug(e)) {
+      _onUnexpectedError?.call(E2eePipelineError(step), s);
+    }
+  }
+}
+
+/// Constant-time equality of two byte lists (the length is not secret).
+bool _same(List<int> a, List<int> b) {
+  if (a.length != b.length) return false;
+  var diff = 0;
+  for (var i = 0; i < a.length; i++) {
+    diff |= a[i] ^ b[i];
+  }
+  return diff == 0;
+}
