@@ -710,8 +710,13 @@ class DeviceKeysService {
     );
     if (!saved.isEmpty) {
       final previousUnknown = !saved.failed;
-      // A change in either direction can include claims after our upload.
-      // Replaying could publish consumed packages; retain their private keys.
+      // Decision (Task 14, ruling B): ANY change clears, not only a grown
+      // count (the plan's `>`). A higher count means the batch landed; a
+      // lower one can mean it landed and was then drained by claims, so a
+      // re-upload could publish packages peers already consumed. Clearing
+      // is the safe side. Cost: a batch that never landed is dropped after
+      // any claim, and its private parts stay in the device state (the core
+      // prune, Open question 9).
       if (previousUnknown && count != saved.countBefore) {
         await store(PendingUpload.empty);
         return (PendingUpload.empty, previousUnknown);
