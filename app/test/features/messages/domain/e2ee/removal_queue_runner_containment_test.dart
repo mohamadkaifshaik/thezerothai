@@ -492,6 +492,46 @@ void main() {
       expect(runner.pending.value, 0);
     });
 
+    test('a queue-wide rate limit answered after reset() and a reload '
+        'stores no notBeforeMicros and arms no timer (fix round 4, CR2 '
+        'M-3)', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await join(_c1, others: [sibling]);
+      await synced();
+      rig.server.commitScript.add((
+        error: const RateLimitedException(
+          'rig',
+          retryAfter: Duration(hours: 5),
+        ),
+        stored: false,
+      ));
+      // Sign-out while the commit is in flight, and the next run loads the
+      // stored queue before the answer arrives.
+      var hooked = false;
+      bool? reloaded;
+      rig.server.onCall = (call) async {
+        if (call != 'commitConversation' || hooked) return;
+        hooked = true;
+        runner.reset();
+        reloaded = await runner.wasRemovedByUser(sibling.id);
+      };
+
+      await removeAndSettle(sibling);
+      expect(reloaded, isTrue);
+      expect((await stored())!.notBeforeMicros, isNull);
+      expect(runnerScheduled.where((s) => !s.cancelled), isEmpty);
+
+      // The next run starts: nothing holds it.
+      await runner.onVaultReady();
+      await runner.idle();
+
+      expect((await stored())!.notBeforeMicros, isNull);
+      expect(runnerScheduled.where((s) => !s.cancelled), isEmpty);
+      expect(requests(_c1), hasLength(2));
+      expect(await pin(sibling), isNull);
+    });
+
     test('a pass that outlives reset() and a reload during its catch-up '
         'makes no commit (fix round 4, CR2 M-2)', () async {
       final sibling = await RigPeer.create('sibling');
