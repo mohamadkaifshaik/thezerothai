@@ -78,7 +78,9 @@ const String kVaultSettingDeviceLastSeen = 'keys.device.lastSeenMicros';
 const String kVaultSettingLastResortAt = 'keys.device.lastResortMicros';
 
 /// A generated batch whose upload is not confirmed: sealed JSON
-/// {"v":1,"oneTime":[base64...],"lastResort":base64|null,"countBefore":n,"outcome":"failed"|"unknown"}.
+/// {"v":1,"oneTime":[base64...],"lastResort":base64|null,"lastResortAt":micros|null,"countBefore":n,"outcome":"failed"|"unknown"}.
+/// `lastResortAt` is when the last-resort package was generated (null with
+/// no last-resort package).
 /// A record with no packages = none saved. The private parts of its
 /// packages are already in the device state ([PendingUpload]).
 const String kVaultSettingPendingUpload = 'keys.device.pendingUpload';
