@@ -30,7 +30,8 @@ class KeyBatchDay {
   /// - none stored (null bytes): a new day with no batches;
   /// - stored on a day EARLIER than [today]: a new day with no batches;
   /// - stored on [today] or [tomorrow] (a clock set back by up to a day):
-  ///   kept as it is, so moving the clock back never resets the cap;
+  ///   its count is kept, so moving the clock back never resets the cap;
+  ///   its report is kept only when it is of [today];
   /// - stored on a later day (a clock once set far forward), or unreadable:
   ///   the cap already reached today ([cap], not reported, [invalid]). Fail
   ///   closed for today only; the caller stores a record of [today].
@@ -50,7 +51,10 @@ class KeyBatchDay {
     // 'YYYY-MM-DD' strings order like the days they name.
     if (value.day.compareTo(today) < 0) return KeyBatchDay(today, 0);
     if (value.day.compareTo(tomorrow) > 0) return capped(today, cap);
-    return value;
+    if (value.day == today) return value;
+    // A record of tomorrow keeps its count, not its report: that report was
+    // made on another day, so today reports again (once).
+    return KeyBatchDay(value.day, value.count);
   }
 
   /// The cap for [today] from a record that cannot be used.

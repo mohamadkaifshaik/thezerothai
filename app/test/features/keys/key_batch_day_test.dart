@@ -35,10 +35,19 @@ void main() {
     );
   });
 
-  test('a record of tomorrow (the clock set back a day) is kept: moving the '
-      'clock back never resets the cap', () {
+  test('a record of tomorrow (the clock set back a day) keeps its count: '
+      'moving the clock back never resets the cap', () {
+    final d = read(KeyBatchDay(tomorrow, 4).encode());
+    expect(
+      (d.day, d.count, d.reported, d.invalid),
+      (tomorrow, 4, false, false),
+    );
+  });
+
+  test('a record of tomorrow does not carry its report over: the report was '
+      'made on another day, so today reports again', () {
     final d = read(KeyBatchDay(tomorrow, 4, reported: true).encode());
-    expect((d.day, d.count, d.reported, d.invalid), (tomorrow, 4, true, false));
+    expect((d.count, d.reported, d.invalid), (4, false, false));
   });
 
   test('a record dated more than one day ahead is the cap for today, '

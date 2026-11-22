@@ -842,6 +842,14 @@ void main() {
         rig.service.status.value,
         const DeviceKeysStatus.failed(retryable: true),
       );
+      // The report was made on the later day: the earlier day reports
+      // again, once.
+      expect(reported(), [
+        'DeviceKeysError(batchCap)',
+        'DeviceKeysError(batchCap)',
+      ]);
+      await nextRun();
+      expect(reported(), hasLength(2));
     });
 
     test('a counter dated more than a day ahead counts as the cap for today '
