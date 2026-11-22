@@ -217,39 +217,50 @@ extension _RemovalStore on RemovalQueueRunner {
     if ((pins.isEmpty && marked.isEmpty) || !_current(vault, resets)) {
       return null;
     }
+    // Fix round 4, ruling 6 (CR2 M-4): an own list younger than
+    // [kLostOwnListReuse] is reused (no call); otherwise one fresh read.
+    // It is read whenever a `mine` pin exists, queued or not: the attempts
+    // drop an unmarked entry whose device it names (ruling 3).
     final own = pins.isEmpty
         ? null
-        : await _directory.own(fresh: true, priority: priority);
+        : _directory.ownYoungerThan(kLostOwnListReuse) ??
+              await _directory.own(fresh: true, priority: priority);
+    if (!_current(vault, resets)) return own;
+    bool queuedIn(String c, Uint8List d) =>
+        _entries.any((e) => e.conversationId == c && _same(e.deviceId, d));
+    // The candidates first; the ranking (a sealed read per conversation)
+    // only when one of them is not queued yet.
+    final add = <String, List<Uint8List>>{};
+    void candidate(String c, Uint8List d) {
+      if (!queuedIn(c, d)) (add[c] ??= []).add(d);
+    }
+
+    for (final MapEntry(key: c, value: ms) in marked.entries) {
+      for (final m in ms) {
+        candidate(c, m.deviceId);
+      }
+    }
+    if (own != null && own.readableNonEmpty) {
+      for (final MapEntry(key: c, value: ms) in pins.entries) {
+        for (final m in ms) {
+          if (mayRemoveOwnDevice(
+            member: m,
+            ownList: own,
+            thisDeviceId: thisDevice,
+          )) {
+            candidate(c, m.deviceId);
+          }
+        }
+      }
+    }
+    if (add.isEmpty) return own;
     final ranked = await _byRecentActivity(vault);
     if (!_current(vault, resets)) return own;
     var changed = false;
     for (final c in ranked) {
-      for (final m in marked[c] ?? const <MemberRecord>[]) {
-        final already = _entries.any(
-          (e) => e.conversationId == c && _same(e.deviceId, m.deviceId),
-        );
-        if (already) continue;
-        _entries.add(
-          RemovalQueueEntry(deviceId: m.deviceId, conversationId: c),
-        );
-        changed = true;
-      }
-      if (own == null || !own.readableNonEmpty) continue;
-      for (final m in pins[c] ?? const <MemberRecord>[]) {
-        if (!mayRemoveOwnDevice(
-          member: m,
-          ownList: own,
-          thisDeviceId: thisDevice,
-        )) {
-          continue;
-        }
-        final already = _entries.any(
-          (e) => e.conversationId == c && _same(e.deviceId, m.deviceId),
-        );
-        if (already) continue;
-        _entries.add(
-          RemovalQueueEntry(deviceId: m.deviceId, conversationId: c),
-        );
+      for (final d in add[c] ?? const <Uint8List>[]) {
+        if (queuedIn(c, d)) continue;
+        _entries.add(RemovalQueueEntry(deviceId: d, conversationId: c));
         changed = true;
       }
     }

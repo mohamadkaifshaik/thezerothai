@@ -35,6 +35,11 @@ part 'removal_queue_runner_store.dart';
 const String kLimitCommitsPerConversationDaily =
     'messages_commits_per_conversation_daily';
 
+/// Fix round 4, ruling 6 (CR2 M-4): a pass's lost-own-device check reuses
+/// an own list fetched less than this long ago instead of a fresh
+/// `ListMyKeyDevices` (passes come in bursts: resume, vault ready, hooks).
+const Duration kLostOwnListReuse = Duration(seconds: 60);
+
 /// The device-removal queue (plan Task 11, R17): the user removes one of
 /// their devices; this device removes it from every encrypted conversation
 /// it holds group state for.

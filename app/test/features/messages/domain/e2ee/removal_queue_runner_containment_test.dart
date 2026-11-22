@@ -723,6 +723,9 @@ void main() {
       await synced();
       expect((await pin(sibling))!.side, MemberSide.mine);
       rig.keys.own.removeWhere((d) => d.deviceId == sibling.idString);
+      // The setup's own list still names it; a pass reuses a list younger
+      // than kLostOwnListReuse (fix round 4, ruling 6).
+      rig.clock.advance(kLostOwnListReuse);
       return sibling;
     }
 
@@ -789,6 +792,7 @@ void main() {
 
       // The list names it again (the miss was a glitch).
       rig.keys.own.add(rigKeyDevice(sibling.idString, sibling.key));
+      rig.clock.advance(kLostOwnListReuse);
       await runner.runPass();
 
       expect(queued(_c1, sibling), isFalse);
@@ -810,6 +814,30 @@ void main() {
 
       expect(requests(), isEmpty);
       expect((await pin(sibling))!.side, MemberSide.mine);
+    });
+
+    test('a pass reuses an own list read less than 60 seconds ago, and reads '
+        'one fresh when it is older (fix round 4, CR2 M-4)', () async {
+      final sibling = await removedElsewhereByUser();
+      // Paused, so the entry stays queued across the passes.
+      for (var i = 0; i < kAntiFlapUndosPerDay; i++) {
+        await rig.ledger.addUndone(_c1);
+      }
+      await rig.directory.own(fresh: true);
+      rig.clock.advance(const Duration(seconds: 30));
+      final young = rig.keys.listCalls;
+
+      await runner.onVaultReady();
+      await runner.idle();
+
+      expect(rig.keys.listCalls, young, reason: 'the young list is reused');
+      expect(queued(_c1, sibling), isTrue);
+
+      rig.clock.advance(const Duration(seconds: 31));
+      await runner.runPass();
+
+      expect(rig.keys.listCalls, young + 1, reason: 'one fresh list');
+      expect(queued(_c1, sibling), isTrue);
     });
 
     test('a mine pin the own list still shows is never queued', () async {
