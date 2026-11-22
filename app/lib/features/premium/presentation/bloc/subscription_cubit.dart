@@ -123,8 +123,7 @@ class SubscriptionCubit extends Cubit<SubscriptionState> {
         !access.purchasesAvailable ||
         access.effectiveTier(_now()) != SubscriptionTier.free ||
         !state.offerings.contains(offering) ||
-        (offering.tier != SubscriptionTier.plus &&
-            offering.tier != SubscriptionTier.premium)) {
+        offering.tier != SubscriptionTier.plus) {
       return;
     }
     await _transact(uid, () => _repository.purchase(uid, offering));

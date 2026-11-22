@@ -104,8 +104,7 @@ class ServerSubscriptionRepository
         _offerings = List.unmodifiable(
           offerings.where(
             (o) =>
-                (o.tier == SubscriptionTier.plus ||
-                    o.tier == SubscriptionTier.premium) &&
+                o.tier == SubscriptionTier.plus &&
                 o.packageIdentifier.isNotEmpty &&
                 o.productIdentifier.isNotEmpty &&
                 o.localizedPrice.isNotEmpty &&

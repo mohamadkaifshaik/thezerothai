@@ -55,11 +55,8 @@ func CapabilitiesFor(tier Tier, available FeatureAvailability) Capabilities {
 	}
 	out.Tier = tier
 	if available.LongPosts {
-		out.MaxPostRunes = 3000
-		if tier == TierPremium {
-			out.MaxPostRunes = 15000
-		}
+		out.MaxPostRunes = 15000
 	}
-	out.PublishArticle = available.Articles && tier == TierPremium
+	out.PublishArticle = available.Articles
 	return out
 }

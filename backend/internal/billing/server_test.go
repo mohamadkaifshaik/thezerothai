@@ -65,8 +65,8 @@ func TestStoreSalesRequireRealCatalogAndVerification(t *testing.T) {
 		missingVerifier bool
 		want            bool
 	}{
-		{name: "production", environment: Production, products: map[string]Product{"premium:monthly": {Store: "play_store", Entitlement: ProEntitlement}}, want: true},
-		{name: "Play license tester", environment: Sandbox, products: map[string]Product{"premium:monthly": {Store: "play_store", Entitlement: ProEntitlement}}, want: true},
+		{name: "production", environment: Production, products: map[string]Product{"premium:monthly": {Store: "play_store", Entitlement: PlusEntitlement}}, want: true},
+		{name: "Play license tester", environment: Sandbox, products: map[string]Product{"premium:monthly": {Store: "play_store", Entitlement: PlusEntitlement}}, want: true},
 		{name: "test store", environment: Production, products: map[string]Product{"monthly": {Store: "test_store", Entitlement: ProEntitlement}}},
 		{name: "empty catalog", environment: Production},
 		{name: "no verifier", environment: Production, products: map[string]Product{"premium:monthly": {Store: "play_store", Entitlement: ProEntitlement}}, missingVerifier: true},
@@ -88,7 +88,7 @@ func TestStoreSalesRequireRealCatalogAndVerification(t *testing.T) {
 				t.Fatalf("sales=%t err=%v", got.Msg.PurchasesAvailable, err)
 			}
 			plans, err := s.GetAvailablePlans(ctx, connect.NewRequest(&billingv1.GetAvailablePlansRequest{}))
-			if err != nil || plans.Msg.Plans[1].Purchasable != tc.want || plans.Msg.Plans[0].Purchasable {
+			if err != nil || len(plans.Msg.Plans) != 1 || plans.Msg.Plans[0].Tier != billingv1.SubscriptionTier_SUBSCRIPTION_TIER_PLUS || plans.Msg.Plans[0].Purchasable != tc.want {
 				t.Fatal("catalog advertised an unconfigured tier")
 			}
 		})

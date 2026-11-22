@@ -39,7 +39,7 @@ class ConnectSubscriptionStatusSource implements SubscriptionStatusSource {
         wire.SubscriptionTier.SUBSCRIPTION_TIER_FREE => SubscriptionTier.free,
         wire.SubscriptionTier.SUBSCRIPTION_TIER_PLUS => SubscriptionTier.plus,
         wire.SubscriptionTier.SUBSCRIPTION_TIER_PREMIUM =>
-          SubscriptionTier.premium,
+          SubscriptionTier.plus,
         _ => SubscriptionTier.unknown,
       },
       verification: switch (response.verificationState) {

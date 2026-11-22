@@ -18,15 +18,15 @@ after creation/activation; the following are proposed names, not created product
 | Item | Proposed value |
 | --- | --- |
 | Android package | `com.dzeroth.dzeroth` |
-| Play subscription | `premium` |
+| Play subscription | `plus` |
 | Play base plan | `monthly` |
-| RevenueCat product | `premium:monthly` |
-| RevenueCat entitlement | existing `dzeroth_pro` |
+| RevenueCat product | `plus:monthly` |
+| RevenueCat entitlement | existing `plus_access` |
 | Offering | existing `default` |
 | Package | existing `$rc_monthly`, with the new Android product attached |
 
 Keep the Test Store product attached for Test Store builds. Do not replace its key
-with a real-store key. No launch price or trial is selected by this code.
+with a real-store key. Set the India storefront price to ₹99 per month including GST.
 
 Official instructions: [create subscriptions and base plans](https://support.google.com/googleplay/android-developer/answer/140504),
 [RevenueCat Google product identifiers](https://www.revenuecat.com/docs/getting-started/entitlements/android-products).
@@ -67,24 +67,24 @@ native tests before enabling that separate feature. See RevenueCat's
 ## 3. Map the product
 
 Import the actual Play subscription/base plan into RevenueCat. Attach that product
-to `dzeroth_pro`, then to the monthly package in the current `default` offering.
+to `plus_access`, then to the monthly package in the current `default` offering.
 Check its store state and credential validation in the dashboard. Only actual
 store identifiers belong in the following configuration examples.
 
-For the proposed Premium mapping:
+For the monthly Plus product:
 
 ```json
-{"premium:monthly":{"Store":"play_store","Entitlement":"dzeroth_pro"}}
+{"plus:monthly":{"Store":"play_store","Entitlement":"plus_access"}}
 ```
 
 The Flutter monthly-product mapping is:
 
 ```json
-{"premium:monthly":"premium"}
+{"plus:monthly":"plus"}
 ```
 
-Optional future Plus products map to `plus_access` on the server and `plus` in the
-client. Give each tier its own store product and package. Custom package names
+Configure one purchasable Plus package per storefront. Historical Premium
+products may remain in the server verification catalog for restores. Custom package names
 are supported, but their actual store billing period must be `P1M`.
 
 The verifier matches the subscription **and** base plan. RevenueCat's v1 customer

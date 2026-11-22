@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:purchases_flutter/purchases_flutter.dart' as rc;
 import 'package:purchases_ui_flutter/purchases_ui_flutter.dart' as ui;
 
+import '../domain/premium_plans.dart';
 import '../domain/subscription_models.dart';
 import '../domain/subscription_catalog.dart';
 import 'subscription_sources.dart';
@@ -22,7 +23,7 @@ class RevenueCatPurchaseGateway
       monthlyProducts: catalog.isNotEmpty
           ? parseMonthlySubscriptionProducts(catalog)
           : key.startsWith('test_')
-          ? const {'monthly': SubscriptionTier.premium}
+          ? const {'plus_monthly': SubscriptionTier.plus}
           : const {},
     );
   }
@@ -80,22 +81,26 @@ class RevenueCatPurchaseGateway
     if (kIsWeb) throw UnsupportedError('Native billing UI unavailable on Web');
   }
 
+  bool _isMonthlyPlus(rc.StoreProduct product) =>
+      _monthlyProducts[product.identifier] == SubscriptionTier.plus &&
+      product.subscriptionPeriod == 'P1M' &&
+      (product.currencyCode != 'INR' ||
+          product.price == kPremiumPlans.single.pricePaise / 100);
+
   @override
   Future<SubscriptionPurchaseResult> presentPaywall() async {
     _requireNativeUi();
     final offering = (await rc.Purchases.getOfferings()).current;
     if (offering == null ||
-        offering.availablePackages.isEmpty ||
+        offering.availablePackages.length != 1 ||
         offering.availablePackages.any(
-          (p) =>
-              p.storeProduct.subscriptionPeriod != 'P1M' ||
-              !_monthlyProducts.containsKey(p.storeProduct.identifier),
+          (p) => !_isMonthlyPlus(p.storeProduct),
         )) {
       throw StateError('Paywall catalog unavailable');
     }
     _packages.clear();
     final result = await ui.RevenueCatUI.presentPaywallIfNeeded(
-      proEntitlement,
+      'plus_access',
       offering: offering,
       displayCloseButton: true,
     );
@@ -123,15 +128,13 @@ class RevenueCatPurchaseGateway
     for (final package
         in offerings.current?.availablePackages ?? <rc.Package>[]) {
       final product = package.storeProduct;
-      final tier = _monthlyProducts[product.identifier];
-      if ((tier != SubscriptionTier.plus && tier != SubscriptionTier.premium) ||
-          product.subscriptionPeriod != 'P1M') {
+      if (!_isMonthlyPlus(product)) {
         continue;
       }
       final offering = SubscriptionOffering(
         packageIdentifier: package.identifier,
         productIdentifier: product.identifier,
-        tier: tier!,
+        tier: SubscriptionTier.plus,
         localizedPrice: product.priceString,
         billingPeriod: 'monthly',
       );

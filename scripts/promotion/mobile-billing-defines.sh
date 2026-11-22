@@ -13,17 +13,14 @@ case $1 in
 esac
 catalog=$(jq -ce --arg store "$store" '
   select(type == "object" and length > 0)
-  | with_entries(select(.value.Store == $store)
-    | .value = (.value.Entitlement |
-      if . == "plus_access" then "plus"
-      elif . == "dzeroth_pro" or . == "premium_access" then "premium"
-      else error("Invalid subscription entitlement") end))
+  | with_entries(select(.value.Store == $store and .value.Entitlement == "plus_access")
+    | .value = "plus")
 ' <<< "${REVENUECAT_PRODUCTS_JSON:?Missing production catalog}")
 if [[ "$catalog" == '{}' && -z ${REVENUECAT_PUBLIC_API_KEY:-} ]]; then
   echo '{"BILLING_STATUS_ENABLED":"true"}'
   exit 0
 fi
-if [[ $catalog == '{}' || ! ${REVENUECAT_PUBLIC_API_KEY:-} =~ ^${prefix}[a-zA-Z0-9_]+$ ]]; then
+if [[ $(jq 'length' <<< "$catalog") != 1 || ! ${REVENUECAT_PUBLIC_API_KEY:-} =~ ^${prefix}[a-zA-Z0-9_]+$ ]]; then
   echo "Configure matching products and a public SDK key for $store" >&2
   exit 2
 fi

@@ -5,6 +5,10 @@ import 'package:dzeroth/features/premium/domain/subscription_models.dart';
 import 'package:dzeroth/features/premium/domain/subscription_repository.dart';
 import 'package:dzeroth/features/premium/presentation/bloc/subscription_cubit.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:dzeroth/features/premium/presentation/premium_dialog.dart';
+
+import '../../../../support/theme_harness.dart';
 
 final _now = DateTime.now().toUtc();
 const _offering = SubscriptionOffering(
@@ -95,6 +99,40 @@ void main() {
   tearDown(() async {
     await cubit.close();
   });
+
+  testWidgets(
+    'Plus checkout uses the displayed package and waits for verification',
+    (tester) async {
+      repo.access = (uid) async => _free(uid, sales: true);
+      await cubit.setAccount('a');
+      await pumpThemed(
+        tester,
+        BlocProvider.value(value: cubit, child: const PremiumDialog()),
+      );
+      final buy = find.text('Get Plus · localized-store-price/month');
+      await tester.ensureVisible(buy);
+      await tester.tap(buy);
+      await tester.pumpAndSettle();
+      expect(repo.purchases, 1);
+      expect(repo.paywalls, 0);
+      expect(buy, findsNothing);
+      expect(
+        find.text('Checking your subscription. Refresh in a moment.'),
+        findsOneWidget,
+      );
+      repo.access = (uid) async => SubscriptionAccess(
+        uid: uid,
+        tier: SubscriptionTier.plus,
+        verification: SubscriptionVerification.verified,
+        verifiedAt: _now,
+        validUntil: _now.add(const Duration(minutes: 10)),
+      );
+      await cubit.refresh();
+      await tester.pumpAndSettle();
+      expect(find.text('Your Plus subscription is active.'), findsOneWidget);
+      expect(find.text('Manage subscription'), findsOneWidget);
+    },
+  );
 
   test('dark status does not load offerings or start a purchase', () async {
     await cubit.setAccount('a');

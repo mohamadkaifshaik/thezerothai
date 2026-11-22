@@ -12,10 +12,9 @@ type PlannedPlan struct {
 }
 
 // PlannedCatalog returns a fresh value so callers cannot mutate shared policy.
-// Both founder-approved India prices are retained; neither plan is for sale.
+// Storefronts supply the localized transaction price.
 func PlannedCatalog() []PlannedPlan {
 	return []PlannedPlan{
-		{Tier: TierPlus, Entitlement: PlusEntitlement, Currency: "INR", PriceMinor: 23500, Period: "monthly"},
-		{Tier: TierPremium, Entitlement: PremiumEntitlement, Currency: "INR", PriceMinor: 85000, Period: "monthly"},
+		{Tier: TierPlus, Entitlement: PlusEntitlement, Currency: "INR", PriceMinor: 9900, Period: "monthly"},
 	}
 }

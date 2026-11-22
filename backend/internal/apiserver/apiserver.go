@@ -754,7 +754,10 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		}
 		bindings := billingBindings
 		provider, e := billing.NewRevenueCatProvider(cfg.BillingSandbox.SecretAPIKey,
-			map[string]billing.Product{"monthly": {Store: "test_store", Entitlement: billing.ProEntitlement}}, nil)
+			map[string]billing.Product{
+				"plus_monthly": {Store: "test_store", Entitlement: billing.PlusEntitlement},
+				"monthly":      {Store: "test_store", Entitlement: billing.ProEntitlement},
+			}, nil)
 		if e != nil {
 			return nil, nil, fmt.Errorf("billing provider configuration invalid")
 		}
