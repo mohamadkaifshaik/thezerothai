@@ -362,6 +362,43 @@ void main() {
       expect(requests(), isEmpty);
     });
 
+    test('the peer reference is the one stored first for the conversation, '
+        'not one a send answer or a cached row left in memory (audit '
+        'L3)', () async {
+      final mallory = await RigPeer.create('mallory');
+      await setUpJoined();
+      await synced();
+      await rig.known.add(_c1, peerUserId: 'ref-bob');
+      // Another user's list and claims, under the reference a send answer
+      // put in this run's memory.
+      rig.keys.peers['ref-mallory'] = [
+        rigKeyDevice(bob.idString, bob.key),
+        rigKeyDevice(mallory.idString, mallory.key),
+      ];
+      rig.keys.claims['ref-mallory'] = () async => kpb.ClaimKeyPackagesResponse(
+        conversationId: _c1,
+        keyPackages: [await claimed(mallory)],
+      );
+      rig.contexts.note(
+        pb.Conversation(
+          id: _c1,
+          peer: common.AuthorSnapshot(userId: 'ref-mallory'),
+          canReply: true,
+        ),
+        peerOnly: true,
+      );
+      expect(rig.contexts.of(_c1).peerUserId, 'ref-mallory');
+
+      await rig.upkeep.reconcile(_c1);
+
+      expect(
+        rig.keys.claimCalls.where((c) => c.userId == 'ref-mallory'),
+        isEmpty,
+      );
+      expect(requests(), isEmpty);
+      expect(await pin(mallory), isNull);
+    });
+
     test('a peer claim that names another conversation adds nothing', () async {
       final bob2 = await RigPeer.create('bob2');
       await setUpJoined(alsoListed: [bob2]);

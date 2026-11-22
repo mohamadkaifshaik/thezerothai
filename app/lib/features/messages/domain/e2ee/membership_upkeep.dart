@@ -21,6 +21,7 @@ import 'device_directory.dart';
 import 'device_key_history.dart';
 import 'e2ee_types.dart';
 import 'former_pins.dart';
+import 'known_conversations.dart';
 import 'membership_rules.dart';
 import 'message_receiver.dart';
 import 'pipeline_support.dart';
@@ -106,6 +107,7 @@ class MembershipUpkeep {
     required MessagingRepository messaging,
     required KeysRepository keys,
     required DeviceDirectory directory,
+    required KnownConversations known,
     required ConversationLocks locks,
     required ConversationContexts contexts,
     required DateTime Function() now,
@@ -123,6 +125,7 @@ class MembershipUpkeep {
        _messaging = messaging,
        _keys = keys,
        _directory = directory,
+       _known = known,
        _locks = locks,
        _contexts = contexts,
        _now = now,
@@ -141,6 +144,10 @@ class MembershipUpkeep {
   final MessagingRepository _messaging;
   final KeysRepository _keys;
   final DeviceDirectory _directory;
+
+  /// The app's one [KnownConversations]: its stored, first-write peer
+  /// reference is the one a removal is decided against (audit L3).
+  final KnownConversations _known;
   final ConversationLocks _locks;
   final ConversationContexts _contexts;
   final DateTime Function() _now;

@@ -681,10 +681,25 @@ extension _Reconcile on MembershipUpkeep {
     return out;
   }
 
-  /// The peer's user reference: this run's context, else the cached inbox
-  /// row (its peer only: a cached row is no sight, review m5). Null when
-  /// neither knows it.
+  /// The peer's user reference. Audit L3: the one stored for [id] in the
+  /// known conversations (first write wins, `KnownConversations.addIn`)
+  /// when there is one, since memory can be overwritten by a send answer
+  /// or a cached row, and a removal decided against another user's list
+  /// would remove the peer's devices. Else this run's context, else the
+  /// cached inbox row (its peer only: a cached row is no sight, review
+  /// m5). Null when none knows it, or when the stored set cannot be read
+  /// (fail closed: no peer list, so no peer-side add or removal).
   Future<String?> _peerRef(String id) async {
+    final vault = _session.vault;
+    if (vault == null) return null;
+    try {
+      if (!_known.isLoadedFor(vault)) await _known.load(vault);
+    } on Object catch (e, s) {
+      _reportIfBug(e, s, 'upkeep.known');
+      return null;
+    }
+    final stored = _known.peerOf(id);
+    if (stored != null && stored.isNotEmpty) return stored;
     final context = _contexts.of(id);
     String? known() {
       final ref = context.peerUserId;

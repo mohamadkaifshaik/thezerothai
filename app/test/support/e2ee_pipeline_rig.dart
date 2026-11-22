@@ -2000,6 +2000,7 @@ class RigCrypto {
       messaging: messaging,
       keys: keys,
       directory: directory,
+      known: known,
       locks: locks,
       contexts: contexts,
       now: clock.now,
