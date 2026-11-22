@@ -139,6 +139,9 @@ extension _CommitSend on CommitRunner {
     BudgetPriority priority, {
     bool refused = false,
   }) async {
+    // Review N1: the proof is the listing this catch-up starts with, so
+    // the margin is measured at this moment, not when catch-up returns.
+    final provedAt = _now();
     final result = await _catchUpFor(id, priority);
     if (!op.live) return CommitOutcome.pending;
     final settled = await _settled(op.vault, id, pending);
@@ -154,6 +157,7 @@ extension _CommitSend on CommitRunner {
           id,
           pending,
           priority,
+          provedAt: provedAt,
           dropped: CommitOutcome.refused,
         );
       }
@@ -167,18 +171,22 @@ extension _CommitSend on CommitRunner {
   /// no answer can still be stored after that listing, so nothing is
   /// dropped before [kRequestInFlightMargin] has passed since the last call
   /// of these bytes in this run, or since this run first saw the record
-  /// ([CommitRunner._marginStart]). Until then: `pending`, and one resume
-  /// is scheduled for the margin's end (it runs catch-up again, so the
-  /// proof is fresh when the discard is made). After it: the discard, and
-  /// [dropped].
+  /// ([CommitRunner._marginStart]). [provedAt] is when the caller's
+  /// catch-up started, i.e. when its listing was asked for (review N1): the
+  /// margin must have passed THEN, not only when catch-up returned, or a
+  /// listing taken inside the margin could prove a discard. Until then:
+  /// `pending`, and one resume is scheduled for the margin's end (at once
+  /// when that has passed by now; it runs catch-up again, so the proof is
+  /// fresh when the discard is made). After it: the discard, and [dropped].
   Future<CommitOutcome> _discardProven(
     PipelineOp op,
     String id,
     PendingCommit pending,
     BudgetPriority priority, {
+    required DateTime provedAt,
     required CommitOutcome dropped,
   }) async {
-    final left = _marginLeft(id, pending);
+    final left = _marginLeft(id, pending, provedAt);
     if (left != null) {
       _scheduleResume(id, left, priority);
       return CommitOutcome.pending;
@@ -195,12 +203,15 @@ extension _CommitSend on CommitRunner {
     }
   }
 
-  /// What is left of [pending]'s discard margin; null once it has passed.
-  Duration? _marginLeft(String id, PendingCommit pending) {
+  /// Null when [pending]'s discard margin had passed at [provedAt] (the
+  /// start of the proof's listing). Otherwise the wait until its end from
+  /// now: zero when the end lies between [provedAt] and now.
+  Duration? _marginLeft(String id, PendingCommit pending, DateTime provedAt) {
     _noteSeen(id, pending);
     final end = _marginStart[id]!.at.add(kRequestInFlightMargin);
+    if (!provedAt.isBefore(end)) return null;
     final now = _now();
-    return now.isBefore(end) ? end.difference(now) : null;
+    return now.isBefore(end) ? end.difference(now) : Duration.zero;
   }
 
   /// Null while the group still holds [pending] at its built-on pair.
@@ -357,6 +368,9 @@ extension _CommitSend on CommitRunner {
       _noteSeen(id, pending);
       // A device removed elsewhere sends and decides nothing.
       if (_removedElsewhere()) return CommitOutcome.pending;
+      // Review N1: the margin of a discard below is measured at the start
+      // of this catch-up's listing (the proof), not when it returns.
+      final provedAt = _now();
       final result = await _catchUpFor(id, priority);
       if (!op.live) return CommitOutcome.pending;
       final settled = await _settled(op.vault, id, pending);
@@ -376,6 +390,7 @@ extension _CommitSend on CommitRunner {
           id,
           pending,
           priority,
+          provedAt: provedAt,
           dropped: CommitOutcome.refused,
         );
       }
@@ -399,6 +414,7 @@ extension _CommitSend on CommitRunner {
           id,
           pending,
           priority,
+          provedAt: provedAt,
           dropped: CommitOutcome.notAllowed,
         );
       }

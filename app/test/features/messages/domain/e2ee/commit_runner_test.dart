@@ -1361,6 +1361,48 @@ void main() {
       expect(await rig.commits.resumePending(_c1), CommitOutcome.applied);
       expect(requests(), hasLength(3));
     });
+
+    test('the margin is measured at the listing that proves the discard, not '
+        'when catch-up returned (review N1)', () async {
+      await setUpJoined();
+      await synced();
+      final carol = await RigPeer.create('carol');
+      rig.server.commitScript
+        ..add((error: offline, stored: false))
+        ..add((error: offline, stored: false));
+      expect(
+        await rig.commits.change(
+          _c1,
+          adds: [await claim(carol, ClaimSide.theirs)],
+        ),
+        CommitOutcome.pending,
+      );
+      // The flag went off: the add may not be sent again.
+      await rig.device.session.onFlagChanged(E2eeFlag.off, uid: rig.device.uid);
+      rig.device.engine.calls.clear();
+      rig.commitScheduled.clear();
+      // The resume's listing is taken one second before the margin's end;
+      // its answer arrives one second after it.
+      rig.clock.advance(kRequestInFlightMargin - second);
+      rig.server.onCall = (call) async {
+        if (call == 'listConversationCommits') rig.clock.advance(second * 2);
+      };
+
+      final outcome = await rig.commits.resumePending(_c1);
+
+      rig.server.onCall = null;
+      expect(outcome, CommitOutcome.pending);
+      expect(engineCalls('discardCommit'), 0);
+      expect((await groupRecord()).pending, isNotNull);
+      expect(requests(), hasLength(2));
+      // The margin's end has passed by now: the one resume runs at once and
+      // lists again.
+      expect(rig.commitScheduled.map((s) => s.delay), [Duration.zero]);
+      await runScheduled();
+      expect(engineCalls('discardCommit'), 1);
+      expect((await groupRecord()).pending, isNull);
+      expect(requests(), hasLength(2));
+    });
   });
 
   group('the paths that discard or keep a commit', () {
