@@ -4442,6 +4442,32 @@ void main() {
       );
     });
 
+    test('the join code tells the starter when it discards an own init for '
+        'another device\'s commit, once (pre-flag-on review nit)', () async {
+      rig.server.sendScript.addAll([unknown, unknown]);
+      await start();
+      await done();
+      expect((await groupOf())!.provisional, isTrue);
+      // Wired by the starter; recorded here as well.
+      final wired = rig.crypto.onOwnInitDiscarded!;
+      final told = <String>[];
+      rig.crypto.onOwnInitDiscarded = (id) {
+        told.add(id);
+        wired(id);
+      };
+      // Bob's start reached the server first; his welcome lists this
+      // device.
+      await rig.offer(_c1, bob);
+
+      await rig.crypto.processWelcomes();
+      await pumpEventQueue();
+      await done();
+
+      expect(told, [_c1]);
+      expect((await groupOf())!.provisional, isFalse);
+      expect(await starter.pendingInit(conversationId: _c1), isNull);
+    });
+
     test('a hand-over from the join code while a resume of the conversation '
         'runs starts one more resume after it, never joins it (pre-flag-on '
         'review m-C)', () async {

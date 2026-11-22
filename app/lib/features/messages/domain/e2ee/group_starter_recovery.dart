@@ -291,6 +291,7 @@ extension _Recovery on GroupStarter {
       _replayRefused.remove(row.localId);
       // Fix round 2, ruling 3: this run made a request of the row.
       _sentThisRun.add(key);
+      _initRowOf[id] = row.localId;
       final pb.SendMessageResponse response;
       try {
         response = await _messaging.sendEncrypted(
@@ -639,6 +640,19 @@ extension _Recovery on GroupStarter {
     _unknown.remove(localId);
     _notBefore.remove(localId);
     _replayRefused.remove(localId);
+    _initRowOf.removeWhere((_, l) => l == localId);
+  }
+
+  /// Fix round 2, ruling 8 (code review nit): [id]'s provisional init was
+  /// discarded where only the conversation is known (the join code, through
+  /// `ConversationCrypto.onOwnInitDiscarded`, or the expiry with no row):
+  /// the memory of the init row this run sent for it goes ([_forget]).
+  /// Decision: the conversation's margins (an abandoned call, an unknown
+  /// outcome's start) are kept. Why: such a request may still land, and a
+  /// later group of the conversation must still wait for it.
+  void _forgetInit(String id) {
+    final localId = _initRowOf.remove(id);
+    if (localId != null) _forget(localId);
   }
 
   /// Audit M2: the init call under [key] got no answer in the client's

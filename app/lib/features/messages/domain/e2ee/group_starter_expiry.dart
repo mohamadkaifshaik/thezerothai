@@ -63,7 +63,10 @@ extension _Expiry on GroupStarter {
       // two; the group is 24 h old, so no request of it is in flight
       // ([kInitResendMargin]). A second listing here would be the same
       // call twice.
-      await _crypto.discardProvisionalLocked(id, group.generation);
+      if (await _crypto.discardProvisionalLocked(id, group.generation)) {
+        // Fix round 2, ruling 8: the gone row's memory goes too.
+        _forgetInit(id);
+      }
       return const _Next(_NextKind.drain);
     }
     // Review I3. Decision: nothing is deleted here. The fresh claims come

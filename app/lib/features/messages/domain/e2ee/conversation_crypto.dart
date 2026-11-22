@@ -216,6 +216,14 @@ class ConversationCrypto {
   /// run ([_initHandedOver]).
   void Function(String conversationId)? onOwnInitUnanswered;
 
+  /// Pre-flag-on fix round 2, ruling 8 (code review nit), set by the
+  /// `GroupStarter`: called with a conversation id once the join path
+  /// discarded this device's own provisional INIT there (another device's
+  /// commit was first), so the starter forgets what it remembers for that
+  /// init's row, as every discard of its own does. Memory only; called
+  /// after the transaction, with the conversation lock held.
+  void Function(String conversationId)? onOwnInitDiscarded;
+
   /// Pre-flag-on review m-2. Conversation -> the provisional group (its
   /// generation and creation time) [onOwnInitUnanswered] was last called
   /// for in this run. Decision: once per group, not once per welcome poll.

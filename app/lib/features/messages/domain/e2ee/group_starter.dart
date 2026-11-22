@@ -221,6 +221,10 @@ class GroupStarter {
     // Task 8 concern 4: the join path left this device's own stored init
     // unanswered (a row still carries it); the resume replays it.
     crypto.onOwnInitUnanswered = _resumeAfterJoin;
+    // Fix round 2, ruling 8: the join path discarded this device's own init
+    // (another device's commit was first): its row's memory goes, as at
+    // every discard made here.
+    crypto.onOwnInitDiscarded = _forgetInit;
     _runStartedAt = now();
   }
 
@@ -342,6 +346,12 @@ class GroupStarter {
   late DateTime _runStartedAt;
   final Set<String> _sentThisRun = {};
 
+  /// Fix round 2, ruling 8: conversation -> the local id of the init row
+  /// this run last sent a request of, so a discard known only by its
+  /// conversation (the join code's, the expiry's with no row) forgets that
+  /// row's memory ([_forgetInit]).
+  final Map<String, String> _initRowOf = {};
+
   /// Bumped by [reset]: the end of a call tracked before it changes
   /// nothing.
   int _runSerial = 0;
@@ -390,6 +400,7 @@ class GroupStarter {
     _marginArmed.clear();
     _replayRefused.clear();
     _sentThisRun.clear();
+    _initRowOf.clear();
     _runStartedAt = _now();
     _resetCalls.clear();
     _resetLists.clear();
