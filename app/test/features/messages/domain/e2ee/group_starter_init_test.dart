@@ -6,6 +6,7 @@ import 'package:dzeroth/core/crypto/mls_derivations.dart';
 import 'package:dzeroth/core/crypto/mls_pair.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/vault/secure_vault.dart';
+import 'package:dzeroth/core/vault/vault_session.dart';
 import 'package:dzeroth/core/vault/vault_status.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_crypto.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/e2ee_types.dart';
@@ -19,6 +20,7 @@ import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../../support/e2ee_pipeline_rig.dart';
+import '../../../../support/fake_vault_world.dart';
 
 const _c1 = '11111111111111111111111111111111';
 const _c2 = '22222222222222222222222222222222';
@@ -49,11 +51,11 @@ void main() {
   /// flight, under the conversation lock).
   Completer<void>? gate;
 
-  GroupStarter build() => starter = GroupStarter(
+  GroupStarter build({VaultSession? session}) => starter = GroupStarter(
     crypto: rig.crypto,
     sender: rig.sender,
     receiver: rig.receiver,
-    session: rig.device.session,
+    session: session ?? rig.device.session,
     engine: () => rig.device.engine,
     messaging: rig.messaging,
     keys: rig.keys,
@@ -485,6 +487,46 @@ void main() {
           expect(r.result, StartResult.unavailable, reason: '$flag $id');
         }
       }
+      expect(rig.keys.getCalls, isEmpty);
+      expect(rig.keys.listCalls, 0);
+      expect(rig.keys.claimCalls, isEmpty);
+      expect(rig.server.sends, isEmpty);
+    });
+
+    test('with no open vault, plaintext is answered only when the session '
+        'says this device has none', () async {
+      // The known-vault marker cannot be read at sign-in with the flag off:
+      // whether this device has a vault is not known.
+      final world = FakeVaultWorld()..markers.failKnownReads = true;
+      final unknownVault = world.launch();
+      await unknownVault.onSignedIn(_me, flag: E2eeFlag.off);
+      expect(unknownVault.vault, isNull);
+      expect(unknownVault.vaultKnown, isFalse);
+      expect(unknownVault.status.value, VaultStatus.unavailable);
+      build(session: unknownVault);
+      for (final flag in [E2eeFlag.off, E2eeFlag.unknown]) {
+        await unknownVault.onFlagChanged(flag, uid: _me);
+        expect(unknownVault.status.value, VaultStatus.unavailable);
+        for (final id in [null, _c1]) {
+          final r = await start(conversationId: id);
+          expect(r.result, StartResult.unavailable, reason: '$flag $id');
+        }
+      }
+
+      // The marker was read and there is none: the flag decides (R1).
+      final none = FakeVaultWorld().launch();
+      await none.onSignedIn(_me, flag: E2eeFlag.off);
+      expect(none.status.value, VaultStatus.off);
+      build(session: none);
+      expect((await start()).result, StartResult.plaintext);
+
+      // A platform with no vault at all.
+      final unsupported = FakeVaultWorld().launch(supported: false);
+      await unsupported.onSignedIn(_me, flag: E2eeFlag.off);
+      expect(unsupported.status.value, VaultStatus.unsupported);
+      build(session: unsupported);
+      expect((await start()).result, StartResult.plaintext);
+
       expect(rig.keys.getCalls, isEmpty);
       expect(rig.keys.listCalls, 0);
       expect(rig.keys.claimCalls, isEmpty);

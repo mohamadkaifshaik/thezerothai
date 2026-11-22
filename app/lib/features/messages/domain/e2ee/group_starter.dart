@@ -14,6 +14,7 @@ import '../../../../core/crypto/mls_pair.dart';
 import '../../../../core/network/app_exception.dart';
 import '../../../../core/vault/secure_vault.dart';
 import '../../../../core/vault/vault_session.dart';
+import '../../../../core/vault/vault_status.dart';
 import '../../../../gen/dzeroth/keys/v1/keys.pb.dart' as kpb;
 import '../../../../gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import '../../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart';
@@ -467,6 +468,13 @@ class GroupStarter {
   /// Saves the row and returns (the init is sent after it returned);
   /// [StartResult.plaintext] saves nothing.
   ///
+  /// Review N2, binding for Task 13b: call this only AFTER the session's
+  /// sign-in step (`VaultSession.onSignedIn`) completed for the signed-in
+  /// user. Before it the session's status is still its initial `off`, which
+  /// cannot be told from "this device has no vault" here: a send routed in
+  /// that window on a flag that is off or unknown could be plaintext for a
+  /// conversation only the vault knows as encrypted.
+  ///
   /// [ArgumentError], with nothing saved, for an empty local id or peer, an
   /// invalid conversation id, content over [kMaxMessageContentBytes], or a
   /// local id an unsent row already has. Never throws otherwise: a failure
@@ -516,8 +524,18 @@ class GroupStarter {
     // only record that a conversation is encrypted, so nothing is routed
     // without it. Never plaintext, whatever the flag says; with no vault
     // on the device at all the flag decides as before (R1's inertness).
-    if (vault == null && _session.vaultKnown) {
-      return _out(StartResult.unavailable);
+    //
+    // Review N2. Decision: "no vault on the device" is taken only from a
+    // session that SAYS so (status `off`, or `unsupported`: no vault can
+    // exist on this platform). `vaultKnown` is false as well when the
+    // marker could not be read (status `unavailable`), and a vault that
+    // may exist is treated as one that does: never plaintext in doubt.
+    if (vault == null) {
+      final status = _session.status.value;
+      if (_session.vaultKnown ||
+          (status != VaultStatus.off && status != VaultStatus.unsupported)) {
+        return _out(StartResult.unavailable);
+      }
     }
     if (vault != null && !_known.isLoadedFor(vault)) await _known.load(vault);
 
