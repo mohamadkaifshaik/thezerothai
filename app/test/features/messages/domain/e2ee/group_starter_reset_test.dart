@@ -893,11 +893,23 @@ void main() {
       expect(row.stage, OutboxStage.encrypted);
       expect(row.generation, 1);
 
+      final sentBefore = rig.server.sends.length;
       await makeStuck();
       await reset();
       await rig.sender.drain(_c1, priority: BudgetPriority.user);
       await rig.sender.settled(_c1);
       expect(rig.server.sends.last.pair.generation, 2);
+      // Review m-6: the row of g went out once more at its own pair, under
+      // its own key, and the server (at g + 1) answered STALE_EPOCH; only
+      // then was it encrypted again in g + 1, under a new key.
+      expect(rig.server.current(_c1).generation, 2);
+      final after = rig.server.sends.sublist(sentBefore);
+      expect(after, hasLength(2));
+      expect(after.first.key, row.idempotencyKey);
+      expect(after.first.pair, MlsPair(1, row.epoch));
+      expect(after.first.pair, isNot(rig.server.current(_c1)));
+      expect(after.last.pair.generation, 2);
+      expect(after.last.key, isNot(row.idempotencyKey));
       expect(
         (await rig.device.vault.outbox(conversationId: _c1)).items,
         isEmpty,
