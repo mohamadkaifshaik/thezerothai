@@ -1,10 +1,47 @@
 part of 'membership_upkeep.dart';
 
-/// `reconcile` (plan Task 9, steps 1-5; M1, M2, M3, M4), with the
+/// `reconcile` (plan Task 9, steps 1-5; M1, M2, M3, M4): the unheld entry
+/// (with the live pull between two passes) and the passes, each with the
 /// conversation lock held.
 extension _Reconcile on MembershipUpkeep {
-  /// [recheck]: run by the re-check timer (no self-update: R9 runs only
-  /// from an open or a send). Never throws.
+  /// The unheld entry: [MembershipUpkeep.reconcile] and the re-check timer
+  /// ([recheck]). Review I1: a pass whose commit or resume moved the pair
+  /// (`applied`, `superseded`) leaves the conversation unsynced, and the
+  /// live pull that syncs it takes the lock itself, so it runs here,
+  /// between two holds, before the ONE more pass (plan step 4). A re-check
+  /// exists to make a change, so it pulls first when not synced. Never
+  /// throws.
+  Future<void> _reconcileUnheld(
+    String id,
+    BudgetPriority priority, {
+    required bool recheck,
+  }) async {
+    try {
+      if (recheck && !_contexts.of(id).syncedSinceStart) {
+        await _receiver.pullLive(id, priority: priority);
+      }
+      final first = await _locks.run(
+        id,
+        () => _reconcileOnce(id, priority, recheck: recheck),
+      );
+      if (first != CommitOutcome.applied && first != CommitOutcome.superseded) {
+        return;
+      }
+      await _receiver.pullLive(id, priority: priority);
+      await _locks.run(
+        id,
+        () => _reconcileOnce(id, priority, recheck: recheck),
+      );
+    } on Object catch (e, s) {
+      _reportIfBug(e, s, 'upkeep.reconcile');
+    }
+  }
+
+  /// The held entry (the acceptance steps, [MembershipUpkeep
+  /// .reconcileLocked]). It cannot pull: after `superseded` the second pass
+  /// commits only while still synced, else it arms one re-check (review I1
+  /// c). [recheck]: no self-update (R9 runs only from an open or a send).
+  /// Never throws.
   Future<void> _reconcileLocked(
     String id,
     BudgetPriority priority, {
@@ -13,43 +50,55 @@ extension _Reconcile on MembershipUpkeep {
     try {
       // Plan step 4: after `superseded`, once more on the caught-up group.
       for (var round = 0; round < 2; round++) {
-        if (!await _reconcileOnce(id, priority, recheck: recheck)) return;
+        if (await _reconcileOnce(id, priority, recheck: recheck) !=
+            CommitOutcome.superseded) {
+          return;
+        }
       }
     } on Object catch (e, s) {
       _reportIfBug(e, s, 'upkeep.reconcile');
     }
   }
 
-  /// One pass; true when its commit was superseded (run again).
-  Future<bool> _reconcileOnce(
+  /// One pass. Answers how this device's commit of the pass ended (its
+  /// change, else the resume of a pending record when that settled it);
+  /// null when it made none.
+  Future<CommitOutcome?> _reconcileOnce(
     String id,
     BudgetPriority priority, {
     required bool recheck,
   }) async {
     final vault = _session.vault;
-    if (vault == null || _removedElsewhere()) return false;
+    if (vault == null || _removedElsewhere()) return null;
     // R10 and pilot gate 5.3: before any list call.
     if (!((await vault.conversation(id))?.sync.requestAccepted ?? false)) {
-      return false;
+      return null;
     }
     var group = await _currentGroup(vault, id);
-    if (group == null) return false;
+    if (group == null) return null;
     // 9a decision 2: a pending record is settled first, before any list.
+    CommitOutcome? resumed;
     if (group.hasPending) {
       final settled = await _commits.resumePendingLocked(
         id,
         priority: priority,
       );
-      if (settled == CommitOutcome.pending) return false;
+      if (settled == CommitOutcome.pending) return null;
+      if (settled == CommitOutcome.applied ||
+          settled == CommitOutcome.superseded) {
+        resumed = settled;
+      }
     }
     if (await _crypto.catchUpLocked(id, priority: priority) !=
         CatchUpResult.current) {
-      return false;
+      return resumed;
     }
-    if (!identical(_session.vault, vault)) return false;
+    if (!identical(_session.vault, vault)) return resumed;
     group = await _currentGroup(vault, id);
     final thisDevice = await vault.deviceId();
-    if (group == null || group.hasPending || thisDevice == null) return false;
+    if (group == null || group.hasPending || thisDevice == null) {
+      return resumed;
+    }
     final context = _contexts.of(id);
     final accepted = context.acceptedSeenAt;
 
@@ -69,7 +118,7 @@ extension _Reconcile on MembershipUpkeep {
       // M2: one fresh fetch of both lists, and the members attributed
       // again (attribution fetches both fresh).
       await _crypto.attributeMembersLocked(id, priority: priority);
-      if (!identical(_session.vault, vault)) return false;
+      if (!identical(_session.vault, vault)) return resumed;
       members = await vault.members(id);
     }
 
@@ -92,7 +141,7 @@ extension _Reconcile on MembershipUpkeep {
         !now.isBefore(accepted.add(kConversationCopyStale))) {
       peer = await _directory.peer(ref, fresh: true, priority: priority);
     }
-    if (!identical(_session.vault, vault)) return false;
+    if (!identical(_session.vault, vault)) return resumed;
     final unattributed = members.any((m) => m.side == MemberSide.unattributed);
     var unverifiable =
         own.state == ListState.unreadable || peer.state == ListState.unreadable;
@@ -228,26 +277,47 @@ extension _Reconcile on MembershipUpkeep {
       _scheduleRecheck(id, recheckAt.first);
     }
 
+    final staying = [
+      for (final m in members)
+        if (!removing.contains(vaultDeviceIdHex(m.deviceId))) m,
+    ];
+    final mayAdd = _session.mayStart && !unverifiable;
+
     // M5 and the rest of "may commit": no claim is spent on a change that
     // cannot be made now.
     if (!await _commits.mayCommit(id, PendingKind.change)) {
+      // Review I1 c: a change decided while this run has not pulled the
+      // current pair (after an own commit) waits for one re-check, which
+      // pulls first. Only a pass that is not itself a re-check arms it, so
+      // it cannot loop; other reasons (M5, the cap) make that re-check a
+      // no-op.
+      if (!recheck &&
+          !context.syncedSinceStart &&
+          (removes.isNotEmpty ||
+              (mayAdd &&
+                  (await _wanted(
+                    own,
+                    peer,
+                    staying,
+                    thisDevice,
+                    history,
+                  )).isNotEmpty))) {
+        _scheduleRecheck(id, _now().add(kPeerRemovalFetchGap));
+      }
       if (removes.isEmpty && !recheck) {
         await _selfUpdateLocked(id, priority, caughtUp: true);
       }
-      return false;
+      return resumed;
     }
 
     // Step 3: adds, only with the flag (R1), against step 1's lists.
-    final adds = _session.mayStart && !unverifiable
+    final adds = mayAdd
         ? await _claimAdds(
             id,
             ref,
             own,
             peer,
-            [
-              for (final m in members)
-                if (!removing.contains(vaultDeviceIdHex(m.deviceId))) m,
-            ],
+            staying,
             thisDevice,
             history,
             priority,
@@ -257,7 +327,7 @@ extension _Reconcile on MembershipUpkeep {
     // Step 4.
     if (removes.isEmpty && adds.isEmpty) {
       if (!recheck) await _selfUpdateLocked(id, priority, caughtUp: true);
-      return false;
+      return resumed;
     }
     var outcome = await _commits.changeLocked(
       id,
@@ -277,7 +347,30 @@ extension _Reconcile on MembershipUpkeep {
       );
     }
     if (outcome == CommitOutcome.applied) _onChanged(id);
-    return outcome == CommitOutcome.superseded;
+    return outcome;
+  }
+
+  /// `devicesToAdd`, without the ids the key history would refuse and the
+  /// devices whose claim came back empty today. Reads only.
+  Future<List<DeviceToAdd>> _wanted(
+    DeviceList own,
+    DeviceList peer,
+    List<MemberRecord> members,
+    Uint8List thisDevice,
+    KeyHistory history,
+  ) async {
+    if (history.unreadable) return const [];
+    final wanted = <DeviceToAdd>[];
+    for (final d in devicesToAdd(
+      ownList: own,
+      peerList: peer,
+      members: members,
+      thisDeviceId: thisDevice,
+      admissible: history.admissible,
+    )) {
+      if (!await _ledger.emptyClaimTried(d.deviceId)) wanted.add(d);
+    }
+    return wanted;
   }
 
   /// Plan step 3: `devicesToAdd` (skipping ids the key history would
@@ -295,17 +388,7 @@ extension _Reconcile on MembershipUpkeep {
     KeyHistory history,
     BudgetPriority priority,
   ) async {
-    if (history.unreadable) return const [];
-    final wanted = <DeviceToAdd>[];
-    for (final d in devicesToAdd(
-      ownList: own,
-      peerList: peer,
-      members: members,
-      thisDeviceId: thisDevice,
-      admissible: history.admissible,
-    )) {
-      if (!await _ledger.emptyClaimTried(d.deviceId)) wanted.add(d);
-    }
+    final wanted = await _wanted(own, peer, members, thisDevice, history);
     if (wanted.isEmpty) return const [];
     final empty = <Uint8List>[];
     Future<List<UsableClaim>> side(ClaimSide side) async {

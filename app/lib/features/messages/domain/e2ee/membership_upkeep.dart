@@ -22,6 +22,7 @@ import 'device_key_history.dart';
 import 'e2ee_types.dart';
 import 'former_pins.dart';
 import 'membership_rules.dart';
+import 'message_receiver.dart';
 import 'pipeline_support.dart';
 import 'sync_budget.dart';
 
@@ -56,6 +57,17 @@ const FormerPins _former = FormerPins();
 /// [cancelScheduled] (the app is paused) and [reset] (sign-out). A paused
 /// app re-checks at its next trigger. No loop.
 ///
+/// **After an own commit (review I1).** A settled commit of this device
+/// moves the pair, and no commit may follow until a live pull of the new
+/// pair (`syncedSinceStart`). The pull takes the conversation lock itself,
+/// so only the unheld [reconcile] can make it: after its pass's commit (or
+/// resume) answered `applied` or `superseded`, it pulls between two holds
+/// and runs ONE more pass. A pass that is not itself a re-check and decides
+/// a change while not synced arms one re-check
+/// ([kPeerRemovalFetchGap] on, through the earliest-due timer); the
+/// re-check pulls first when not synced. A re-check arms no such re-check
+/// of its own, so this cannot loop.
+///
 /// Locking (plan "Global Constraints"): the public entries take the
 /// conversation lock; the `...Locked` variants are for a caller that holds
 /// it (the sender's drain). RPCs run under the lock and outside `runWrite`;
@@ -70,6 +82,7 @@ class MembershipUpkeep {
   /// and answers a handle that cancels it (a [Timer] in production).
   MembershipUpkeep({
     required CommitRunner commits,
+    required MessageReceiver receiver,
     required DailyLedger ledger,
     required ConversationCrypto crypto,
     required VaultSession session,
@@ -86,6 +99,7 @@ class MembershipUpkeep {
     void Function() Function(Duration delay, void Function() run)? schedule,
     void Function(Object error, StackTrace stack)? onUnexpectedError,
   }) : _commits = commits,
+       _receiver = receiver,
        _ledger = ledger,
        _crypto = crypto,
        _session = session,
@@ -103,6 +117,7 @@ class MembershipUpkeep {
        _onUnexpectedError = onUnexpectedError;
 
   final CommitRunner _commits;
+  final MessageReceiver _receiver;
   final DailyLedger _ledger;
   final ConversationCrypto _crypto;
   final VaultSession _session;
@@ -120,8 +135,8 @@ class MembershipUpkeep {
   final void Function(Object error, StackTrace stack)? _onUnexpectedError;
 
   /// Task 11: the device ids queued for removal in a conversation. Each
-  /// one that is a member is removed by the next [reconcile]; an own-side
-  /// one also by [onAccepted] before anything else.
+  /// one that is a member is removed by the next [reconcile] (the
+  /// acceptance's reconcile too, in its one commit; review I1 b).
   Set<Uint8List> Function(String conversationId)? queuedRemovals;
 
   /// Conversation -> the one scheduled re-check, with its due time.
@@ -129,6 +144,9 @@ class MembershipUpkeep {
 
   /// Conversation -> the acceptance a header's ACCEPTED started.
   final Map<String, Future<void>> _sights = {};
+
+  /// The re-checks whose timer fired and that are still running.
+  final Set<Future<void>> _recheckRuns = {};
 
   /// The app is paused: the re-check timers are cancelled (no network call
   /// while paused). Each conversation re-checks at its next trigger.
@@ -147,11 +165,12 @@ class MembershipUpkeep {
     _sights.clear();
   }
 
-  /// Completes when no acceptance a header started is running.
+  /// Completes when no acceptance a header started, and no re-check whose
+  /// timer fired, is running.
   @visibleForTesting
   Future<void> idle() async {
-    while (_sights.isNotEmpty) {
-      await Future.wait(_sights.values.toList());
+    while (_sights.isNotEmpty || _recheckRuns.isNotEmpty) {
+      await Future.wait([..._sights.values, ..._recheckRuns]);
     }
   }
 
@@ -162,17 +181,20 @@ class MembershipUpkeep {
   /// check (steps 1-5 of the plan's `reconcile`). A no-op, with no list
   /// call, unless the conversation is accepted (R10). A pending commit is
   /// settled first ([CommitRunner.resumePendingLocked]); `pending` ends
-  /// here. After `superseded` it runs once more on the caught-up group (no
-  /// rebuilt add is sent). Takes the conversation lock. Never throws.
+  /// here. When the pass's commit or resume answered `applied` or
+  /// `superseded`, ONE live pull of the new pair runs between two holds and
+  /// then ONE more pass on the caught-up group (no rebuilt add is sent;
+  /// review I1 a). Takes the conversation lock (never call it with the lock
+  /// held). Never throws.
   Future<void> reconcile(
     String conversationId, {
     BudgetPriority priority = BudgetPriority.background,
-  }) => _locks.run(
-    conversationId,
-    () => _reconcileLocked(conversationId, priority, recheck: false),
-  );
+  }) => _reconcileUnheld(conversationId, priority, recheck: false);
 
-  /// [reconcile] for a caller that ALREADY HOLDS the conversation lock.
+  /// [reconcile] for a caller that ALREADY HOLDS the conversation lock. It
+  /// cannot pull: after `superseded` its second pass commits only when the
+  /// conversation is still synced, and otherwise arms one re-check, which
+  /// pulls (review I1 c).
   Future<void> reconcileLocked(
     String conversationId, {
     BudgetPriority priority = BudgetPriority.background,
@@ -216,9 +238,11 @@ class MembershipUpkeep {
   /// R10: the conversation became accepted (the user accepted, or the
   /// server said so). In this order, before any encrypt: `requestAccepted`
   /// (sticky) with the own-device alerts of H2, in one transaction; the
-  /// removal clock (`acceptedSeenAt`) and the direction in memory; the
-  /// queued removals of own devices (the own list needs no waiting time);
-  /// attribution (rows are written from now on); [reconcile]. Peer-side
+  /// removal clock (`acceptedSeenAt`) and the direction in memory;
+  /// attribution (rows are written from now on); [reconcile], whose ONE
+  /// commit also carries the queued removals (review I1 b: a separate
+  /// queued-removal commit would leave the reconcile unsynced, so it could
+  /// commit nothing). Peer-side
   /// and unattributed removals wait for the removal clock (60 s after
   /// acceptance, then 2 minutes). Takes the conversation lock. Never
   /// throws.
@@ -362,26 +386,8 @@ class MembershipUpkeep {
     } else {
       context.acceptedSeenAt ??= _now();
     }
-    // Queued removals of own devices first: the own list needs no wait.
-    final vault = _session.vault;
-    final thisDevice = await vault?.deviceId();
-    if (vault != null && thisDevice != null) {
-      final queued = queuedRemovals?.call(id) ?? const <Uint8List>{};
-      final own = [
-        for (final m in await vault.members(id))
-          if (m.side == MemberSide.mine &&
-              !_same(m.deviceId, thisDevice) &&
-              queued.any((q) => _same(q, m.deviceId)))
-            m.deviceId,
-      ];
-      if (own.isNotEmpty) {
-        await _commits.changeLocked(
-          id,
-          removeDeviceIds: own,
-          priority: priority,
-        );
-      }
-    }
+    // The queued removals go in reconcile's one commit, after attribution
+    // (the H2 alerts are already in the mark's transaction).
     await _crypto.attributeMembersLocked(id, priority: priority);
     await _reconcileLocked(id, priority, recheck: false);
     return true;
@@ -465,13 +471,14 @@ class MembershipUpkeep {
       () => _schedule(delay, () {
         if (!identical(_rechecks[id], entry)) return;
         _rechecks.remove(id);
-        unawaited(
-          _locks.run(
-            id,
-            () =>
-                _reconcileLocked(id, BudgetPriority.background, recheck: true),
-          ),
+        // Unheld: it may pull first (review I1 c).
+        final run = _reconcileUnheld(
+          id,
+          BudgetPriority.background,
+          recheck: true,
         );
+        _recheckRuns.add(run);
+        unawaited(run.whenComplete(() => _recheckRuns.remove(run)));
       }),
     );
     entry = _Recheck(at, cancel);

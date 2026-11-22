@@ -10,7 +10,6 @@ import 'package:dzeroth/features/messages/domain/e2ee/daily_ledger.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/device_directory.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/e2ee_types.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/membership_rules.dart';
-import 'package:dzeroth/features/messages/domain/e2ee/pipeline_support.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/sync_budget.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/keys/v1/keys.pb.dart' as kpb;
@@ -186,6 +185,7 @@ void main() {
     expect(live, hasLength(1), reason: 'one re-check per conversation');
     rig.upkeepScheduled.clear();
     live.single.run();
+    await rig.upkeep.idle();
     await rig.locks.run(_c1, () async {});
   }
 
@@ -775,6 +775,89 @@ void main() {
       );
     });
 
+    test('a removal decided after superseded is committed after the next '
+        'live pull: a lost own phone goes in the same reconcile (review '
+        'I1)', () async {
+      final sibling = await RigPeer.create('sibling');
+      final bob2 = await RigPeer.create('bob2');
+      await setUpJoined(
+        others: [sibling],
+        ownListed: [sibling],
+        alsoListed: [bob2],
+      );
+      await synced();
+      peerClaims([bob, bob2]);
+      // The lost phone is deregistered; bob2 is to be added.
+      rig.clock.advance(kDeviceListReuse);
+      ownList(const []);
+      var raced = false;
+      rig.server.onCall = (call) async {
+        if (call != 'commitConversation' || raced) return;
+        raced = true;
+        // Bob's own add of bob2 wins the pair: this commit is superseded.
+        await bobCommits(add: [await bob2.keyPackage()]);
+      };
+
+      await rig.upkeep.reconcile(_c1);
+
+      expect(raced, isTrue);
+      expect(requests(), hasLength(2));
+      // The second commit removes the phone and adds nothing again.
+      expect(requests().last.welcome, isNull);
+      expect(await pin(sibling), isNull);
+      expect((await pin(bob2))!.side, MemberSide.theirs);
+      expect((await groupRecord()).epoch, 3);
+      expect(rig.keys.claimCalls, hasLength(1));
+    });
+
+    test('a change decided while not synced arms one re-check, which pulls '
+        'and commits; a re-check arms none of its own (review I1 c)', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpJoined(others: [sibling], ownListed: [sibling]);
+      await synced();
+      // This device's own earlier commit moved the pair: no live pull of
+      // the new pair since.
+      expect(await rig.commits.selfUpdate(_c1), CommitOutcome.applied);
+      expect(requests(), hasLength(1));
+      rig.server.commitRequests.clear();
+      rig.clock.advance(kDeviceListReuse);
+      ownList(const []);
+
+      await rig.upkeep.reconcile(_c1);
+      expect(rig.contexts.of(_c1).syncedSinceStart, isFalse);
+      expect(requests(), isEmpty);
+      expect(liveRechecks(), 1);
+      expect(
+        rig.clock.now().add(rig.upkeepScheduled.last.delay),
+        rig.clock.now().add(kPeerRemovalFetchGap),
+      );
+
+      // That re-check's pull fails: no commit, and it arms no other (no
+      // loop).
+      rig.server.onCall = (call) async {
+        if (call == 'listMlsMessages' ||
+            call == 'listEpochMessages' ||
+            call == 'listMessageTombstones') {
+          throw const NetworkException('rig: offline');
+        }
+      };
+      rig.clock.advance(kPeerRemovalFetchGap);
+      await runRecheck();
+      expect(requests(), isEmpty);
+      expect(liveRechecks(), 0);
+      expect((await pin(sibling))!.side, MemberSide.mine);
+
+      // The next open arms one again; its re-check pulls and removes.
+      rig.server.onCall = null;
+      await rig.upkeep.reconcile(_c1);
+      expect(liveRechecks(), 1);
+      rig.clock.advance(kPeerRemovalFetchGap);
+      await runRecheck();
+      expect(requests(), hasLength(1));
+      expect(await pin(sibling), isNull);
+      expect(liveRechecks(), 0);
+    });
+
     test('two undos in one day pause committing here until the next IST '
         'day', () async {
       final sibling = await RigPeer.create('sibling');
@@ -1039,6 +1122,33 @@ void main() {
       expect(rig.contexts.of(_c1).acceptedSeenAt, isNotNull);
       expect(await pin(sibling), isNull);
       expect(rig.server.sends.single.pair, const MlsPair(1, 2));
+    });
+
+    test('the acceptance with a queued removal and a deregistered own device '
+        'makes one commit (review I1 b)', () async {
+      final sibling = await RigPeer.create('sibling');
+      final sib2 = await RigPeer.create('sib2');
+      await setUpJoined(
+        accepted: false,
+        others: [sibling, sib2],
+        ownListed: [sibling, sib2],
+        folder: Folder.FOLDER_REQUESTS,
+        state: ConversationState.CONVERSATION_STATE_REQUEST,
+      );
+      await synced();
+      expect((await pin(sib2))!.side, MemberSide.mine);
+      // sibling is queued (still listed); sib2 is deregistered.
+      rig.upkeep.queuedRemovals = (_) => {sibling.id};
+      rig.clock.advance(kDeviceListReuse);
+      ownList([sibling]);
+
+      await rig.upkeep.onAccepted(_c1);
+
+      expect((await sync()).requestAccepted, isTrue);
+      expect(requests(), hasLength(1));
+      expect(requests().single.welcome, isNull);
+      expect(await pin(sibling), isNull);
+      expect(await pin(sib2), isNull);
     });
 
     test('the first reply after an accept that committed is sent in the same '

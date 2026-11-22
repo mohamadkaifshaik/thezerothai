@@ -1973,6 +1973,7 @@ class RigCrypto {
     );
     upkeep = MembershipUpkeep(
       commits: commits,
+      receiver: receiver,
       ledger: ledger,
       crypto: crypto,
       session: device.session,
