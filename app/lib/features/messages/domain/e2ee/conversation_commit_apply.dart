@@ -198,10 +198,15 @@ extension _CommitApply on ConversationCrypto {
         byOther &&
         daily != null &&
         daily.undoesOwnChange(id, added: event.added, removed: event.removed);
-    // What this device's own commit added and removed (pins written and
-    // deleted below).
+    // What this device's own commit added (the members its welcome was
+    // addressed to) and removed (the pins deleted below).
     final ownAdded = <Uint8List>[];
     final ownRemoved = <Uint8List>[];
+    // The server addresses a welcome by the device id as text.
+    final ownWelcomed = {
+      for (final device in ownPending?.welcomeDeviceIds ?? const <String>[])
+        vaultDeviceIdHex(Uint8List.fromList(utf8.encode(device))),
+    };
     try {
       await v.transaction((tx) async {
         if (undo) {
@@ -262,6 +267,10 @@ extension _CommitApply on ConversationCrypto {
         for (final hex in removed) {
           final pinned = byHex.remove(hex);
           if (pinned == null) continue;
+          // The own removals are the deleted pins: the pending record
+          // holds no list of what the commit removed (review m4), so a
+          // member this device removed that had no pin is not recorded as
+          // an own change, and its re-add by another device counts no undo.
           if (ownPending != null) ownRemoved.add(pinned.deviceId);
           await tx.deleteMember(id, pinned.deviceId);
           // R10: no system row of any kind while unaccepted.
@@ -299,6 +308,12 @@ extension _CommitApply on ConversationCrypto {
         for (final m in members) {
           final hex = vaultDeviceIdHex(m.deviceId);
           added[hex] = m.signaturePublicKey;
+          // Review m4: what this device's own commit ADDED is what its
+          // welcome was addressed to (the runner builds one welcome id per
+          // add), not the pin diff below: a member that merely had no pin,
+          // or a changed key, when an own self-update or removal was
+          // confirmed is no change of this device.
+          if (ownWelcomed.contains(hex)) ownAdded.add(m.deviceId);
         }
         for (final entry in added.entries) {
           if (entry.key == thisHex) continue;
@@ -321,7 +336,6 @@ extension _CommitApply on ConversationCrypto {
                     ? MemberSide.mine
                     : MemberSide.theirs);
           if (side == MemberSide.unattributed) newMember = true;
-          if (ownPending != null) ownAdded.add(deviceId);
           await tx.putMember(
             MemberRecord(
               conversationId: id,

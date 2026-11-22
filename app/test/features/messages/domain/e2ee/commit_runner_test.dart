@@ -871,6 +871,37 @@ void main() {
       expect((await sync()).commitCallsToday, 2);
     });
 
+    test('an own commit records as its own adds only the devices its '
+        'welcome was addressed to', () async {
+      await setUpJoined();
+      final carol = await RigPeer.create('carol');
+      rig.keys.peers['ref-bob'] = [
+        rigKeyDevice(bob.idString, bob.key),
+        rigKeyDevice(carol.idString, carol.key),
+      ];
+      await bobCommits(add: [await carol.keyPackage()]);
+      await synced();
+      // A member this device holds no pin for (bob added her).
+      await rig.device.vault.transaction(
+        (tx) => tx.deleteMember(_c1, carol.id),
+      );
+      expect(await pin(carol), isNull);
+
+      expect(await rig.commits.selfUpdate(_c1), CommitOutcome.applied);
+
+      // The self-update's transaction pinned her, but she is no change of
+      // this device: her removal by another device is not an undo.
+      expect((await pin(carol))!.side, MemberSide.unattributed);
+      expect(
+        await rig.ledger.isUndoOfOwnChange(_c1, carol.id, removing: true),
+        isFalse,
+      );
+      await bobApplies(const MlsPair(1, 2));
+      await bobCommits(remove: [carol.id]);
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      expect(await rig.ledger.undone(_c1), 0);
+    });
+
     test('what this run remembers of a confirmed own commit is read once '
         'and forgotten at reset', () async {
       await setUpJoined();
