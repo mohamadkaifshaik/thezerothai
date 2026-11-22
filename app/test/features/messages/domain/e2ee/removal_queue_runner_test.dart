@@ -3,6 +3,7 @@ import 'package:dzeroth/core/vault/secure_vault.dart';
 import 'package:dzeroth/core/vault/vault_status.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/commit_runner.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/daily_ledger.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/removal_queue_runner.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/sync_budget.dart';
 import 'package:dzeroth/gen/dzeroth/keys/v1/keys.pb.dart' as kpb;
 import 'package:flutter_test/flutter_test.dart';
@@ -348,6 +349,46 @@ void main() {
         expect((await stored())!.notBeforeMicros, isNull);
       },
     );
+
+    test('a per-conversation daily limit holds only that conversation '
+        '(review I2)', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await join(_c1, others: [sibling]);
+      await join(_c2, others: [sibling]);
+      rig.server.commitScript.add((
+        error: const RateLimitedException(
+          'rig',
+          retryAfter: Duration(hours: 5),
+          limitName: kLimitCommitsPerConversationDaily,
+        ),
+        stored: false,
+      ));
+
+      await removeAndSettle(sibling);
+
+      // c1 (the first) was limited; c2 was removed in the same pass.
+      expect(requests(_c1), hasLength(1));
+      expect(await pin(sibling, _c2), isNull);
+      expect(queued(_c1, sibling), isTrue);
+      expect(
+        (await stored())!.notBeforeMicros,
+        isNull,
+        reason: 'not queue-wide',
+      );
+      expect(runnerScheduled.last.delay, const Duration(hours: 5));
+
+      // Held: a pass before the time makes no call for c1.
+      rig.clock.advance(const Duration(hours: 4));
+      await runner.runPass();
+      expect(requests(_c1), hasLength(1));
+
+      rig.clock.advance(const Duration(hours: 1));
+      await runTimer();
+      expect(requests(_c1), hasLength(2));
+      expect(await pin(sibling), isNull);
+      expect(runner.pending.value, 0);
+    });
 
     test('a retry time more than 24 h away is capped at 24 h', () async {
       final sibling = await RigPeer.create('sibling');

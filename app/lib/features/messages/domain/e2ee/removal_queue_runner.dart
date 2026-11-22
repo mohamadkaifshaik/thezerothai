@@ -22,6 +22,12 @@ import 'message_receiver.dart';
 import 'pipeline_support.dart';
 import 'sync_budget.dart';
 
+/// The `limit_name` of the per-caller, per-conversation daily commit cap
+/// (20 a day, shared by the user's devices). It holds one conversation
+/// only (review I2).
+const String kLimitCommitsPerConversationDaily =
+    'messages_commits_per_conversation_daily';
+
 /// The device-removal queue (plan Task 11, R17): the user removes one of
 /// their devices; this device removes it from every encrypted conversation
 /// it holds group state for.
@@ -66,7 +72,11 @@ import 'sync_budget.dart';
 /// server's retry time capped at [kMaxServerRetryWait] (24 h, security
 /// read L1), or [kDeviceKeysRateLimitFallback] when it named none (Open
 /// question 7); no pass starts before it, and one timer starts the pass
-/// then.
+/// then. Review I2: that queue-wide hold is for a limit of the whole user
+/// (the per-user daily cap, the per-minute bucket, an unnamed one). The
+/// per-conversation daily cap ([kLimitCommitsPerConversationDaily]) holds
+/// only its conversation, in memory and with the same 24 h cap; the pass
+/// goes on to the others.
 ///
 /// **The pause exemption (ruling H; amendment 3).** Every change is a
 /// user-queued removal, so it goes through [CommitRunner.mayCommit] and
@@ -161,6 +171,12 @@ class RemovalQueueRunner {
   /// Conversations whose last pass kept a queued peer-side device because
   /// it is the peer's last peer-side member (amendment 1).
   final Set<String> _lastKept = {};
+
+  /// Review I2: conversations held by their own daily commit cap, until
+  /// the time (capped at 24 h). Memory only: the F-7 record has no field
+  /// for it and lives outside this task's files; after a restart a held
+  /// conversation costs at most one refused call.
+  final Map<String, DateTime> _holds = {};
 
   final ValueNotifier<int> _pending = ValueNotifier(0);
 
@@ -309,6 +325,7 @@ class RemovalQueueRunner {
     _unreadableFor = null;
     _removedThisRun.clear();
     _lastKept.clear();
+    _holds.clear();
     _publish();
   }
 
@@ -394,11 +411,24 @@ class RemovalQueueRunner {
     }
     for (final id in order) {
       if (!identical(_session.vault, vault) || _removedElsewhere()) return;
+      final held = _holds[id];
+      if (held != null) {
+        if (_now().isBefore(held)) continue;
+        _holds.remove(id);
+      }
       if (await _attempt(vault, id, thisDevice, priority)) return;
     }
+    // Review I2: the earliest per-conversation hold left starts the next
+    // pass.
+    DateTime? next;
+    for (final at in _holds.values) {
+      if (next == null || at.isBefore(next)) next = at;
+    }
+    if (next != null) _armTimer(next);
   }
 
-  /// One conversation's turn. True: RATE_LIMITED, the pass stops.
+  /// One conversation's turn. True: RATE_LIMITED by a limit of the whole
+  /// user, the pass stops.
   Future<bool> _attempt(
     SecureVault vault,
     String id,
@@ -491,6 +521,14 @@ class RemovalQueueRunner {
       }
       if (wait > kMaxServerRetryWait) wait = kMaxServerRetryWait;
       final at = _now().add(wait);
+      if (limit.limitName == kLimitCommitsPerConversationDaily) {
+        // Review I2: this conversation's own daily cap holds it alone (in
+        // memory); the pass goes on, so the lost device leaves every other
+        // conversation now.
+        _holds[id] = at;
+        if (changed) await _save(vault);
+        return false;
+      }
       _notBeforeMicros = at.microsecondsSinceEpoch;
       await _save(vault);
       _armTimer(at);
@@ -568,7 +606,10 @@ class RemovalQueueRunner {
       return false;
     });
     if (notOwn) _reportBug('removalQueue.notOwn');
-    if (!_entries.any((e) => e.conversationId == id)) _lastKept.remove(id);
+    if (!_entries.any((e) => e.conversationId == id)) {
+      _lastKept.remove(id);
+      _holds.remove(id);
+    }
     final changed = _entries.length != before;
     if (changed) _publish();
     return changed;
