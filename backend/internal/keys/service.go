@@ -213,7 +213,7 @@ func (s *service) Remove(ctx context.Context, uid, deviceID string, reason Remov
 		err := s.repo.MarkRemoved(ctx, uid, deviceID, now, recent)
 		if errors.Is(err, ErrReauthRequired) {
 			logger.SetRequestField(ctx, fieldOutcome, outcomeRejected+"reauth_required")
-			return reauthRequired(ctx, maxAge, now)
+			return reauthRequired(ctx, uid, maxAge, now)
 		}
 		if err != nil {
 			return s.mapErr(ctx, "remove", uid, err)
@@ -226,14 +226,20 @@ func (s *service) Remove(ctx context.Context, uid, deviceID string, reason Remov
 	return nil
 }
 
-// reauthRequired is authn's own REAUTH_REQUIRED answer (same text, and reauth_required=true on the request line), for a
-// MarkRemoved that refused (ErrReauthRequired): the sign-in that decided it was not recent, so RequireRecentSignIn with
-// the same inputs refuses too. The fallback is the same answer, should the two ever disagree.
-func reauthRequired(ctx context.Context, maxAge time.Duration, now time.Time) error {
+// fieldReauthRequired is the request-line field authn.RequireRecentSignIn sets on its refusal.
+const fieldReauthRequired = "reauth_required"
+
+// reauthRequired answers a MarkRemoved that refused (ErrReauthRequired) with authn.RequireRecentSignIn's own answer (its
+// REAUTH_REQUIRED and its reauth_required=true on the request line): the sign-in that decided the refusal was not
+// recent, so the same inputs refuse again. Should the two ever disagree (RequireRecentSignIn returns nil), there is no
+// refusal to report: the answer is an internal error wrapping ErrReauthRequired (Minor 4: never a fabricated
+// REAUTH_REQUIRED), with reauth_required still set on the request line.
+func reauthRequired(ctx context.Context, uid string, maxAge time.Duration, now time.Time) error {
 	if err := authn.RequireRecentSignIn(ctx, maxAge, now); err != nil {
 		return err
 	}
-	return apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_REAUTH_REQUIRED, "please sign in again to continue")
+	logger.SetRequestField(ctx, fieldReauthRequired, true)
+	return logger.RedactErr(fmt.Errorf("keys: remove: the mark transaction refused a sign-in authn finds recent: %w", ErrReauthRequired), uid)
 }
 
 // Upload validates, deduplicates the packages by bytes (first occurrence wins, order kept) and hands copies to the repo.

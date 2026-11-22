@@ -2,6 +2,7 @@ package keys
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -188,6 +189,40 @@ func TestRemove_RemoteFailuresAreMapped(t *testing.T) {
 	wantErr(t, s.Remove(ctx, uidA, devID, RemoveRemote), connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
 	if slices.Contains(repo.ops, "Remove") {
 		t.Fatalf("the delete ran after a failed mark: %v", repo.ops)
+	}
+}
+
+// TestRemove_ReauthDisagreementIsInternal (Minor 4): when the mark transaction refuses (ErrReauthRequired) although
+// authn.RequireRecentSignIn finds the sign-in recent, the two disagree: there is no REAUTH_REQUIRED to fabricate. The
+// answer is an internal error wrapping ErrReauthRequired (no apierr, so the handler answers INTERNAL), the request line
+// still carries reauth_required and the rejected outcome, and the text names no device id.
+func TestRemove_ReauthDisagreementIsInternal(t *testing.T) {
+	s, repo, _ := newRemovalService(t)
+	mustRegister(t, s, devID, sigKey(1))
+	repo.markErr = ErrReauthRequired
+	ctx, info := signedIn(t0.Add(-time.Minute)) // recent
+	err := s.Remove(ctx, uidA, devID, RemoveRemote)
+	if err == nil {
+		t.Fatal("no error")
+	}
+	var ae *apierr.Error
+	if errors.As(err, &ae) {
+		t.Fatalf("err = %v (%v/%v), want an internal (non-apierr) error", err, ae.Code, ae.Reason)
+	}
+	if !errors.Is(err, ErrReauthRequired) {
+		t.Fatalf("err = %v, want it to wrap ErrReauthRequired", err)
+	}
+	if strings.Contains(err.Error(), devID) {
+		t.Fatalf("the error names the device id: %v", err)
+	}
+	if v, _ := info.Get("reauth_required"); v != true {
+		t.Errorf("reauth_required = %v, want true", v)
+	}
+	if v, _ := info.Get(fieldOutcome); v != outcomeRejected+"reauth_required" {
+		t.Errorf("outcome = %v, want rejected:reauth_required", v)
+	}
+	if slices.Contains(repo.ops, "Remove") {
+		t.Fatalf("the delete ran: %v", repo.ops)
 	}
 }
 
