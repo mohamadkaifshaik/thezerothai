@@ -4266,6 +4266,56 @@ void main() {
       );
     });
 
+    test(
+      'the join code hands an own unanswered init to the starter once per '
+      'group per run, not once per welcome poll (pre-flag-on review m-2)',
+      () async {
+        rig.server.sendScript.addAll([lostAnswer, unknown]);
+        gate = Completer<void>();
+        await start();
+        gate!.complete();
+        await done();
+        expect((await groupOf())!.provisional, isTrue);
+        rig.scheduled.clear();
+        // Every replay is refused and the page never shows the message: the
+        // group stays provisional through every poll.
+        rig.server.rewriteLive = (real) =>
+            pb.ListMessagesResponse(conversation: real.conversation);
+        const refused = (error: FeatureDisabledException('off'), stored: false);
+        rig.server.sendScript.addAll([refused, refused, refused]);
+        final sends = rig.server.sends.length;
+
+        Future<void> poll() async {
+          rig.server.addWelcome(
+            rig.device.deviceIdString,
+            _c1,
+            const MlsPair(1, 0),
+            Uint8List(4),
+          );
+          expect(await rig.crypto.processWelcomes(), isEmpty);
+          await pumpEventQueue();
+          await done();
+        }
+
+        // The first poll hands the group over: one resume, one replay.
+        await poll();
+        expect(rig.server.sends, hasLength(sends + 1));
+        expect((await groupOf())!.provisional, isTrue);
+
+        // Later polls meet the same group: nothing more is started.
+        await poll();
+        await poll();
+        expect(rig.server.sends, hasLength(sends + 1));
+        expect((await groupOf())!.provisional, isTrue);
+        expect((await rows()).single.init, isNotNull);
+
+        // A new run (sign-out or a new vault forgets it) hands it over again.
+        rig.crypto.forgetOwnCommits();
+        await poll();
+        expect(rig.server.sends, hasLength(sends + 2));
+      },
+    );
+
     test('an own-init settle deletes a lower generation that was walked and '
         'kept', () async {
       final v = rig.device.vault;

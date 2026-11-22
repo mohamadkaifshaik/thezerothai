@@ -438,7 +438,18 @@ extension _WelcomeJoin on ConversationCrypto {
       onOwnResetEnded?.call(id);
     }
     // Task 8 concern 4: the starter's replay answers for the message now.
-    if (settled == _Settled.ownUnanswered) onOwnInitUnanswered?.call(id);
+    // Pre-flag-on review m-2: once per provisional group per run
+    // ([ConversationCrypto._initHandedOver]).
+    if (settled == _Settled.ownUnanswered) {
+      final group = (
+        generation: provisional.generation,
+        createdAtMicros: provisional.provisionalCreatedAtMicros,
+      );
+      if (_initHandedOver[id] != group) {
+        _initHandedOver[id] = group;
+        onOwnInitUnanswered?.call(id);
+      }
+    }
     return settled;
   }
 }
