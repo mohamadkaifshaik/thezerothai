@@ -7,23 +7,18 @@ import 'package:connectrpc/connect.dart' as connect;
 import 'package:dzeroth/app/session_wiring.dart';
 import 'package:dzeroth/features/messages/domain/messaging_feature_flag.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
-import 'package:dzeroth/core/crypto/crypto_engine.dart';
 import 'package:dzeroth/core/crypto/crypto_types.dart';
-import 'package:dzeroth/core/feature_flags/service_feature_gate.dart';
 import 'package:dzeroth/core/session/session_end.dart';
 import 'package:dzeroth/core/vault/vault_records.dart'
     show kVaultSettingRegisteredOnce;
-import 'package:dzeroth/core/vault/vault_session.dart';
 import 'package:dzeroth/core/vault/vault_status.dart';
-import 'package:dzeroth/features/keys/data/keys_repository.dart';
 import 'package:dzeroth/features/keys/domain/device_keys_service.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import '../../support/fake_crypto_engine.dart';
+import '../../support/device_keys_rig.dart';
 import '../../support/fake_key_server.dart';
-import '../../support/fake_vault_world.dart';
 
 const _a = 'user-a';
 const _b = 'user-b';
@@ -33,201 +28,11 @@ const _day = Duration(days: 1);
 /// The server's device-id rule (keys.proto).
 final _serverIdPattern = RegExp(r'^[A-Za-z0-9_-]{16,64}$');
 
-/// Records the engine calls the service makes, in [log], and the results.
-class _RecordingEngine implements CryptoEngine {
-  _RecordingEngine(this.log);
-
-  final List<String> log;
-  final FakeCryptoEngine _inner = FakeCryptoEngine();
-  final List<Uint8List> createdIds = [];
-  KeyPackagesResult? lastGenerated;
-  final List<(int, bool)> generated = [];
-
-  /// Thrown by the next createDevice when set.
-  MlsException? failCreate;
-
-  @override
-  Future<Uint8List> randomBytes(int length) {
-    log.add('engine.random:$length');
-    return _inner.randomBytes(length);
-  }
-
-  @override
-  Future<DeviceCreated> createDevice(Uint8List deviceId) async {
-    log.add('engine.create');
-    final fail = failCreate;
-    if (fail != null) {
-      failCreate = null;
-      throw fail;
-    }
-    createdIds.add(Uint8List.fromList(deviceId));
-    return _inner.createDevice(deviceId);
-  }
-
-  @override
-  Future<KeyPackagesResult> generateKeyPackages(
-    Uint8List deviceState, {
-    required int count,
-    required bool lastResort,
-  }) async {
-    log.add('engine.generate:$count:$lastResort');
-    generated.add((count, lastResort));
-    final r = await _inner.generateKeyPackages(
-      deviceState,
-      count: count,
-      lastResort: lastResort,
-    );
-    lastGenerated = r;
-    return r;
-  }
-
-  @override
-  Object? noSuchMethod(Invocation invocation) =>
-      throw UnimplementedError('$invocation');
-}
-
-/// One device: the vault world, the key directory, the engine, a clock, the
-/// flag and the signed-in user; [launch] makes a new session + service over
-/// the same world and server (an app restart).
-class _Rig {
-  _Rig() {
-    server = FakeKeyServer(now: () => now);
-    engine = _RecordingEngine(log);
-    // Snapshot of the vault at the moment each RPC reaches the server.
-    for (final name in ['register', 'upload', 'list', 'remove']) {
-      server.onCall[name] = () async => _onRpc(name);
-    }
-  }
-
-  final FakeVaultWorld world = FakeVaultWorld();
-  late final FakeKeyServer server;
-  final List<String> log = [];
-  late final _RecordingEngine engine;
-
-  /// The injected clock (starts at the real time; only advanced by hand).
-  DateTime now = DateTime.now().toUtc();
-  bool flag = true;
-  String? uid;
-  final List<Object> reported = [];
-  bool supported = true;
-
-  /// What the service's foreground check answers.
-  bool foreground = true;
-
-  /// The service's client deadline on list/register/upload.
-  Duration rpcTimeout = kDeviceKeysRpcTimeout;
-
-  /// The vault device state (per uid) when each upload reached the server.
-  final List<Uint8List?> stateAtUpload = [];
-
-  /// Whether the vault held a device when each register reached the server.
-  final List<bool> deviceAtRegister = [];
-
-  late VaultSession session;
-  late DeviceKeysService service;
-  late ServiceFeatureGate gate;
-
-  /// The periodic tick the service scheduled (driven by hand).
-  void Function()? tick;
-  Duration? tickPeriod;
-  int timers = 0;
-
-  void _onRpc(String name) {
-    log.add('rpc.$name');
-    final file = uid == null ? null : world.files[uid];
-    if (name == 'upload') {
-      stateAtUpload.add(file?.deviceState);
-    }
-    if (name == 'register') {
-      deviceAtRegister.add(file?.deviceId != null);
-    }
-  }
-
-  void advance(Duration d) {
-    now = now.add(d);
-    world.advance(d);
-  }
-
-  void launch() {
-    session = world.launch(supported: supported, reported: reported);
-    gate = ServiceFeatureGate(isEnabled: () => flag, now: () => now);
-    service = DeviceKeysService(
-      session: session,
-      repository: KeysRepository(
-        apiClient: server.apiClient,
-        gate: gate,
-        deviceFacts: () => session.vaultKnown,
-      ),
-      engine: () => engine,
-      currentUid: () => uid,
-      now: () => now,
-      periodicTimer: (period, onTick) {
-        timers++;
-        tickPeriod = period;
-        tick = onTick;
-        return _NoTimer();
-      },
-      rpcTimeout: rpcTimeout,
-      isForeground: () => foreground,
-      onUnexpectedError: (error, _) => reported.add(error),
-    );
-    session
-      ..addVaultReadyHook(service.onVaultReady)
-      ..beforeExplicitWipe = service.removeThisDevice;
-  }
-
-  /// What the session is told about e2ee_dm at sign-in (null: [flag]).
-  E2eeFlag? answer;
-  E2eeFlag get sessionFlag => answer ?? (flag ? E2eeFlag.on : E2eeFlag.off);
-
-  /// Signs [user] in and waits for the device run the open started.
-  Future<void> signIn(String user) async {
-    uid = user;
-    await session.start(restoredUid: null, restoreDefinitive: true);
-    await session.onSignedIn(user, flag: sessionFlag);
-    await service.ensureReady();
-  }
-
-  /// The explicit sign-out path of the auth bloc: the hook inside the
-  /// budget, then the session end.
-  Future<void> signOut() async {
-    final user = uid!;
-    await session.beforeExplicitSignOut(user);
-    uid = null;
-    await session.onSessionEnded(user, SessionEnd.userSignedOut);
-  }
-
-  FakeVaultFile? file([String? user]) => world.files[user ?? uid];
-
-  String? storedId([String? user]) {
-    final bytes = file(user)?.deviceId;
-    return bytes == null ? null : utf8.decode(bytes);
-  }
-
-  String setting(String key, [String? user]) => file(user)?.rows[key] ?? '';
-
-  Map<String, FakeKeyDevice> get devices => server.devices;
-
-  /// The RPCs that reached the server, from [from] on.
-  List<String> rpcs([int from = 0]) => server.calls.sublist(from);
-}
-
-class _NoTimer implements Timer {
-  @override
-  void cancel() {}
-
-  @override
-  bool get isActive => true;
-
-  @override
-  int get tick => 0;
-}
-
 void main() {
-  late _Rig rig;
+  late DeviceKeysRig rig;
 
   setUp(() {
-    rig = _Rig()..launch();
+    rig = DeviceKeysRig()..launch();
   });
 
   group('first run', () {
@@ -286,7 +91,7 @@ void main() {
       expect(id, isNot(contains(_a)));
 
       // The same uid on another install gets another id.
-      final other = _Rig()..launch();
+      final other = DeviceKeysRig()..launch();
       await other.signIn(_a);
       expect(other.storedId(), isNot(id));
       expect(other.storedId(), matches(_serverIdPattern));
@@ -675,13 +480,26 @@ void main() {
       final id = rig.storedId()!;
       expect(rig.devices[id]!.pool, hasLength(50));
 
-      // Others claim 40 packages; the next run lists and tops up with FRESH
-      // packages under a new key.
+      // Others claim 40 packages. The changed count clears the batch's
+      // one-time packages (only its last-resort one is sent again); the
+      // following run tops up with fresh packages under a new key.
       rig.devices[id]!.pool.removeRange(0, 40);
       rig.advance(_hour);
       await rig.service.onAppResumed();
+      expect(
+        rig.server.uploads,
+        hasLength(3),
+        reason: 'changed pool clears first',
+      );
+      expect(rig.server.uploads.last.keyPackages, isEmpty);
+      expect(
+        rig.server.uploads.last.lastResortKeyPackage,
+        first[0].lastResortKeyPackage,
+      );
+      rig.advance(_hour);
+      await rig.service.onAppResumed();
       final fresh = rig.server.uploads.last;
-      expect(rig.server.uploads, hasLength(3));
+      expect(rig.server.uploads, hasLength(4));
       expect(fresh.idempotencyKey, isNot(first[0].idempotencyKey));
       expect(fresh.keyPackages, hasLength(40));
       for (final p in fresh.keyPackages) {
@@ -731,7 +549,7 @@ void main() {
     test('a removal that hangs is given up after the short timeout', () {
       fakeAsync((async) {
         // Built inside the fake zone, so every future of the rig runs here.
-        rig = _Rig()..launch();
+        rig = DeviceKeysRig()..launch();
         rig.signIn(_a);
         async.flushMicrotasks();
         expect(rig.session.status.value, VaultStatus.ready);
@@ -951,7 +769,7 @@ void main() {
     test('no device in the vault, flag off or unknown: nothing is generated or '
         'sent', () async {
       for (final answer in [E2eeFlag.off, E2eeFlag.unknown]) {
-        rig = _Rig()..launch();
+        rig = DeviceKeysRig()..launch();
         rig.flag = false;
         rig.answer = answer;
         await rig.signIn(_a);
@@ -1067,7 +885,7 @@ void main() {
     );
 
     test('unsupported platform (iOS): no RPC', () async {
-      rig = _Rig()
+      rig = DeviceKeysRig()
         ..supported = false
         ..launch();
       await rig.signIn(_a);

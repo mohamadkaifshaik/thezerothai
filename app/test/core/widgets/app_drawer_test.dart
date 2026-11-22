@@ -862,7 +862,7 @@ void main() {
           'Profile',
           'Settings and Privacy',
           'Creator Studio',
-          'Premium',
+          'Subscriptions',
           'Advertise',
           'Calls',
         ]) {

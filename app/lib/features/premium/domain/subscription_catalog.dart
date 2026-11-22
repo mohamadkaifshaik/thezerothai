@@ -22,7 +22,6 @@ Map<String, SubscriptionTier> parseMonthlySubscriptionProducts(String raw) {
       }
       final tier = switch (entry.value) {
         'plus' => SubscriptionTier.plus,
-        'premium' => SubscriptionTier.premium,
         _ => null,
       };
       if (tier == null) return const {};

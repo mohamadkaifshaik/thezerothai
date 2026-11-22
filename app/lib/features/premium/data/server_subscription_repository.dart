@@ -4,7 +4,6 @@ import '../domain/subscription_repository.dart';
 import 'subscription_sources.dart';
 
 /// Composes server authority with a serialized, account-bound purchase SDK.
-/// Kept unregistered until the concrete RPC/SDK adapters and lifecycle ship.
 class ServerSubscriptionRepository
     implements SubscriptionRepository, HostedSubscriptionRepository {
   ServerSubscriptionRepository({
@@ -105,8 +104,7 @@ class ServerSubscriptionRepository
         _offerings = List.unmodifiable(
           offerings.where(
             (o) =>
-                (o.tier == SubscriptionTier.plus ||
-                    o.tier == SubscriptionTier.premium) &&
+                o.tier == SubscriptionTier.plus &&
                 o.packageIdentifier.isNotEmpty &&
                 o.productIdentifier.isNotEmpty &&
                 o.localizedPrice.isNotEmpty &&
@@ -145,12 +143,18 @@ class ServerSubscriptionRepository
       return const SubscriptionPurchaseResult(PurchaseDisposition.refreshed);
     }
     await _identify(check);
-    _awaitingVerification = true;
     _offerings = const [];
     final result = await _gateway.restore();
     check();
+    // An empty restore starts no purchase. Preserve any earlier pending charge.
+    if (result.disposition == PurchaseDisposition.verifying) {
+      _awaitingVerification = true;
+    }
     return result;
   });
+
+  @override
+  bool get hasStoreUi => _gateway is SubscriptionHostedUiGateway;
 
   /// Hosted UI shares the SDK queue and purchase uncertainty guard.
   @override

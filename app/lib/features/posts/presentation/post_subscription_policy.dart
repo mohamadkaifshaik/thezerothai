@@ -20,7 +20,7 @@ int subscriptionPostLimit(BuildContext context) {
   }
   return switch (state?.access?.effectiveTier(DateTime.now())) {
     SubscriptionTier.premium => 15000,
-    SubscriptionTier.plus => 3000,
+    SubscriptionTier.plus => 15000,
     _ => 280,
   };
 }

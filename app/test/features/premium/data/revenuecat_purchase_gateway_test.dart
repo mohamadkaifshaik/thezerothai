@@ -41,7 +41,7 @@ void main() {
     'custom monthly packages use the configured Play base-plan mapping',
     () async {
       final packages = [
-        for (final product in ['premium:monthly', 'premium:yearly'])
+        for (final product in ['plus:monthly', 'old:monthly', 'plus:yearly'])
           {
             'identifier': product,
             'packageType': 'CUSTOM',
@@ -50,9 +50,9 @@ void main() {
               'identifier': product,
               'description': 'fixture description',
               'title': 'fixture title',
-              'price': 1.0,
+              'price': product == 'old:monthly' ? 235.0 : 99.0,
               'priceString': 'fixture store price',
-              'currencyCode': 'USD',
+              'currencyCode': 'INR',
               'subscriptionPeriod': product.endsWith('monthly') ? 'P1M' : 'P1Y',
             },
           },
@@ -70,15 +70,16 @@ void main() {
       final gateway = RevenueCatPurchaseGateway(
         publicApiKey: 'fixture-public-key',
         monthlyProducts: const {
-          'premium:monthly': SubscriptionTier.premium,
-          'premium:yearly': SubscriptionTier.premium,
+          'plus:monthly': SubscriptionTier.plus,
+          'old:monthly': SubscriptionTier.plus,
+          'plus:yearly': SubscriptionTier.plus,
         },
       );
       await gateway.identify('dzb_${'A' * 43}');
       final offers = await gateway.getOfferings();
-      expect(offers.map((o) => o.productIdentifier), ['premium:monthly']);
+      expect(offers.map((o) => o.productIdentifier), ['plus:monthly']);
       expect(offers.single.localizedPrice, 'fixture store price');
-      expect(offers.single.tier, SubscriptionTier.premium);
+      expect(offers.single.tier, SubscriptionTier.plus);
     },
   );
 
@@ -97,7 +98,7 @@ void main() {
       final invented = SubscriptionOffering(
         packageIdentifier: 'invented',
         productIdentifier: 'invented',
-        tier: SubscriptionTier.premium,
+        tier: SubscriptionTier.plus,
         localizedPrice: '1',
         billingPeriod: 'monthly',
       );

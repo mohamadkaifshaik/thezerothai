@@ -59,13 +59,10 @@ void main() {
       fails('₹235/month');
       fails('Rs. 235');
       fails('INR 850');
-      fails('₹99/month', allowPlanAmounts: true);
+      fails('₹235/month', allowPlanAmounts: true);
       fails('₹1,000/month', allowPlanAmounts: true);
       fails('₹235/month and ₹849/month', allowPlanAmounts: true);
-      expectCleanShellCopy(
-        '₹235/month incl. GST\n₹850/month incl. GST',
-        allowPlanAmounts: true,
-      );
+      expectCleanShellCopy('₹99/month incl. GST', allowPlanAmounts: true);
     });
 
     test('plain coming-soon copy passes', () {
@@ -116,8 +113,8 @@ void main() {
         app.router.router.push(AppRouter.premiumPath, extra: kShellPushExtra);
         await tester.pumpAndSettle();
         final text = shellVisibleText(tester, find.byType(PremiumDialog));
-        expect(text, contains('₹235/month'));
-        expect(text, contains('₹850/month'));
+        expect(text, contains('₹99/month'));
+        expect(text, contains('No subscription needed'));
         expectCleanShellCopy(
           text,
           allowPlanAmounts: true,
@@ -135,7 +132,7 @@ void main() {
       final menu = find.byType(PopupMenuItem<ShellEntry>);
       expect(menu, findsNWidgets(4));
       final text = shellVisibleText(tester, menu);
-      expect(text, contains('Premium'));
+      expect(text, contains('Subscriptions'));
       expectCleanShellCopy(text, where: 'More menu');
     });
 
@@ -144,7 +141,12 @@ void main() {
       tester.state<ScaffoldState>(find.byType(Scaffold).first).openDrawer();
       await tester.pumpAndSettle();
       final text = shellVisibleText(tester, find.byType(AppDrawer));
-      for (final label in ['Creator Studio', 'Premium', 'Advertise', 'Calls']) {
+      for (final label in [
+        'Creator Studio',
+        'Subscriptions',
+        'Advertise',
+        'Calls',
+      ]) {
         expect(text, contains(label));
       }
       expectCleanShellCopy(text, where: 'drawer');

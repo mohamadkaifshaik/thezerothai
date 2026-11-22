@@ -18,7 +18,7 @@ import '../../../support/geometry.dart';
 import '../../../support/shells_harness.dart';
 import '../../../support/theme_harness.dart';
 
-const _labels = ['Creator Studio', 'Premium', 'Advertise', 'Calls'];
+const _labels = ['Creator Studio', 'Subscriptions', 'Advertise', 'Calls'];
 
 /// The shell entry points. Under 600 dp four drawer rows; from 600 dp a
 /// rail-only "More" item that opens a menu (the account chip menu is left
@@ -91,7 +91,7 @@ void main() {
             top('Communities'),
             top('Profile'),
             top('Creator Studio'),
-            top('Premium'),
+            top('Subscriptions'),
             top('Advertise'),
             top('Calls'),
             top('Settings and Privacy'),
@@ -157,7 +157,7 @@ void main() {
     ) async {
       final app = await pumpShellsApp(tester);
       await openDrawer(tester);
-      await tester.tap(find.text('Premium'));
+      await tester.tap(find.text('Subscriptions'));
       await tester.pumpAndSettle();
 
       expect(find.byType(AppDrawer), findsNothing);
@@ -390,7 +390,7 @@ void main() {
       final app = await pumpShellsApp(tester, size: const Size(1200, 800));
       await openMore(tester);
       await tester.tap(
-        find.descendant(of: menuLabels(), matching: find.text('Premium')),
+        find.descendant(of: menuLabels(), matching: find.text('Subscriptions')),
       );
       await tester.pumpAndSettle();
 
@@ -461,7 +461,7 @@ void main() {
             await tester.pumpAndSettle();
 
             expect(find.byKey(PremiumDialog.titleKey), findsOneWidget);
-            expect(find.text('Coming soon'), findsNWidgets(2));
+            expect(find.text('Compare plans'), findsOneWidget);
             expect(find.byTooltip('Close'), findsOneWidget);
             // Close is the only button.
             expect(
@@ -508,7 +508,7 @@ void main() {
       expect(
         tester.getSemantics(find.byKey(PremiumDialog.titleKey)),
         matchesSemantics(
-          label: 'Premium',
+          label: 'Subscriptions',
           isHeader: true,
           // The screen-reader / keyboard focus starts on the title.
           isFocusable: true,

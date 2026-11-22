@@ -21,7 +21,7 @@ const (
 	PlusEntitlement    = "plus_access"
 	PremiumEntitlement = "premium_access"
 	ProEntitlement     = "dzeroth_pro"
-	PolicyVersion      = 1
+	PolicyVersion      = 2
 	MaxVerificationAge = 15 * time.Minute
 	// ProviderRequestTimeout bounds the complete HTTP readback. Recovery needs
 	// additional time to read and commit its private Firestore metadata.

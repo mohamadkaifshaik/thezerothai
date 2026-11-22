@@ -84,7 +84,7 @@ func TestCapabilitiesInheritanceAndFreeBaseline(t *testing.T) {
 		runes   int
 		article bool
 	}{
-		{TierFree, 280, false}, {TierPlus, 3000, false}, {TierPremium, 15000, true}, {"unrecognized", 280, false},
+		{TierFree, 280, false}, {TierPlus, 15000, true}, {TierPremium, 15000, true}, {"unrecognized", 280, false},
 	} {
 		got := CapabilitiesFor(tt.tier, FeatureAvailability{LongPosts: true, Articles: true})
 		if got.MaxPostRunes != tt.runes || got.PublishArticle != tt.article {
@@ -98,7 +98,7 @@ func TestCapabilitiesInheritanceAndFreeBaseline(t *testing.T) {
 
 func TestPlannedCatalogIsNotForSale(t *testing.T) {
 	plans := PlannedCatalog()
-	if len(plans) != 2 || plans[0].Tier != TierPlus || plans[0].PriceMinor != 23500 || plans[1].Tier != TierPremium || plans[1].PriceMinor != 85000 {
+	if len(plans) != 1 || plans[0].Tier != TierPlus || plans[0].PriceMinor != 9900 {
 		t.Fatal("founder-approved India catalog changed")
 	}
 	for _, p := range plans {
@@ -107,7 +107,7 @@ func TestPlannedCatalogIsNotForSale(t *testing.T) {
 		}
 	}
 	plans[0].PriceMinor = 1
-	if PlannedCatalog()[0].PriceMinor != 23500 {
+	if PlannedCatalog()[0].PriceMinor != 9900 {
 		t.Fatal("caller mutated the shared catalog")
 	}
 }

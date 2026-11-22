@@ -745,7 +745,7 @@ void main() {
           findsOneWidget,
         );
         // No placeholder for a feature that has no route.
-        for (final text in ['Trends', 'Who to follow', 'Premium', 'Terms']) {
+        for (final text in ['Trends', 'Who to follow', 'Subscriptions', 'Terms']) {
           expect(find.textContaining(text), findsNothing, reason: text);
         }
       });

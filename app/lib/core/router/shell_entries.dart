@@ -63,7 +63,7 @@ const List<ShellEntry> kShellEntries = [
   ShellEntry(
     kind: ShellKind.premium,
     icon: Icons.workspace_premium_outlined,
-    label: 'Premium',
+    label: 'Subscriptions',
     path: AppRouter.premiumPath,
     opensAsDialog: true,
   ),

@@ -41,6 +41,11 @@ class SubscriptionCubit extends Cubit<SubscriptionState> {
        super(const SubscriptionState());
 
   final SubscriptionRepository _repository;
+  bool get hasStoreUi => switch (_repository) {
+    HostedSubscriptionRepository(:final hasStoreUi) => hasStoreUi,
+    _ => false,
+  };
+
   final SessionEpoch _sessionEpoch;
   final DateTime Function() _now;
   int _generation = 0;
@@ -118,8 +123,7 @@ class SubscriptionCubit extends Cubit<SubscriptionState> {
         !access.purchasesAvailable ||
         access.effectiveTier(_now()) != SubscriptionTier.free ||
         !state.offerings.contains(offering) ||
-        (offering.tier != SubscriptionTier.plus &&
-            offering.tier != SubscriptionTier.premium)) {
+        offering.tier != SubscriptionTier.plus) {
       return;
     }
     await _transact(uid, () => _repository.purchase(uid, offering));
