@@ -63,6 +63,17 @@ extension _Start on GroupStarter {
       return _out(StartResult.peerHasNoDevice);
     }
 
+    // Code review M5. Decision: with public ids KNOWN off the claim's id
+    // must be checked against the two raw uids (2b below), and without the
+    // own uid it cannot be: refused here, before the claim. Why: the
+    // refusal was certain either way, and a claim made first spent the
+    // peer's one-time packages and one of the 20 claims per target a day.
+    final me = _ownUserId();
+    final verified = _publicIdsOff();
+    if (verified && (me == null || me.isEmpty)) {
+      return _out(StartResult.unavailable);
+    }
+
     final kpb.ClaimKeyPackagesResponse claimed;
     try {
       claimed = await _claim(peer, '');
@@ -92,11 +103,9 @@ extension _Start on GroupStarter {
     if (_known.contains(id) && knownPeer != null && knownPeer != peer) {
       return _out(StartResult.unavailable);
     }
-    // (b) Raw uids on both sides: the id is computed as the server does.
-    final me = _ownUserId();
-    final verified = _publicIdsOff();
+    // (b) Raw uids on both sides: the id is computed as the server does
+    // (the own uid is known here: checked before the claim).
     if (verified) {
-      // Decision: without the own uid the id cannot be checked: refused.
       if (me == null || me.isEmpty || dmConversationId(me, peer) != id) {
         return _out(StartResult.unavailable);
       }

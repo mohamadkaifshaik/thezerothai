@@ -46,6 +46,7 @@ void main() {
   late RigPeer bob;
   late GroupStarter starter;
   var publicIdsOff = false;
+  String? ownId = _me;
 
   /// When set, a send that carries an init waits for it (the send is in
   /// flight, under the conversation lock).
@@ -68,7 +69,7 @@ void main() {
     now: rig.clock.now,
     onChanged: rig.changed.add,
     removedElsewhere: () => rig.removedElsewhere,
-    ownUserId: () => _me,
+    ownUserId: () => ownId,
     publicIdsOff: () => publicIdsOff,
     schedule: (delay, run) => rig.scheduled.add((delay: delay, run: run)),
     onUnexpectedError: (e, _) => rig.unexpected.add(e),
@@ -148,6 +149,7 @@ void main() {
 
   setUp(() async {
     publicIdsOff = false;
+    ownId = _me;
     gate = null;
     await newRig();
   });
@@ -984,6 +986,26 @@ void main() {
       expect(r.result, StartResult.unavailable);
       expect(await rows(), isEmpty);
       expect(rig.server.sends, isEmpty);
+    });
+
+    test('with public ids off and the own uid not known, the start is '
+        'refused before any claim (code review M5)', () async {
+      publicIdsOff = true;
+      person(_bob, dmConversationId(_me, _bob), [bob]);
+      for (final unknownId in [null, '']) {
+        ownId = unknownId;
+        final r = await start();
+        expect(r.result, StartResult.unavailable, reason: '"$unknownId"');
+        expect(rig.keys.claimCalls, isEmpty, reason: '"$unknownId"');
+        expect(await rows(), isEmpty);
+      }
+      expect(rig.server.sends, isEmpty);
+
+      // Known again: the same start is made.
+      ownId = _me;
+      final r = await start();
+      expect(r.result, StartResult.started);
+      await done(dmConversationId(_me, _bob));
     });
 
     test('the per-target claim cap is tryAgainTomorrow', () async {
