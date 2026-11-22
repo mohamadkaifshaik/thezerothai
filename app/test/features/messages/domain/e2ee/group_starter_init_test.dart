@@ -3244,6 +3244,34 @@ void main() {
         // No mark is written while the group is provisional.
         expect(await rig.device.vault.conversation(_c1), isNull);
         expect(rig.server.sends, isEmpty);
+
+        // Once no row carries the init (answered elsewhere), the same
+        // welcome settles the group here, without an answer: the key history
+        // stays byte-identical and nothing infers ACCEPTED (ruling F4; the
+        // final-fix re-review's Minor 1 restored these two assertions).
+        await rig.device.vault.transaction((tx) => tx.deleteOutbox(key));
+        rig.server.acks.clear();
+        final w2 = rig.server.addWelcome(
+          rig.device.deviceIdString,
+          _c1,
+          const MlsPair(1, 0),
+          Uint8List(4),
+        );
+        expect(await rig.crypto.processWelcomes(), isEmpty);
+        expect(rig.server.acks.expand((a) => a.ids), [w2]);
+        final settled = (await groupOf())!;
+        expect(settled.provisional, isFalse);
+        expect(settled.pending, isNull);
+        expect(
+          rigEq((await rig.sealedSetting('messages.e2ee.keys.$_c1'))!, history),
+          isTrue,
+        );
+        expect(rig.keyHistoryErrors, isEmpty);
+        expect(
+          (await rig.device.vault.conversation(_c1))!.sync.requestAccepted,
+          isFalse,
+        );
+        expect(rig.server.sends, isEmpty);
       },
     );
 
