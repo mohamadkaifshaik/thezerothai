@@ -203,6 +203,16 @@ class ConversationCrypto {
   /// conversation lock held.
   void Function(String conversationId)? onOwnResetEnded;
 
+  /// Task 8 concern 4, set by the `GroupStarter`: called with a
+  /// conversation id once the join path found this device's own init
+  /// stored while a row still carries it (it left the group provisional,
+  /// review W1), so the starter resumes it and the group settles with the
+  /// message's answer without waiting for another trigger. Called after
+  /// the transaction, with the conversation lock held: the callee must not
+  /// await anything that takes that lock (the starter starts its resume
+  /// outside the lock's zone, unawaited).
+  void Function(String conversationId)? onOwnInitUnanswered;
+
   /// Conversation -> the pair of the last commit of THIS device that this
   /// run confirmed (by its bytes, in catch-up or in
   /// [confirmOwnCommitLocked]). Memory only: the commit runner reads it

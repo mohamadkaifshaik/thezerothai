@@ -270,6 +270,21 @@ class GroupStarter {
     // touched again, and every later reader would have to remember to make
     // it. One starter per session (Task 13), so one callback.
     crypto.onOwnResetEnded = _forgetReset;
+    // Task 8 concern 4: the join path left this device's own stored init
+    // unanswered (a row still carries it); the resume replays it.
+    crypto.onOwnInitUnanswered = _resumeAfterJoin;
+  }
+
+  /// Task 8 concern 4. Decision: one resume of [id], unawaited and started
+  /// outside the conversation lock's zone (the join path calls this with
+  /// the lock held, and the resume takes it itself), at background
+  /// priority (no user intent). Why: the join code leaves such a group
+  /// provisional for the starter (review W1); without this the group
+  /// waited for the next vault-ready, send or retry, holding every row of
+  /// the conversation meanwhile. The resume is single flight: one already
+  /// running is joined.
+  void _resumeAfterJoin(String id) {
+    Zone.root.run(() => unawaited(_resume(id, BudgetPriority.background)));
   }
 
   final ConversationCrypto _crypto;

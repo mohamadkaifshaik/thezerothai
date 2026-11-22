@@ -3955,6 +3955,11 @@ void main() {
         );
         await rig.known.add(_c1, peerUserId: _bob);
         final history = await rig.sealedSetting('messages.e2ee.keys.$_c1');
+        // The join code alone: what it hands to the starter is recorded
+        // here instead (the row above is a placeholder, not a real init;
+        // the starter's resume is shown by the concern 4 test).
+        final handedOver = <String>[];
+        rig.crypto.onOwnInitUnanswered = handedOver.add;
         // The server stored this device's own init; a welcome of that
         // generation is listed (the join code's own-init-already-stored path).
         rig.server.addCommit(
@@ -3974,6 +3979,8 @@ void main() {
 
         // The welcome is a replay of this device's own generation: gone.
         expect(rig.server.acks.expand((a) => a.ids), [w]);
+        // Task 8 concern 4: handed to the starter, once.
+        expect(handedOver, [_c1]);
         // No answer for the message here: the group stays provisional for
         // the starter, which replays the init and settles with the answer.
         final g = (await groupOf())!;
@@ -4032,8 +4039,50 @@ void main() {
           isFalse,
         );
         expect(rig.server.sends, isEmpty);
+        // A settle hands nothing over.
+        expect(handedOver, [_c1]);
       },
     );
+
+    test('after the join code leaves an own init unanswered, the starter '
+        'resumes it by itself and the group settles with no other trigger '
+        '(Task 8 concern 4)', () async {
+      // The init was stored and both answers were lost (the second try's
+      // too): the group is provisional and the row keeps its init.
+      rig.server.sendScript.addAll([lostAnswer, unknown]);
+      gate = Completer<void>();
+      await start();
+      final row = (await rows()).single;
+      gate!.complete();
+      await done();
+      expect((await groupOf())!.provisional, isTrue);
+      rig.scheduled.clear();
+      final sends = rig.server.sends.length;
+      // A welcome of this device's own generation is listed.
+      final w = rig.server.addWelcome(
+        rig.device.deviceIdString,
+        _c1,
+        const MlsPair(1, 0),
+        Uint8List(4),
+      );
+
+      expect(await rig.crypto.processWelcomes(), isEmpty);
+      expect(rig.server.acks.expand((a) => a.ids), [w]);
+      // Nothing but the poll: no resumeProvisional, no retry, no timer.
+      await pumpEventQueue();
+      await done();
+
+      expect(rig.scheduled, isEmpty);
+      expect(rig.server.sends, hasLength(sends + 1));
+      expect(rig.server.sends.last.key, row.idempotencyKey);
+      expect(rig.server.sends.last.mlsInit, isNotNull);
+      expect((await groupOf())!.provisional, isFalse);
+      expect(await rows(), isEmpty);
+      expect(
+        await rig.device.vault.hasMessage(_c1, row.expectedMessageId),
+        isTrue,
+      );
+    });
 
     test('an own-init settle deletes a lower generation that was walked and '
         'kept', () async {

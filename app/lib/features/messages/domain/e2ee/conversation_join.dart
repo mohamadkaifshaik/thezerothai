@@ -437,6 +437,8 @@ extension _WelcomeJoin on ConversationCrypto {
         (settled == _Settled.ownStored || settled == _Settled.discarded)) {
       onOwnResetEnded?.call(id);
     }
+    // Task 8 concern 4: the starter's replay answers for the message now.
+    if (settled == _Settled.ownUnanswered) onOwnInitUnanswered?.call(id);
     return settled;
   }
 }
