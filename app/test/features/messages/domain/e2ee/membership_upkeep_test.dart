@@ -1343,6 +1343,37 @@ void main() {
       expect(requests(), hasLength(1));
     });
 
+    test('a new conversation does not self-update at its first reconcile '
+        '(audit L7)', () async {
+      await setUpJoined();
+      await synced();
+      // The join renewed the leaf: the time is set from the start.
+      expect((await sync()).lastSelfUpdateAtMicros, isNotNull);
+
+      await rig.upkeep.reconcile(_c1);
+      await rig.upkeep.selfUpdateIfDue(_c1);
+
+      expect(requests(), isEmpty);
+    });
+
+    test('a sync record with no renewal time counts as renewed when first '
+        'seen, and is due 30 days later (audit L7)', () async {
+      await setUpJoined();
+      await synced();
+      await updateSync((s) => s.copyWith(lastSelfUpdateAtMicros: null));
+
+      await rig.upkeep.selfUpdateIfDue(_c1);
+      expect(requests(), isEmpty);
+      expect(
+        (await sync()).lastSelfUpdateAtMicros,
+        rig.clock.now().microsecondsSinceEpoch,
+      );
+
+      rig.clock.advance(kSelfUpdateEvery);
+      await rig.upkeep.selfUpdateIfDue(_c1);
+      expect(requests(), hasLength(1));
+    });
+
     test('a re-check timer makes no self-update', () async {
       final carol = await RigPeer.create('carol');
       await setUpJoined();

@@ -222,7 +222,8 @@ class MembershipUpkeep {
   /// R9 and the R7 follow-up. Called when the conversation is opened and
   /// after a successful send in it (Task 13's wiring), and from
   /// [reconcile]'s step 4; never from a timer. Due when the last renewal is
-  /// [kSelfUpdateEvery] old (or never was), or, once per IST day, when a
+  /// [kSelfUpdateEvery] old (a record with no time counts as renewed when
+  /// first seen, audit L7), or, once per IST day, when a
   /// lost send left `epochMustAdvance` set and catch-up applied no commit.
   /// Always under [CommitRunner.mayCommit] (the 10-call rule). A no-op,
   /// with no list call, unless accepted. Takes the conversation lock.
@@ -420,6 +421,7 @@ class MembershipUpkeep {
     var sync = (await vault.conversation(id))?.sync;
     // R10: nothing, and no call, while unaccepted.
     if (sync == null || !sync.requestAccepted) return;
+    if (sync.lastSelfUpdateAtMicros == null) await _stampRenewal(id);
     if (!_selfUpdateWanted(sync, await _lostSendLeft(id, sync))) return;
     if (!caughtUp) {
       final caught = await _crypto.catchUpLocked(id, priority: priority);
@@ -442,10 +444,19 @@ class MembershipUpkeep {
     await _commits.selfUpdateLocked(id, priority: priority);
   }
 
+  /// Audit L7 (ruling K). A group's own leaf is fresh when it is created:
+  /// the init settle (Task 8, `_settleOwnInitIn`) and the join
+  /// (`conversation_join.dart`) store `lastSelfUpdateAtMicros` in their
+  /// transactions, so a new conversation is not due at its first
+  /// reconcile. Decision: those two stamps, not the group's creation time
+  /// (a settled group record keeps none). A record without the time (one
+  /// written before the stamps, or by a path that has none) counts as
+  /// renewed when first seen: the time is stored now, so both sides do not
+  /// self-update at their first reconcile, and the 30 days start then.
   bool _selfUpdateWanted(ConversationSync sync, bool lostSend) {
     if (lostSend) return true;
     final last = sync.lastSelfUpdateAtMicros;
-    if (last == null) return true;
+    if (last == null) return false;
     final at = DateTime.fromMicrosecondsSinceEpoch(last, isUtc: true);
     return !_now().difference(at).isNegative &&
         _now().difference(at) >= kSelfUpdateEvery;
@@ -453,6 +464,32 @@ class MembershipUpkeep {
 
   Future<bool> _lostSendLeft(String id, ConversationSync sync) async =>
       sync.epochMustAdvance && !await _ledger.lostSendUpdateDone(id);
+
+  /// Stores `lastSelfUpdateAtMicros = now` for [id] when the record, read
+  /// fresh in ONE `runWrite` body, still has none (see
+  /// [_selfUpdateWanted]). A failed write changes nothing; the next look
+  /// tries again.
+  Future<void> _stampRenewal(String id) async {
+    final vault = _session.vault;
+    if (vault == null) return;
+    try {
+      await _session.runWrite((v) async {
+        if (!identical(v, vault)) return;
+        final sync = (await v.conversation(id))?.sync;
+        if (sync == null || sync.lastSelfUpdateAtMicros != null) return;
+        await v.transaction(
+          (tx) => tx.putConversationSync(
+            id,
+            sync.copyWith(
+              lastSelfUpdateAtMicros: _now().microsecondsSinceEpoch,
+            ),
+          ),
+        );
+      });
+    } on Object catch (e, s) {
+      _reportIfBug(e, s, 'upkeep.stampRenewal');
+    }
+  }
 
   // -------------------------------------------------------------------------
   // The re-check timer
