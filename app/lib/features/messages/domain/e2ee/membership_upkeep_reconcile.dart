@@ -256,10 +256,18 @@ extension _Reconcile on MembershipUpkeep {
     // ledger do not hold: the user's queued ones and M3's own devices.
     final pauseExempt = <Uint8List>[];
     // Task 11's queue: the members it names (never this device).
+    // Task 9 audit L5 (Task 11 amendment 1): never the peer's last
+    // peer-side member; that entry stays queued (the runner reports it),
+    // so the user's choice is still shown and block or reset remain.
     final queued = queuedRemovals?.call(id) ?? const <Uint8List>{};
+    var queuedTheirs = members.where((m) => m.side == MemberSide.theirs).length;
     for (final m in members) {
       if (!_same(m.deviceId, thisDevice) &&
           queued.any((q) => _same(q, m.deviceId))) {
+        if (m.side == MemberSide.theirs) {
+          if (queuedTheirs <= 1) continue;
+          queuedTheirs--;
+        }
         remove(m.deviceId);
         pauseExempt.add(m.deviceId);
       }

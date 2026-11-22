@@ -643,6 +643,38 @@ void main() {
       expect(runner.pending.value, 1);
     });
 
+    test('the upkeep\'s reconcile, fed from the queue, keeps the peer\'s last '
+        'peer-side member too', () async {
+      await setUpRig();
+      await join(_c1);
+      await synced();
+      await removeAndSettle(bob);
+      expect(queued(_c1, bob), isTrue);
+
+      await rig.upkeep.reconcile(_c1);
+
+      expect(requests(), isEmpty);
+      expect((await pin(bob))!.side, MemberSide.theirs);
+    });
+
+    test('the upkeep\'s reconcile removes a queued peer-side member that is '
+        'not the last', () async {
+      final bob2 = await RigPeer.create('bob2');
+      await setUpRig(peerListed: [bob2]);
+      await join(_c1, others: [bob2]);
+      await synced();
+      // Parked, so only the upkeep commits.
+      rig.contexts.of(_c1).canReply = false;
+      await removeAndSettle(bob2);
+      rig.contexts.note(headerRow(_c1));
+
+      await rig.upkeep.reconcile(_c1);
+
+      expect(requests(_c1), hasLength(1));
+      expect(await pin(bob2), isNull);
+      expect((await pin(bob))!.side, MemberSide.theirs);
+    });
+
     test(
       'of two queued peer-side members one goes and the last stays',
       () async {
