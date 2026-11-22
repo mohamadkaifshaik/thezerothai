@@ -104,6 +104,9 @@ extension _InitDiscard on GroupStarter {
           return InitDiscard.notDecided;
         }
         _forget(row.localId);
+        // Fix round 3, ruling 6: as at the other discard below, so a later
+        // failure of the row is never shown with an earlier typed error.
+        _sender.forgetRefusal(row.localId);
         _onChanged(id);
         onJoin();
         return InitDiscard.discarded;

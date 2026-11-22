@@ -3749,6 +3749,29 @@ void main() {
       expect(await starter.pendingInit(conversationId: _c1), isNull);
     });
 
+    test('another device\'s commit first: the sender forgets the row\'s '
+        'remembered refusal too (pre-flag-on fix round 3, ruling 6)', () async {
+      final row = await unanswered();
+      await rig.offer(_c1, bob);
+      rig.clock.advance(kInitResendMargin);
+      // A typed refusal the sender remembers for the row from earlier.
+      rig.sender.rememberRefusal(row.localId, const CannotMessageException());
+      expect(rig.sender.memoryEntries, 1);
+      // The welcome cannot be fetched now: the row waits, nothing is sent.
+      rig.server.onCall = (call) async {
+        if (call == 'listWelcomes') throw const NetworkException('no network');
+      };
+
+      expect(await starter.discardInit(_c1), InitDiscard.discarded);
+      await done();
+
+      expect(await groupOf(), isNull);
+      final waiting = (await rows()).single;
+      expect(waiting.init, isNull);
+      expect(waiting.lastError, isNull);
+      expect(rig.sender.memoryEntries, 0);
+    });
+
     test('after a restart, a row whose attempts were all made by the earlier '
         'run is held until the margin after the restart; then the record '
         'decides (pre-flag-on fix round 2, ruling 3)', () async {
