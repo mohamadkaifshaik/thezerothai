@@ -9,6 +9,7 @@ import 'package:dzeroth/features/messages/domain/e2ee/commit_runner.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_crypto.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/daily_ledger.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/e2ee_types.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/known_conversations.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/membership_rules.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/message_content_codec.dart';
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
@@ -899,6 +900,37 @@ void main() {
         for (final l in await rig.lines(_c1))
           if (l.line == SystemLine.deviceAdded) l,
       ], isEmpty);
+    });
+
+    test('a theirs pin written by an own confirm stores the peer ref in the '
+        'known set, as attribution does', () async {
+      await setUpJoined();
+      await synced();
+      final carol = await RigPeer.create('carol');
+      // The known set holds the conversation but no peer ref for it.
+      await rig.device.vault.transaction(
+        (tx) => tx.putSetting(
+          kVaultSettingKnownConversations,
+          rigBytes('{"v":1,"ids":["$_c1"],"peers":{}}'),
+        ),
+      );
+      await rig.known.load(rig.device.vault);
+      expect(rig.known.contains(_c1), isTrue);
+      expect(rig.known.peerOf(_c1), isNull);
+
+      expect(
+        await rig.commits.change(
+          _c1,
+          adds: [await claim(carol, ClaimSide.theirs)],
+        ),
+        CommitOutcome.applied,
+      );
+
+      expect((await pin(carol))!.side, MemberSide.theirs);
+      expect(rig.known.peerOf(_c1), 'ref-bob');
+      // Stored, not only in memory.
+      await rig.known.load(rig.device.vault);
+      expect(rig.known.peerOf(_c1), 'ref-bob');
     });
 
     test('an own commit records as its own adds only the devices its '

@@ -198,6 +198,11 @@ extension _CommitApply on ConversationCrypto {
         byOther &&
         daily != null &&
         daily.undoesOwnChange(id, added: event.added, removed: event.removed);
+    // A theirs pin was written below (only ever for an own add), and the
+    // peer's reference as this run knows it (memory, read before the
+    // transaction; attribution's lookup makes calls and cannot run here).
+    var ownTheirs = false;
+    final peerRef = _contexts.of(id).peerUserId;
     // What this device's own commit added (the members its welcome was
     // addressed to) and removed (the pins deleted below).
     final ownAdded = <Uint8List>[];
@@ -343,6 +348,7 @@ extension _CommitApply on ConversationCrypto {
                     ? MemberSide.mine
                     : MemberSide.theirs);
           if (side == MemberSide.unattributed) newMember = true;
+          if (side == MemberSide.theirs) ownTheirs = true;
           await tx.putMember(
             MemberRecord(
               conversationId: id,
@@ -422,7 +428,17 @@ extension _CommitApply on ConversationCrypto {
             (r) => r.withOwnChange(id, added: ownAdded, removed: ownRemoved),
           );
         }
-        if (needKnown) await _known.addIn(tx, v, id);
+        // Review m6: a theirs pin written here (an own add confirmed with
+        // its checked side) stores the peer ref with the id, as the
+        // attribution that pins a theirs member does (C1 / N3). The stored
+        // ref is never replaced (first write wins), so this writes only for
+        // a conversation that has none yet. One `addIn` per transaction.
+        final theirsRef = ownTheirs && peerRef != null && peerRef.isNotEmpty
+            ? peerRef
+            : null;
+        if (needKnown || theirsRef != null) {
+          await _known.addIn(tx, v, id, peerUserId: theirsRef);
+        }
         // The one history write of this transaction: only when a new id or
         // a taint was recorded (a removal never writes it).
         await _keyHistory.writeIn(tx, id, history);
