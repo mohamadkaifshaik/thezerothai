@@ -1179,6 +1179,46 @@ void main() {
       expect(requests()[0].sameBytes(requests()[3]), isTrue);
     });
 
+    test('a pending commit on a group that is no longer the highest '
+        'generation is superseded: never sent again, never held', () async {
+      await setUpJoined();
+      await synced();
+      rig.server.commitScript
+        ..add((error: offline, stored: false))
+        ..add((error: offline, stored: false));
+      expect(await rig.commits.selfUpdate(_c1), CommitOutcome.pending);
+      rig.clock.advance(kRequestInFlightMargin);
+      rig.device.engine.calls.clear();
+      // While the resume's catch-up runs, a group of the next generation is
+      // stored (a generation switch): the old group still carries the
+      // record, but it is not the conversation's group any more.
+      var stored = false;
+      rig.server.onCall = (call) async {
+        if (call != 'listConversationCommits' || stored) return;
+        stored = true;
+        final old = await groupRecord();
+        await rig.device.vault.transaction(
+          (tx) => tx.putGroup(
+            GroupRecord(
+              conversationId: _c1,
+              generation: 2,
+              epoch: 0,
+              state: old.state,
+            ),
+          ),
+        );
+      };
+
+      final outcome = await rig.commits.resumePending(_c1);
+
+      rig.server.onCall = null;
+      expect(stored, isTrue);
+      expect(outcome, CommitOutcome.superseded);
+      expect(requests(), hasLength(2));
+      expect(engineCalls('discardCommit'), 0);
+      expect((await rig.device.vault.groups(_c1)).last.generation, 2);
+    });
+
     test('a call count that could not be written is not the cap: the record '
         'stays and is sent by the next resume', () async {
       await setUpJoined();

@@ -226,16 +226,22 @@ extension _CommitSend on CommitRunner {
     return _crypto.catchUpLocked(id, priority: priority);
   }
 
-  /// The group that still holds [pending] at its built-on pair, or null.
+  /// The conversation's group when it still holds [pending] at its built-on
+  /// pair, or null. Review m7: only the HIGHEST stored generation is the
+  /// conversation's group. After a generation switch an old group can still
+  /// carry the record; it is superseded then, and nothing is sent for it or
+  /// discarded on it.
   Future<GroupRecord?> _holds(
     SecureVault vault,
     String id,
     PendingCommit pending,
   ) async {
     final at = pending.builtOn;
-    final group = await vault.group(id, at.generation);
+    final groups = await vault.groups(id); // ascending generation
+    final group = groups.isEmpty ? null : groups.last;
     final held = group?.pending;
     if (group == null ||
+        group.generation != at.generation ||
         group.provisional ||
         group.epoch != at.epoch ||
         held == null ||
