@@ -50,10 +50,17 @@ extension _Recovery on GroupStarter {
             : const _Next(_NextKind.none);
       }
       // Scheduled here, outside the lock's zone: the resend it starts must
-      // not read as holding the lock.
+      // not read as holding the lock. Review m-4 (the sender's m1 rule): a
+      // timer is no user intent, so the resend never runs at user priority
+      // (the drain after a settle could then accept a request, audit M3);
+      // a user start's resend runs at live, ahead of the background sweep,
+      // and any other keeps its priority.
       final wait = next.resendAfter;
       if (wait != null) {
-        _schedule(wait, () => unawaited(_resume(id, priority)));
+        final later = priority == BudgetPriority.user
+            ? BudgetPriority.live
+            : priority;
+        _schedule(wait, () => unawaited(_resume(id, later)));
       }
       // What follows runs after the lock was released, through the public
       // entries (each takes the conversation lock itself).

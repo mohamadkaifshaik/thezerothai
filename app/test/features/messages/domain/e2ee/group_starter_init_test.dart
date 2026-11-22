@@ -15,6 +15,7 @@ import 'package:dzeroth/features/messages/domain/e2ee/e2ee_types.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/former_pins.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/group_starter.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/message_content_codec.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/sync_budget.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/keys/v1/keys.pb.dart' as kpb;
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
@@ -40,6 +41,20 @@ class _CutRandomEngine extends RigEngine {
   Future<Uint8List> randomBytes(int length) async {
     final bytes = await super.randomBytes(length);
     return length == cutLength ? bytes.sublist(0, length - 1) : bytes;
+  }
+}
+
+/// Records the priority of every unit taken from the starter's budget.
+class _SpyBudget extends SyncBudget {
+  _SpyBudget(RigClock clock)
+    : super(perMinute: 100000, ownDeviceCount: () => 1, now: clock.now);
+
+  final List<BudgetPriority> taken = [];
+
+  @override
+  Future<void> take(BudgetPriority priority, {Object? lane}) {
+    taken.add(priority);
+    return super.take(priority, lane: lane);
   }
 }
 
@@ -138,8 +153,11 @@ void main() {
     return sib;
   }
 
-  Future<void> newRig({RigEngine? engine}) async {
-    rig = await RigCrypto.create(engine: engine);
+  Future<void> newRig({
+    RigEngine? engine,
+    SyncBudget Function(RigClock clock)? syncBudget,
+  }) async {
+    rig = await RigCrypto.create(engine: engine, syncBudget: syncBudget);
     rig.server.beforeSend = (send) async {
       final held = gate;
       if (send.mlsInit != null && held != null) await held.future;
@@ -1165,6 +1183,39 @@ void main() {
       expect(rig.server.sends[0].same(rig.server.sends[1]), isTrue);
       expect((await groupOf())!.provisional, isFalse);
       expect(await rows(), isEmpty);
+    });
+
+    test('the scheduled resend of a user\'s start runs at live, never at '
+        'user: a timer is no user intent (Task 9 review m-4)', () async {
+      await rig.dispose();
+      late _SpyBudget budget;
+      await newRig(syncBudget: (clock) => budget = _SpyBudget(clock));
+      rig.server.sendScript.add((
+        error: const ScreeningUnavailableException(
+          'busy',
+          retryAfter: Duration(seconds: 5),
+        ),
+        stored: false,
+      ));
+      await start();
+      await done();
+      expect(rig.scheduled.single.delay, const Duration(seconds: 5));
+
+      // The resend is refused: as a retry it asks the stored commits
+      // first, with a unit of the resend's own priority.
+      rig.server.sendScript.add((
+        error: const FeatureDisabledException('off'),
+        stored: false,
+      ));
+      budget.taken.clear();
+      rig.clock.advance(const Duration(seconds: 5));
+      rig.scheduled.single.run();
+      await done();
+
+      expect(rig.server.sends, hasLength(2));
+      expect(budget.taken, isNotEmpty);
+      expect(budget.taken.first, BudgetPriority.live);
+      expect(budget.taken, isNot(contains(BudgetPriority.user)));
     });
 
     test('an unknown outcome with a server retry time schedules exactly one '
