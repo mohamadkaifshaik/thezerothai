@@ -14,6 +14,10 @@ class FakeTransport implements connect.Transport {
 
   final List<String> calledProcedures = [];
 
+  /// The call options of every unary call, in order (with its abort signal,
+  /// when the caller passed one).
+  final List<connect.CallOptions?> calledOptions = [];
+
   @override
   Future<connect.UnaryResponse<I, O>> unary<I extends Object, O extends Object>(
     connect.Spec<I, O> spec,
@@ -21,6 +25,7 @@ class FakeTransport implements connect.Transport {
     connect.CallOptions? options,
   ]) async {
     calledProcedures.add(spec.procedure);
+    calledOptions.add(options);
     final result = await handler(spec.procedure, input);
     return connect.UnaryResponse<I, O>(
       spec,

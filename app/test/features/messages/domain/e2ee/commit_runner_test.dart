@@ -6,6 +6,8 @@ import 'package:dzeroth/core/crypto/mls_pair.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/vault/secure_vault.dart';
 import 'package:dzeroth/core/vault/vault_status.dart';
+import 'package:dzeroth/features/messages/data/messaging_repository.dart'
+    show kMlsRpcTimeout;
 import 'package:dzeroth/features/messages/domain/e2ee/commit_runner.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_crypto.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/daily_ledger.dart';
@@ -1139,6 +1141,88 @@ void main() {
       // A resume that ran is no longer held: a reset has nothing to cancel.
       rig.commits.reset();
       expect(ran.cancelled, isFalse);
+    });
+
+    group('a call that outlives the client\'s wait (audit M2)', () {
+      /// The first call is abandoned at the client's timeout and really
+      /// ends only when the returned completer completes; the resend is
+      /// refused. Answers that completer once the change answered pending.
+      Future<Completer<void>> abandonedThenRefused() async {
+        await setUpJoined();
+        await synced();
+        final carol = await RigPeer.create('carol');
+        final ended = Completer<void>();
+        var first = true;
+        rig.server.onCall = (call) async {
+          if (call != 'commitConversation' || !first) return;
+          first = false;
+          // The client waits its 30 s, then gives up on a call that is
+          // still running (a token fetch stalled before it left).
+          rig.clock.advance(kMlsRpcTimeout);
+          rig.server.abandon(requests().first.key, ended.future);
+        };
+        rig.server.commitScript
+          ..add((error: offline, stored: false))
+          ..add((error: const FeatureDisabledException('off'), stored: false));
+        expect(
+          await rig.commits.change(
+            _c1,
+            adds: [await claim(carol, ClaimSide.theirs)],
+          ),
+          CommitOutcome.pending,
+        );
+        rig.server.onCall = null;
+        return ended;
+      }
+
+      test('a call that ends 20 s after the client timeout: no discard until '
+          'the margin has passed after it ended', () async {
+        final ended = await abandonedThenRefused();
+        // It ends 20 s after the timeout.
+        rig.clock.advance(const Duration(seconds: 20));
+        ended.complete();
+        await pumpEventQueue();
+
+        // The margin from the resend (40 s more) is not enough.
+        rig.clock.advance(kRequestInFlightMargin - const Duration(seconds: 20));
+        expect(await rig.commits.resumePending(_c1), CommitOutcome.pending);
+        expect(engineCalls('discardCommit'), 0);
+        expect((await groupRecord()).pending, isNotNull);
+
+        // One second short of the margin after the end: still kept.
+        rig.clock.advance(const Duration(seconds: 19));
+        expect(await rig.commits.resumePending(_c1), CommitOutcome.pending);
+        expect(engineCalls('discardCommit'), 0);
+
+        // The margin after the end has passed: the discard, with no call.
+        rig.clock.advance(second);
+        expect(await rig.commits.resumePending(_c1), CommitOutcome.refused);
+        expect(engineCalls('discardCommit'), 1);
+        expect((await groupRecord()).pending, isNull);
+        expect(requests(), hasLength(2));
+      });
+
+      test('while the call still runs a resume never discards and schedules '
+          'nothing; its end schedules the one resume, at the margin', () async {
+        final ended = await abandonedThenRefused();
+        expect(rig.commitScheduled, isEmpty);
+
+        rig.clock.advance(const Duration(minutes: 10));
+        expect(await rig.commits.resumePending(_c1), CommitOutcome.pending);
+        expect(engineCalls('discardCommit'), 0);
+        expect(rig.commitScheduled, isEmpty);
+
+        ended.complete();
+        await pumpEventQueue();
+        expect(rig.commitScheduled.map((s) => s.delay), [
+          kRequestInFlightMargin,
+        ]);
+        rig.clock.advance(kRequestInFlightMargin);
+        await runScheduled();
+        expect(engineCalls('discardCommit'), 1);
+        expect((await groupRecord()).pending, isNull);
+        expect(requests(), hasLength(2));
+      });
     });
 
     test('reset and cancelScheduled cancel a scheduled resume, and a later '

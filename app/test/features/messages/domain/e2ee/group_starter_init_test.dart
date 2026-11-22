@@ -8,6 +8,8 @@ import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/vault/secure_vault.dart';
 import 'package:dzeroth/core/vault/vault_session.dart';
 import 'package:dzeroth/core/vault/vault_status.dart';
+import 'package:dzeroth/features/messages/data/messaging_repository.dart'
+    show kMlsRpcTimeout;
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_crypto.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/e2ee_types.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/former_pins.dart';
@@ -2981,6 +2983,57 @@ void main() {
       final shown = (await starter.pendingInit(conversationId: _c1))!;
       expect(shown.status, OutgoingStatus5a.waiting);
       expect(shown.waitingOn, SendBlock.provisional);
+    });
+
+    test('an init send that outlives the client\'s wait holds the expiry '
+        'until the margin has passed after it really ended (Task 9 audit '
+        'M2)', () async {
+      rig.server.sendScript.addAll([unknown, unknown]);
+      await start();
+      await done();
+      // The last resend allowed, just before the margin. The client gives
+      // up on it after its 30 s, while the call still runs (a token fetch
+      // stalled before it left).
+      rig.clock.advance(
+        kProvisionalExpiry - kInitResendMargin - const Duration(seconds: 1),
+      );
+      final ended = Completer<void>();
+      rig.server.beforeSend = (send) async {
+        rig.clock.advance(kMlsRpcTimeout);
+        rig.server.abandon(send.key, ended.future);
+      };
+      rig.server.sendScript.add(unknown);
+      await starter.resumeProvisional();
+      await done();
+      rig.server.beforeSend = null;
+      expect(rig.server.sends, hasLength(3));
+
+      // Expired while that call still runs: nothing is asked or decided.
+      rig.clock.advance(const Duration(seconds: 32));
+      rig.server.calls.clear();
+      await starter.resumeProvisional();
+      await done();
+      expect(rig.server.calls, isEmpty);
+      expect((await groupOf())!.provisional, isTrue);
+
+      // It ends 20 s after the client's timeout; one resume is scheduled
+      // for the margin's end, and nothing is decided before it.
+      rig.clock.advance(const Duration(seconds: 20));
+      ended.complete();
+      await pumpEventQueue();
+      expect(rig.scheduled.map((s) => s.delay), [kInitResendMargin]);
+      rig.clock.advance(kInitResendMargin - const Duration(seconds: 1));
+      await starter.resumeProvisional();
+      await done();
+      expect(rig.server.calls, isEmpty);
+      expect((await groupOf())!.provisional, isTrue);
+
+      // After the margin, the stored commits decide (one listing).
+      rig.clock.advance(const Duration(seconds: 1));
+      rig.keys.peerFails = true;
+      rig.scheduled.single.run();
+      await done();
+      expect(rig.server.calls, ['listConversationCommits']);
     });
   });
 

@@ -35,7 +35,7 @@ extension _CommitSend on CommitRunner {
         key = null;
         // The discard margin counts from this call: until it has passed,
         // the call may still be stored whatever answer the client saw.
-        _marginStart[id] = _MarginStart(pending.commit, _now());
+        _noteCall(id, pending);
         final MlsPair answer;
         try {
           answer = await _messaging.commitConversation(
@@ -58,6 +58,9 @@ extension _CommitSend on CommitRunner {
             // flight across cancelScheduled() can still arm one resume;
             // its callback reads everything fresh.
             if (!op.live) return CommitOutcome.pending;
+            // Audit M2: a call the client stopped waiting for may still
+            // leave it; the margin waits for its end.
+            _trackAbandoned(id, pending, callKey, priority);
             isFirst = false;
             left--;
             final named = retryAfterOf(e);
@@ -192,6 +195,9 @@ extension _CommitSend on CommitRunner {
     required DateTime provedAt,
     required CommitOutcome dropped,
   }) async {
+    // Audit M2: a call of these bytes still runs (it may not even have left
+    // the client): no margin has started, and its end schedules the resume.
+    if (_callStillOut(id, pending)) return CommitOutcome.pending;
     final left = _marginLeft(id, pending, provedAt);
     if (left != null) {
       _scheduleResume(id, left, priority);
@@ -207,6 +213,55 @@ extension _CommitSend on CommitRunner {
     if (start == null || !_same(start.commit, pending.commit)) {
       _marginStart[id] = _MarginStart(pending.commit, _now());
     }
+  }
+
+  /// A call of [pending]'s bytes starts now: its margin counts from now,
+  /// and what this run knows of earlier calls of the same bytes still
+  /// running is kept.
+  void _noteCall(String id, PendingCommit pending) {
+    final start = _marginStart[id];
+    if (start == null || !_same(start.commit, pending.commit)) {
+      _marginStart[id] = _MarginStart(pending.commit, _now());
+    } else if (_now().isAfter(start.at)) {
+      start.at = _now();
+    }
+  }
+
+  /// Audit M2: the call under [key] got no answer in the client's wait.
+  /// When it still runs (`MessagingRepository.abandonedMlsCall`), the
+  /// margin waits for its end: then the margin counts from that end, and
+  /// once no call of the bytes runs, one resume is scheduled for the
+  /// margin's end. An end after the record was settled, discarded or
+  /// forgotten (a sign-out) changes nothing.
+  void _trackAbandoned(
+    String id,
+    PendingCommit pending,
+    String key,
+    BudgetPriority priority,
+  ) {
+    final call = _messaging.abandonedMlsCall(key);
+    final start = _marginStart[id];
+    if (call == null || start == null || !_same(start.commit, pending.commit)) {
+      return;
+    }
+    start.running++;
+    unawaited(
+      call.then((_) {
+        if (!identical(_marginStart[id], start)) return;
+        start.running--;
+        if (_now().isAfter(start.at)) start.at = _now();
+        if (start.running == 0) {
+          _scheduleResume(id, kRequestInFlightMargin, priority);
+        }
+      }),
+    );
+  }
+
+  /// Whether a call of [pending]'s bytes that outlived the client's wait
+  /// still runs (audit M2).
+  bool _callStillOut(String id, PendingCommit pending) {
+    _noteSeen(id, pending);
+    return _marginStart[id]!.running > 0;
   }
 
   /// Null when [pending]'s discard margin had passed at [provedAt] (the

@@ -59,7 +59,10 @@ const Duration kProvisionalExpiry = Duration(hours: 24);
 /// be stored after that answer, and the server would then hold a group
 /// its creator deleted (no welcome exists for a creator). With this margin
 /// the last request left the client, and the server, before the commits
-/// are asked.
+/// are asked. Task 9 audit M2: that holds only for a request that left the
+/// client when its call started; an init call whose client wait ran out
+/// while it still ran holds the expiry until this margin has passed after
+/// it really ended (`MessagingRepository.abandonedMlsCall`).
 final Duration kInitResendMargin = kRequestInFlightMargin;
 
 /// The `limit_name` of the two daily claim caps (KP): 20 claims per target,
@@ -259,11 +262,28 @@ class GroupStarter {
   /// The step names [_reportOnce] reported in this run.
   final Set<String> _reported = {};
 
+  /// Task 9 audit M2. Conversation -> the init sends of its provisional
+  /// group whose client wait ran out while the call still ran
+  /// (`MessagingRepository.abandonedMlsCall`): such a request may not have
+  /// left the client yet, so [kInitResendMargin] has not started for it.
+  final Map<String, int> _initCallsOut = {};
+
+  /// Conversation -> when the last such call really ended: the expiry's
+  /// margin counts from then.
+  final Map<String, DateTime> _initCallEndedAt = {};
+
+  /// Bumped by [reset]: the end of a call tracked before it changes
+  /// nothing.
+  int _runSerial = 0;
+
   /// Sign-out or a new vault: forgets this run's memory.
   void reset() {
     _unknown.clear();
     _notBefore.clear();
     _reported.clear();
+    _initCallsOut.clear();
+    _initCallEndedAt.clear();
+    _runSerial++;
   }
 
   /// Completes when no resume of [conversationId] is running (at once when

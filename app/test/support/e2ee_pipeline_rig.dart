@@ -607,6 +607,20 @@ class RigServer {
   /// header row (null: the header row).
   pb.Conversation? sendAnswerRow;
 
+  final Map<String, Future<void>> _abandoned = {};
+
+  /// Task 9 audit M2: the call under [key] outlived the client's wait and
+  /// really ends when [ended] completes (`abandonedMlsCall` answers it until
+  /// then, as the real repository does).
+  void abandon(String key, Future<void> ended) {
+    _abandoned[key] = ended;
+    unawaited(
+      ended.then((_) {
+        if (identical(_abandoned[key], ended)) _abandoned.remove(key);
+      }),
+    );
+  }
+
   /// The bytes of the commit stored at [pair], or null.
   Uint8List? commitAt(String conversationId, MlsPair pair) {
     for (final c in _commits[conversationId] ?? const <_Commit>[]) {
@@ -1142,6 +1156,11 @@ class RigMessaging implements MessagingRepository {
   /// RATE_LIMITED hold of the list reads (the rig's [RigServer.readHold]).
   @override
   RateLimitedException? rateLimitedFor() => _server.readHold;
+
+  /// [RigServer.abandon]'s calls.
+  @override
+  Future<void>? abandonedMlsCall(String idempotencyKey) =>
+      _server._abandoned[idempotencyKey];
 
   @override
   Future<pb.ListWelcomesResponse> listWelcomes({

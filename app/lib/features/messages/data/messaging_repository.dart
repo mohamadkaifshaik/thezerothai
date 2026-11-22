@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'package:connectrpc/connect.dart' as connect;
 import 'package:fixnum/fixnum.dart' show Int64;
 
 import '../../../core/crypto/mls_pair.dart';
@@ -752,6 +753,62 @@ class MessagingRepository {
     onTimeout: () => throw const NetworkException('timed out'),
   );
 
+  /// Idempotency key -> the commit or encrypted send under that key whose
+  /// client wait ran out while the call itself still ran ([_mlsTracked]).
+  final Map<String, Future<void>> _abandoned = {};
+
+  /// Task 9 audit M2. A [commitConversation] or [sendEncrypted] call under
+  /// [idempotencyKey] whose [kMlsRpcTimeout] ran out (the caller got a
+  /// `NetworkException('timed out')`) while the call itself still ran: a
+  /// future that completes, never with an error, when every such call
+  /// under the key has really ended. Null when there is none (never timed
+  /// out, or already ended). Memory of this app run only.
+  ///
+  /// Why: the timeout abandons the future, and the abort signal it sends
+  /// cannot stop a request that has not reached the HTTP client yet (the
+  /// auth and App Check interceptors wait for their tokens first, with no
+  /// deadline, and do not read the signal). Such a request may still leave
+  /// the client after the timeout. A decision that rests on "the server
+  /// does not hold it" (the commit runner's discard, the starter's expiry)
+  /// counts its margin from when this completes, and waits while it runs.
+  Future<void>? abandonedMlsCall(String idempotencyKey) =>
+      _abandoned[idempotencyKey];
+
+  /// [_mls] for a call made under [idempotencyKey] whose late arrival at the
+  /// server matters ([abandonedMlsCall]): the call gets an abort signal,
+  /// cancelled at the timeout (a request still in the HTTP client is then
+  /// dropped, so the call ends soon after), and a call that outlives its
+  /// wait is tracked under the key until it really ends.
+  Future<T> _mlsTracked<T>(
+    String idempotencyKey,
+    Future<T> Function(connect.AbortSignal signal) call,
+  ) {
+    final signal = connect.CancelableSignal();
+    final running = call(signal);
+    return running.timeout(
+      kMlsRpcTimeout,
+      onTimeout: () {
+        signal.cancel();
+        final ended = running.then<void>((_) {}, onError: (Object _) {});
+        // A second call under the same key (the starter resends an init
+        // under its one key) is one entry that ends when both have.
+        final earlier = _abandoned[idempotencyKey];
+        final all = earlier == null
+            ? ended
+            : Future.wait([earlier, ended]).then<void>((_) {});
+        _abandoned[idempotencyKey] = all;
+        unawaited(
+          all.then((_) {
+            if (identical(_abandoned[idempotencyKey], all)) {
+              _abandoned.remove(idempotencyKey);
+            }
+          }),
+        );
+        throw const NetworkException('timed out');
+      },
+    );
+  }
+
   /// One ListMessages call for an encrypted conversation. Same gate,
   /// rate-limit hold and error mapping as the existing reads; NOTHING is
   /// written to MessagingStore (no message, no token, no conversation row)
@@ -1000,8 +1057,11 @@ class MessagingRepository {
     if (recipientUserId != null) request.recipientUserId = recipientUserId;
     if (mlsInit != null) request.mlsInit = pb.MlsInit.fromBuffer(mlsInit);
     final session = _store.session;
-    final response = await _mls(
-      () => _gate.run(() => _apiClient.messaging.sendMessage(request)),
+    final response = await _mlsTracked(
+      idempotencyKey,
+      (signal) => _gate.run(
+        () => _apiClient.messaging.sendMessage(request, signal: signal),
+      ),
     );
     // The answer's conversation is encrypted (an MLS init may have just made
     // it): record its id so the mark outlives the vault (D3). The send
@@ -1044,8 +1104,11 @@ class MessagingRepository {
       reset: reset,
     );
     if (welcome != null) request.welcome = welcome;
-    final response = await _mls(
-      () => _gate.run(() => _apiClient.messaging.commitConversation(request)),
+    final response = await _mlsTracked(
+      idempotencyKey,
+      (signal) => _gate.run(
+        () => _apiClient.messaging.commitConversation(request, signal: signal),
+      ),
     );
     final generation = pairComponentFromInt64(response.mlsGeneration);
     final epoch = pairComponentFromInt64(response.mlsEpoch);

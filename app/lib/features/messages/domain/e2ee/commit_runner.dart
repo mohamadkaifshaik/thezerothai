@@ -91,7 +91,9 @@ enum CommitOutcome { applied, superseded, pending, refused, notAllowed }
 ///    reset), and only [kRequestInFlightMargin] after the last call (a
 ///    call with no answer can still be stored until then); before that the
 ///    outcome is `pending` and one resume is scheduled for the margin's
-///    end.
+///    end. A call the client stopped waiting for that still runs (audit
+///    M2: it may not have left the client yet) holds every discard; the
+///    margin counts from its end, which schedules that resume.
 /// 3. [resumePending], after a restart or an unknown outcome: catch-up
 ///    first; when the server's pair is still P, the identical bytes are sent
 ///    once more (a counted call), not before the retry time of the last
@@ -186,6 +188,12 @@ class CommitRunner {
   /// after it: until then a call that got no answer may still be stored,
   /// and a discarded commit the server stores later comes back as an
   /// own-leaf answer and forces a reset (plan-own-leaf.md).
+  ///
+  /// Audit M2: a call whose client wait ran out may not have left the
+  /// client yet (`MessagingRepository.abandonedMlsCall`). While one runs,
+  /// no discard is made and nothing is scheduled; when it ends, the margin
+  /// counts from that end and one resume is scheduled for the margin's
+  /// end.
   final Map<String, _MarginStart> _marginStart = {};
 
   /// Conversation -> the bytes of a pending commit a call that was not the
@@ -628,12 +636,17 @@ class CommitRunner {
 enum _Count { counted, atCap, failed }
 
 /// A pending commit's bytes and the time its discard margin is counted from
-/// (`CommitRunner._marginStart`). No `toString`.
+/// (`CommitRunner._marginStart`): the latest of its calls' starts and of
+/// the ends of its calls that outlived the client's wait. No `toString`.
 class _MarginStart {
   _MarginStart(this.commit, this.at);
 
   final Uint8List commit;
-  final DateTime at;
+  DateTime at;
+
+  /// Calls of these bytes that outlived the client's wait and have not
+  /// ended yet (audit M2): while one runs, no margin has started.
+  int running = 0;
 }
 
 /// Constant-time equality of two byte lists (the length is not secret).

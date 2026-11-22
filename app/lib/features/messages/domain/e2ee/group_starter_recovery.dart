@@ -291,6 +291,9 @@ extension _Recovery on GroupStarter {
         return const _Next(_NextKind.join);
       } on AppException catch (e) {
         if (sendOutcomeUnknown(e)) {
+          // Audit M2: a call the client stopped waiting for may still
+          // leave it; the expiry waits for its end.
+          _trackInit(id, key);
           // The same request again; the group stays provisional.
           first = false;
           tries--;
@@ -537,6 +540,12 @@ extension _Recovery on GroupStarter {
     bool mayRebuild,
   ) async {
     const none = _Next(_NextKind.none);
+    // Audit M2: [kInitResendMargin] assumed that the last request left the
+    // client when its call started. An init call whose client wait ran out
+    // may still leave it: while one runs nothing is asked (a "not stored"
+    // read now could be followed by the store), and after its end the
+    // margin counts from that end. The end schedules the resume.
+    if (_initMayStillLand(id)) return none;
     final own = await _ownInitStored(id, pending, priority);
     if (own == null) return none;
     if (own) {
@@ -771,6 +780,50 @@ extension _Recovery on GroupStarter {
   void _forget(String localId) {
     _unknown.remove(localId);
     _notBefore.remove(localId);
+  }
+
+  /// Audit M2: the init call under [key] got no answer in the client's
+  /// wait. When it still runs (`MessagingRepository.abandonedMlsCall`), the
+  /// expiry of [id] waits for its end; once no such call runs, one resume
+  /// is scheduled for [kInitResendMargin] after the end (at background
+  /// priority: a timer is no user intent). An end after [reset] changes
+  /// nothing.
+  void _trackInit(String id, String key) {
+    final call = _messaging.abandonedMlsCall(key);
+    if (call == null) return;
+    final serial = _runSerial;
+    _initCallsOut[id] = (_initCallsOut[id] ?? 0) + 1;
+    unawaited(
+      call.then((_) {
+        if (serial != _runSerial) return;
+        final left = (_initCallsOut[id] ?? 1) - 1;
+        _initCallEndedAt[id] = _now();
+        if (left > 0) {
+          _initCallsOut[id] = left;
+          return;
+        }
+        _initCallsOut.remove(id);
+        // Outside any lock's zone: the resume takes the lock itself.
+        Zone.root.run(
+          () => _schedule(
+            kInitResendMargin,
+            () => unawaited(_resume(id, BudgetPriority.background)),
+          ),
+        );
+      }),
+    );
+  }
+
+  /// Whether an init request of [id] may still reach the server: a call
+  /// whose client wait ran out still runs, or ended less than
+  /// [kInitResendMargin] ago.
+  bool _initMayStillLand(String id) {
+    if ((_initCallsOut[id] ?? 0) > 0) return true;
+    final ended = _initCallEndedAt[id];
+    if (ended == null) return false;
+    if (_now().isBefore(ended.add(kInitResendMargin))) return true;
+    _initCallEndedAt.remove(id);
+    return false;
   }
 }
 
