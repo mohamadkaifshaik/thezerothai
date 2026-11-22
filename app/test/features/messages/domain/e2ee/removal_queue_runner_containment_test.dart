@@ -100,6 +100,30 @@ void main() {
       expect((await pin(sibling))!.side, MemberSide.unattributed);
       expect(queued(_c1, sibling), isTrue);
     });
+
+    test('the upkeep\'s reconcile keeps a pin whose key is not the key the '
+        'own list showed (fix round 4, CR2 I-1)', () async {
+      final sibling = await RigPeer.create('sibling');
+      final other = await RigPeer.create('other');
+      // The own list names the sibling's id with another key.
+      await setUpRig();
+      rig.keys.own.add(rigKeyDevice(sibling.idString, other.key));
+      await join(_c1);
+      await synced();
+      await bobAdds(_c1, [sibling]);
+      expectedErrors = ['removalQueue.keyMismatch'];
+      await removeAndSettle(sibling);
+      expect(requests(), isEmpty);
+      expect((await pin(sibling))!.side, MemberSide.unattributed);
+      expect(queued(_c1, sibling), isTrue);
+      await rig.receiver.pullLive(_c1);
+      expect(rig.contexts.of(_c1).syncedSinceStart, isTrue);
+
+      await rig.upkeep.reconcile(_c1);
+
+      expect(requests(), isEmpty);
+      expect((await pin(sibling))!.side, MemberSide.unattributed);
+    });
   });
 
   group('a retry of a removal whose outcome is unknown (CR Minor 1)', () {
