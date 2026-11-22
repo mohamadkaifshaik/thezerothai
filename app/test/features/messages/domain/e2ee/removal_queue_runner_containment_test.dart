@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/vault/secure_vault.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/membership_rules.dart';
@@ -199,6 +201,30 @@ void main() {
       );
 
       expect(await runner.wasRemovedByUser(sibling.id), isFalse);
+      expect(queued(_c1, sibling), isTrue);
+    });
+  });
+
+  group('the intent being sent (CR Minor 3)', () {
+    test('a pass that starts while the intent is being stored leaves it to '
+        'removeDevice', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await stateOnly(_c1, accepted: false, mine: [sibling]);
+      await runner.onVaultReady();
+      await runner.idle();
+      // The intent's write is the first one asked for: a pass starts then.
+      var hooked = false;
+      rig.device.onWriteAsked = () {
+        if (hooked) return;
+        hooked = true;
+        unawaited(runner.runPass());
+      };
+
+      await removeAndSettle(sibling);
+
+      expect(hooked, isTrue);
+      expect(rig.keys.removeCalls, hasLength(1), reason: 'sent once');
       expect(queued(_c1, sibling), isTrue);
     });
   });

@@ -353,44 +353,49 @@ class RemovalQueueRunner {
     if (!identical(_session.vault, vault) || !_loaded) {
       throw StateError('The vault changed.');
     }
-    if (waiting == null) {
-      // Review M1: the intent is stored BEFORE the call, so a crash or a
-      // vault change between the call and the queue's write leaves it, and
-      // the next pass sends it again and queues.
-      _intents.add(
-        RemovalMark(
-          deviceId: deviceId,
-          atMicros: _now().microsecondsSinceEpoch,
-          signatureKey: key,
-        ),
-      );
-      while (_intents.length > kMaxRemovalIntents) {
-        _intents.removeAt(0);
-      }
-      await _save(vault, queue: false);
-    }
+    // CR Minor 3 (fix round 2, ruling 5): marked as being sent BEFORE the
+    // intent's write, and until it is queued, so a pass that starts while
+    // either is in flight never sends the same intent a second time.
     _sending.add(deviceId);
     try {
-      await _sendRemove(deviceId);
-    } on Object catch (e) {
-      if (_definiteRefusal(e) && identical(_loadedFor, vault)) {
-        // Not removed: the intent goes. When this write fails the intent
-        // stays and a pass sends it again; that is the user's own ask.
-        _intents.removeWhere((i) => i.deviceId == deviceId);
-        try {
-          await _save(vault, queue: false);
-        } on Object catch (e, s) {
-          _reportIfBug(e, s, 'removalQueue.intentWrite');
+      if (waiting == null) {
+        // Review M1: the intent is stored BEFORE the call, so a crash or a
+        // vault change between the call and the queue's write leaves it,
+        // and the next pass sends it again and queues.
+        _intents.add(
+          RemovalMark(
+            deviceId: deviceId,
+            atMicros: _now().microsecondsSinceEpoch,
+            signatureKey: key,
+          ),
+        );
+        while (_intents.length > kMaxRemovalIntents) {
+          _intents.removeAt(0);
         }
+        await _save(vault, queue: false);
       }
-      rethrow;
+      try {
+        await _sendRemove(deviceId);
+      } on Object catch (e) {
+        if (_definiteRefusal(e) && identical(_loadedFor, vault)) {
+          // Not removed: the intent goes. When this write fails the intent
+          // stays and a pass sends it again; that is the user's own ask.
+          _intents.removeWhere((i) => i.deviceId == deviceId);
+          try {
+            await _save(vault, queue: false);
+          } on Object catch (e, s) {
+            _reportIfBug(e, s, 'removalQueue.intentWrite');
+          }
+        }
+        rethrow;
+      }
+      if (!identical(_session.vault, vault) || !_loaded) {
+        throw StateError('The vault changed.');
+      }
+      await _queueRemoved(vault, deviceId, key, BudgetPriority.live);
     } finally {
       _sending.remove(deviceId);
     }
-    if (!identical(_session.vault, vault) || !_loaded) {
-      throw StateError('The vault changed.');
-    }
-    await _queueRemoved(vault, deviceId, key, BudgetPriority.live);
     _startPass(BudgetPriority.live);
   }
 
