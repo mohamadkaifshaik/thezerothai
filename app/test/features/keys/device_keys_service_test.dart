@@ -1048,6 +1048,54 @@ void main() {
       expect(rig.service.status.value, DeviceKeysStatus.ready);
     });
 
+    test(
+      'at the cap a server without a last-resort package still gets one: '
+      'a last-resort-only batch, saved and counted; the pool stays capped',
+      () async {
+        toNextIstDay();
+        await rig.signIn(_a);
+        final device = rig.devices.values.single;
+        for (var i = 2; i <= kMaxKeyBatchesPerDay; i++) {
+          device.pool.clear();
+          await nextRun();
+        }
+        expect(rig.engine.generated, hasLength(kMaxKeyBatchesPerDay));
+        // A re-registered device: no pool, no last-resort package.
+        device
+          ..pool.clear()
+          ..lastResort = null;
+        final state = rig.file()!.deviceState;
+        final uploads = rig.server.uploads.length;
+
+        await nextRun();
+        expect(rig.engine.generated, hasLength(kMaxKeyBatchesPerDay + 1));
+        expect(rig.engine.generated.last, (0, true));
+        expect(rig.server.uploads, hasLength(uploads + 1));
+        final up = rig.server.uploads.last;
+        expect(up.keyPackages, isEmpty);
+        expect(up.lastResortKeyPackage, isNotEmpty);
+        expect(device.lastResort, up.lastResortKeyPackage);
+        expect(device.pool, isEmpty);
+        // Saved before the upload, as every generated batch is.
+        expect(rig.file()!.deviceState, isNot(state));
+        expect(rig.stateAtUpload.last, rig.engine.lastGenerated!.deviceState);
+        final day = jsonDecode(rig.setting(kVaultSettingKeyBatchDay)) as Map;
+        expect(day['n'], kMaxKeyBatchesPerDay + 1);
+        expect(
+          rig.service.status.value,
+          const DeviceKeysStatus.failed(retryable: true),
+          reason: 'the one-time pool is still capped',
+        );
+        expect(reported(), ['DeviceKeysError(batchCap)']);
+
+        // The server now holds one: nothing more today.
+        await nextRun();
+        expect(rig.engine.generated, hasLength(kMaxKeyBatchesPerDay + 1));
+        expect(rig.server.uploads, hasLength(uploads + 1));
+        expect(reported(), ['DeviceKeysError(batchCap)']);
+      },
+    );
+
     test('at the cap a saved last-resort package is still sent', () async {
       toNextIstDay();
       await rig.signIn(_a);

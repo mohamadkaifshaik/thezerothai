@@ -89,8 +89,12 @@ const String kVaultSettingPendingUpload = 'keys.device.pendingUpload';
 /// core prune exists (Open question 9), a server that keeps the outcome of
 /// uploads unknown while the pool count moves must not grow the device
 /// state without limit. An honest, flaky network rarely needs more than 4.
-/// Cost: a pool that is truly drained can stay empty until the next IST day
-/// (the last-resort package still answers claims).
+/// Cost: a pool that is truly drained can stay empty until the next IST day;
+/// the last-resort package still answers claims. When the server reports
+/// none (a re-registered device), a last-resort-only batch is still
+/// generated and counted at the cap (ruling 1): otherwise the device would
+/// be unreachable until IST midnight. A hostile server gains at most one
+/// package per run that way (about 24 a day, runs are hourly).
 const int kMaxKeyBatchesPerDay = 4;
 
 /// Sealed JSON `{"v":1,"day":"YYYY-MM-DD","n":k,"reported":bool}`: the
@@ -663,12 +667,13 @@ class DeviceKeysService {
         !hasLastResort ||
         _olderThan(local.lastResortMicros, nowMicros, kLastResortMaxAge);
     check();
-    final (batch, previousUnknown) = await _takeOrGenerateBatch(
+    final (batch, previousUnknown, cap) = await _takeOrGenerateBatch(
       vault,
       uid,
       count: count,
       oneTime: oneTime,
       lastResort: lastResort,
+      hasLastResort: hasLastResort,
     );
     if (batch.isEmpty) return;
     check();
@@ -725,18 +730,22 @@ class DeviceKeysService {
         await tx.putSetting(kVaultSettingLastResortAt, _micros(nowMicros));
       }
     });
+    // A last-resort-only batch sent at the cap: the pool is still capped.
+    if (cap != null) throw cap;
   }
 
   /// Step 3's vault part: the saved batch when one may be sent again, or a
   /// fresh one (private parts and public packages in one transaction).
-  /// Returns the batch to upload (empty: nothing) and whether the saved
-  /// batch's last outcome was unknown.
-  Future<(PendingUpload, bool)> _takeOrGenerateBatch(
+  /// Returns the batch to upload (empty: nothing), whether the saved
+  /// batch's last outcome was unknown, and the cap to throw once the batch
+  /// is sent (a last-resort-only batch generated at the cap; else null).
+  Future<(PendingUpload, bool, _BatchCap?)> _takeOrGenerateBatch(
     SecureVault vault,
     String uid, {
     required int count,
     required int oneTime,
     required bool lastResort,
+    required bool hasLastResort,
   }) => _session.runWrite((v) async {
     if (!identical(v, vault) || _currentUid() != uid) {
       throw const _Cancelled();
@@ -777,17 +786,17 @@ class DeviceKeysService {
             ? PendingUpload.empty
             : PendingUpload(const [], last, count);
         await store(lastOnly);
-        return (lastOnly, false);
+        return (lastOnly, false, null);
       }
-      if (previousUnknown) return (saved, previousUnknown);
+      if (previousUnknown) return (saved, previousUnknown, null);
       // Arm the next attempt before dispatch so a killed run is unknown.
       final retry = PendingUpload(saved.oneTime, saved.lastResort, count);
       await store(retry);
-      return (retry, previousUnknown);
+      return (retry, previousUnknown, null);
     }
     if (oneTime <= 0 && !lastResort) {
       if (unreadable) await store(PendingUpload.empty);
-      return (PendingUpload.empty, false);
+      return (PendingUpload.empty, false, null);
     }
     // The daily cap (ruling E), read again and written in the transaction
     // that commits the generation.
@@ -803,25 +812,41 @@ class DeviceKeysService {
     }
 
     final batches = await batchDay();
+    var generateOneTime = oneTime;
+    var generateLastResort = lastResort;
+    _BatchCap? cap;
     if (batches.count >= kMaxKeyBatchesPerDay) {
-      if (batches.reported) throw const _BatchCap(report: false);
-      final marked = KeyBatchDay(today, batches.count, reported: true);
-      await v.transaction(
-        (tx) => tx.putSetting(kVaultSettingKeyBatchDay, marked.encode()),
-      );
-      throw const _BatchCap(report: true);
+      // The cap holds something back (one-time packages, or a last-resort
+      // rotation the server does not need): marked and reported once a day.
+      if (hasLastResort || oneTime > 0) {
+        var report = false;
+        if (!batches.reported) {
+          final marked = KeyBatchDay(today, batches.count, reported: true);
+          await v.transaction(
+            (tx) => tx.putSetting(kVaultSettingKeyBatchDay, marked.encode()),
+          );
+          report = true;
+        }
+        cap = _BatchCap(report: report);
+        if (hasLastResort) throw cap;
+      }
+      // Ruling 1: the server holds no last-resort package. Without one the
+      // device is unreachable once the pool is empty, so a last-resort-only
+      // batch is generated and counted even at the cap.
+      generateOneTime = 0;
+      generateLastResort = true;
     }
     final state = await v.deviceState();
     if (state == null) throw StateError('No device state.');
     final r = await _engine().generateKeyPackages(
       state,
-      count: oneTime,
-      lastResort: lastResort,
+      count: generateOneTime,
+      lastResort: generateLastResort,
     );
     final packages = r.keyPackages;
     final pending = PendingUpload(
-      lastResort ? packages.sublist(0, packages.length - 1) : packages,
-      lastResort ? packages.last : null,
+      generateLastResort ? packages.sublist(0, packages.length - 1) : packages,
+      generateLastResort ? packages.last : null,
       count,
     );
     await v.transaction((tx) async {
@@ -835,7 +860,7 @@ class DeviceKeysService {
       await tx.putSetting(kVaultSettingPendingUpload, pending.encode());
       await tx.putSetting(kVaultSettingKeyBatchDay, counted.encode());
     });
-    return (pending, false);
+    return (pending, false, cap);
   });
 
   /// [call] under the client deadline: past [_rpcTimeout] it is a
