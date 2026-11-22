@@ -123,12 +123,19 @@ extension _Recovery on GroupStarter {
 
   /// How long ago [group] was made provisional; [kProvisionalExpiry] when
   /// it carries no creation time.
+  ///
+  /// Review M4 (the class of N8). Decision: a creation time AFTER now (the
+  /// device clock moved back) has no age that can be told, so the group
+  /// counts as expired: its init is sent no more and the stored commits
+  /// decide. Why: a negative age would pass as "young" for as long as the
+  /// clock stays behind, and the 24 h bound on resending one init would not
+  /// hold.
   Duration _ageOf(GroupRecord group) {
     final created = group.provisionalCreatedAtMicros;
     if (created == null) return kProvisionalExpiry;
-    return _now().difference(
-      DateTime.fromMicrosecondsSinceEpoch(created, isUtc: true),
-    );
+    final at = DateTime.fromMicrosecondsSinceEpoch(created, isUtc: true);
+    final now = _now();
+    return at.isAfter(now) ? kProvisionalExpiry : now.difference(at);
   }
 
   /// Audit M3: whether [group]'s init is sent no more: it is within

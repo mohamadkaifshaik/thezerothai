@@ -2603,6 +2603,29 @@ void main() {
   });
 
   group('resumeProvisional', () {
+    test('a provisional group dated after now (the clock moved back) counts '
+        'as expired: its init is not resent', () async {
+      rig.server.sendScript.addAll([unknown, unknown]);
+      await start();
+      await done();
+      expect(rig.server.sends, hasLength(2));
+      rig.clock.value = rig.clock.value.subtract(const Duration(hours: 1));
+      // The rebuild cannot be made now: the group stays as it is.
+      rig.keys.peerFails = true;
+      rig.server.calls.clear();
+
+      await starter.resumeProvisional();
+      await done();
+
+      expect(rig.server.sends, hasLength(2));
+      expect(rig.server.calls, ['listConversationCommits']);
+      expect((await groupOf())!.provisional, isTrue);
+      expect((await rows()).single.init, isNotNull);
+      final shown = (await starter.pendingInit(conversationId: _c1))!;
+      expect(shown.status, OutgoingStatus5a.waiting);
+      expect(shown.waitingOn, SendBlock.provisional);
+    });
+
     test('a provisional group older than 24 h whose init is the first stored '
         'commit is cleared, not rebuilt', () async {
       rig.server.sendScript.addAll([lostAnswer, unknown]);
