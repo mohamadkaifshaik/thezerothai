@@ -3662,10 +3662,13 @@ void main() {
   group('discardInit (gate 6, audit L10)', () {
     /// A started init whose two attempts got no answer; nothing stored at
     /// the server unless [stored].
-    Future<OutboxItem> unanswered({bool stored = false}) async {
+    Future<OutboxItem> unanswered({
+      bool stored = false,
+      String? conversationId,
+    }) async {
       rig.server.sendScript.addAll([stored ? lostAnswer : unknown, unknown]);
       gate = Completer<void>();
-      await start();
+      await start(conversationId: conversationId);
       final row = (await rows()).single;
       gate!.complete();
       await done();
@@ -3905,6 +3908,46 @@ void main() {
 
         expect(await starter.discardInit(_c1), InitDiscard.discarded);
         await expectDiscarded('ours, its replay refused');
+      });
+    }
+
+    // Fix round 3, ruling 2 (code review Minor 1): a STALE_EPOCH of the
+    // replay is the evidence only when it names this conversation.
+    for (final named in const <String?>[null, _c2]) {
+      test('a replay of a row addressed by its id refused with a STALE_EPOCH '
+          'naming ${named ?? 'no conversation'}: an unknown outcome, held '
+          '(pre-flag-on fix round 3, ruling 2)', () async {
+        final row = await unanswered(stored: true, conversationId: _c1);
+        expect(row.conversationId, _c1);
+        expect(row.recipientUserId, isNull);
+        rig.clock.advance(kProvisionalExpiry + const Duration(minutes: 1));
+        rig.server.rewriteLive = (real) =>
+            pb.ListMessagesResponse(conversation: real.conversation);
+        rig.server.sendScript.add((
+          error: StaleEpochException(
+            'stale',
+            generation: 1,
+            epoch: 2,
+            conversationId: named,
+          ),
+          stored: false,
+        ));
+        final sends = rig.server.sends.length;
+
+        await starter.resumeProvisional();
+        await done();
+
+        expect(rig.server.sends, hasLength(sends + 1));
+        expect(rig.server.sends.last.same(rig.server.sends.first), isTrue);
+        if (named != null) {
+          // Another conversation named: reported once, step name only.
+          expect(rig.unexpected.map((e) => (e as E2eePipelineError).step), [
+            'start.staleConversation',
+          ]);
+          rig.unexpected.clear();
+        }
+        expect(await starter.discardInit(_c1), InitDiscard.held);
+        await expectUnchanged(row, 'not this conversation\'s refusal');
       });
     }
 

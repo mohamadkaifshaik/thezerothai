@@ -338,7 +338,13 @@ extension _Recovery on GroupStarter {
         // The commits say this init is stored: the page answers, or nothing
         // is decided. Never a discard.
         if (replay) {
-          _replayRefused.add(row.localId);
+          // Fix round 3, ruling 2 (code review Minor 1). Decision: the
+          // evidence only when the refusal names THIS conversation; one
+          // naming none (a send addressed by id) is an unknown outcome, as
+          // the replay's other refusals that do not last. Why: a refusal
+          // that does not say which conversation it is about says nothing
+          // of this group, and the discard it would allow cannot be undone.
+          if (named == id) _replayRefused.add(row.localId);
           return _answerFromPage(id, group, row, priority);
         }
         if (!first) {
