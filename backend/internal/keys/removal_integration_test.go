@@ -371,7 +371,9 @@ func TestRemoval_RegisterAtCapFinishesStuckRemoval(t *testing.T) {
 // REMOTE removal of a marked id needs no sign-in), so the test does the same and then asserts strictly.
 const (
 	raceInFlight = 10
-	raceAttempts = 4
+	// 4 was not enough under the whole package's emulator load (one Remove still busy after 4 tries, Minor round
+	// 2026-11-23); a client keeps retrying UNAVAILABLE, so the test allows 8.
+	raceAttempts = 8
 )
 
 // transientErr reports a contention or deadline answer, at the repository (gRPC status, context) or the service
