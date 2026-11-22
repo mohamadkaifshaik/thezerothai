@@ -156,6 +156,13 @@ extension _Reconcile on MembershipUpkeep {
     }
     final context = _contexts.of(id);
     final accepted = context.acceptedSeenAt;
+    // Review m-2: the resume settled the record, so the unheld entry pulls
+    // and runs one more pass after this one; a change this pass cannot
+    // commit for want of that pull needs no re-check of its own.
+    final willRunAgain =
+        mayRunAgain &&
+        (resumed == CommitOutcome.applied ||
+            resumed == CommitOutcome.superseded);
 
     // Which re-checks are due: a due one reads fresh lists.
     var members = await vault.members(id);
@@ -346,7 +353,8 @@ extension _Reconcile on MembershipUpkeep {
       // current pair (after an own commit) waits for one re-check, which
       // pulls first (ruling C's chain bounds it). Other reasons (M5, the
       // cap) arm none: a re-check could not change them.
-      if (!context.syncedSinceStart &&
+      if (!willRunAgain &&
+          !context.syncedSinceStart &&
           (removes.isNotEmpty ||
               (mayAdd &&
                   (await _wanted(

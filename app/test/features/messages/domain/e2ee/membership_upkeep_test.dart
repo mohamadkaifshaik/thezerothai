@@ -1148,6 +1148,30 @@ void main() {
       expect(liveRechecks(), 0);
     });
 
+    test('a resume that settles the record arms no re-check when the same '
+        'reconcile pulls and runs again (review m-2)', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpJoined(others: [sibling], ownListed: [sibling]);
+      await synced();
+      // A self-update left pending by two unanswered calls.
+      rig.server.commitScript
+        ..add((error: offline, stored: false))
+        ..add((error: offline, stored: false));
+      expect(await rig.commits.selfUpdate(_c1), CommitOutcome.pending);
+      // The lost phone is decided by the pass after the resume.
+      rig.clock.advance(kDeviceListReuse + kRequestInFlightMargin);
+      ownList(const []);
+
+      await rig.upkeep.reconcile(_c1);
+
+      // The resend landed, the pull ran and the second pass removed the
+      // phone: nothing is left to re-check.
+      expect(requests(), hasLength(4));
+      expect((await groupRecord()).pending, isNull);
+      expect(await pin(sibling), isNull);
+      expect(liveRechecks(), 0);
+    });
+
     test('a second pass whose commit is superseded again arms one re-check '
         '(review m-1)', () async {
       final sibling = await lostPhone();
