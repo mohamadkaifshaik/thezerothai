@@ -74,11 +74,26 @@ extension _InitDiscard on GroupStarter {
               : InitDiscard.notDecided;
         }
         if (found.unknown) return InitDiscard.notDecided;
+        // Pre-flag-on review I-1. Decision: discarded only when this run's
+        // last request of the row was its replay and the server refused it
+        // ([GroupStarter._replayRefused]; CANNOT_MESSAGE included).
+        // Otherwise held. Why: the group's age and a page without the
+        // message do not show that no answer will come. A replay gate may
+        // have been closed all along (the flag off, removed elsewhere, a
+        // thread that cannot be answered, an unattributed pin, the
+        // server's retry time), so no replay was refused; meanwhile the
+        // peer may write in the group the server holds as ours, and a
+        // discard loses that conversation for good (the creator has no
+        // welcome for it). A thread that cannot be answered for another
+        // reason is no refusal of the replay either. The next resume
+        // replays it once its gates open, and its refusal is the evidence.
+        if (!_replayRefused.contains(row.localId)) return InitDiscard.held;
         // Decision: the user's discard of an init the server holds as
-        // this device's, unanswered for 24 h. Cost, accepted for the gate:
-        // the creator has no welcome for that group, so a new start for
-        // the conversation is answered STALE_EPOCH and the row waits; the
-        // user chose to stop waiting for the old one.
+        // this device's, unanswered for 24 h, whose replay was refused.
+        // Cost, accepted for the gate: the creator has no welcome for that
+        // group, so a new start for the conversation is answered
+        // STALE_EPOCH and the row waits; the user chose to stop waiting
+        // for the old one.
       }
     }
     final discarded = await _crypto.discardProvisionalLocked(

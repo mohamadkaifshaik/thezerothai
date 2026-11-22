@@ -3616,24 +3616,151 @@ void main() {
       );
     });
 
-    test('the server holds the init as this device\'s for 24 h: the first '
-        'page decides between settled, not decided and discarded', () async {
-      final row = await unanswered(stored: true);
-      rig.clock.advance(kProvisionalExpiry + const Duration(minutes: 1));
+    test(
+      'the server holds the init as this device\'s for 24 h and no replay '
+      'of it was refused in this run: the first page decides between '
+      'settled and not decided, else held (pre-flag-on review I-1)',
+      () async {
+        final row = await unanswered(stored: true);
+        rig.clock.advance(kProvisionalExpiry + const Duration(minutes: 1));
 
-      // The page cannot be had: nothing is decided.
-      failListMessages();
-      expect(await starter.discardInit(_c1), InitDiscard.notDecided);
-      await expectUnchanged(row, 'no page');
+        // The page cannot be had: nothing is decided.
+        failListMessages();
+        expect(await starter.discardInit(_c1), InitDiscard.notDecided);
+        await expectUnchanged(row, 'no page');
 
-      // The page does not hold the message (50 newer ones): no answer for
-      // 24 h, no call out, past the margin: discarded.
-      rig.server.onCall = null;
-      rig.server.rewriteLive = (real) =>
-          pb.ListMessagesResponse(conversation: real.conversation);
-      expect(await starter.discardInit(_c1), InitDiscard.discarded);
-      await expectDiscarded('ours, unanswered for 24 h');
-    });
+        // The page does not hold the message (50 newer ones), no call is out
+        // and the margin has passed, but no replay was refused: the server
+        // holds the group as ours and may hold a live conversation in it.
+        rig.server.onCall = null;
+        rig.server.rewriteLive = (real) =>
+            pb.ListMessagesResponse(conversation: real.conversation);
+        expect(await starter.discardInit(_c1), InitDiscard.held);
+        await expectUnchanged(row, 'ours, no refused replay');
+      },
+    );
+
+    for (final error in const <AppException>[
+      FeatureDisabledException('off'),
+      CannotMessageException(),
+    ]) {
+      test('a replay refused with ${error.runtimeType} after 24 h, and a page '
+          'without the message: discarded (pre-flag-on review I-1)', () async {
+        final row = await unanswered(stored: true);
+        rig.clock.advance(kProvisionalExpiry + const Duration(minutes: 1));
+        rig.server.rewriteLive = (real) =>
+            pb.ListMessagesResponse(conversation: real.conversation);
+        rig.server.sendScript.add((error: error, stored: false));
+        final sends = rig.server.sends.length;
+
+        await starter.resumeProvisional();
+        await done();
+
+        // The replay went out, byte for byte, and was refused: nothing is
+        // deleted by the refusal itself.
+        expect(rig.server.sends, hasLength(sends + 1));
+        expect(rig.server.sends.last.same(rig.server.sends.first), isTrue);
+        await expectUnchanged(row, 'a refused replay deletes nothing');
+
+        expect(await starter.discardInit(_c1), InitDiscard.discarded);
+        await expectDiscarded('ours, its replay refused');
+      });
+    }
+
+    test(
+      'a refused replay followed by a replay whose outcome is unknown: '
+      'held, only the last request counts (pre-flag-on review I-1)',
+      () async {
+        final row = await unanswered(stored: true);
+        rig.clock.advance(kProvisionalExpiry + const Duration(minutes: 1));
+        rig.server.rewriteLive = (real) =>
+            pb.ListMessagesResponse(conversation: real.conversation);
+        rig.server.sendScript.addAll([
+          (error: const FeatureDisabledException('off'), stored: false),
+          unknown,
+        ]);
+        final sends = rig.server.sends.length;
+
+        await starter.resumeProvisional();
+        await done();
+        await starter.resumeProvisional();
+        await done();
+
+        expect(rig.server.sends, hasLength(sends + 2));
+        expect(await starter.discardInit(_c1), InitDiscard.held);
+        await expectUnchanged(row, 'the last replay got no answer');
+      },
+    );
+
+    // Each gate that keeps [_sendLocked] from sending the replay. With it
+    // closed for 24 h no replay is refused, so the group is held.
+    final gates = <({String name, Future<void> Function() close, int replays})>[
+      (
+        name: 'the flag is off',
+        close: () => rig.device.session.onFlagChanged(E2eeFlag.off, uid: _me),
+        replays: 0,
+      ),
+      (
+        name: 'this device was removed elsewhere',
+        close: () async => rig.removedElsewhere = true,
+        replays: 0,
+      ),
+      (
+        name: 'the thread cannot be answered (canReply false)',
+        close: () async => rig.contexts.of(_c1).canReply = false,
+        replays: 0,
+      ),
+      (
+        name: 'a member is unattributed',
+        close: () => rig.device.vault.transaction(
+          (tx) => tx.putMember(
+            MemberRecord(
+              conversationId: _c1,
+              deviceId: bob.id,
+              signatureKey: bob.key,
+              side: MemberSide.unattributed,
+              since: const MlsPair(1, 1),
+            ),
+          ),
+        ),
+        replays: 0,
+      ),
+      (
+        name: 'the server\'s retry time has not come',
+        close: () async {
+          // One replay, answered with a retry time an hour away: the
+          // later trigger sends nothing.
+          rig.server.sendScript.add((
+            error: const ScreeningUnavailableException(
+              'busy',
+              retryAfter: Duration(hours: 1),
+            ),
+            stored: false,
+          ));
+          await starter.resumeProvisional();
+          await done();
+        },
+        replays: 1,
+      ),
+    ];
+    for (final closed in gates) {
+      test('at 24 h with ours and a hidden page, while ${closed.name}: held, '
+          'the group stays (pre-flag-on review I-1)', () async {
+        final row = await unanswered(stored: true);
+        rig.clock.advance(kProvisionalExpiry + const Duration(minutes: 1));
+        rig.server.rewriteLive = (real) =>
+            pb.ListMessagesResponse(conversation: real.conversation);
+        final sends = rig.server.sends.length;
+
+        await closed.close();
+        await starter.resumeProvisional();
+        await done();
+        expect(rig.server.sends, hasLength(sends + closed.replays));
+
+        expect(await starter.discardInit(_c1), InitDiscard.held);
+        await expectUnchanged(row, closed.name);
+      });
+    }
 
     test('a page that holds the message settles the group instead of '
         'discarding it', () async {

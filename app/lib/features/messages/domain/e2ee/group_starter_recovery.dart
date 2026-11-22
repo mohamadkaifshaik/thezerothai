@@ -286,6 +286,9 @@ extension _Recovery on GroupStarter {
       // Not for a replay: the commits already said "stored", and a later
       // store cannot undo that.
       final callStartedAt = _now();
+      // Pre-flag-on review I-1: only the answer to the LAST request counts
+      // as a refused replay ([GroupStarter._replayRefused]).
+      _replayRefused.remove(row.localId);
       final pb.SendMessageResponse response;
       try {
         response = await _messaging.sendEncrypted(
@@ -315,7 +318,10 @@ extension _Recovery on GroupStarter {
         }
         // The commits say this init is stored: the page answers, or nothing
         // is decided. Never a discard.
-        if (replay) return _answerFromPage(id, group, row, priority);
+        if (replay) {
+          _replayRefused.add(row.localId);
+          return _answerFromPage(id, group, row, priority);
+        }
         if (!first) {
           final kept = await _keptIfStored(id, group, row, priority);
           if (kept != null) return kept;
@@ -354,6 +360,10 @@ extension _Recovery on GroupStarter {
         // one, so the stored message is this row's, whatever the request
         // it was stored from. The same for any refusal of the replay.
         if (replay || e is IdempotencyKeyReusedException) {
+          // Pre-flag-on review I-1: the server refused the replay itself
+          // (CANNOT_MESSAGE included): the evidence [GroupStarter
+          // .discardInit] needs to discard a group the server holds.
+          if (replay) _replayRefused.add(row.localId);
           return _answerFromPage(id, group, row, priority);
         }
         // A refusal. The brief names FEATURE_DISABLED and CANNOT_MESSAGE on
@@ -609,6 +619,7 @@ extension _Recovery on GroupStarter {
   void _forget(String localId) {
     _unknown.remove(localId);
     _notBefore.remove(localId);
+    _replayRefused.remove(localId);
   }
 
   /// Audit M2: the init call under [key] got no answer in the client's

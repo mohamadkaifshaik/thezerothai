@@ -111,7 +111,8 @@ const String kStartErrorInitDiscarded = 'InitDiscarded';
 /// message, so the group settled with that answer instead (nothing to
 /// discard). `held`: the server holds the init as this device's and an
 /// answer may still come (the group is younger than [kProvisionalExpiry],
-/// or a call of it may still land): nothing changed; the UI explains that
+/// a call of it may still land, or no replay of it was refused in this
+/// run, pre-flag-on review I-1): nothing changed; the UI explains that
 /// the message is being delivered. `notDecided`: what the server holds
 /// could not be read now (the commits, or the page): nothing changed, the
 /// user may try again. `none`: no pending init row for that conversation.
@@ -296,6 +297,14 @@ class GroupStarter {
   /// Conversations with one resume armed for the end of that margin.
   final Set<String> _marginArmed = {};
 
+  /// Pre-flag-on review I-1. Local ids whose LAST request in this run was
+  /// the replay of a stored init (review W1) and was refused by the server
+  /// (a STALE_EPOCH or any other definitive refusal, CANNOT_MESSAGE
+  /// included). The only evidence on which [discardInit] discards a group
+  /// the server holds as this device's. Cleared before each request of the
+  /// row, by its settle or discard ([_forget]) and by [reset].
+  final Set<String> _replayRefused = {};
+
   /// Bumped by [reset]: the end of a call tracked before it changes
   /// nothing.
   int _runSerial = 0;
@@ -333,6 +342,7 @@ class GroupStarter {
     _initCallEndedAt.clear();
     _initUnknownStartedAt.clear();
     _marginArmed.clear();
+    _replayRefused.clear();
     _resetCalls.clear();
     _resetLists.clear();
     _resetRefused.clear();
@@ -572,8 +582,11 @@ class GroupStarter {
   ///   commits, read with the margin rules: no call of it may still land);
   /// - or the server holds it as this device's, the group is
   ///   [kProvisionalExpiry] old with no answer for its message (the first
-  ///   `ListMessages` page does not hold it), no call of it is out, and
-  ///   the margin after the last one has passed;
+  ///   `ListMessages` page does not hold it), no call of it is out, the
+  ///   margin after the last one has passed, and (pre-flag-on review I-1)
+  ///   this run's last request of the row was its replay and the server
+  ///   refused it (CANNOT_MESSAGE included); without that refusal it is
+  ///   [InitDiscard.held];
   /// - or the marks are already at or past the init (`InitSettle.replay`):
   ///   it can never be settled, whatever the server holds.
   ///
