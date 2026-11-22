@@ -11,23 +11,44 @@ void main() {
   // Days relative to the clock (no fixed date: see the fixed-date guard);
   // only compared with each other.
   final now = DateTime.now().toUtc();
-  final today = istDay(now);
-  final tomorrow = istDay(now.add(const Duration(days: 1)));
+  String dayAt(int offset) => istDay(now.add(Duration(days: offset)));
+  final yesterday = dayAt(-1);
+  final today = dayAt(0);
+  final tomorrow = dayAt(1);
+  final later = dayAt(2);
+
+  KeyBatchDay read(Uint8List? stored) =>
+      KeyBatchDay.read(stored, today: today, tomorrow: tomorrow, cap: 4);
 
   test('none stored: a new day with no batches', () {
-    final d = KeyBatchDay.read(null, today, 4);
-    expect((d.day, d.count, d.reported), (today, 0, false));
+    final d = read(null);
+    expect((d.day, d.count, d.reported, d.invalid), (today, 0, false, false));
   });
 
-  test('the same day is kept; another day starts over', () {
-    final stored = KeyBatchDay(today, 3, reported: true).encode();
-    final same = KeyBatchDay.read(stored, today, 4);
-    expect((same.count, same.reported), (3, true));
-    final next = KeyBatchDay.read(stored, tomorrow, 4);
-    expect((next.day, next.count, next.reported), (tomorrow, 0, false));
+  test('the same day is kept; an earlier day starts over', () {
+    final same = read(KeyBatchDay(today, 3, reported: true).encode());
+    expect((same.count, same.reported, same.invalid), (3, true, false));
+    final earlier = read(KeyBatchDay(yesterday, 3, reported: true).encode());
+    expect(
+      (earlier.day, earlier.count, earlier.reported, earlier.invalid),
+      (today, 0, false, false),
+    );
   });
 
-  test('an unreadable record counts as the cap for today, unreported', () {
+  test('a record of tomorrow (the clock set back a day) is kept: moving the '
+      'clock back never resets the cap', () {
+    final d = read(KeyBatchDay(tomorrow, 4, reported: true).encode());
+    expect((d.day, d.count, d.reported, d.invalid), (tomorrow, 4, true, false));
+  });
+
+  test('a record dated more than one day ahead is the cap for today, '
+      'invalid and unreported', () {
+    final d = read(KeyBatchDay(later, 0).encode());
+    expect((d.day, d.count, d.reported, d.invalid), (today, 4, false, true));
+  });
+
+  test('an unreadable record counts as the cap for today, unreported and '
+      'invalid', () {
     for (final raw in [
       '{',
       '[]',
@@ -36,10 +57,19 @@ void main() {
       '{"v":1,"day":"$today","n":-1,"reported":false}',
       '{"v":1,"day":"$today","n":1}',
     ]) {
-      final d = KeyBatchDay.read(_bytes(raw), today, 4);
-      expect((d.day, d.count, d.reported), (today, 4, false), reason: raw);
+      final d = read(_bytes(raw));
+      expect(
+        (d.day, d.count, d.reported, d.invalid),
+        (today, 4, false, true),
+        reason: raw,
+      );
     }
     final big = Uint8List(257);
-    expect(KeyBatchDay.read(big, today, 4).count, 4);
+    expect(read(big).count, 4);
+  });
+
+  test('invalid is never stored', () {
+    final d = KeyBatchDay.decode(KeyBatchDay.capped(today, 4).encode());
+    expect((d.count, d.invalid), (4, false));
   });
 }

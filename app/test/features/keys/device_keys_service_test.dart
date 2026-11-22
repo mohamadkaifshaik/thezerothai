@@ -15,7 +15,7 @@ import 'package:dzeroth/core/session/session_end.dart';
 import 'package:dzeroth/core/vault/secure_vault.dart' show openVaultOnDatabase;
 import 'package:dzeroth/core/vault/vault_database.dart';
 import 'package:dzeroth/core/vault/vault_records.dart'
-    show kVaultSettingRegisteredOnce;
+    show istDay, kVaultSettingRegisteredOnce;
 import 'package:dzeroth/core/vault/vault_session.dart';
 import 'package:dzeroth/core/vault/vault_status.dart';
 import 'package:dzeroth/features/keys/data/keys_repository.dart';
@@ -1280,14 +1280,60 @@ void main() {
         rig.service.status.value,
         const DeviceKeysStatus.failed(retryable: true),
       );
-      expect(reported(), ['DeviceKeysError(batchCap)']);
+      expect(reported(), ['DeviceKeysError(batchDay)']);
       // The marked record replaced the corrupt row: not reported again.
       await nextRun();
-      expect(reported(), ['DeviceKeysError(batchCap)']);
+      expect(reported(), ['DeviceKeysError(batchDay)']);
       toNextIstDay();
       await rig.service.onAppResumed();
       expect(rig.engine.generated, hasLength(2));
       expect(rig.service.status.value, DeviceKeysStatus.ready);
+    });
+
+    test('setting the clock back a day does not reset the cap', () async {
+      toNextIstDay();
+      await rig.signIn(_a);
+      final pool = rig.devices.values.single.pool;
+      for (var i = 2; i <= kMaxKeyBatchesPerDay + 1; i++) {
+        pool.clear();
+        await nextRun();
+      }
+      expect(rig.engine.generated, hasLength(kMaxKeyBatchesPerDay));
+      expect(reported(), ['DeviceKeysError(batchCap)']);
+      final uploads = rig.server.uploads.length;
+
+      rig.advance(const Duration(days: -1));
+      rig.launch();
+      await rig.signIn(_a);
+      expect(rig.engine.generated, hasLength(kMaxKeyBatchesPerDay));
+      expect(rig.server.uploads, hasLength(uploads));
+      expect(
+        rig.service.status.value,
+        const DeviceKeysStatus.failed(retryable: true),
+      );
+    });
+
+    test('a counter dated more than a day ahead counts as the cap for today '
+        'only, reported as batchDay', () async {
+      toNextIstDay();
+      await rig.signIn(_a);
+      rig.file()!.rows[kVaultSettingKeyBatchDay] = jsonEncode({
+        'v': 1,
+        'day': istDay(rig.now.add(const Duration(days: 2))),
+        'n': 0,
+        'reported': false,
+      });
+      rig.devices.values.single.pool.clear();
+      final uploads = rig.server.uploads.length;
+      await nextRun();
+      expect(rig.engine.generated, hasLength(1));
+      expect(rig.server.uploads, hasLength(uploads));
+      expect(reported(), ['DeviceKeysError(batchDay)']);
+      await nextRun();
+      expect(reported(), ['DeviceKeysError(batchDay)']);
+      toNextIstDay();
+      await rig.service.onAppResumed();
+      expect(rig.engine.generated, hasLength(2));
     });
 
     test('an unreadable counter counts as the cap for today', () async {
@@ -1299,7 +1345,7 @@ void main() {
       await nextRun();
       expect(rig.engine.generated, hasLength(1));
       expect(rig.server.uploads, hasLength(uploads));
-      expect(reported(), ['DeviceKeysError(batchCap)']);
+      expect(reported(), ['DeviceKeysError(batchDay)']);
       toNextIstDay();
       await rig.service.onAppResumed();
       expect(rig.engine.generated, hasLength(2));

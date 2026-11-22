@@ -185,11 +185,9 @@ class _BadPoolCount implements Exception {
 }
 
 /// [kMaxKeyBatchesPerDay] batches were generated today: nothing more is
-/// generated; [report] once per IST day.
+/// generated (reported once per IST day where the cap is found).
 class _BatchCap implements Exception {
-  const _BatchCap({required this.report});
-
-  final bool report;
+  const _BatchCap();
 }
 
 /// The most one-time key packages the directory stores per device (the
@@ -559,10 +557,9 @@ class DeviceKeysService {
       // Offline, UNAVAILABLE, unknown (the gate reports unknown ones), or a
       // call past the client deadline ([kDeviceKeysRpcTimeout]).
       _status.value = const DeviceKeysStatus.failed(retryable: true);
-    } on _BatchCap catch (e, stack) {
+    } on _BatchCap {
       // Retried hourly; generation resumes on the next IST day.
       _status.value = const DeviceKeysStatus.failed(retryable: true);
-      if (e.report) _report('batchCap', stack);
     } on _BadPoolCount catch (_, stack) {
       // Nothing generated or saved; reported on every run (hourly at most)
       // so a server that keeps answering it is not silenced.
@@ -808,15 +805,22 @@ class DeviceKeysService {
     }
     // The daily cap (ruling E), read again and written in the transaction
     // that commits the generation.
-    final today = istDay(_now());
+    final now = _now();
+    final today = istDay(now);
+    final tomorrow = istDay(now.add(const Duration(days: 1)));
     Future<KeyBatchDay> batchDay() async {
       final Uint8List? bytes;
       try {
         bytes = await v.setting(kVaultSettingKeyBatchDay);
       } on VaultCorruptException {
-        return KeyBatchDay(today, kMaxKeyBatchesPerDay);
+        return KeyBatchDay.capped(today, kMaxKeyBatchesPerDay);
       }
-      return KeyBatchDay.read(bytes, today, kMaxKeyBatchesPerDay);
+      return KeyBatchDay.read(
+        bytes,
+        today: today,
+        tomorrow: tomorrow,
+        cap: kMaxKeyBatchesPerDay,
+      );
     }
 
     final batches = await batchDay();
@@ -825,17 +829,20 @@ class DeviceKeysService {
     _BatchCap? cap;
     if (batches.count >= kMaxKeyBatchesPerDay) {
       // The cap holds something back (one-time packages, or a last-resort
-      // rotation the server does not need): marked and reported once a day.
-      if (hasLastResort || oneTime > 0) {
-        var report = false;
-        if (!batches.reported) {
-          final marked = KeyBatchDay(today, batches.count, reported: true);
-          await v.transaction(
-            (tx) => tx.putSetting(kVaultSettingKeyBatchDay, marked.encode()),
-          );
-          report = true;
-        }
-        cap = _BatchCap(report: report);
+      // rotation the server does not need), or the counter is invalid:
+      // marked and reported once a day. `batchDay` (a counter that did not
+      // open, decode, or is dated more than a day ahead) is kept apart from
+      // `batchCap` (a real cap) so local corruption shows as such.
+      final blocks = hasLastResort || oneTime > 0;
+      if ((blocks || batches.invalid) && !batches.reported) {
+        final marked = KeyBatchDay(today, batches.count, reported: true);
+        await v.transaction(
+          (tx) => tx.putSetting(kVaultSettingKeyBatchDay, marked.encode()),
+        );
+        _report(batches.invalid ? 'batchDay' : 'batchCap', StackTrace.current);
+      }
+      if (blocks) {
+        cap = const _BatchCap();
         if (hasLastResort) throw cap;
       }
       // Ruling 1: the server holds no last-resort package. Without one the
