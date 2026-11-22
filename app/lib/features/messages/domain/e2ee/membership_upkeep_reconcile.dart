@@ -438,17 +438,21 @@ extension _Reconcile on MembershipUpkeep {
     // Task 9 ruling O: a RATE_LIMITED answer to THIS change (the runner
     // records each one; compared by identity with the one before it).
     final rateLimited = !identical(_commits.lastRateLimit, limitBefore);
+    final unbuildable =
+        outcome == CommitOutcome.notAllowed &&
+        _commits.lastChangeUnbuildable(id);
     if (adds.isNotEmpty &&
         ((outcome == CommitOutcome.refused && !rateLimited) ||
-            (outcome == CommitOutcome.notAllowed &&
-                _commits.lastChangeUnbuildable(id)))) {
+            (unbuildable && removes.isEmpty))) {
       // Audit M1: the engine could not build a commit with these adds, or
       // the server refused the commit that carried them. Each is tried for
       // the IST day, so one broken or poisoned package is not claimed
       // again on every pass (a key package and a claim of the cap each
       // time, and a commit call on the refused path). Ruling O: never on
       // RATE_LIMITED. Why: a rate limit is transient and says nothing about
-      // the device; the add waits only for the server's retry time.
+      // the device; the add waits only for the server's retry time. An
+      // unbuildable change that also removes is judged after its
+      // removal-only follow-up (below).
       await _markTried([for (final a in adds) a.deviceId]);
     }
     if (adds.isNotEmpty && outcome == CommitOutcome.refused && rateLimited) {
@@ -477,6 +481,16 @@ extension _Reconcile on MembershipUpkeep {
         removeDeviceIds: removes,
         priority: priority,
       );
+      // Task 9 round P (review Minor 2): the adds of an unbuildable mixed
+      // change are tried for the day only when the removals alone then
+      // built (any answer but `notAllowed` means a commit was built and
+      // stored). When they did not build either, the fault is not shown to
+      // be the adds' (the engine, or the removal), and nothing is marked.
+      // Why: a mark must rest on evidence that the add itself is bad; an
+      // honest new device must not wait a day for an engine fault.
+      if (unbuildable && outcome != CommitOutcome.notAllowed) {
+        await _markTried([for (final a in adds) a.deviceId]);
+      }
     }
     _afterChange(
       id,
@@ -603,10 +617,11 @@ extension _Reconcile on MembershipUpkeep {
           empty.add(d.deviceId);
         }
       }
+      final engineDown = <String>{};
       final checked = checkClaims(
         side: side,
         claimed: claimed,
-        inspected: await _inspect(claimed),
+        inspected: await _inspect(claimed, engineDown),
         directory: mine ? own : peer,
         ownList: own,
         members: members,
@@ -618,8 +633,11 @@ extension _Reconcile on MembershipUpkeep {
       // lists) whose claimed package the checks dropped is tried for the
       // IST day as an empty claim is: claiming it again on every pass would
       // spend a key package and a claim of the cap each time, for a
-      // package that fails the same way.
+      // package that fails the same way. Task 9 round P (review Minor 2):
+      // not a package the engine could not inspect because it is down,
+      // which says nothing about the package.
       for (final c in claimed) {
+        if (engineDown.contains(c.deviceId)) continue;
         final cid = utf8.encode(c.deviceId);
         if (!checked.usable.any((u) => _same(u.deviceId, cid))) {
           empty.add(Uint8List.fromList(cid));
@@ -687,9 +705,12 @@ extension _Reconcile on MembershipUpkeep {
   }
 
   /// The engine's reading of each claimed package (null: none, or one the
-  /// engine refuses, or an engine that cannot answer now).
+  /// engine refuses, or an engine that cannot answer now). The device id of
+  /// each package the engine could not read because it is down
+  /// ([_engineDown]) is added to [engineDown].
   Future<List<KeyPackageInfo?>> _inspect(
     List<kpb.ClaimedKeyPackage> claimed,
+    Set<String> engineDown,
   ) async {
     final out = <KeyPackageInfo?>[];
     for (final c in claimed) {
@@ -701,11 +722,25 @@ extension _Reconcile on MembershipUpkeep {
         out.add(
           await _engine().inspectKeyPackage(Uint8List.fromList(c.keyPackage)),
         );
-      } on MlsException {
+      } on MlsException catch (e) {
+        if (_engineDown(e)) engineDown.add(c.deviceId);
         out.add(null);
       }
     }
     return out;
+  }
+
+  /// Task 9 round P (review Minor 2): whether [e] says the engine could not
+  /// answer now rather than that the input is bad: the guarded engine is
+  /// unavailable (its code, or its flag as read after the failure) or the
+  /// call ran out of its deadline. Both are transient and say nothing about
+  /// the package.
+  bool _engineDown(MlsException e) {
+    if (e.code == MlsErrorCode.unavailable || e.code == MlsErrorCode.deadline) {
+      return true;
+    }
+    final engine = _engine();
+    return engine is GuardedCryptoEngine && engine.unavailable.value;
   }
 
   /// The peer's user reference. Audit L3: the one stored for [id] in the

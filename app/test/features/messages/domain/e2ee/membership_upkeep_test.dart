@@ -842,6 +842,71 @@ void main() {
       expect(requests(), hasLength(1));
     });
 
+    test('a change that also adds and cannot be built marks no add tried '
+        'when the removal alone cannot be built either (Task 9 round P, '
+        'review Minor 2)', () async {
+      final sibling = await RigPeer.create('sibling');
+      final bob2 = await RigPeer.create('bob2');
+      await setUpJoined(
+        others: [sibling],
+        ownListed: [sibling],
+        alsoListed: [bob2],
+      );
+      await synced();
+      peerClaims([bob, bob2]);
+      rig.clock.advance(kDeviceListReuse);
+      ownList(const []);
+      // The engine builds no change at all: the fault is not the add's.
+      rig.device.engine.failAlways['commitChange'] = const MlsException(
+        MlsErrorCode.internal,
+        'rig: the engine cannot build any change',
+      );
+
+      await rig.upkeep.reconcile(_c1);
+
+      expect(requests(), isEmpty);
+      expect((await pin(sibling))!.side, MemberSide.mine);
+      expect(rig.keys.claimCalls, hasLength(1));
+      expect(await rig.ledger.emptyClaimTried(bob2.id), isFalse);
+
+      // The engine builds again, the same IST day: bob2 is claimed again
+      // and goes in one commit with the removal.
+      rig.device.engine.failAlways.remove('commitChange');
+      rig.clock.advance(kDeviceListReuse);
+      await rig.upkeep.reconcile(_c1);
+      expect(rig.keys.claimCalls, hasLength(2));
+      expect(requests().single.welcomeDeviceIds, [bob2.idString]);
+      expect(await pin(sibling), isNull);
+      expect((await pin(bob2))!.side, MemberSide.theirs);
+    });
+
+    test('a claimed package the engine cannot inspect because it is '
+        'unavailable is not tried for the day (Task 9 round P, review Minor '
+        '2)', () async {
+      final bob2 = await RigPeer.create('bob2');
+      await setUpJoined(alsoListed: [bob2]);
+      await synced();
+      peerClaims([bob, bob2]);
+      rig.device.engine.failNext['inspectKeyPackage'] = const MlsException(
+        MlsErrorCode.unavailable,
+        'rig: the crypto engine is unavailable',
+      );
+
+      await rig.upkeep.reconcile(_c1);
+
+      expect(rig.keys.claimCalls, hasLength(1));
+      expect(requests(), isEmpty);
+      expect(await rig.ledger.emptyClaimTried(bob2.id), isFalse);
+
+      // The engine is back, the same IST day: bob2 is claimed again and
+      // added.
+      rig.clock.advance(kDeviceListReuse);
+      await rig.upkeep.reconcile(_c1);
+      expect(rig.keys.claimCalls, hasLength(2));
+      expect(requests().single.welcomeDeviceIds, [bob2.idString]);
+      expect((await pin(bob2))!.side, MemberSide.theirs);
+    });
+
     test(
       'a removal is committed alone when the server refuses the change '
       'that also adds, and the add is tried for the day (audit M1)',
