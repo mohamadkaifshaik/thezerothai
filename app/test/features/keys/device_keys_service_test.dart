@@ -928,8 +928,11 @@ void main() {
       final pool = rig.devices.values.single.pool..clear();
       rig.file()!.rows[setting] = '{';
       await nextRun();
-      await nextRun();
       expect(pool, hasLength(50));
+      // Still unreadable on the next run of the same vault: not reported
+      // again.
+      rig.file()!.rows[setting] = '{';
+      await nextRun();
       expect(rig.reported.map((e) => e.toString()), [
         'DeviceKeysError(pendingUpload)',
       ]);
