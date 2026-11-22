@@ -47,6 +47,15 @@ extension _Provisional on ConversationCrypto {
   ///   none on a brand-new vault. In an unaccepted conversation nothing is
   ///   written (Task 9's acceptance steps write it).
   ///
+  /// Review F4 (binding for Task 9): a settle WITHOUT [delivered] (the 24 h
+  /// expiry, a retry settled from the stored commits, the join code's
+  /// own-init-already-stored step) has no server answer, so it sets no
+  /// `requestAccepted` and writes no own-device alert. Both are left to
+  /// Task 9's acceptance steps, which must run on the FIRST sight of
+  /// ACCEPTED for a conversation whose stored `requestAccepted` is false,
+  /// not only on a transition seen in this run. Until then the sender
+  /// holds every row of the conversation (fail closed).
+  ///
   /// The key history is neither read nor written: no pin changes here.
   /// False, with nothing written, when the marks are already at or past the
   /// init (a replay).

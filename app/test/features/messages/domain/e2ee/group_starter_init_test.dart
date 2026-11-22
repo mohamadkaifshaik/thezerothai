@@ -159,7 +159,7 @@ void main() {
     expect(unexpected, isEmpty, reason: 'unexpected pipeline errors');
   });
 
-  Future<({StartResult result, String? conversationId, AppException? cause})>
+  Future<StartOutcome>
   start({
     String localId = 'local-1',
     String peer = _bob,
@@ -960,6 +960,19 @@ void main() {
       await done();
     });
 
+    test('a listed device the claim leaves out is not claimed again the same '
+        'IST day', () async {
+      rig.keys.claims[_bob] = () async =>
+          kpb.ClaimKeyPackagesResponse(conversationId: _c1);
+
+      expect((await start()).result, StartResult.peerHasNoDevice);
+      expect(rig.keys.claimCalls, hasLength(1));
+      expect(await rig.ledger.emptyClaimTried(bob.id), isTrue);
+      expect((await start()).result, StartResult.peerHasNoDevice);
+      expect(rig.keys.claimCalls, hasLength(1));
+      expect(await rows(), isEmpty);
+    });
+
     test('an empty claim for a listed device is not repeated the same IST '
         'day', () async {
       rig.keys.claims[_bob] = () async => kpb.ClaimKeyPackagesResponse(
@@ -984,6 +997,15 @@ void main() {
       expect((await start()).result, StartResult.peerHasNoDevice);
       expect(rig.keys.claimCalls, hasLength(2));
       expect(await rows(), isEmpty);
+    });
+
+    test('a start outcome has no text form that shows the conversation id', () async {
+      gate = Completer<void>();
+      final r = await start();
+      expect(r.conversationId, _c1);
+      expect(r.toString(), isNot(contains(_c1)));
+      gate!.complete();
+      await done();
     });
 
     test('a random answer of another length stores nothing', () async {

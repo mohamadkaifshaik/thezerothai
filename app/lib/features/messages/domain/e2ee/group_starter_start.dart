@@ -146,7 +146,18 @@ extension _Start on GroupStarter {
       ),
     );
     // The ledger opens its own write: after the body, never inside it.
-    for (final deviceId in created.emptyFor) {
+    // Review M6. Decision: a listed, active peer device with NO entry in
+    // the answer counts as an empty claim too (today's server answers an
+    // entry without a package; one that left it out would otherwise be
+    // claimed again on every attempt, up to the daily cap).
+    final omitted = [
+      for (final d in active)
+        if (!claimed.keyPackages.any(
+          (c) => _same(utf8.encode(c.deviceId), d.deviceId),
+        ))
+          d.deviceId,
+    ];
+    for (final deviceId in [...created.emptyFor, ...omitted]) {
       try {
         await _ledger.markEmptyClaim(deviceId);
       } on Object catch (e, s) {

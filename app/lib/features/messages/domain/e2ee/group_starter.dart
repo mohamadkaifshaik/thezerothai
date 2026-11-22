@@ -68,11 +68,20 @@ enum StartResult {
   lookupFailed,
 }
 
-typedef StartOutcome = ({
-  StartResult result,
-  String? conversationId,
-  AppException? cause,
-});
+/// What [GroupStarter.startOrRoute] answered. Review M9: a class, not the
+/// brief's record: a record's built-in `toString` prints the conversation
+/// id, and no scan sees a record. It defines no `toString`.
+class StartOutcome {
+  const StartOutcome({required this.result, this.conversationId, this.cause});
+
+  final StartResult result;
+
+  /// The conversation the row was saved for; null when nothing was saved.
+  final String? conversationId;
+
+  /// The typed error behind `lookupFailed` and `tryAgainTomorrow`.
+  final AppException? cause;
+}
 
 /// The server's deterministic id of the 1:1 conversation of the raw uids
 /// [a] and [b] (`backend/internal/messaging/model.go`, `ConversationID`):
@@ -618,7 +627,11 @@ class GroupStarter {
     StartResult result, [
     String? conversationId,
     AppException? cause,
-  ]) => (result: result, conversationId: conversationId, cause: cause);
+  ]) => StartOutcome(
+    result: result,
+    conversationId: conversationId,
+    cause: cause,
+  );
 
   bool _engineDown() {
     final engine = _engine();
