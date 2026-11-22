@@ -883,6 +883,30 @@ void main() {
       expect(rig.engine.generated, hasLength(1));
     });
 
+    test('a pool count over 100 (MaxPoolSize) is refused: nothing is '
+        'generated, saved or sent, and it is reported every run', () async {
+      await rig.signIn(_a);
+      rig.devices.values.single.pool.addAll(
+        List.generate(51, (i) => Uint8List.fromList([9, 9, i])),
+      );
+      final state = rig.file()!.deviceState;
+      final record = rig.setting(setting);
+      for (var run = 1; run <= 2; run++) {
+        await nextRun();
+        expect(
+          rig.service.status.value,
+          const DeviceKeysStatus.failed(retryable: true),
+        );
+        expect(rig.reported.map((e) => e.toString()), [
+          for (var i = 0; i < run; i++) 'DeviceKeysError(poolCount)',
+        ]);
+      }
+      expect(rig.engine.generated, hasLength(1));
+      expect(rig.server.uploads, hasLength(1));
+      expect(rig.file()!.deviceState, state);
+      expect(rig.setting(setting), record);
+    });
+
     test('a refusal on the retry does not resolve the first timeout', () async {
       await rig.signIn(_a);
       final pool = rig.devices.values.single.pool;

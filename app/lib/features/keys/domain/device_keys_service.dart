@@ -159,6 +159,15 @@ class _DeviceUnusable implements Exception {
   const _DeviceUnusable();
 }
 
+/// The server reported a pool count outside [0, [kMaxKeyPackagePool]].
+class _BadPoolCount implements Exception {
+  const _BadPoolCount();
+}
+
+/// The most one-time key packages the directory stores per device (the
+/// backend's `keys.MaxPoolSize`).
+const int kMaxKeyPackagePool = 100;
+
 /// This device as the vault holds it.
 class _Local {
   const _Local({
@@ -522,6 +531,11 @@ class DeviceKeysService {
       // Offline, UNAVAILABLE, unknown (the gate reports unknown ones), or a
       // call past the client deadline ([kDeviceKeysRpcTimeout]).
       _status.value = const DeviceKeysStatus.failed(retryable: true);
+    } on _BadPoolCount catch (_, stack) {
+      // Nothing generated or saved; reported on every run (hourly at most)
+      // so a server that keeps answering it is not silenced.
+      _status.value = const DeviceKeysStatus.failed(retryable: true);
+      _report('poolCount', stack);
     } on _DeviceUnusable catch (_, stack) {
       // Fail closed: nothing written, nothing sent, no new id; latched.
       _latchedVault = vault;
@@ -591,7 +605,7 @@ class DeviceKeysService {
       if (mine == null) {
         mustRegister = true;
       } else {
-        count = mine.keyPackageCount;
+        count = _poolCount(mine.keyPackageCount);
         hasLastResort = mine.hasLastResort;
       }
     }
@@ -608,7 +622,7 @@ class DeviceKeysService {
       );
       check();
       _forceRegister = false;
-      count = r.device.keyPackageCount;
+      count = _poolCount(r.device.keyPackageCount);
       hasLastResort = r.device.hasLastResort;
       await _persistRegistered(vault, uid, nowMicros);
     }
@@ -896,6 +910,14 @@ class DeviceKeysService {
     }
     await v.transaction(body);
   });
+
+  /// A reported pool count, refused outside [0, [kMaxKeyPackagePool]]: a
+  /// negative one would make every saved record unreadable (a fresh batch
+  /// each run), an oversize one is not a server we can trust.
+  static int _poolCount(int count) {
+    if (count < 0 || count > kMaxKeyPackagePool) throw const _BadPoolCount();
+    return count;
+  }
 
   static bool _unknownOutcome(AppException e) =>
       e is NetworkException ||
