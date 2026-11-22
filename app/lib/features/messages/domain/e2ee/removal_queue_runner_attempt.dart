@@ -106,8 +106,16 @@ extension _RemovalAttempt on RemovalQueueRunner {
         await _save(vault);
       }
       // Fix round 4, ruling 11 (SA N2): the key history, read only when an
-      // unattributed pin could be removed through its mark.
-      final history = members.any((m) => m.side == MemberSide.unattributed)
+      // unattributed pin could be removed through its mark: queued here,
+      // with an unexpired mark (fix round 5, ruling 4: cost).
+      final queued = queuedFor(id);
+      final history =
+          members.any(
+            (m) =>
+                m.side == MemberSide.unattributed &&
+                _removedKeyOf(m.deviceId) != null &&
+                queued.any((q) => _same(q, m.deviceId)),
+          )
           ? await _crypto.keyHistory.of(
               vault,
               id,

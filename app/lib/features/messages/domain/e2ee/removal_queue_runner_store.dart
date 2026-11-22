@@ -19,13 +19,16 @@ extension _RemovalStore on RemovalQueueRunner {
   /// [deviceId] was removed from the directory: it is queued for every
   /// conversation with group state, most recently active first, it is
   /// remembered as removed by the user (concern 1), and its intent goes,
-  /// in one write.
+  /// in one write. [refreshOwn] false: the caller read the own list fresh
+  /// after the removal already (fix round 5, ruling 4), so it is not read
+  /// again.
   Future<void> _queueRemoved(
     SecureVault vault,
     String deviceId,
     Uint8List? signatureKey,
-    BudgetPriority priority,
-  ) async {
+    BudgetPriority priority, {
+    bool refreshOwn = true,
+  }) async {
     final id = Uint8List.fromList(utf8.encode(deviceId));
     // Fix round 5, ruling 2 (R1): RemoveKeyDevice of it succeeded by now.
     _lastRemovedAt = _now();
@@ -98,7 +101,7 @@ extension _RemovalStore on RemovalQueueRunner {
     // device; read it fresh, so reconcile does not try to add it back. A
     // paused budget keeps the old list (stated limit: the add then fails
     // at its claim, which finds no key package).
-    await _directory.own(fresh: true, priority: priority);
+    if (refreshOwn) await _directory.own(fresh: true, priority: priority);
   }
 
   /// Review M1: every intent left from a call whose outcome is unknown is
@@ -130,6 +133,9 @@ extension _RemovalStore on RemovalQueueRunner {
       }
       _intentsNotBefore = null;
     }
+    // Fix round 5, ruling 4 (m4): at most one fresh own list per pass,
+    // shared by every refused intent.
+    DeviceList? shared;
     for (final intent in List.of(_intents)) {
       if (_sending.contains(intent.deviceId)) continue;
       if (!_current(vault, resets)) return;
@@ -144,7 +150,14 @@ extension _RemovalStore on RemovalQueueRunner {
         return;
       } on Object catch (e, s) {
         if (_definiteRefusal(e) && _current(vault, resets)) {
-          await _settleRefusedRetry(vault, intent, priority, resets);
+          shared ??= await _directory.own(fresh: true, priority: priority);
+          await _settleRefusedRetry(
+            vault,
+            intent,
+            priority,
+            resets,
+            own: shared,
+          );
         } else {
           _reportIfBug(e, s, 'removalQueue.intent');
         }
@@ -176,14 +189,29 @@ extension _RemovalStore on RemovalQueueRunner {
   /// it is a bug; the intent then stays. [resets]: the run the caller
   /// started in (fix round 5, ruling 3: nothing is decided for a queue a
   /// reset() and a reload replaced meanwhile).
+  ///
+  /// Fix round 5, ruling 4 (m4, cost): [own] is a fresh own list the caller
+  /// already read (a pass shares one across all its refused intents); null
+  /// reads one. The queued branch does not read the list again after
+  /// [_queueRemoved]: this list, read after the removal, is the refresh.
   Future<bool> _settleRefusedRetry(
     SecureVault vault,
     RemovalMark intent,
     BudgetPriority priority,
-    int resets,
-  ) async {
-    final own = await _directory.own(fresh: true, priority: priority);
+    int resets, {
+    DeviceList? own,
+  }) async {
+    final list = own ?? await _directory.own(fresh: true, priority: priority);
     if (!_current(vault, resets)) return false;
+    return _settleOn(vault, intent, priority, list);
+  }
+
+  Future<bool> _settleOn(
+    SecureVault vault,
+    RemovalMark intent,
+    BudgetPriority priority,
+    DeviceList own,
+  ) async {
     if (!own.readableNonEmpty) return false;
     final id = utf8.encode(intent.deviceId);
     if (own.devices.any((d) => _same(d.deviceId, id))) {
@@ -195,7 +223,13 @@ extension _RemovalStore on RemovalQueueRunner {
       }
       return false;
     }
-    await _queueRemoved(vault, intent.deviceId, intent.signatureKey, priority);
+    await _queueRemoved(
+      vault,
+      intent.deviceId,
+      intent.signatureKey,
+      priority,
+      refreshOwn: false,
+    );
     return true;
   }
 

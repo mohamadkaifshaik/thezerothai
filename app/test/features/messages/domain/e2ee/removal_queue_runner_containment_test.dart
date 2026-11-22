@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/vault/secure_vault.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/commit_runner.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_crypto.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/membership_rules.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/removal_queue_runner.dart';
@@ -346,6 +347,88 @@ void main() {
       );
       expect(record.intents.single.deviceId, sibling.idString);
       expect(record.removed, isEmpty);
+    });
+
+    test('removeDevice: the queued branch reads the own list once (fix '
+        'round 5, m4)', () async {
+      final sibling = await storedIntent(carriedOut: true);
+      final before = rig.keys.listCalls;
+
+      await removeAndSettle(sibling);
+
+      expect(await pin(sibling), isNull, reason: 'left the group');
+      expect(rig.keys.listCalls, before + 1, reason: 'one fresh own list');
+    });
+
+    test('a pass: refused intents share one fresh own list (fix round 5, '
+        'm4)', () async {
+      final one = await RigPeer.create('sibling-one');
+      final two = await RigPeer.create('sibling-two');
+      await setUpRig(ownListed: [one, two]);
+      await join(_c1, others: [one, two]);
+      await synced();
+      // The server removed both, and both answers were lost.
+      rig.keys.onRemoved = () async =>
+          throw const NetworkException('rig: the answer was lost');
+      for (final p in [one, two]) {
+        await expectLater(
+          runner.removeDevice(p.idString),
+          throwsA(isA<NetworkException>()),
+        );
+      }
+      rig.keys.onRemoved = null;
+      rig.keys.removeError = const ValidationException('rig: refused');
+      final before = rig.keys.listCalls;
+
+      await runner.runPass();
+
+      expect(rig.keys.removeCalls, hasLength(4));
+      expect(rig.keys.listCalls, before + 1, reason: 'one fresh own list');
+      expect(await runner.wasRemovedByUser(one.id), isTrue);
+      expect(await runner.wasRemovedByUser(two.id), isTrue);
+      expect(queued(_c1, one) || await pin(one) == null, isTrue);
+      expect(queued(_c1, two) || await pin(two) == null, isTrue);
+    });
+  });
+
+  group('the key-history read of an attempt (fix round 5, m4)', () {
+    test('an unattributed pin that is not queued with a mark reads no key '
+        'history', () async {
+      final sibling = await RigPeer.create('sibling');
+      final stranger = await RigPeer.create('stranger');
+      await setUpRig(ownListed: [sibling]);
+      await join(_c1, others: [sibling]);
+      await synced();
+      // A member no list attributes, not queued.
+      await rig.device.vault.transaction(
+        (tx) => tx.putMember(
+          MemberRecord(
+            conversationId: _c1,
+            deviceId: stranger.id,
+            signatureKey: stranger.key,
+            side: MemberSide.unattributed,
+            since: rig.server.current(_c1),
+          ),
+        ),
+      );
+      // The key history cannot be read: any read of it is reported.
+      await rig.device.vault.transaction(
+        (tx) => tx.putSetting('messages.e2ee.keys.$_c1', rigBytes('not json')),
+      );
+      expect(rig.keyHistoryErrors, isEmpty);
+      // No commit is built (the daily call cap): only the attempt's own
+      // read could report.
+      await updateSync(
+        (s) => s.copyWith(
+          commitCallsDay: istDay(rig.clock.now()),
+          commitCallsToday: kCommitCallsPerConversationPerDay,
+        ),
+      );
+
+      await removeAndSettle(sibling);
+
+      expect(rig.keyHistoryErrors, isEmpty, reason: 'no key-history read');
+      expect(queued(_c1, sibling), isTrue);
     });
   });
 
