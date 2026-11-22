@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:dzeroth/core/crypto/mls_pair.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/vault/secure_vault.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/commit_runner.dart';
@@ -706,6 +707,48 @@ void main() {
       // The 20 parked entries, and the sibling's own (c2 has group state).
       expect(runner.queuedFor(c2), hasLength(kMaxRemovalIntents + 1));
       expect(await runner.wasRemovedByUser(sibling.id), isFalse);
+    });
+
+    test('a mark that only a pin needs is not evicted at the cap (fix round '
+        '5, m6)', () async {
+      const c2 = '22222222222222222222222222222222';
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await join(_c1, others: [sibling]);
+      await synced();
+      final then = rig.clock.now();
+      await putRecord(
+        RemovalRecord(
+          removed: [
+            for (var i = 0; i < kMaxRemovalIntents; i++)
+              mark(i, then.add(Duration(minutes: i))),
+          ],
+        ),
+      );
+      // The oldest mark's device is still pinned (peer side, not queued).
+      await stateOnly(c2, accepted: false);
+      await rig.device.vault.transaction(
+        (tx) => tx.putMember(
+          MemberRecord(
+            conversationId: c2,
+            deviceId: rigBytes(mark(0, then).deviceId),
+            signatureKey: sibling.key,
+            side: MemberSide.theirs,
+            since: const MlsPair(1, 1),
+          ),
+        ),
+      );
+      rig.clock.advance(const Duration(hours: 1));
+
+      await removeAndSettle(sibling);
+
+      final removed = [
+        for (final m in (await storedRecord()).removed) m.deviceId,
+      ];
+      expect(removed, hasLength(kMaxRemovalIntents));
+      expect(removed, contains(mark(0, then).deviceId), reason: 'pinned');
+      expect(removed, isNot(contains(mark(1, then).deviceId)));
+      expect(removed, contains(sibling.idString));
     });
 
     test('a removal queued without a mark is not dropped by a young own list '

@@ -625,6 +625,12 @@ class RemovalQueueRunner {
   Future<void> onAccepted(String conversationId) =>
       _unparkIfUsable(conversationId);
 
+  /// How many times the conversations were ranked by recent activity (a
+  /// sealed read per conversation each time; fix round 5, ruling 6).
+  @visibleForTesting
+  int get rankingReads => _rankingReads;
+  int _rankingReads = 0;
+
   /// Completes when no pass is running.
   @visibleForTesting
   Future<void> idle() async {
@@ -780,6 +786,7 @@ class RemovalQueueRunner {
   /// newest stored message; none counts as oldest; a tie keeps the vault's
   /// ascending order).
   Future<List<String>> _byRecentActivity(SecureVault vault) async {
+    _rankingReads++;
     final ids = await vault.groupConversationIds();
     final at = <String, int>{};
     for (final id in ids) {

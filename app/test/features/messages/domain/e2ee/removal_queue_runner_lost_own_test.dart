@@ -143,6 +143,24 @@ void main() {
       expect(queued(_c1, sibling), isTrue);
     });
 
+    test('a pass whose every candidate is queued already ranks no '
+        'conversation (fix round 5, m6)', () async {
+      final sibling = await removedElsewhereByUser();
+      // Paused, so the entry stays queued across the passes.
+      for (var i = 0; i < kAntiFlapUndosPerDay; i++) {
+        await rig.ledger.addUndone(_c1);
+      }
+      await runner.onVaultReady();
+      await runner.idle();
+      expect(queued(_c1, sibling), isTrue);
+      final ranked = runner.rankingReads;
+
+      await runner.runPass();
+
+      expect(queued(_c1, sibling), isTrue);
+      expect(runner.rankingReads, ranked, reason: 'no ranking read');
+    });
+
     test('a mine pin the own list still shows is never queued', () async {
       final sibling = await RigPeer.create('sibling');
       await setUpRig(ownListed: [sibling]);
