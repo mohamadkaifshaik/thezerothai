@@ -1095,6 +1095,130 @@ void main() {
       expect(g2!.provisional, isFalse);
       expect((await state()).phase, ConversationPhase.ready);
     });
+
+    test('review T1: a removal of this device applied between the reset\'s '
+        'create and its first call: the kept reset makes no call at all, '
+        'and is dropped after the margin', () async {
+      final bob2 = await RigPeer.create('bob2');
+      await setUpJoined();
+      // bob2 is listed but his claim hands out nothing: the create is
+      // followed by a markEmptyClaim, after the lock is released and before
+      // review m-2's first call takes it again.
+      peers([bob, bob2]);
+      rig.keys.claims[_bob] = () async => kpb.ClaimKeyPackagesResponse(
+        conversationId: _c1,
+        keyPackages: [await packageOf(bob)],
+      );
+      final ledger = HookedLedger();
+      build(ledger: ledger);
+      await pauseCommitting();
+      var ran = false;
+      ledger.beforeEmptyClaim = () async {
+        if (ran || await groupAt(2) == null) return;
+        ran = true;
+        // Inside the window: a catch-up applies bob's removal of this
+        // device in g, and the selfRemoved branch marks the reset kept.
+        await bobRemovesMe();
+        expect(await rig.crypto.catchUp(_c1), CatchUpResult.waitingForWelcome);
+        final g2 = (await groupAt(2))!;
+        expect(g2.provisional, isTrue);
+        expect(g2.pending?.keptAfterSelfRemoval, isTrue);
+        expect(resets(), isEmpty);
+      };
+      await reset();
+      expect(ran, isTrue);
+      // Review N-1: the send guard hands m-2's first call to the record.
+      expect(resets(), isEmpty, reason: 'm-2 makes no call of a kept reset');
+      expect((await groupAt(2))!.provisional, isTrue, reason: 'in the margin');
+
+      rig.clock.advance(kRequestInFlightMargin);
+      await runScheduled();
+      await starter.resumeProvisional();
+      await starter.settled(_c1);
+      expect(resets(), isEmpty, reason: 'never sent after the removal');
+      expect(await groupAt(2), isNull, reason: 'not stored: dropped');
+      expect((await state()).phase, ConversationPhase.waitingForWelcome);
+    });
+
+    for (final stored in [false, true]) {
+      test('review T2: a kept reset whose abandoned call is still out past '
+          'its wait and the margin is neither listed nor dropped; after the '
+          'call ends and the margin passes the record decides '
+          '(${stored ? 'ours: settled' : 'not stored: dropped'})', () async {
+        await setUpJoined();
+        await pauseCommitting();
+        final ended = Completer<void>();
+        rig.server.commitScript.addAll([unknown, unknown]);
+        rig.server.onCall = (call) async {
+          if (call == 'commitConversation' &&
+              rig.server.commitRequests.length == 1) {
+            rig.server.abandon(
+              rig.server.commitRequests.last.key,
+              ended.future,
+            );
+          }
+        };
+        await reset();
+        expect(resets(), hasLength(2));
+        await bobRemovesMe();
+        expect(await rig.crypto.catchUp(_c1), CatchUpResult.waitingForWelcome);
+        final kept = (await groupAt(2))!;
+        expect(kept.pending?.keptAfterSelfRemoval, isTrue);
+
+        // The call is still out long after the wait and the margin.
+        rig.clock.advance(kRequestInFlightMargin * 3);
+        rig.server.calls.clear();
+        await runScheduled();
+        await starter.resumeProvisional();
+        await starter.settled(_c1);
+        expect(resets(), hasLength(2), reason: 'never resent after removal');
+        expect(
+          await groupAt(2),
+          isNotNull,
+          reason: 'a call of the reset is out: not dropped',
+        );
+        expect(
+          rig.server.calls.where(
+            (c) => c.startsWith('listConversationCommits'),
+          ),
+          isEmpty,
+          reason: 'nothing is listed while a call is out',
+        );
+
+        // The call ends (stored or not); its end schedules the resume that
+        // decides once the margin from that end has passed.
+        if (stored) {
+          rig.server.addCommit(
+            _c1,
+            const MlsPair(2, 0),
+            kept.pending!.commit,
+            fromUser: _me,
+          );
+        }
+        ended.complete();
+        await pumpEventQueue();
+        if (!stored) {
+          // Inside the margin from the call's end: still kept.
+          await starter.resumeProvisional();
+          await starter.settled(_c1);
+          expect(await groupAt(2), isNotNull, reason: 'inside the margin');
+        }
+        rig.clock.advance(kRequestInFlightMargin);
+        await runScheduled();
+        await starter.resumeProvisional();
+        await starter.settled(_c1);
+        expect(resets(), hasLength(2), reason: 'never resent after removal');
+        final g2 = await groupAt(2);
+        if (stored) {
+          expect(g2, isNotNull, reason: 'ours: settled');
+          expect(g2!.provisional, isFalse);
+          expect((await state()).phase, ConversationPhase.ready);
+        } else {
+          expect(g2, isNull, reason: 'not stored: dropped');
+          expect((await state()).phase, ConversationPhase.waitingForWelcome);
+        }
+      });
+    }
   });
 
   group('a reset ended elsewhere, and a reset made during a resume (review '
