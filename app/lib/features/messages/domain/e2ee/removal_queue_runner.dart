@@ -221,6 +221,10 @@ class RemovalQueueRunner {
   /// writes the record.
   bool _recordPruned = false;
 
+  /// Ruling 7 (fix round 2): how many times reset() ran. A pass started
+  /// before a reset writes no hold and arms no timer after it.
+  int _resets = 0;
+
   final ValueNotifier<int> _pending = ValueNotifier(0);
 
   Future<void>? _running;
@@ -438,6 +442,7 @@ class RemovalQueueRunner {
   /// Sign-out or a new vault: the timer is cancelled and this run's memory
   /// forgotten (the stored queue stays in its vault).
   void reset() {
+    _resets++;
     cancelScheduled();
     _entries.clear();
     _intents.clear();
@@ -522,19 +527,21 @@ class RemovalQueueRunner {
     if (!await _ensureLoaded(vault)) return;
     final thisDevice = await vault.deviceId();
     if (thisDevice == null) return;
+    // Ruling 7: this pass belongs to the run it started in.
+    final resets = _resets;
     if (_recordPruned) {
       _recordPruned = false;
       await _save(vault, queue: false);
     }
     // Review M1: a leftover intent first (a keys call, not a commit: the
     // queue's hold does not apply to it).
-    await _runIntents(vault, priority);
-    if (!identical(_session.vault, vault) || !_loaded) return;
+    await _runIntents(vault, priority, resets);
+    if (!_current(vault, resets)) return;
     final notBefore = _notBeforeMicros;
     if (notBefore != null) {
       final at = DateTime.fromMicrosecondsSinceEpoch(notBefore, isUtc: true);
       if (_now().isBefore(at)) {
-        _armTimer(at);
+        _armTimer(at, resets);
         return;
       }
       _notBeforeMicros = null;
@@ -551,7 +558,7 @@ class RemovalQueueRunner {
         if (_now().isBefore(held)) continue;
         _holds.remove(id);
       }
-      if (await _attempt(vault, id, thisDevice, priority)) return;
+      if (await _attempt(vault, id, thisDevice, priority, resets)) return;
     }
     // Review I2: the earliest per-conversation hold left starts the next
     // pass.
@@ -559,8 +566,15 @@ class RemovalQueueRunner {
     for (final at in _holds.values) {
       if (next == null || at.isBefore(next)) next = at;
     }
-    if (next != null) _armTimer(next);
+    if (next != null) _armTimer(next, resets);
   }
+
+  /// Ruling 7: [vault] is still the session's and the loaded one, and no
+  /// reset() came since the pass that read [resets] started.
+  bool _current(SecureVault vault, int resets) =>
+      resets == _resets &&
+      identical(_session.vault, vault) &&
+      identical(_loadedFor, vault);
 
   /// One conversation's turn. True: RATE_LIMITED by a limit of the whole
   /// user, the pass stops.
@@ -569,6 +583,7 @@ class RemovalQueueRunner {
     String id,
     Uint8List thisDevice,
     BudgetPriority priority,
+    int resets,
   ) async {
     // Parked entries wait for their hook; no call.
     if (_entries.every((e) => e.conversationId != id || e.parked)) {
@@ -594,7 +609,7 @@ class RemovalQueueRunner {
     }
     return _locks.run(
       id,
-      () => _attemptLocked(vault, id, thisDevice, priority),
+      () => _attemptLocked(vault, id, thisDevice, priority, resets),
     );
   }
 
@@ -603,6 +618,7 @@ class RemovalQueueRunner {
     String id,
     Uint8List thisDevice,
     BudgetPriority priority,
+    int resets,
   ) async {
     if (!identical(_session.vault, vault)) return false;
     final groups = await vault.groups(id);
@@ -642,7 +658,10 @@ class RemovalQueueRunner {
         pauseExempt: true,
       );
     }
-    if (!identical(_session.vault, vault)) return false;
+    // CR Minor 5 (fix round 2, ruling 7): a reset() or a vault change
+    // during the attempt ends the pass here: no hold is written and no
+    // timer armed for a queue that is no longer this run's.
+    if (!_current(vault, resets)) return true;
     final limit = _commits.lastRateLimitIn(id);
     final rateLimited =
         outcome == CommitOutcome.refused &&
@@ -661,7 +680,7 @@ class RemovalQueueRunner {
       }
       _notBeforeMicros = at.microsecondsSinceEpoch;
       await _save(vault);
-      _armTimer(at);
+      _armTimer(at, resets);
       return true;
     }
     if (outcome == CommitOutcome.refused && !_contexts.of(id).canReply) {
@@ -818,7 +837,8 @@ class RemovalQueueRunner {
   /// per-conversation hold, or the intents' hold), running a background
   /// pass. An armed timer that runs no later is kept (ruling 4: one timer;
   /// its pass arms the next one).
-  void _armTimer(DateTime at) {
+  void _armTimer(DateTime at, int resets) {
+    if (resets != _resets || !_loaded) return;
     final armed = _timerAt;
     if (_timerCancel != null && armed != null && !armed.isAfter(at)) return;
     cancelScheduled();

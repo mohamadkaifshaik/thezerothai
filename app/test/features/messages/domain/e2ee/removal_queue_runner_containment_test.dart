@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/vault/secure_vault.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/membership_rules.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/removal_queue_runner.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/removal_record.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -321,6 +322,35 @@ void main() {
 
       final removed = (await storedRecord()).removed;
       expect([for (final m in removed) m.deviceId], [mark(2, now).deviceId]);
+    });
+  });
+
+  group('reset during an attempt (CR Minor 5)', () {
+    test('a rate limit answered after reset() stores no hold and arms no '
+        'timer', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await join(_c1, others: [sibling]);
+      await synced();
+      rig.server.commitScript.add((
+        error: const RateLimitedException(
+          'rig',
+          retryAfter: Duration(hours: 5),
+          limitName: kLimitCommitsPerConversationDaily,
+        ),
+        stored: false,
+      ));
+      // Sign-out while the commit is in flight.
+      rig.server.onCall = (call) async {
+        if (call == 'commitConversation') runner.reset();
+      };
+
+      await removeAndSettle(sibling);
+
+      expect(requests(_c1), hasLength(1));
+      expect(runnerScheduled.where((s) => !s.cancelled), isEmpty);
+      expect(runner.queuedFor(_c1), isEmpty);
+      expect(runner.pending.value, 0);
     });
   });
 }

@@ -77,7 +77,11 @@ extension _RemovalStore on RemovalQueueRunner {
   /// holds every intent until the server's retry time (the fallback minute
   /// when it named none, capped at [kMaxServerRetryWait]; memory only), on
   /// the runner's one timer; the queue's own pass goes on meanwhile.
-  Future<void> _runIntents(SecureVault vault, BudgetPriority priority) async {
+  Future<void> _runIntents(
+    SecureVault vault,
+    BudgetPriority priority,
+    int resets,
+  ) async {
     final now = _now();
     final before = _intents.length;
     _intents.removeWhere((i) => _older(i, now, kRemovalIntentLimit));
@@ -85,24 +89,25 @@ extension _RemovalStore on RemovalQueueRunner {
     final held = _intentsNotBefore;
     if (held != null) {
       if (now.isBefore(held)) {
-        if (_intents.isNotEmpty) _armTimer(held);
+        if (_intents.isNotEmpty) _armTimer(held, resets);
         return;
       }
       _intentsNotBefore = null;
     }
     for (final intent in List.of(_intents)) {
       if (_sending.contains(intent.deviceId)) continue;
-      if (!identical(_session.vault, vault) || !_loaded) return;
+      if (!_current(vault, resets)) return;
       try {
         await _sendRemove(intent.deviceId);
       } on RateLimitedException catch (e) {
-        if (!identical(_loadedFor, vault)) return;
+        // Ruling 7: nothing is held or armed after a reset().
+        if (!_current(vault, resets)) return;
         final at = _now().add(_retryWait(e));
         _intentsNotBefore = at;
-        _armTimer(at);
+        _armTimer(at, resets);
         return;
       } on Object catch (e, s) {
-        if (_definiteRefusal(e) && identical(_loadedFor, vault)) {
+        if (_definiteRefusal(e) && _current(vault, resets)) {
           _intents.removeWhere((i) => i.deviceId == intent.deviceId);
           try {
             await _save(vault, queue: false);
@@ -114,7 +119,7 @@ extension _RemovalStore on RemovalQueueRunner {
         }
         continue;
       }
-      if (!identical(_session.vault, vault) || !_loaded) return;
+      if (!_current(vault, resets)) return;
       await _queueRemoved(
         vault,
         intent.deviceId,
