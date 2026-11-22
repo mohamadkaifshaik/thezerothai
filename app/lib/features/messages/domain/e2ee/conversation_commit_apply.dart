@@ -239,10 +239,32 @@ extension _CommitApply on ConversationCrypto {
           // lost for 24 h. The reset's own settle or discard decides (the
           // starter's record rules); a settle reads the former pins kept
           // here, so a member kept from g gets no `deviceAdded` row.
+          //
+          // Review N-1: the kept reset is marked in the vault
+          // (`keptAfterSelfRemoval`), and no call of it is ever made again:
+          // a resend would put this device, removed in g, back into g + 1.
+          // Only the server's record decides it (ours settles; another
+          // record or nothing stored drops it after the margin).
           for (final group in groups) {
+            final pending = group.pending;
             if (group.provisional &&
                 group.generation > at.generation &&
-                group.pending?.kind == PendingKind.reset) {
+                pending != null &&
+                pending.kind == PendingKind.reset) {
+              if (!pending.keptAfterSelfRemoval) {
+                await tx.putGroup(
+                  GroupRecord(
+                    conversationId: group.conversationId,
+                    generation: group.generation,
+                    epoch: group.epoch,
+                    state: group.state,
+                    pending: pending.keptBySelfRemoval(),
+                    provisional: true,
+                    provisionalCreatedAtMicros:
+                        group.provisionalCreatedAtMicros,
+                  ),
+                );
+              }
               continue;
             }
             await tx.deleteGroup(id, group.generation);

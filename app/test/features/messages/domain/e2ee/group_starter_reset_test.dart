@@ -1002,8 +1002,98 @@ void main() {
       expect(g2, isNotNull, reason: 'a call of the reset may still land');
       expect(g2!.provisional, isTrue);
       expect(g2.pending?.kind, PendingKind.reset);
+      expect(g2.pending?.keptAfterSelfRemoval, isTrue);
+
+      // Review N-1: the removal is known now. No call of the kept reset is
+      // ever made again; the server's record alone decides. Here it holds
+      // nothing: the group goes once no call is out and the margin passed.
       ended.complete();
       await pumpEventQueue();
+      await starter.settled(_c1);
+      expect(resets(), hasLength(2));
+      rig.clock.advance(kRequestInFlightMargin);
+      await runScheduled();
+      await starter.resumeProvisional();
+      await starter.settled(_c1);
+      expect(resets(), hasLength(2), reason: 'never resent after removal');
+      expect(await groupAt(2), isNull, reason: 'not stored: dropped');
+      expect((await state()).phase, ConversationPhase.waitingForWelcome);
+      // A later trigger, a send or a tap makes no call either.
+      rig.clock.advance(const Duration(hours: 1));
+      await starter.resumeProvisional();
+      expect(resets(), hasLength(2));
+    });
+
+    test(
+      'review N-1: after a restart the kept mark is read from the vault: '
+      'no call, and the unstored reset is dropped after the margin',
+      () async {
+        await setUpJoined();
+        await pauseCommitting();
+        rig.server.commitScript.addAll([unknown, unknown]);
+        await reset();
+        expect(resets(), hasLength(2));
+        await bobRemovesMe();
+        expect(await rig.crypto.catchUp(_c1), CatchUpResult.waitingForWelcome);
+        expect((await groupAt(2))!.provisional, isTrue);
+
+        // A new run: this run's memory of the calls is gone.
+        build();
+        await starter.resumeProvisional();
+        await starter.settled(_c1);
+        expect(resets(), hasLength(2), reason: 'no call in the new run');
+        expect(await groupAt(2), isNotNull, reason: 'inside the margin');
+        rig.clock.advance(kRequestInFlightMargin);
+        await runScheduled();
+        await starter.resumeProvisional();
+        await starter.settled(_c1);
+        expect(resets(), hasLength(2), reason: 'never resent after removal');
+        expect(await groupAt(2), isNull, reason: 'not stored: dropped');
+      },
+    );
+
+    test('review N-1: a reset kept across the removal of this device is '
+        'never sent again, and settles when the server holds it', () async {
+      await setUpJoined();
+      await pauseCommitting();
+      final ended = Completer<void>();
+      rig.server.commitScript.addAll([unknown, unknown]);
+      rig.server.onCall = (call) async {
+        if (call == 'commitConversation' &&
+            rig.server.commitRequests.length == 1) {
+          rig.server.abandon(rig.server.commitRequests.last.key, ended.future);
+        }
+      };
+      await reset();
+      expect(resets(), hasLength(2));
+      await bobRemovesMe();
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.waitingForWelcome);
+      final kept = (await groupAt(2))!;
+      expect(kept.provisional, isTrue);
+
+      // Inside the wait: a resume makes no call.
+      await starter.resumeProvisional();
+      await starter.settled(_c1);
+      expect(resets(), hasLength(2));
+
+      // The abandoned call lands after all: the server holds the reset.
+      rig.server.addCommit(
+        _c1,
+        const MlsPair(2, 0),
+        kept.pending!.commit,
+        fromUser: _me,
+      );
+      ended.complete();
+      await pumpEventQueue();
+      rig.clock.advance(kRequestInFlightMargin);
+      await runScheduled();
+      await starter.resumeProvisional();
+      await starter.settled(_c1);
+      expect(resets(), hasLength(2), reason: 'never resent after removal');
+      final g2 = await groupAt(2);
+      expect(g2, isNotNull, reason: 'ours: settled');
+      expect(g2!.provisional, isFalse);
+      expect((await state()).phase, ConversationPhase.ready);
     });
   });
 

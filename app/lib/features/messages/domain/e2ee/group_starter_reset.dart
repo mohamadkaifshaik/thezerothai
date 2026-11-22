@@ -477,6 +477,11 @@ extension _Reset on GroupStarter {
     if (_serverHolds(id, pending.commit)) {
       return _resetSettleLocked(id, group, priority);
     }
+    // Review N-1: kept across a removal of this device: never sent again,
+    // whoever asks (a resume, review m-2's first call); the record decides.
+    if (pending.keptAfterSelfRemoval) {
+      return _resetKeptLocked(op, id, group, pending, priority);
+    }
     // A device whose flag is off or that was removed elsewhere sends
     // nothing (it may not reset).
     if (!_session.mayStart || _removedElsewhere()) return none;
@@ -777,6 +782,54 @@ extension _Reset on GroupStarter {
     return _Next(join ? _NextKind.join : _NextKind.none, refusal: refusal);
   }
 
+  /// Review N-1 (controller ruling, round Q): [id]'s provisional reset was
+  /// kept by an applied removal of this device in g
+  /// ([PendingCommit.keptAfterSelfRemoval], in the vault, so a restart
+  /// knows it too). No call of its bytes is ever made again. Why: the
+  /// server checks only a reset's generation, so a resend would put a
+  /// device removed in g back into g + 1, where it reads every new message.
+  /// The server's record alone decides, with the lock held:
+  /// - ours: remembered as held (audit M1) and settled;
+  /// - another record, or nothing stored: the group goes (joining the
+  ///   winner's welcome for another record), but only once no call of the
+  ///   bytes is out and the margin had passed when the listing STARTED;
+  ///   inside the margin one resume is scheduled for its end;
+  /// - an answer that does not say, or a listing not asked: nothing is
+  ///   decided (the next trigger lists again).
+  /// While held back after an unknown outcome nothing is listed (review
+  /// m-5); one resume is scheduled for the wait's end.
+  Future<_Next> _resetKeptLocked(
+    _Op op,
+    String id,
+    GroupRecord group,
+    PendingCommit pending,
+    BudgetPriority priority,
+  ) async {
+    const none = _Next(_NextKind.none);
+    if (_resetCalls.callStillOut(id, pending.commit)) return none;
+    if (_resetCalls.heldBack(id)) {
+      final until = _resetCalls.notBefore(id);
+      if (until == null) return none;
+      return _Next(_NextKind.none, resendAfter: until.difference(_now()));
+    }
+    final provedAt = _now();
+    final record = await _resetRecord(op.vault, id, pending, priority);
+    switch (record) {
+      case _Record.ours:
+        _resetHeld[id] = pending.commit;
+        return _resetSettleLocked(id, group, priority);
+      case _Record.other:
+      case _Record.notStored:
+        if (_resetCalls.callStillOut(id, pending.commit)) return none;
+        final left = _resetCalls.marginLeft(id, pending.commit, provedAt);
+        if (left != null) return _Next(_NextKind.none, resendAfter: left);
+        return _resetDropLocked(id, group, join: record == _Record.other);
+      case _Record.unknown:
+      case _Record.notAsked:
+        return none;
+    }
+  }
+
   /// Audit M1: whether this run knows the server holds [commit] as [id]'s
   /// reset ([GroupStarter._resetHeld]).
   bool _serverHolds(String id, Uint8List commit) {
@@ -833,6 +886,11 @@ extension _Reset on GroupStarter {
     // settle is retried (at any age; a stored reset is never expired).
     if (_serverHolds(id, pending.commit)) {
       return _resetSettleLocked(id, group, priority);
+    }
+    // Review N-1: kept across a removal of this device: no resend at any
+    // age; the record alone decides.
+    if (pending.keptAfterSelfRemoval) {
+      return _resetKeptLocked(op, id, group, pending, priority);
     }
     if (_resetCalls.callStillOut(id, pending.commit)) return none;
     final refused = _resetRefused[id];
