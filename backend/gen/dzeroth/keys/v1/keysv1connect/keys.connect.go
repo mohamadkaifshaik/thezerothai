@@ -10,9 +10,13 @@
 // the client skips that device (it does not fail the whole operation).
 // Owner module: backend/internal/keys.
 // Collections owned: users/{uid}/keyDevices/{deviceId} (signatureKey (bytes), createdAt, lastSeenAt, lastResort (bytes,
-// absent = none), poolCount) and its subcollection users/{uid}/keyDevices/{deviceId}/keyPackages/{id} (the one-time
-// pool; data (bytes) and createdAt; id = the first 32 hex characters of the SHA-256 of the bytes). Both are erased with
-// the account; the account export lists device metadata and counts only, never key bytes.
+// absent = none), poolCount, removedAt (absent while live)) and its subcollection
+// users/{uid}/keyDevices/{deviceId}/keyPackages/{id} (the one-time pool; data (bytes) and createdAt; id = the first 32
+// hex characters of the SHA-256 of the bytes); and the removed marks users/{uid}/keyDeviceRemovals/{deviceId} (removedAt,
+// expireAt = removedAt + 90 days, the Firestore TTL field; doc id = the device id), written by RemoveKeyDevice with
+// reason REMOTE. A device document that carries removedAt (a REMOTE removal in progress) is not a registered device:
+// every read skips it and it does not count toward the cap of 5. All three are erased with the account; the account
+// export lists device metadata and counts and the removed marks (device id and times), never key bytes.
 //
 // Key material is raw bytes: this is the first proto in the repo with `bytes` fields. Device ids, user ids and
 // idempotency keys are strings. Nothing the server stores or returns is a message body.
@@ -64,6 +68,12 @@
 //     failed) is a generic INTERNAL, or UNAVAILABLE as below, never the messaging module's own error. The send-rules
 //     check reads through caches of up to 60 s: a block, an unfollow or an account status change can take up to 60 s to
 //     apply here, while SendMessage applies it immediately (and is what guards the message itself).
+//   - FAILED_PRECONDITION + DEVICE_REMOVED, no metadata (RegisterKeyDevice, UploadKeyPackages): the device id was removed
+//     with reason REMOTE within the last 90 days (at least; the mark ends when Firestore's TTL deletes it). Decided
+//     before LIMIT_REACHED and before NOT_FOUND. Do not retry with the same id: set the device up again under a new id.
+//   - FAILED_PRECONDITION + REAUTH_REQUIRED (RemoveKeyDevice with reason REMOTE of an id not yet marked): the ID token's
+//     auth_time is older than ACCOUNT_DELETE_REAUTH_MAX_AGE (5 min) or missing; nothing was written. Sign in again, then
+//     retry.
 //   - NOT_FOUND: UploadKeyPackages for a device the caller has not registered (RemoveKeyDevice of a missing device is
 //     success, not NOT_FOUND).
 //   - UNAVAILABLE (retry after the hinted delay): possible on any RPC for a real storage failure (contention on a
@@ -133,8 +143,11 @@ type KeyServiceClient interface {
 	// Publish the caller's encryption device. Needs the flag on for the caller. Naturally idempotent by device_id:
 	// same id and same key => refreshes last_seen_at (at most once per 24 h; call it periodically, see the header) and
 	// returns the device; same id with a different key => INVALID_ARGUMENT + VALIDATION "signature_public_key" (the
-	// stored key is kept); a sixth device => FAILED_PRECONDITION + LIMIT_REACHED "key_devices" (never evicts). Validation: device_id and signature_public_key as in the header,
-	// idempotency_key format. One transaction: 1 device read + a query of at most 6 device documents, 1 write.
+	// stored key is kept); a sixth device => FAILED_PRECONDITION + LIMIT_REACHED "key_devices" (never evicts); an id
+	// removed with reason REMOTE (marked) => FAILED_PRECONDITION + DEVICE_REMOVED, decided before the device count, so a
+	// marked id never learns about the cap. Validation: device_id and signature_public_key as in the header,
+	// idempotency_key format. One transaction: 1 device read; for a new id also 1 mark read + a query of at most 6 device
+	// documents; at most 1 write.
 	RegisterKeyDevice(context.Context, *connect.Request[v1.RegisterKeyDeviceRequest]) (*connect.Response[v1.RegisterKeyDeviceResponse], error)
 	// The caller's devices, at most 5, oldest first; inactive ones (not seen for 30 days) are included, flagged by
 	// last_seen_at and KeyDevice.inactive. Needs the flag only not globally off. Query of at most 5 device documents
@@ -147,6 +160,12 @@ type KeyServiceClient interface {
 	// empty. The pool never holds more than 100 (UploadKeyPackages enforces that), so one page normally suffices; if
 	// uploads keep refilling the pool, the sweep repeats for at most 5 rounds and then answers UNAVAILABLE (retry). A
 	// failed or timed-out call may already have deleted some pool documents; retrying finishes the removal.
+	// reason (see RemoveReason): SIGN_OUT and UNSPECIFIED remove only, as above, and remember nothing. REMOTE first reads
+	// the mark (1 read); when the id is not yet marked it needs a recent sign-in (REAUTH_REQUIRED, nothing written);
+	// then one transaction reads the device document and the mark (2 reads) and writes the mark (create, when absent)
+	// and the device's removedAt (when the document exists and lacks it), at most 2 writes, before the pool sweep and
+	// the delete above. From that transaction on the device is skipped by every read and claim, and RegisterKeyDevice and
+	// UploadKeyPackages refuse the id with DEVICE_REMOVED.
 	RemoveKeyDevice(context.Context, *connect.Request[v1.RemoveKeyDeviceRequest]) (*connect.Response[v1.RemoveKeyDeviceResponse], error)
 	// Add key packages to a registered device's pool and optionally replace its last-resort package. Needs the flag on
 	// for the caller. Naturally idempotent: a key package's document id is derived from its bytes, so a replay stores
@@ -156,9 +175,11 @@ type KeyServiceClient interface {
 	// fresh packages. The pool holds at most 100: packages beyond the free space are dropped: when the pool is full the
 	// oldest stay and the new packages are not stored (the response carries the resulting count, which can be
 	// momentarily higher than the pool if a claim runs concurrently). An empty
-	// last_resort_key_package means none sent: the stored one is kept. Unknown device => NOT_FOUND. Neither key packages
-	// nor a last-resort package => VALIDATION "key_packages". Marks the device seen (at most once per 24 h). One
-	// transaction: 1 device read + at most 100 reads, at most 101 writes.
+	// last_resort_key_package means none sent: the stored one is kept. A device id removed with reason REMOTE =>
+	// FAILED_PRECONDITION + DEVICE_REMOVED; any other unknown device => NOT_FOUND (one more read, the mark, decides
+	// between the two). Neither key packages nor a last-resort package => VALIDATION "key_packages". Marks the device
+	// seen (at most once per 24 h). One transaction: 1 device read + at most 100 reads (1 mark read instead when the
+	// device is missing), at most 101 writes.
 	UploadKeyPackages(context.Context, *connect.Request[v1.UploadKeyPackagesRequest]) (*connect.Response[v1.UploadKeyPackagesResponse], error)
 	// Devices of up to 10 users. Needs the flag only not globally off. Validation (1-10 user_ids, each a well-formed
 	// user id, no duplicates, the caller's own id twice included, else VALIDATION "user_ids") and the send-rules check
@@ -305,8 +326,11 @@ type KeyServiceHandler interface {
 	// Publish the caller's encryption device. Needs the flag on for the caller. Naturally idempotent by device_id:
 	// same id and same key => refreshes last_seen_at (at most once per 24 h; call it periodically, see the header) and
 	// returns the device; same id with a different key => INVALID_ARGUMENT + VALIDATION "signature_public_key" (the
-	// stored key is kept); a sixth device => FAILED_PRECONDITION + LIMIT_REACHED "key_devices" (never evicts). Validation: device_id and signature_public_key as in the header,
-	// idempotency_key format. One transaction: 1 device read + a query of at most 6 device documents, 1 write.
+	// stored key is kept); a sixth device => FAILED_PRECONDITION + LIMIT_REACHED "key_devices" (never evicts); an id
+	// removed with reason REMOTE (marked) => FAILED_PRECONDITION + DEVICE_REMOVED, decided before the device count, so a
+	// marked id never learns about the cap. Validation: device_id and signature_public_key as in the header,
+	// idempotency_key format. One transaction: 1 device read; for a new id also 1 mark read + a query of at most 6 device
+	// documents; at most 1 write.
 	RegisterKeyDevice(context.Context, *connect.Request[v1.RegisterKeyDeviceRequest]) (*connect.Response[v1.RegisterKeyDeviceResponse], error)
 	// The caller's devices, at most 5, oldest first; inactive ones (not seen for 30 days) are included, flagged by
 	// last_seen_at and KeyDevice.inactive. Needs the flag only not globally off. Query of at most 5 device documents
@@ -319,6 +343,12 @@ type KeyServiceHandler interface {
 	// empty. The pool never holds more than 100 (UploadKeyPackages enforces that), so one page normally suffices; if
 	// uploads keep refilling the pool, the sweep repeats for at most 5 rounds and then answers UNAVAILABLE (retry). A
 	// failed or timed-out call may already have deleted some pool documents; retrying finishes the removal.
+	// reason (see RemoveReason): SIGN_OUT and UNSPECIFIED remove only, as above, and remember nothing. REMOTE first reads
+	// the mark (1 read); when the id is not yet marked it needs a recent sign-in (REAUTH_REQUIRED, nothing written);
+	// then one transaction reads the device document and the mark (2 reads) and writes the mark (create, when absent)
+	// and the device's removedAt (when the document exists and lacks it), at most 2 writes, before the pool sweep and
+	// the delete above. From that transaction on the device is skipped by every read and claim, and RegisterKeyDevice and
+	// UploadKeyPackages refuse the id with DEVICE_REMOVED.
 	RemoveKeyDevice(context.Context, *connect.Request[v1.RemoveKeyDeviceRequest]) (*connect.Response[v1.RemoveKeyDeviceResponse], error)
 	// Add key packages to a registered device's pool and optionally replace its last-resort package. Needs the flag on
 	// for the caller. Naturally idempotent: a key package's document id is derived from its bytes, so a replay stores
@@ -328,9 +358,11 @@ type KeyServiceHandler interface {
 	// fresh packages. The pool holds at most 100: packages beyond the free space are dropped: when the pool is full the
 	// oldest stay and the new packages are not stored (the response carries the resulting count, which can be
 	// momentarily higher than the pool if a claim runs concurrently). An empty
-	// last_resort_key_package means none sent: the stored one is kept. Unknown device => NOT_FOUND. Neither key packages
-	// nor a last-resort package => VALIDATION "key_packages". Marks the device seen (at most once per 24 h). One
-	// transaction: 1 device read + at most 100 reads, at most 101 writes.
+	// last_resort_key_package means none sent: the stored one is kept. A device id removed with reason REMOTE =>
+	// FAILED_PRECONDITION + DEVICE_REMOVED; any other unknown device => NOT_FOUND (one more read, the mark, decides
+	// between the two). Neither key packages nor a last-resort package => VALIDATION "key_packages". Marks the device
+	// seen (at most once per 24 h). One transaction: 1 device read + at most 100 reads (1 mark read instead when the
+	// device is missing), at most 101 writes.
 	UploadKeyPackages(context.Context, *connect.Request[v1.UploadKeyPackagesRequest]) (*connect.Response[v1.UploadKeyPackagesResponse], error)
 	// Devices of up to 10 users. Needs the flag only not globally off. Validation (1-10 user_ids, each a well-formed
 	// user id, no duplicates, the caller's own id twice included, else VALIDATION "user_ids") and the send-rules check

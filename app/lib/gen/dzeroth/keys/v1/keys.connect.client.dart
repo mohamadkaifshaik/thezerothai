@@ -11,8 +11,11 @@ extension type KeyServiceClient (connect.Transport _transport) {
   /// Publish the caller's encryption device. Needs the flag on for the caller. Naturally idempotent by device_id:
   /// same id and same key => refreshes last_seen_at (at most once per 24 h; call it periodically, see the header) and
   /// returns the device; same id with a different key => INVALID_ARGUMENT + VALIDATION "signature_public_key" (the
-  /// stored key is kept); a sixth device => FAILED_PRECONDITION + LIMIT_REACHED "key_devices" (never evicts). Validation: device_id and signature_public_key as in the header,
-  /// idempotency_key format. One transaction: 1 device read + a query of at most 6 device documents, 1 write.
+  /// stored key is kept); a sixth device => FAILED_PRECONDITION + LIMIT_REACHED "key_devices" (never evicts); an id
+  /// removed with reason REMOTE (marked) => FAILED_PRECONDITION + DEVICE_REMOVED, decided before the device count, so a
+  /// marked id never learns about the cap. Validation: device_id and signature_public_key as in the header,
+  /// idempotency_key format. One transaction: 1 device read; for a new id also 1 mark read + a query of at most 6 device
+  /// documents; at most 1 write.
   Future<dzerothkeysv1keys.RegisterKeyDeviceResponse> registerKeyDevice(
     dzerothkeysv1keys.RegisterKeyDeviceRequest input, {
     connect.Headers? headers,
@@ -57,6 +60,12 @@ extension type KeyServiceClient (connect.Transport _transport) {
   /// empty. The pool never holds more than 100 (UploadKeyPackages enforces that), so one page normally suffices; if
   /// uploads keep refilling the pool, the sweep repeats for at most 5 rounds and then answers UNAVAILABLE (retry). A
   /// failed or timed-out call may already have deleted some pool documents; retrying finishes the removal.
+  /// reason (see RemoveReason): SIGN_OUT and UNSPECIFIED remove only, as above, and remember nothing. REMOTE first reads
+  /// the mark (1 read); when the id is not yet marked it needs a recent sign-in (REAUTH_REQUIRED, nothing written);
+  /// then one transaction reads the device document and the mark (2 reads) and writes the mark (create, when absent)
+  /// and the device's removedAt (when the document exists and lacks it), at most 2 writes, before the pool sweep and
+  /// the delete above. From that transaction on the device is skipped by every read and claim, and RegisterKeyDevice and
+  /// UploadKeyPackages refuse the id with DEVICE_REMOVED.
   Future<dzerothkeysv1keys.RemoveKeyDeviceResponse> removeKeyDevice(
     dzerothkeysv1keys.RemoveKeyDeviceRequest input, {
     connect.Headers? headers,
@@ -82,9 +91,11 @@ extension type KeyServiceClient (connect.Transport _transport) {
   /// fresh packages. The pool holds at most 100: packages beyond the free space are dropped: when the pool is full the
   /// oldest stay and the new packages are not stored (the response carries the resulting count, which can be
   /// momentarily higher than the pool if a claim runs concurrently). An empty
-  /// last_resort_key_package means none sent: the stored one is kept. Unknown device => NOT_FOUND. Neither key packages
-  /// nor a last-resort package => VALIDATION "key_packages". Marks the device seen (at most once per 24 h). One
-  /// transaction: 1 device read + at most 100 reads, at most 101 writes.
+  /// last_resort_key_package means none sent: the stored one is kept. A device id removed with reason REMOTE =>
+  /// FAILED_PRECONDITION + DEVICE_REMOVED; any other unknown device => NOT_FOUND (one more read, the mark, decides
+  /// between the two). Neither key packages nor a last-resort package => VALIDATION "key_packages". Marks the device
+  /// seen (at most once per 24 h). One transaction: 1 device read + at most 100 reads (1 mark read instead when the
+  /// device is missing), at most 101 writes.
   Future<dzerothkeysv1keys.UploadKeyPackagesResponse> uploadKeyPackages(
     dzerothkeysv1keys.UploadKeyPackagesRequest input, {
     connect.Headers? headers,
