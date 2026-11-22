@@ -30,6 +30,7 @@ part 'conversation_attribution.dart';
 part 'conversation_catch_up.dart';
 part 'conversation_commit_apply.dart';
 part 'conversation_join.dart';
+part 'conversation_provisional.dart';
 part 'conversation_welcomes.dart';
 
 /// Vault setting: welcome clock-skew retries (security read L1). Sealed
@@ -226,6 +227,48 @@ class ConversationCrypto {
   }) {
     assert(_locks.isHeld(id), 'The caller must hold the conversation lock.');
     return _attributeEntry(id, priority);
+  }
+
+  /// The one [DeviceKeyHistory] of the pipeline (its report-once set is per
+  /// instance): Task 8's provisional transaction reads and writes through
+  /// it. Never construct a second one.
+  DeviceKeyHistory get keyHistory => _keyHistory;
+
+  /// The ONE success function of a provisional group (R6), for a caller
+  /// that HOLDS [id]'s conversation lock: this device's own init of
+  /// [generation] was stored by the server. See [InitSettle] and
+  /// [InitDelivered]; the join code's "own init already stored" step runs
+  /// the same steps. Without [delivered] a group whose row still carries
+  /// the init is NOT settled (`InitSettle.waiting`, review W1: the starter
+  /// replays the init for the answer); for one with no init row,
+  /// `requestAccepted` and the own-device alert are left to Task 9's
+  /// acceptance steps (review F4; see `_settleOwnInitIn`). A lower
+  /// generation not walked to its end is walked by
+  /// one locked catch-up first. Never throws (asserts the lock is held).
+  Future<InitSettle> settleOwnInitLocked(
+    String id,
+    int generation, {
+    InitDelivered? delivered,
+    BudgetPriority priority = BudgetPriority.background,
+  }) {
+    assert(_locks.isHeld(id), 'The caller must hold the conversation lock.');
+    return _settleOwnInitLocked(id, generation, delivered, priority);
+  }
+
+  /// The ONE discard of a provisional group, for a caller that HOLDS [id]'s
+  /// conversation lock: the server did not store this device's init (a
+  /// `STALE_EPOCH`, a refusal, another first commit). The group and its
+  /// pins go and its rows return to stage `plain` under the conversation
+  /// id, failed with [lastError] when given; the key history, the marks and
+  /// the known set stay. False when there was no provisional group or
+  /// nothing could be written. Never throws (asserts the lock is held).
+  Future<bool> discardProvisionalLocked(
+    String id,
+    int generation, {
+    String? lastError,
+  }) {
+    assert(_locks.isHeld(id), 'The caller must hold the conversation lock.');
+    return _discardProvisionalLocked(id, generation, lastError);
   }
 
   StoredMessage _systemRow(

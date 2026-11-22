@@ -54,6 +54,7 @@ extension _WelcomeJoin on ConversationCrypto {
     if (provisional != null && provisional.provisional) {
       switch (await _settleProvisional(poll, id, provisional)) {
         case _Settled.ownStored:
+        case _Settled.ownUnanswered:
         case _Settled.replay:
           return const _Join(_Outcome.permanent);
         case _Settled.unknown:
@@ -363,74 +364,43 @@ extension _WelcomeJoin on ConversationCrypto {
         return _Settled.unknown;
       }
       if (own) {
-        final stored = await v.conversation(id);
-        if (!MlsPair.above(pending.builtOn, stored?.afterPair)) {
+        // Review W1. Decision: while a row still carries this init, nothing
+        // is settled here. Why: this path has no answer for the message,
+        // and settling without one took the init off the row and gave it
+        // to the sender, whose send of that key without `mls_init` the
+        // server refuses (VALIDATION idempotency_key: a false "not sent").
+        // The group stays provisional and the row keeps its init; Task 8's
+        // starter sends the identical request at its next trigger (vault
+        // ready, before a send, the user's retry), the server replays the
+        // stored message, and the group settles with that answer. The
+        // welcome is this device's own generation's either way: a replay.
+        if (await _hasInitRow(v, id, g)) return _Settled.ownUnanswered;
+        // No init row (a reset, or the row is gone): the same success
+        // steps as Task 8's send path, with no message to answer for.
+        final settled = await _settleOwnInitIn(
+          v,
+          id,
+          group,
+          thisDevice: poll.deviceId,
+        );
+        if (!settled) {
           // The marks are already at or past this init (the marks cannot be
-          // written again): the welcome is a replay, for good. Clearing the
-          // provisional group is Task 8's.
+          // written again): the welcome is a replay, for good.
           return _Settled.replay;
         }
-        await v.transaction((tx) async {
-          await tx.clearProvisional(id, g, afterPair: pending.builtOn);
-          // The init is accepted: nothing of it is pending any more.
-          await tx.putGroup(
-            GroupRecord(
-              conversationId: id,
-              generation: g,
-              epoch: group.epoch,
-              state: group.state,
-            ),
-          );
-        });
+        _afterOwnInit(id);
         return _Settled.ownStored;
       }
-      final members = await v.members(id);
-      final outbox = await v.outbox();
-      final peerRef = _known.peerOf(id);
-      await v.transaction((tx) async {
-        await tx.deleteGroup(id, g);
-        for (final m in members) {
-          if (m.since.generation >= g) await tx.deleteMember(id, m.deviceId);
-        }
-        for (final item in outbox.items) {
-          final mine =
-              item.conversationId == id ||
-              (item.conversationId == null &&
-                  peerRef != null &&
-                  item.recipientUserId == peerRef);
-          if (!mine ||
-              item.stage != OutboxStage.encrypted ||
-              item.generation != g) {
-            continue;
-          }
-          await tx.putOutbox(
-            OutboxItem(
-              idempotencyKey: item.idempotencyKey,
-              localId: item.localId,
-              expectedMessageId: item.expectedMessageId,
-              conversationId: item.conversationId,
-              recipientUserId: item.recipientUserId,
-              generation: 0,
-              epoch: 0,
-              ciphertext: Uint8List(0),
-              reportCommitment: Uint8List(0),
-              content: item.content,
-              createdAtMicros: item.createdAtMicros,
-              stage: OutboxStage.plain,
-              attempts: item.attempts,
-              lastError: item.lastError,
-            ),
-          );
-        }
-      });
+      await _discardProvisionalIn(v, id, g);
       return _Settled.discarded;
     });
   }
 }
 
 /// `replay`: this device's own init was stored and the marks are already at
-/// or above it.
-enum _Settled { ownStored, discarded, unknown, replay }
+/// or above it. `ownUnanswered` (review W1): it was stored and a row still
+/// carries the init, so the group was left provisional for Task 8's starter.
+enum _Settled { ownStored, ownUnanswered, discarded, unknown, replay }
 
 class _Join {
   const _Join(this.kind, {this.label});
