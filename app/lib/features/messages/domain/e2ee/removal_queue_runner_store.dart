@@ -72,8 +72,9 @@ extension _RemovalStore on RemovalQueueRunner {
   /// [kRemovalIntentLimit] is dropped. An intent [removeDevice] is sending
   /// is left to it.
   ///
-  /// CR Minor 2 (fix round 2, ruling 4): a definite refusal drops the
-  /// intent, as [removeDevice] does. A RATE_LIMITED answer keeps it and
+  /// CR Minor 2 (fix round 2, ruling 4, changed by fix round 4, ruling 2):
+  /// a definite refusal is settled by a fresh own list
+  /// ([_settleRefusedRetry]). A RATE_LIMITED answer keeps it and
   /// holds every intent until the server's retry time (the fallback minute
   /// when it named none, capped at [kMaxServerRetryWait]; memory only), on
   /// the runner's one timer; the queue's own pass goes on meanwhile.
@@ -108,12 +109,7 @@ extension _RemovalStore on RemovalQueueRunner {
         return;
       } on Object catch (e, s) {
         if (_definiteRefusal(e) && _current(vault, resets)) {
-          _intents.removeWhere((i) => i.deviceId == intent.deviceId);
-          try {
-            await _save(vault, queue: false);
-          } on Object catch (e, s) {
-            _reportIfBug(e, s, 'removalQueue.intentWrite');
-          }
+          await _settleRefusedRetry(vault, intent, priority);
         } else {
           _reportIfBug(e, s, 'removalQueue.intent');
         }
@@ -127,6 +123,44 @@ extension _RemovalStore on RemovalQueueRunner {
         priority,
       );
     }
+  }
+
+  /// Fix round 4, ruling 2 (CR2 I-2; it changes fix round 2's ruling 4):
+  /// the RemoveKeyDevice retry of the stored [intent] met a definite
+  /// refusal. That refusal proves nothing about the first call: the server
+  /// may already have removed the device (an answer lost on the way). So a
+  /// fresh own list decides:
+  /// - it still names the id: not removed, the intent goes;
+  /// - it is readable, non-empty and does not name the id: removed, so the
+  ///   device is queued with the intent's key ([_queueRemoved], which also
+  ///   drops the intent);
+  /// - it cannot be read (or is empty, which no list of this user can
+  ///   honestly be: this device is in it): the intent stays for the next
+  ///   pass.
+  /// True when the device was queued. A failed intent write is reported if
+  /// it is a bug; the intent then stays.
+  Future<bool> _settleRefusedRetry(
+    SecureVault vault,
+    RemovalMark intent,
+    BudgetPriority priority,
+  ) async {
+    final own = await _directory.own(fresh: true, priority: priority);
+    if (!identical(_session.vault, vault) || !identical(_loadedFor, vault)) {
+      return false;
+    }
+    if (!own.readableNonEmpty) return false;
+    final id = utf8.encode(intent.deviceId);
+    if (own.devices.any((d) => _same(d.deviceId, id))) {
+      _intents.removeWhere((i) => i.deviceId == intent.deviceId);
+      try {
+        await _save(vault, queue: false);
+      } on Object catch (e, s) {
+        _reportIfBug(e, s, 'removalQueue.intentWrite');
+      }
+      return false;
+    }
+    await _queueRemoved(vault, intent.deviceId, intent.signatureKey, priority);
+    return true;
   }
 
   /// SA M2 (fix round 2, ruling 11): on every own device, each `mine` pin

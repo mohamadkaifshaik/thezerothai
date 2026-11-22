@@ -50,8 +50,13 @@ const String kLimitCommitsPerConversationDaily =
 ///
 /// **The intent (review M1).** Before the call, an intent `{deviceId, at}`
 /// is stored in the runner's own record ([kVaultSettingRemovalRecord]). A
-/// definite refusal removes it and rethrows; on success it becomes the
-/// queue entries, in the same write. An intent left by a crash, a vault
+/// definite refusal of a new removal removes it and rethrows; on success it
+/// becomes the queue entries, in the same write. A definite refusal of the
+/// RETRY of a stored intent (by [removeDevice] or a pass) proves nothing
+/// about the first call, so a fresh own list decides (fix round 4, ruling
+/// 2): it names the id, the intent goes; it is readable and does not name
+/// it, the device is queued; it cannot be read, the intent stays. An intent
+/// left by a crash, a vault
 /// change or an unknown outcome (a network failure, a timeout, an unknown
 /// server error) is sent again at the start of the next pass
 /// (RemoveKeyDevice of a removed device answers success) and then queued;
@@ -273,7 +278,8 @@ class RemovalQueueRunner {
   /// removal (RemoveKeyDevice of it succeeded less than
   /// [kRemovedByUserLimit] ago; stored in the vault, so it survives a
   /// restart) or while an intent for it waits with an unknown outcome
-  /// (review M1; a definite refusal drops it, ruling 4). A queue entry alone
+  /// (review M1; a definite refusal drops it unless a fresh own list shows
+  /// the device gone, fix round 4, ruling 2). A queue entry alone
   /// is not an answer: the queue also holds own devices no user removed
   /// (ruling 11). Own side only (SA L2, ruling 13): it answers for the
   /// user's own devices; an id the queue found pinned on the peer's side
@@ -335,7 +341,10 @@ class RemovalQueueRunner {
   /// with no call when there is no vault, or [kMaxRemovalIntents] intents
   /// or unexpired removed marks are stored already (ruling 6; reported as
   /// `removalQueue.intentCap`), and rethrows a failed own-list read
-  /// (nothing sent) or a failed RemoveKeyDevice (nothing queued). A stored
+  /// (nothing sent) or a failed RemoveKeyDevice (nothing queued; except a
+  /// definite refusal of a stored intent's retry while a fresh own list no
+  /// longer names the device: the first call removed it, so it is queued
+  /// and this completes, fix round 4, ruling 2). A stored
   /// queue or record that cannot be read does not refuse it (ruling 10):
   /// both are rebuilt once RemoveKeyDevice succeeded. Then a pass starts at
   /// [BudgetPriority.live]; this returns once the queue is stored.
@@ -423,20 +432,41 @@ class RemovalQueueRunner {
         );
         await _save(vault, queue: false);
       }
+      Object? failure;
+      StackTrace? failureStack;
       try {
         await _sendRemove(deviceId);
-      } on Object catch (e) {
-        if (_definiteRefusal(e) && identical(_loadedFor, vault)) {
-          // Not removed: the intent goes. When this write fails the intent
-          // stays and a pass sends it again; that is the user's own ask.
-          _intents.removeWhere((i) => i.deviceId == deviceId);
-          try {
-            await _save(vault, queue: false);
-          } on Object catch (e, s) {
-            _reportIfBug(e, s, 'removalQueue.intentWrite');
+      } on Object catch (e, s) {
+        failure = e;
+        failureStack = s;
+      }
+      if (failure != null) {
+        var settled = false;
+        if (_definiteRefusal(failure) && identical(_loadedFor, vault)) {
+          if (waiting == null) {
+            // A new removal: not removed, the intent goes. When this write
+            // fails the intent stays and a pass sends it again; that is the
+            // user's own ask.
+            _intents.removeWhere((i) => i.deviceId == deviceId);
+            try {
+              await _save(vault, queue: false);
+            } on Object catch (e, s) {
+              _reportIfBug(e, s, 'removalQueue.intentWrite');
+            }
+          } else {
+            // Fix round 4, ruling 2: the retry of a stored intent proves
+            // nothing about the first call; a fresh own list decides.
+            settled = await _settleRefusedRetry(
+              vault,
+              waiting,
+              BudgetPriority.live,
+            );
           }
         }
-        rethrow;
+        if (!settled) Error.throwWithStackTrace(failure, failureStack!);
+        // Removed by the first call, and queued: the user's ask is done.
+        _startPass(BudgetPriority.live);
+        return;
       }
       if (!identical(_session.vault, vault)) {
         throw StateError('The vault changed.');

@@ -155,6 +155,119 @@ void main() {
     });
   });
 
+  group('a definite refusal of a retried intent (fix round 4, CR2 I-2)', () {
+    /// A stored intent for the sibling. [carriedOut]: the server removed it
+    /// and the answer was lost; otherwise the call failed before it.
+    Future<RigPeer> storedIntent({required bool carriedOut}) async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await join(_c1, others: [sibling]);
+      await synced();
+      if (carriedOut) {
+        rig.keys.onRemoved = () async {
+          rig.keys.onRemoved = null;
+          throw const NetworkException('rig: the answer was lost');
+        };
+      } else {
+        rig.keys.removeError = const NetworkException('rig: offline');
+      }
+      await expectLater(
+        runner.removeDevice(sibling.idString),
+        throwsA(isA<NetworkException>()),
+      );
+      await runner.idle();
+      expect(
+        rig.keys.own.any((d) => d.deviceId == sibling.idString),
+        !carriedOut,
+      );
+      expect(await runner.wasRemovedByUser(sibling.id), isTrue);
+      rig.keys.removeError = const ValidationException('rig: refused');
+      return sibling;
+    }
+
+    test('removeDevice: the own list still names the device, so the intent '
+        'goes', () async {
+      final sibling = await storedIntent(carriedOut: false);
+
+      await expectLater(
+        runner.removeDevice(sibling.idString),
+        throwsA(isA<ValidationException>()),
+      );
+      await runner.idle();
+
+      expect(await runner.wasRemovedByUser(sibling.id), isFalse);
+      expect(runner.queuedFor(_c1), isEmpty);
+      expect((await pin(sibling))!.side, MemberSide.mine);
+    });
+
+    test('removeDevice: a readable own list no longer names it, so it is '
+        'queued with the intent\'s key and leaves the group', () async {
+      final sibling = await storedIntent(carriedOut: true);
+
+      await removeAndSettle(sibling);
+
+      expect(rig.keys.removeCalls, hasLength(2));
+      expect(await runner.wasRemovedByUser(sibling.id), isTrue);
+      expect(await pin(sibling), isNull, reason: 'left the group');
+      expect(requests(_c1), hasLength(1));
+      expect(runner.pending.value, 0);
+      final record = RemovalRecord.decode(
+        (await rig.device.vault.setting(kVaultSettingRemovalRecord))!,
+      );
+      expect(record.intents, isEmpty);
+      expect(rigEq(record.removed.single.signatureKey!, sibling.key), isTrue);
+    });
+
+    test('removeDevice: an own list that cannot be read keeps the '
+        'intent', () async {
+      final sibling = await storedIntent(carriedOut: true);
+      rig.keys.ownFails = true;
+
+      await expectLater(
+        runner.removeDevice(sibling.idString),
+        throwsA(isA<ValidationException>()),
+      );
+      await runner.idle();
+
+      expect(await runner.wasRemovedByUser(sibling.id), isTrue);
+      expect(runner.queuedFor(_c1), isEmpty);
+      final record = RemovalRecord.decode(
+        (await rig.device.vault.setting(kVaultSettingRemovalRecord))!,
+      );
+      expect(record.intents.single.deviceId, sibling.idString);
+    });
+
+    test('a pass: a readable own list no longer names it, so it is '
+        'queued', () async {
+      final sibling = await storedIntent(carriedOut: true);
+
+      await runner.runPass();
+      await runner.runPass();
+
+      expect(rig.keys.removeCalls, hasLength(2));
+      expect(await runner.wasRemovedByUser(sibling.id), isTrue);
+      expect(await pin(sibling), isNull, reason: 'left the group');
+      expect(runner.pending.value, 0);
+    });
+
+    test('a pass: an own list that cannot be read keeps the intent', () async {
+      final sibling = await storedIntent(carriedOut: true);
+      rig.keys.ownFails = true;
+
+      await runner.runPass();
+
+      expect(rig.keys.removeCalls, hasLength(2));
+      expect(await runner.wasRemovedByUser(sibling.id), isTrue);
+      expect(runner.queuedFor(_c1), isEmpty);
+      expect((await pin(sibling))!.side, MemberSide.mine);
+      final record = RemovalRecord.decode(
+        (await rig.device.vault.setting(kVaultSettingRemovalRecord))!,
+      );
+      expect(record.intents.single.deviceId, sibling.idString);
+      expect(record.removed, isEmpty);
+    });
+  });
+
   group('a leftover intent in a pass (CR Minor 2)', () {
     /// An intent whose RemoveKeyDevice outcome is unknown.
     Future<RigPeer> unknownIntent() async {
