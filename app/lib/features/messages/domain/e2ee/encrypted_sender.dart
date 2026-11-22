@@ -85,8 +85,10 @@ class EncryptedSender {
   /// priority and is called only from a [BudgetPriority.user] drain (Task 9
   /// brief amendment 5, audit M3: the user's intent to reply accepts; a
   /// background trigger never does). Task 13b's send path supplies the
-  /// user priority; every automatic trigger (a push, a poll, the scheduled
-  /// resend below) must drain with [BudgetPriority.background].
+  /// user priority; every automatic trigger (a push, a poll) must drain
+  /// with [BudgetPriority.background], and the scheduled resend below
+  /// never drains at user priority (a user drain's resend runs at
+  /// [BudgetPriority.live], review m1).
   ///
   /// [removedElsewhere] is Task 12's fact: this device was removed from the
   /// account on another device (nothing is encrypted or sent while true).
@@ -476,15 +478,18 @@ class EncryptedSender {
           }
         }
         // Scheduled here, outside the lock's zone: the resend it starts
-        // must not read as holding the lock. A timer is no user intent: the
-        // resend drains at background priority, so it never accepts a
-        // request (amendment 5).
+        // must not read as holding the lock. A timer is no user intent, so
+        // the resend never drains at user priority and never accepts a
+        // request (amendment 5). Review m1: it keeps the drain's own
+        // priority otherwise, so a user's message is resent at live (ahead
+        // of the background sweep), and a background drain's stays
+        // background.
         final wait = run.resendAfter;
         if (wait != null) {
-          _schedule(
-            wait,
-            () => unawaited(drain(id, priority: BudgetPriority.background)),
-          );
+          final later = priority == BudgetPriority.user
+              ? BudgetPriority.live
+              : priority;
+          _schedule(wait, () => unawaited(drain(id, priority: later)));
         }
         await _forgetGone(id);
         // The calls that joined meanwhile: one more run, at their priority.
@@ -588,8 +593,8 @@ class EncryptedSender {
       // with this user as the recipient. Once per drain.
       if (run.accepted) return _stop(id, SendBlock.notSynced);
       // Amendment 5 (audit M3, a gate): only the user's own send accepts.
-      // A background drain (a push, a poll, a scheduled resend) leaves the
-      // row waiting until the user sends or retries.
+      // A drain that is not the user's (a push, a poll, a scheduled
+      // resend) leaves the row waiting until the user sends or retries.
       if (run.priority != BudgetPriority.user) {
         return _stop(id, SendBlock.notSynced);
       }

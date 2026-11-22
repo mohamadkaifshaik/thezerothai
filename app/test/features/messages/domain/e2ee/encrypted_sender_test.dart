@@ -1728,6 +1728,57 @@ void main() {
     });
   });
 
+  group('the scheduled resend\'s priority (Task 9 review m1)', () {
+    const busy = ScreeningUnavailableException(
+      'busy',
+      retryAfter: Duration(minutes: 1),
+    );
+
+    /// Runs the one scheduled resend, whose send answers STALE_EPOCH, and
+    /// answers the priority of the unit its catch-up listed commits with.
+    Future<BudgetPriority> resendPriority(_SpyBudget budget) async {
+      expect(rig.scheduled, hasLength(1));
+      final atListing = <BudgetPriority>[];
+      rig.server.onCall = (call) async {
+        if (call == 'listConversationCommits') atListing.add(budget.taken.last);
+      };
+      rig.server.sendScript.add((
+        error: const StaleEpochException('stale', generation: 1, epoch: 1),
+        stored: false,
+      ));
+      rig.clock.advance(busy.retryAfter!);
+      rig.scheduled.single.run();
+      await rig.sender.settled(_c1);
+      expect(rig.server.sends, hasLength(2));
+      expect(atListing, isNotEmpty);
+      return atListing.first;
+    }
+
+    test('a user drain\'s resend drains at live: never user (it does not '
+        'accept), never behind the background sweep', () async {
+      late _SpyBudget budget;
+      await setUpJoined(syncBudget: (clock) => budget = _SpyBudget(clock));
+      rig.server.sendScript.add((error: busy, stored: false));
+      await send('l1');
+      expect(rig.server.sends, hasLength(1));
+
+      expect(await resendPriority(budget), BudgetPriority.live);
+    });
+
+    test('a background drain\'s resend stays at background', () async {
+      late _SpyBudget budget;
+      await setUpJoined(syncBudget: (clock) => budget = _SpyBudget(clock));
+      rig.removedElsewhere = true;
+      await send('l1');
+      rig.removedElsewhere = false;
+      rig.server.sendScript.add((error: busy, stored: false));
+      await rig.sender.drain(_c1, priority: BudgetPriority.background);
+      expect(rig.server.sends, hasLength(1));
+
+      expect(await resendPriority(budget), BudgetPriority.background);
+    });
+  });
+
   group('a failed outbox read (code review I3)', () {
     /// 'l1' waits at stage plain with no drain running and every gate of
     /// an encrypt open (so `outgoing` shows what the last drain left).
