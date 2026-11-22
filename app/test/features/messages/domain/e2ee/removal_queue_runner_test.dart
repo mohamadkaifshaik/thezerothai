@@ -612,15 +612,32 @@ void main() {
         final sibling = await RigPeer.create('sibling');
         await setUpRig(ownListed: [sibling]);
         await join(_c1, others: [sibling]);
-        // The runner-wide record names another conversation's limit.
-        rig.commits.lastRateLimit = const RateLimitedException(
-          'rig',
-          retryAfter: Duration(hours: 1),
-        );
+        await join(_c2, others: [sibling]);
+        // c1's change is refused (not rate-limited) while another
+        // conversation's commit is answered RATE_LIMITED meanwhile: the
+        // runner-wide record changes during c1's attempt.
+        rig.server.commitScript.add((
+          error: const ValidationException('rig'),
+          stored: false,
+        ));
+        var swapped = false;
+        rig.server.onCall = (call) async {
+          if (call != 'commitConversation' || swapped) return;
+          swapped = true;
+          rig.commits.lastRateLimit = const RateLimitedException(
+            'rig',
+            retryAfter: Duration(hours: 1),
+          );
+        };
 
         await removeAndSettle(sibling);
 
-        expect(await pin(sibling), isNull);
+        expect(swapped, isTrue);
+        expect(requests(_c1), hasLength(1));
+        // The pass went on to c2: no hold from another conversation's
+        // limit.
+        expect(await pin(sibling, _c2), isNull);
+        expect(queued(_c1, sibling), isTrue);
         expect((await stored())!.notBeforeMicros, isNull);
         expect(runnerScheduled, isEmpty);
       },
