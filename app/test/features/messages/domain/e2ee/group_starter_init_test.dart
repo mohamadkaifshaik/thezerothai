@@ -2792,10 +2792,12 @@ void main() {
     });
 
     /// An expired provisional group whose server's first commit is another
-    /// device's init: the next resume rebuilds it. The clock is pinned to
-    /// 06:00 UTC (11:30 IST), so no test crosses an IST day.
+    /// device's init: the next resume rebuilds it. The rig's clock is set to
+    /// 06:00 UTC (11:30 IST) of its own day, so no test crosses an IST day
+    /// (the real clock is never compared with it).
     Future<({GroupRecord group, OutboxItem row})> expiredLost() async {
-      rig.clock.value = DateTime.utc(2026, 11, 20, 6);
+      final day = rig.clock.now();
+      rig.clock.value = DateTime.utc(day.year, day.month, day.day, 6);
       rig.server.sendScript.addAll([unknown, unknown]);
       await start();
       await done();
