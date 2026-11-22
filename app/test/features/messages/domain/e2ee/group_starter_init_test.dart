@@ -3814,6 +3814,32 @@ void main() {
       });
     }
 
+    test('a refused replay, then reset() (sign-out or a new vault): held, '
+        'the evidence was memory of the earlier run (pre-flag-on review '
+        'm-B)', () async {
+      final row = await unanswered(stored: true);
+      rig.clock.advance(kProvisionalExpiry + const Duration(minutes: 1));
+      rig.server.rewriteLive = (real) =>
+          pb.ListMessagesResponse(conversation: real.conversation);
+      rig.server.sendScript.add((
+        error: const FeatureDisabledException('off'),
+        stored: false,
+      ));
+      await starter.resumeProvisional();
+      await done();
+      await expectUnchanged(row, 'a refused replay deletes nothing');
+
+      starter.reset();
+
+      expect(await starter.discardInit(_c1), InitDiscard.held);
+      await expectUnchanged(row, 'right after the reset');
+      // Past the margin after the reset too (ruling 3 holds no more): no
+      // replay was refused in this run.
+      rig.clock.advance(kInitResendMargin);
+      expect(await starter.discardInit(_c1), InitDiscard.held);
+      await expectUnchanged(row, 'no refused replay in this run');
+    });
+
     test(
       'a refused replay followed by a replay whose outcome is unknown: '
       'held, only the last request counts (pre-flag-on review I-1)',
