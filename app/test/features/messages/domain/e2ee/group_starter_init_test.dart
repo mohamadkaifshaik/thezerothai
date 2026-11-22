@@ -1815,6 +1815,106 @@ void main() {
       await expectNoNewStart();
     });
 
+    test('no new start while an after-pair shows this device was a '
+        'member', () async {
+      await refusedOnce();
+      await rig.device.vault.transaction(
+        (tx) => tx.setAfterPair(_c1, const MlsPair(1, 0)),
+      );
+      final record = (await rig.device.vault.conversation(_c1))!;
+      expect(record.afterPair, const MlsPair(1, 0));
+      expect(record.joinHighWater, isNull);
+      await expectNoNewStart();
+    });
+
+    test('no new start while a group of any generation is stored', () async {
+      await refusedOnce();
+      await discardFailed();
+      // A final group with the peer ref stored and no mark, no first-saw
+      // generation and no former pins: only the group says "a member".
+      final v = rig.device.vault;
+      final state = await rig.device.engine.inner.createGroup(
+        (await v.deviceState())!,
+        mlsGroupId(_c1, 2),
+      );
+      await v.transaction(
+        (tx) => tx.putGroup(
+          GroupRecord(
+            conversationId: _c1,
+            generation: 2,
+            epoch: 0,
+            state: state,
+          ),
+        ),
+      );
+      final record = await v.conversation(_c1);
+      expect(record?.afterPair, isNull);
+      expect(record?.joinHighWater, isNull);
+      expect(record?.sync.firstSawGeneration, isNull);
+      expect(await const FormerPins().of(v, _c1), isEmpty);
+
+      final r = await start(localId: 'local-2', text: 'second');
+      expect(r.result, StartResult.joinedExisting);
+      await done();
+      await starter.retryStart('local-2');
+      await done();
+
+      expect(rig.keys.claimCalls, isEmpty);
+      expect(await groupOf(), isNull);
+      expect((await v.groups(_c1)).single.generation, 2);
+      expect(inits(), hasLength(1));
+    });
+
+    test('a mark written while the claim is in flight stops the new start '
+        '(read again in the creating body)', () async {
+      await refusedOnce();
+      final answer = rig.keys.claims[_bob]!;
+      rig.keys.claims[_bob] = () async {
+        // A welcome of another device's group is joined meanwhile: this
+        // device is a member now.
+        await rig.device.vault.transaction(
+          (tx) => tx.setJoinHighWater(_c1, const MlsPair(1, 0)),
+        );
+        return answer();
+      };
+
+      await starter.retryStart('local-1');
+      await done();
+
+      // The pre-check passed (the claim was made); the body refused.
+      expect(rig.keys.claimCalls, hasLength(1));
+      expect(await groupOf(), isNull);
+      expect(await rig.device.vault.members(_c1), isEmpty);
+      final row = (await rows()).single;
+      expect(row.stage, OutboxStage.plain);
+      expect(row.init, isNull);
+      expect(row.lastError, 'RateLimitedException');
+      expect(rig.server.sends, hasLength(1));
+    });
+
+    test('a new send at the per-target claim cap fails its row with '
+        'tryTomorrow', () async {
+      await refusedOnce();
+      await discardFailed();
+      rig.keys.claimErrors[_bob] = cap;
+
+      final r = await start(localId: 'local-2', text: 'second');
+      expect(r.result, StartResult.joinedExisting);
+      await done();
+
+      expect(rig.keys.claimCalls, hasLength(1));
+      expect(await groupOf(), isNull);
+      final row = (await rows()).single;
+      expect(row.localId, 'local-2');
+      expect(row.stage, OutboxStage.plain);
+      expect(row.lastError, 'RateLimitedException');
+      final shown = (await rig.sender.outgoing(_c1)).single;
+      expect(shown.status, OutgoingStatus5a.failed);
+      expect(shown.tryTomorrow, isTrue);
+      expect(shown.error, isA<RateLimitedException>());
+      expect(rig.server.sends, hasLength(1));
+    });
+
     test('no new start while a first-saw generation is stored', () async {
       await refusedOnce();
       await rig.device.vault.transaction(
@@ -2042,6 +2142,85 @@ void main() {
       expect(row.recipientUserId, _bob);
       expect(await rig.device.vault.members(_c1), hasLength(2));
       expect(rig.server.sends.last.key, row.idempotencyKey);
+    });
+  });
+
+  group('the replace guard of the 24 h rebuild (review N6)', () {
+    test('a provisional group that changed while the rebuild claimed is not '
+        'replaced, and its row stays', () async {
+      rig.server.sendScript.addAll([unknown, unknown]);
+      await start();
+      await done();
+      final old = (await groupOf())!;
+      final oldRow = (await rows()).single;
+      rig.server.addCommit(
+        _c1,
+        const MlsPair(1, 0),
+        rigBytes('the init of another device'),
+        fromUser: 'user-b',
+      );
+      rig.clock.advance(kProvisionalExpiry + const Duration(minutes: 1));
+      rig.keys.claimCalls.clear();
+      final answer = rig.keys.claims[_bob]!;
+      Future<void> Function() during = () async {};
+      rig.keys.claims[_bob] = () async {
+        await during();
+        return answer();
+      };
+
+      Future<void> expectRowUntouched(String why) async {
+        final row = (await rows()).single;
+        expect(row.idempotencyKey, oldRow.idempotencyKey, reason: why);
+        expect(row.init, isNotNull, reason: why);
+        expect(row.stage, OutboxStage.encrypted, reason: why);
+        expect(row.lastError, isNull, reason: why);
+        expect(await rig.device.vault.members(_c1), hasLength(2), reason: why);
+      }
+
+      // (1) While the claim is in flight the group is replaced by another
+      // provisional init (other commit bytes).
+      final other = rigBytes('another init of this device');
+      during = () => rig.device.vault.transaction(
+        (tx) => tx.putGroup(
+          GroupRecord(
+            conversationId: _c1,
+            generation: 1,
+            epoch: 1,
+            state: old.state,
+            provisional: true,
+            provisionalCreatedAtMicros: old.provisionalCreatedAtMicros,
+            pending: PendingCommit(
+              kind: PendingKind.init,
+              builtOn: const MlsPair(1, 0),
+              commit: other,
+              welcome: old.pending!.welcome,
+              welcomeDeviceIds: old.pending!.welcomeDeviceIds,
+            ),
+          ),
+        ),
+      );
+      await starter.resumeProvisional();
+      await done();
+      expect(rig.keys.claimCalls, hasLength(1));
+      var g = (await groupOf())!;
+      expect(g.provisional, isTrue);
+      expect(rigEq(g.pending!.commit, other), isTrue);
+      expect(g.provisionalCreatedAtMicros, old.provisionalCreatedAtMicros);
+      await expectRowUntouched('replaced meanwhile');
+
+      // (2) While the next rebuild's claim is in flight the group is
+      // settled (made final).
+      during = () => rig.device.vault.transaction(
+        (tx) => tx.clearProvisional(_c1, 1, afterPair: const MlsPair(1, 0)),
+      );
+      await starter.resumeProvisional();
+      await done();
+      expect(rig.keys.claimCalls, hasLength(2));
+      g = (await groupOf())!;
+      expect(g.provisional, isFalse);
+      expect(rigEq(g.state, old.state), isTrue);
+      await expectRowUntouched('settled meanwhile');
+      expect(rig.server.sends, hasLength(2));
     });
   });
 
