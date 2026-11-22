@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:dzeroth/core/crypto/crypto_types.dart';
+import 'package:dzeroth/core/crypto/guarded_crypto_engine.dart';
 import 'package:dzeroth/core/crypto/mls_derivations.dart';
 import 'package:dzeroth/core/crypto/mls_pair.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
@@ -62,7 +63,7 @@ void main() {
     sender: rig.sender,
     receiver: rig.receiver,
     session: rig.device.session,
-    engine: () => rig.device.engine,
+    engine: rig.engineNow,
     messaging: rig.messaging,
     keys: rig.keys,
     directory: rig.directory,
@@ -1357,6 +1358,38 @@ void main() {
       expect(await rig.ledger.autoResets(_c1), 1);
       s = await state();
       expect(s.phase, ConversationPhase.ready);
+    });
+
+    test('audit M2 / L5: removed elsewhere, or a failed engine: canReset is '
+        'false and repairIfStuck counts nothing', () async {
+      await setUpJoined();
+      await makeStuck();
+      expect((await state()).canReset, isTrue);
+
+      // Task 12's seam set: this device was removed elsewhere.
+      rig.removedElsewhere = true;
+      expect((await state()).canReset, isFalse);
+      await starter.repairIfStuck(_c1);
+      expect(rig.keys.claimCalls, isEmpty);
+      expect(await rig.ledger.autoResets(_c1), 0);
+      rig.removedElsewhere = false;
+
+      // The guarded engine failed twice: it answers `unavailable`.
+      final down = GuardedCryptoEngine(
+        create: () => throw StateError('rig: no engine'),
+      );
+      for (var i = 0; i < 2; i++) {
+        await expectLater(down.randomBytes(1), throwsA(isA<MlsException>()));
+      }
+      expect(down.unavailable.value, isTrue);
+      rig.engineOverride = down;
+      expect((await state()).canReset, isFalse);
+      await starter.repairIfStuck(_c1);
+      expect(rig.keys.claimCalls, isEmpty);
+      expect(await rig.ledger.autoResets(_c1), 0);
+      rig.engineOverride = null;
+      expect((await state()).canReset, isTrue);
+      expect(resets(), isEmpty);
     });
 
     test(

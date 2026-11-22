@@ -1921,6 +1921,14 @@ class RigCrypto {
   /// Task 12's "removed elsewhere" fact, as the sender reads it.
   bool removedElsewhere = false;
 
+  /// The engine every component of this rig is handed instead of the
+  /// device's (a guarded engine that answers `unavailable`, say); null: the
+  /// device's [RigDevice.engine].
+  CryptoEngine? engineOverride;
+
+  /// The engine the components ask for now.
+  CryptoEngine engineNow() => engineOverride ?? device.engine;
+
   /// What the sender asked to run later (its `schedule` seam): never run by
   /// the rig; a test runs an entry itself.
   final List<({Duration delay, void Function() run})> scheduled = [];
@@ -1985,7 +1993,7 @@ class RigCrypto {
     );
     crypto = ConversationCrypto(
       session: device.session,
-      engine: () => device.engine,
+      engine: engineNow,
       messaging: messaging,
       directory: directory,
       syncBudget: syncBudget,
@@ -1995,12 +2003,13 @@ class RigCrypto {
       ledger: ledger,
       now: clock.now,
       onChanged: changed.add,
+      removedElsewhere: () => removedElsewhere,
       onUnexpectedError: (e, _) => unexpected.add(e),
     );
     receiver = MessageReceiver(
       crypto: crypto,
       session: device.session,
-      engine: () => device.engine,
+      engine: engineNow,
       messaging: messaging,
       syncBudget: syncBudget,
       readBudget: readBudget,
@@ -2017,7 +2026,7 @@ class RigCrypto {
       crypto: crypto,
       receiver: receiver,
       session: device.session,
-      engine: () => device.engine,
+      engine: engineNow,
       messaging: messaging,
       locks: locks,
       contexts: contexts,
@@ -2039,7 +2048,7 @@ class RigCrypto {
       crypto: crypto,
       receiver: receiver,
       session: device.session,
-      engine: () => device.engine,
+      engine: engineNow,
       messaging: messaging,
       ledger: ledger,
       locks: locks,
@@ -2060,7 +2069,7 @@ class RigCrypto {
       ledger: ledger,
       crypto: crypto,
       session: device.session,
-      engine: () => device.engine,
+      engine: engineNow,
       messaging: messaging,
       keys: keys,
       directory: directory,

@@ -836,6 +836,11 @@ extension _Reset on GroupStarter {
       // A flag-off device never resets: the conversation stays stuck, and
       // `describeState` says so (`canReset` false).
       if (!_session.mayStart) return;
+      // Audit M2 / L5: checked BEFORE the count, so nothing is counted for
+      // an attempt that cannot run (`canReset` says the same).
+      if (_session.vault == null || _removedElsewhere() || _engineDown()) {
+        return;
+      }
       final state = await _crypto.describeState(id);
       if (state.phase != ConversationPhase.stuck || !state.canReset) return;
       // Security read M9: at most kAutoResetsPerDay automatic resets per

@@ -141,6 +141,11 @@ class ConversationCrypto {
   /// [ledger] is the pipeline's one [DailyLedger] (M5): commit apply counts
   /// an undo of an own change in it and records an own commit's change.
   /// Required, so that no wiring can leave the anti-flap rule out.
+  ///
+  /// [removedElsewhere] is Task 12's fact (this device was removed from the
+  /// conversation set elsewhere), read by `describeState`: no reset is
+  /// offered while it holds (Task 10 audit M2 / L5). Required for the same
+  /// reason as [ledger]; Task 12 wires it.
   ConversationCrypto({
     required VaultSession session,
     required CryptoEngine Function() engine,
@@ -153,6 +158,7 @@ class ConversationCrypto {
     required DailyLedger ledger,
     required DateTime Function() now,
     required void Function(String conversationId) onChanged,
+    required bool Function() removedElsewhere,
     void Function(Object error, StackTrace stack)? onUnexpectedError,
   }) : _session = session,
        _engine = engine,
@@ -167,6 +173,7 @@ class ConversationCrypto {
        _keyHistory = DeviceKeyHistory(onUnexpectedError: onUnexpectedError),
        _now = now,
        _onChanged = onChanged,
+       _removedElsewhere = removedElsewhere,
        _onUnexpectedError = onUnexpectedError;
 
   final VaultSession _session;
@@ -182,6 +189,7 @@ class ConversationCrypto {
   final DeviceKeyHistory _keyHistory;
   final DateTime Function() _now;
   final void Function(String conversationId) _onChanged;
+  final bool Function() _removedElsewhere;
   final void Function(Object error, StackTrace stack)? _onUnexpectedError;
 
   /// Set by Task 6.
@@ -606,7 +614,11 @@ class ConversationCrypto {
     // pause (`committingPausedToday`, the anti-flap offer). Decision: never
     // while a provisional group is stored (a reset or a start in progress:
     // a second reset would race the first, whose call may still land),
-    // whatever the remembered stuck answer says.
+    // whatever the remembered stuck answer says. Audit M2 / L5: never while
+    // this device is removed elsewhere (Task 12's seam: a removed device
+    // must not reset itself back in) or the engine is unavailable (the
+    // reset could not be built, and an automatic one would count an
+    // attempt that cannot run).
     final resetAt =
         phase == ConversationPhase.waitingForWelcome && seenAt != null
         ? DateTime.fromMicrosecondsSinceEpoch(
@@ -616,6 +628,8 @@ class ConversationCrypto {
         : null;
     final canReset =
         _session.mayStart &&
+        !_removedElsewhere() &&
+        !engineDown &&
         accepted &&
         !groups.any((x) => x.provisional) &&
         (phase == ConversationPhase.stuck ||

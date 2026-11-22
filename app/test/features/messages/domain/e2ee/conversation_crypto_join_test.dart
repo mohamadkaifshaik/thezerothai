@@ -1744,6 +1744,7 @@ void main() {
       ledger: rig.ledger,
       now: rig.clock.now,
       onChanged: rig.changed.add,
+      removedElsewhere: () => rig.removedElsewhere,
       onUnexpectedError: (e, _) => rig.unexpected.add(e),
     );
     await rig.offer(_c1, bob);
