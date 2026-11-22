@@ -1108,6 +1108,41 @@ void main() {
       await done(dmConversationId(_me, _bob));
     });
 
+    test('two concurrent starts for the same peer share one run: one claim '
+        'set and one init (audit L2)', () async {
+      final sib = await sibling('sibling');
+      final hold = Completer<void>();
+      final answer = rig.keys.claims[_bob]!;
+      rig.keys.claims[_bob] = () async {
+        await hold.future;
+        return answer();
+      };
+
+      final first = start();
+      final second = start(localId: 'local-2', text: 'second');
+      await pumpEventQueue();
+      // The first is claiming; the second waits for it.
+      expect(rig.keys.claimCalls, hasLength(1));
+      hold.complete();
+      final r1 = await first;
+      final r2 = await second;
+      await done();
+
+      expect(r1.result, StartResult.started);
+      expect(r2.result, StartResult.joinedExisting);
+      expect(r2.conversationId, _c1);
+      // One claim for bob, one for the own sibling: one claim set.
+      expect(rig.keys.claimCalls.map((c) => c.userId), [_bob, _me]);
+      expect(inits(), hasLength(1));
+      expect((await groupOf())!.provisional, isFalse);
+      final init = pb.MlsInit.fromBuffer(inits().single.mlsInit!);
+      expect(init.welcomeDeviceIds, [bob.idString, sib.idString]);
+      // Both messages went out, in the order typed.
+      expect(await rows(), isEmpty);
+      expect(rig.server.sends, hasLength(2));
+      expect(rig.server.sends.last.mlsInit, isNull);
+    });
+
     test('a failed claim for the own devices still starts, with the peer\'s '
         'devices only (code review M7)', () async {
       final sib = await sibling('sibling');

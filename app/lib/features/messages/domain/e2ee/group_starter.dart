@@ -286,6 +286,11 @@ class GroupStarter {
   /// flight removes its own entry when it ends.
   final Set<String> _restarting = {};
 
+  /// Audit L2: peer reference -> the routing of [startOrRoute] running for
+  /// it (single flight). Not cleared by [reset]: a routing in flight
+  /// removes its own entry when it ends.
+  final Map<String, Future<void>> _routing = {};
+
   /// Local ids whose init's outcome stayed unknown after the automatic
   /// resend: each later trigger makes one attempt.
   final Set<String> _unknown = {};
@@ -598,6 +603,23 @@ class GroupStarter {
     if (conversationId != null && !isConversationId(conversationId)) {
       throw ArgumentError('Invalid conversation id.');
     }
+    // Audit L2. Decision: one routing per peer ref at a time; a start for a
+    // peer whose routing runs waits for it and is then routed afresh (the
+    // conversation is then known, so its row goes to the sender). Why: two
+    // fresh starts for one peer each claimed the peer's one-time packages
+    // (and one of the 20 claims per target a day), and the second claim
+    // was always wasted: the lock then found the first one's group. Keyed
+    // on the reference exactly as given (another id kind of the same
+    // person is not joined). Every routing of the peer waits, not only a
+    // fresh one: which path a routing takes is known only after its reads,
+    // and the order the user typed is kept that way.
+    while (true) {
+      final running = _routing[peerUserId];
+      if (running == null) break;
+      await running;
+    }
+    final routed = Completer<void>();
+    _routing[peerUserId] = routed.future;
     try {
       return await _route(
         localId: localId,
@@ -615,6 +637,11 @@ class GroupStarter {
       // Fail closed: a failed read or an engine failure is never plaintext.
       _reportIfBug(e, s, 'start.route');
       return _out(StartResult.unavailable);
+    } finally {
+      if (identical(_routing[peerUserId], routed.future)) {
+        _routing.remove(peerUserId);
+      }
+      routed.complete();
     }
   }
 
