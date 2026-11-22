@@ -88,6 +88,7 @@ const text = (i) => TEXTS[i % TEXTS.length];
 const respBytes = new Trend('resp_bytes');
 const wireBytes = new Trend('wire_bytes');
 const burstOK = new Rate('burst_send_ok');
+const verifiedBursts = new Counter('verified_bursts');
 const burstStatus = new Counter('burst_send_status');
 const burstSeen = new Counter('burst_polled_messages');
 const burstGaps = new Counter('burst_poll_gap_pages');
@@ -127,6 +128,7 @@ export const options = {
   },
   thresholds: {
     checks: ['rate>0.99'],
+    verified_bursts: ['count==1'],
     // Stage 0 target for a warm read is p95 < 400 ms; on an emulator under 300 virtual users it is indicative only.
     'http_req_duration{rpc:Poll}': ['p(95)<800'],
     // Always-true thresholds whose only job is to make k6 print the per-call response sizes (the egress line) in the end summary.
@@ -177,6 +179,8 @@ function sendTo(from, convId, n, what) {
 }
 
 export function setup() {
+  // A verifier that aborts before its final check must also fail the run.
+  verifiedBursts.add(0);
   const hub = mintUsers(1, 'hubx')[0];
   const peers = mintUsers(HUB_PEERS, 'peerx');
   const [t1, t2] = mintUsers(2, 'thrx');
@@ -340,7 +344,7 @@ export function verify(d) {
     const body = { conversationId: d.burstConv, pageSize: 50 };
     if (token) body.pageToken = token;
     const r = call(MSG, 'ListMessages', body, d.x, 'Verify_page');
-    if (r.status !== 200) break;
+    if (r.status !== 200) throw new Error('verification page failed: ' + r.status);
     for (const m of r.json('messages') || []) {
       ids[m.id] = true;
       total++;
@@ -351,6 +355,7 @@ export function verify(d) {
   }
   const inbox = (u) => {
     const r = call(MSG, 'ListConversations', { folder: 'FOLDER_INBOX', pageSize: 50 }, u, 'Verify_inbox');
+    if (r.status !== 200) return -1;
     const c = (r.json('conversations') || []).find((e) => e.id === d.burstConv);
     return c ? parseInt(c.unreadCount || '0', 10) : -1;
   };
@@ -358,7 +363,8 @@ export function verify(d) {
   const unreadY = inbox(d.y);
   const fromY = total - fromX;
   // Neither side reads, so each side's unread count is exactly the number of messages the other side sent.
-  const consistent = unreadY === fromX && unreadX === fromY && Object.keys(ids).length === total;
+  const consistent = !token && unreadY === fromX && unreadX === fromY && Object.keys(ids).length === total;
   console.log(`W723 VERIFY total=${total} unique=${Object.keys(ids).length} fromX=${fromX} fromY=${fromY} unreadX=${unreadX} unreadY=${unreadY} consistent=${consistent}`);
+  if (consistent) verifiedBursts.add(1);
   check(null, { 'burst thread consistent (no lost message, no lost unread Increment)': () => consistent });
 }
