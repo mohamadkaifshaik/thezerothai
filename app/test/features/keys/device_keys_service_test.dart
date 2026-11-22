@@ -181,6 +181,30 @@ class _Rig {
       ..beforeExplicitWipe = service.removeThisDevice;
   }
 
+  /// A session over the real vault on an in-memory database (pass it to
+  /// [launch]).
+  (VaultDatabase, VaultSession) realVault() {
+    final db = VaultDatabase.forTesting(NativeDatabase.memory());
+    final cipher = FakeVaultCipher();
+    final session = VaultSession(
+      openCipher: (_, {required create}) async => cipher,
+      openVault: ({
+        required uid,
+        required cipher,
+        String? expectedStorage,
+        required create,
+      }) => openVaultOnDatabase(db, uid: uid, cipher: cipher),
+      wipeVaultFile: ({required alias, String? expectedStorage}) async {},
+      deleteVaultKey: ({required alias}) async {},
+      createOwner: () => FakeVaultOwner(world),
+      markers: world.markers,
+      supported: true,
+      launchId: 'keys-real-vault',
+      now: () => now,
+    );
+    return (db, session);
+  }
+
   /// What the session is told about e2ee_dm at sign-in (null: [flag]).
   E2eeFlag? answer;
   E2eeFlag get sessionFlag => answer ?? (flag ? E2eeFlag.on : E2eeFlag.off);
@@ -674,28 +698,7 @@ void main() {
     connect.ConnectException timeout() =>
         connect.ConnectException(connect.Code.deadlineExceeded, 'timeout');
 
-    /// A session over the real vault on an in-memory database.
-    (VaultDatabase, VaultSession) realVault() {
-      final db = VaultDatabase.forTesting(NativeDatabase.memory());
-      final cipher = FakeVaultCipher();
-      final session = VaultSession(
-        openCipher: (_, {required create}) async => cipher,
-        openVault: ({
-          required uid,
-          required cipher,
-          String? expectedStorage,
-          required create,
-        }) => openVaultOnDatabase(db, uid: uid, cipher: cipher),
-        wipeVaultFile: ({required alias, String? expectedStorage}) async {},
-        deleteVaultKey: ({required alias}) async {},
-        createOwner: () => FakeVaultOwner(rig.world),
-        markers: rig.world.markers,
-        supported: true,
-        launchId: 'keys-real-vault',
-        now: () => rig.now,
-      );
-      return (db, session);
-    }
+    (VaultDatabase, VaultSession) realVault() => rig.realVault();
 
     const rejectPending =
         'CREATE TRIGGER reject_pending BEFORE INSERT ON vault_settings '
@@ -1018,6 +1021,8 @@ void main() {
         final vault = session.vault!;
         addTearDown(vault.close);
         final original = await vault.deviceState();
+        final day = await vault.setting(kVaultSettingKeyBatchDay);
+        expect(day, isNotNull);
         rig.devices.values.single.pool.clear();
         await db.customStatement(
           "CREATE TRIGGER reject_pending BEFORE INSERT ON vault_settings "
@@ -1029,6 +1034,11 @@ void main() {
           await vault.deviceState(),
           original,
           reason: 'private write rolls back',
+        );
+        expect(
+          await vault.setting(kVaultSettingKeyBatchDay),
+          day,
+          reason: 'the batch is not counted either',
         );
         expect(rig.server.uploads, hasLength(1));
         await db.customStatement('DROP TRIGGER reject_pending');
@@ -1202,6 +1212,82 @@ void main() {
       await nextRun();
       expect(rig.server.uploads, hasLength(uploads + 1));
       expect(reported(), ['DeviceKeysError(batchCap)']);
+    });
+
+    test('the cap follows the IST day, not the UTC day: capped across 00:00 '
+        'UTC, reset only at IST midnight', () async {
+      toNextIstDay();
+      rig.advance(const Duration(hours: 4, minutes: 29)); // 04:30 IST
+      expect(rig.now.hour, 23, reason: '23:00 UTC, the day before');
+      await rig.signIn(_a); // batch 1
+      final pool = rig.devices.values.single.pool;
+      // Restarts (no clock move) reach the cap before 05:30 IST.
+      for (var i = 2; i <= kMaxKeyBatchesPerDay; i++) {
+        pool.clear();
+        rig.launch();
+        await rig.signIn(_a);
+      }
+      expect(rig.engine.generated, hasLength(kMaxKeyBatchesPerDay));
+
+      // 05:35 IST = 00:05 UTC: a new UTC day, the same IST day.
+      pool.clear();
+      rig.advance(const Duration(hours: 1, minutes: 5));
+      expect(rig.now.hour, 0);
+      await rig.service.ensureReady();
+      expect(rig.engine.generated, hasLength(kMaxKeyBatchesPerDay));
+      expect(reported(), ['DeviceKeysError(batchCap)']);
+
+      // 23:59 IST: still capped.
+      final local = rig.now.add(ist);
+      final midnight = DateTime.utc(
+        local.year,
+        local.month,
+        local.day,
+      ).add(_day).subtract(ist);
+      rig.advance(midnight.difference(rig.now) - const Duration(minutes: 1));
+      await rig.service.ensureReady();
+      expect(rig.engine.generated, hasLength(kMaxKeyBatchesPerDay));
+
+      // 00:01 IST: the next IST day generates again.
+      rig.advance(const Duration(minutes: 2));
+      await rig.service.ensureReady();
+      expect(rig.engine.generated, hasLength(kMaxKeyBatchesPerDay + 1));
+      expect(pool, hasLength(50));
+    });
+
+    test('a counter row that does not open (corrupt) counts as the cap for '
+        'today; the next IST day starts over', () async {
+      toNextIstDay();
+      final (db, session) = rig.realVault();
+      rig.launch(realSession: session);
+      await rig.signIn(_a);
+      final vault = session.vault!;
+      addTearDown(vault.close);
+      await db.customStatement(
+        "UPDATE vault_settings SET value = X'00' "
+        "WHERE setting_key = '$kVaultSettingKeyBatchDay'",
+      );
+      await expectLater(
+        vault.setting(kVaultSettingKeyBatchDay),
+        throwsA(isA<VaultCorruptException>()),
+      );
+      rig.devices.values.single.pool.clear();
+      final uploads = rig.server.uploads.length;
+      await nextRun();
+      expect(rig.engine.generated, hasLength(1));
+      expect(rig.server.uploads, hasLength(uploads));
+      expect(
+        rig.service.status.value,
+        const DeviceKeysStatus.failed(retryable: true),
+      );
+      expect(reported(), ['DeviceKeysError(batchCap)']);
+      // The marked record replaced the corrupt row: not reported again.
+      await nextRun();
+      expect(reported(), ['DeviceKeysError(batchCap)']);
+      toNextIstDay();
+      await rig.service.onAppResumed();
+      expect(rig.engine.generated, hasLength(2));
+      expect(rig.service.status.value, DeviceKeysStatus.ready);
     });
 
     test('an unreadable counter counts as the cap for today', () async {
