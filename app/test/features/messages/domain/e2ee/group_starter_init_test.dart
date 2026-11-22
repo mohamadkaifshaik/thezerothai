@@ -1891,6 +1891,35 @@ void main() {
       expect((await rig.sender.outgoing(_c2)).single.localId, 'local-2');
     });
 
+    test('pendingInit finds a recipient-addressed init row by the '
+        'conversation that holds its group, also when the ref is stored for '
+        'two ids', () async {
+      gate = Completer<void>();
+      await start();
+      // The same peer ref under a second id that has a stored group (an
+      // honest server cannot produce this): the recipient now resolves to
+      // that id, not to the one whose provisional group the row belongs to.
+      final carol = await RigPeer.create('carol');
+      await joined(_c2, carol);
+      await rig.known.add(_c2, peerUserId: _bob);
+      expect(rig.known.peerOf(_c2), _bob);
+      expect(await rig.known.conversationForPeer(rig.device.vault, _bob), _c2);
+
+      final shown = (await starter.pendingInit(conversationId: _c1))!;
+      expect(shown.localId, 'local-1');
+      expect(shown.conversationId, _c1);
+      // The other id holds no provisional group: the row is not its.
+      expect(await starter.pendingInit(conversationId: _c2), isNull);
+      final byRef = (await starter.pendingInit(recipientUserId: _bob))!;
+      expect(byRef.localId, 'local-1');
+      expect(byRef.conversationId, _c1);
+
+      gate!.complete();
+      await done();
+      expect(await starter.pendingInit(conversationId: _c1), isNull);
+      expect(await starter.pendingInit(recipientUserId: _bob), isNull);
+    });
+
     test('pendingInit says waiting while the init is held', () async {
       rig.server.sendScript.addAll([unknown, unknown]);
       await start();

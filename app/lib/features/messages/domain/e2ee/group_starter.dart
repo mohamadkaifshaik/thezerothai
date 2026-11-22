@@ -287,26 +287,30 @@ class GroupStarter {
     final vault = _session.vault;
     if (vault == null) throw StateError('The vault is not ready.');
     if (!_known.isLoadedFor(vault)) await _known.load(vault);
-    for (final r in (await vault.outbox()).items) {
-      if (r.init == null || r.stage != OutboxStage.encrypted) continue;
-      // The row's conversation: its own id, or the one stored for its
-      // recipient reference in the provisional transaction.
-      final id =
-          r.conversationId ??
-          await _known.conversationForPeer(vault, r.recipientUserId ?? '');
-      if (id == null) continue;
-      final match = conversationId != null
-          ? id == conversationId
-          : r.recipientUserId == recipientUserId ||
-                _known.peerOf(id) == recipientUserId;
-      if (!match) continue;
-      // The age that [_resumeLocked] sends by: a group at or past
-      // [kProvisionalExpiry] (or with no creation time, or gone) has its
-      // init sent no more.
-      int? created;
+    // Review N7. Decision: the row is found from the conversation that
+    // holds the provisional group, with [_initRow]'s predicate (the one the
+    // resume, the settle and the discard use), never by resolving the row's
+    // recipient with `conversationForPeer`: when one ref is stored for two
+    // ids that resolves to the other id, and the conversation that has the
+    // row would answer null (the bubble disappears).
+    final ids = conversationId != null
+        ? [conversationId]
+        : [
+            for (final id in _known.ids)
+              if (_known.peerOf(id) == recipientUserId) id,
+          ];
+    for (final id in ids) {
+      GroupRecord? group;
       for (final g in await vault.groups(id)) {
-        if (g.provisional) created = g.provisionalCreatedAtMicros;
+        if (g.provisional) group = g;
       }
+      if (group == null) continue;
+      final r = await _initRow(vault, id, group.generation);
+      if (r == null) continue;
+      // The age that [_resumeLocked] sends by: a group at or past
+      // [kProvisionalExpiry] (or with no creation time) has its init sent
+      // no more.
+      final created = group.provisionalCreatedAtMicros;
       final expired =
           created == null ||
           _now().difference(
