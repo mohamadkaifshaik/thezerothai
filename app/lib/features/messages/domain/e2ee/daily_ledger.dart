@@ -29,6 +29,7 @@ class DailyRecord {
     this.did = const {},
     this.lostSendUpdate = const {},
     this.emptyClaim = const {},
+    this.autoResets = const {},
     this.exhausted = false,
   });
 
@@ -38,6 +39,7 @@ class DailyRecord {
       did = const {},
       lostSendUpdate = const {},
       emptyClaim = const {},
+      autoResets = const {},
       exhausted = false;
 
   /// The record that stands for a stored value that could not be read: every
@@ -47,6 +49,7 @@ class DailyRecord {
       did = const {},
       lostSendUpdate = const {},
       emptyClaim = const {},
+      autoResets = const {},
       exhausted = true;
 
   /// The IST day this record counts.
@@ -67,6 +70,11 @@ class DailyRecord {
   /// refused. None of them is claimed again before the next IST day.
   final Set<String> emptyClaim;
 
+  /// Per conversation: the automatic resets of today (security read M9,
+  /// Task 10's `GroupStarter.repairIfStuck`), counted before the reset's
+  /// first claim. Manual resets are not counted.
+  final Map<String, int> autoResets;
+
   /// True when the value stored for this day could not be read: the ledger
   /// then answers as if every counter were at its cap until the next IST day.
   final bool exhausted;
@@ -76,14 +84,24 @@ class DailyRecord {
     Map<String, DailyDevices>? did,
     Set<String>? lostSendUpdate,
     Set<String>? emptyClaim,
+    Map<String, int>? autoResets,
   }) => DailyRecord(
     day: day,
     undone: undone ?? this.undone,
     did: did ?? this.did,
     lostSendUpdate: lostSendUpdate ?? this.lostSendUpdate,
     emptyClaim: emptyClaim ?? this.emptyClaim,
+    autoResets: autoResets ?? this.autoResets,
     exhausted: exhausted,
   );
+
+  /// The automatic resets of [conversationId] today (M9): at least
+  /// [kAutoResetsPerDay] while the record is [exhausted] (PR 1 carryover:
+  /// an unreadable record must not reopen the cap).
+  int autoResetsIn(String conversationId) {
+    final n = autoResets[conversationId] ?? 0;
+    return exhausted && n < kAutoResetsPerDay ? kAutoResetsPerDay : n;
+  }
 
   /// Security read (A3): whether reversing a change to [deviceId] in
   /// [conversationId] undoes a change this device made today: removing a
@@ -186,7 +204,7 @@ class DailyRecord {
   /// The sealed JSON. [ArgumentError] for a counter outside
   /// 0..[kMaxPairComponent] (what [decode] accepts).
   Uint8List encode() {
-    for (final n in undone.values) {
+    for (final n in [...undone.values, ...autoResets.values]) {
       if (n < 0 || n > kMaxPairComponent) {
         throw ArgumentError('A daily counter is out of range.');
       }
@@ -210,6 +228,7 @@ class DailyRecord {
         },
         'lostSendUpdate': lostSendUpdate.toList(),
         'emptyClaim': emptyClaim.toList(),
+        if (autoResets.isNotEmpty) 'autoResets': autoResets,
       }),
     ),
   );
@@ -235,6 +254,13 @@ class DailyRecord {
         },
         lostSendUpdate: _strings(m['lostSendUpdate']),
         emptyClaim: _strings(m['emptyClaim']),
+        // Absent in a record written before Task 10: none today.
+        autoResets: m['autoResets'] == null
+            ? const {}
+            : {
+                for (final e in _map(m['autoResets']).entries)
+                  e.key: _int(e.value),
+              },
         exhausted: m['exhausted'] == null ? false : _bool(m['exhausted']),
       );
     } catch (_) {
@@ -288,6 +314,12 @@ class DailyRecord {
 /// Undos of this device's own changes allowed a day in one conversation (M5).
 const int kAntiFlapUndosPerDay = 2;
 
+/// Security read M9 (owner-approved): automatic resets allowed a day in one
+/// conversation. Every `stuck` cause can be produced by a server answer
+/// alone, so the server's own caps are no bound on them; at the limit the
+/// conversation stays `stuck` with the manual offer.
+const int kAutoResetsPerDay = 2;
+
 /// The counters that limit what this device does in one IST day (R3, R7, M5),
 /// kept in one sealed vault setting. Everything goes through
 /// `session.runWrite` and one vault transaction.
@@ -337,6 +369,23 @@ class DailyLedger {
       undone: {
         ...r.undone,
         conversationId: (r.undone[conversationId] ?? 0) + 1,
+      },
+    ),
+  );
+
+  /// M9: the automatic resets of [conversationId] today (at least
+  /// [kAutoResetsPerDay] while the record is exhausted).
+  Future<int> autoResets(String conversationId) async =>
+      (await read()).autoResetsIn(conversationId);
+
+  /// M9: one more automatic reset of [conversationId] today. Written BEFORE
+  /// the reset's first claim (Task 10), so a crash or a failed reset never
+  /// undercounts.
+  Future<void> addAutoReset(String conversationId) => _update(
+    (r) => r.copyWith(
+      autoResets: {
+        ...r.autoResets,
+        conversationId: (r.autoResets[conversationId] ?? 0) + 1,
       },
     ),
   );
@@ -432,6 +481,7 @@ class DailyLedger {
       did: result.did,
       lostSendUpdate: result.lostSendUpdate,
       emptyClaim: result.emptyClaim,
+      autoResets: result.autoResets,
       exhausted: true,
     );
   }

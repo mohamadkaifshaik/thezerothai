@@ -177,6 +177,76 @@ void main() {
     expect(reported, hasLength(1));
   });
 
+  group('automatic resets (security read M9)', () {
+    test('two per conversation per IST day, kept across a new ledger and '
+        'started again the next day', () async {
+      final l = ledger();
+      expect(kAutoResetsPerDay, 2);
+      expect(await l.autoResets(_conv), 0);
+      await l.addAutoReset(_conv);
+      await l.addAutoReset(_conv);
+      expect(await l.autoResets(_conv), 2);
+      expect(await l.autoResets('other'), 0);
+      expect(await ledger().autoResets(_conv), 2);
+      clock = clock.add(const Duration(days: 1));
+      expect(await l.autoResets(_conv), 0);
+    });
+
+    test(
+      'an exhausted record answers at least the cap (PR 1 carryover)',
+      () async {
+        await storeGarbage();
+        final l = ledger();
+        expect(await l.autoResets(_conv), kAutoResetsPerDay);
+        expect(await l.autoResets('other'), kAutoResetsPerDay);
+        // A write keeps the marker: the cap is not reopened.
+        await l.addAutoReset(_conv);
+        expect(
+          await l.autoResets(_conv),
+          greaterThanOrEqualTo(kAutoResetsPerDay),
+        );
+        expect((await l.read()).exhausted, isTrue);
+        expect(reported, hasLength(1));
+      },
+    );
+
+    test('a record stored before the field existed reads zero', () async {
+      await store(
+        Uint8List.fromList(
+          utf8.encode(
+            jsonEncode({
+              'v': 1,
+              'day': istDay(clock),
+              'undone': {_conv: 1},
+              'did': <String, Object?>{},
+              'lostSendUpdate': <String>[],
+              'emptyClaim': <String>[],
+            }),
+          ),
+        ),
+      );
+      final l = ledger();
+      expect(await l.autoResets(_conv), 0);
+      expect(await l.undone(_conv), 1);
+      expect(reported, isEmpty);
+    });
+
+    test(
+      'the count survives the encode and a write of another counter',
+      () async {
+        final l = ledger();
+        await l.addAutoReset(_conv);
+        await l.addUndone(_conv);
+        await l.markEmptyClaim(Uint8List.fromList([7]));
+        expect(await l.autoResets(_conv), 1);
+        final decoded = DailyRecord.decode(
+          DailyRecord(day: istDay(clock), autoResets: {_conv: 2}).encode(),
+        );
+        expect(decoded.autoResetsIn(_conv), 2);
+      },
+    );
+  });
+
   test('another version of the value is unreadable too', () async {
     await store(Uint8List.fromList(utf8.encode('{"v":2,"day":"x"}')));
     expect(await ledger().lostSendUpdateDone(_conv), isTrue);
