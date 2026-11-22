@@ -185,13 +185,6 @@ class CommitCallTracker {
     return now.isBefore(end) ? end.difference(now) : Duration.zero;
   }
 
-  /// Whether a "not stored" read whose listing started at [provedAt] may
-  /// decide for [commit]: no call of it still runs and its margin had
-  /// passed then.
-  bool mayDecide(String conversationId, Uint8List commit, DateTime provedAt) =>
-      !callStillOut(conversationId, commit) &&
-      marginLeft(conversationId, commit, provedAt) == null;
-
   /// The pending record of [conversationId] is gone (settled or
   /// discarded).
   void forget(String conversationId) {
