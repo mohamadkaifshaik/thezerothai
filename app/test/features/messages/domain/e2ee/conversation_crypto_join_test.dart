@@ -1741,6 +1741,7 @@ void main() {
       locks: rig.locks,
       contexts: rig.contexts,
       known: rig.known,
+      ledger: rig.ledger,
       now: rig.clock.now,
       onChanged: rig.changed.add,
       onUnexpectedError: (e, _) => rig.unexpected.add(e),

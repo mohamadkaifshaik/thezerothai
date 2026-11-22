@@ -1675,6 +1675,11 @@ class RigCrypto {
   Future<void> _wire() async {
     known = KnownConversations(session: device.session);
     await known.load(device.vault);
+    ledger = DailyLedger(
+      session: device.session,
+      now: clock.now,
+      onUnexpectedError: (e, _) => unexpected.add(e),
+    );
     crypto = ConversationCrypto(
       session: device.session,
       engine: () => device.engine,
@@ -1684,13 +1689,9 @@ class RigCrypto {
       locks: locks,
       contexts: contexts,
       known: known,
+      ledger: ledger,
       now: clock.now,
       onChanged: changed.add,
-      onUnexpectedError: (e, _) => unexpected.add(e),
-    );
-    ledger = DailyLedger(
-      session: device.session,
-      now: clock.now,
       onUnexpectedError: (e, _) => unexpected.add(e),
     );
     receiver = MessageReceiver(

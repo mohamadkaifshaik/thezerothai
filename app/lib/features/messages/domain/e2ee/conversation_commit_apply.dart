@@ -7,12 +7,17 @@ part of 'conversation_crypto.dart';
 extension _CommitApply on ConversationCrypto {
   /// Step 4 for the commit at [at]: confirm (own, by bytes) or process, then
   /// ONE transaction with the result, in one runWrite body.
+  ///
+  /// [ownAdds] (Task 9, the commit runner's confirm only): device id hex ->
+  /// the side an added device was checked for; used only when the commit is
+  /// this device's own.
   Future<_Applied> _applyLocked(
     _Operation pass,
     String id,
     MlsPair at,
-    pb.ConversationCommit commit,
-  ) async {
+    pb.ConversationCommit commit, {
+    Map<String, ClaimSide> ownAdds = const {},
+  }) async {
     try {
       final sink = this.sink;
       if (sink != null) {
@@ -31,6 +36,8 @@ extension _CommitApply on ConversationCrypto {
     // A member was pinned unattributed in the applied commit's transaction:
     // the context hears of it only after the body returned.
     var newMember = false;
+    // The applied commit was this device's own pending one (by its bytes).
+    var ownConfirmed = false;
     try {
       applied = await _session.runWrite((v) async {
         pass.check(v);
@@ -48,8 +55,9 @@ extension _CommitApply on ConversationCrypto {
         final Uint8List next;
         MlsCommitEvent? event;
         GroupDescription? described;
+        final own = pending != null && _sameBytes(bytes, pending.commit);
         try {
-          if (pending != null && _sameBytes(bytes, pending.commit)) {
+          if (own) {
             // This device's own accepted commit: merged, never processed.
             next = await engine.confirmCommit(deviceState, group.state);
           } else {
@@ -82,9 +90,12 @@ extension _CommitApply on ConversationCrypto {
           record: record,
           pins: pins,
           thisDevice: pass.deviceId,
+          ownPending: own ? pending : null,
+          ownAdds: own ? ownAdds : const {},
         );
         knownGrew = written.knownGrew;
         newMember = written.newMember;
+        ownConfirmed = own;
         return event?.selfRemoved ?? false ? _Applied.selfRemoved : _Applied.ok;
       });
     } on _Stopped {
@@ -98,6 +109,7 @@ extension _CommitApply on ConversationCrypto {
         ..attributionConcluded = false
         ..attributionPending = true;
     }
+    if (ownConfirmed) _ownConfirmed[id] = at;
     if (applied == _Applied.ok || applied == _Applied.selfRemoved) {
       _onChanged(id);
     }
@@ -114,6 +126,19 @@ extension _CommitApply on ConversationCrypto {
   /// The one transaction of an applied commit (inside the runWrite body that
   /// computed [next]). `newMember`: a member was pinned unattributed (added,
   /// or a changed key); `knownGrew`: the id was added to the known set.
+  ///
+  /// [ownPending]: the commit is this device's own (its pending record);
+  /// [ownAdds]: the sides its added devices were checked for, when this run
+  /// still knows them.
+  ///
+  /// M5, in this same transaction (`DailyLedger.writeIn`): a commit by
+  /// another device that undoes an own change of today raises the undo
+  /// count; an own commit records what it added and removed. The ledger
+  /// record is read in this `runWrite` body (`readLocked`, which the ledger
+  /// provides for it), not in a `runWrite` of its own before the body: one
+  /// write lock less per applied commit, and a fresher record. The undo is
+  /// decided through the record's own method (an exhausted record counts
+  /// every reversal).
   Future<({bool newMember, bool knownGrew})> _writeApplied(
     SecureVault v,
     String id,
@@ -124,6 +149,8 @@ extension _CommitApply on ConversationCrypto {
     required ConversationRecord? record,
     required List<MemberRecord> pins,
     required Uint8List thisDevice,
+    PendingCommit? ownPending,
+    Map<String, ClaimSide> ownAdds = const {},
   }) async {
     final nextPair = at.next;
     final sync = record?.sync ?? const ConversationSync();
@@ -150,8 +177,36 @@ extension _CommitApply on ConversationCrypto {
       formerPins: former,
     );
     var newMember = false;
+    // M5: a membership change by another device, measured against this
+    // device's own changes of today.
+    final byOther =
+        event != null &&
+        !_sameBytes(event.committerDeviceId, thisDevice) &&
+        (event.added.isNotEmpty || event.removed.isNotEmpty);
+    final daily = byOther || ownPending != null
+        ? await _ledger.readLocked(v)
+        : null;
+    final undo =
+        byOther &&
+        daily != null &&
+        daily.undoesOwnChange(id, added: event.added, removed: event.removed);
+    // What this device's own commit added and removed (pins written and
+    // deleted below).
+    final ownAdded = <Uint8List>[];
+    final ownRemoved = <Uint8List>[];
     try {
       await v.transaction((tx) async {
+        if (undo) {
+          await _ledger.writeIn(
+            tx,
+            daily,
+            (r) => r.withUndoCounted(
+              id,
+              added: event.added,
+              removed: event.removed,
+            ),
+          );
+        }
         if (event != null && event.selfRemoved) {
           // This device was removed: groups and pins go; the pins are kept
           // as former pins (H2) and the rejoin is compared with them.
@@ -199,6 +254,7 @@ extension _CommitApply on ConversationCrypto {
         for (final hex in removed) {
           final pinned = byHex.remove(hex);
           if (pinned == null) continue;
+          if (ownPending != null) ownRemoved.add(pinned.deviceId);
           await tx.deleteMember(id, pinned.deviceId);
           // R10: no system row of any kind while unaccepted.
           if (!accepted) continue;
@@ -244,17 +300,44 @@ extension _CommitApply on ConversationCrypto {
           }
           final deviceId = _deviceIdOf(entry.key, event, members);
           if (deviceId == null) continue;
-          newMember = true;
           final refusal = history.admit(entry.key, entry.value);
+          // Task 9: a device this device's own commit added keeps the side
+          // it was claimed and checked for (R3), when this run still knows
+          // it and the history admits the pair. Every other new member is
+          // unattributed until a list shows it (an own commit confirmed
+          // after a restart included).
+          final checked = ownPending == null ? null : ownAdds[entry.key];
+          final side = checked == null || refusal != KeyRefusal.none
+              ? MemberSide.unattributed
+              : (checked == ClaimSide.mine
+                    ? MemberSide.mine
+                    : MemberSide.theirs);
+          if (side == MemberSide.unattributed) newMember = true;
+          if (ownPending != null) ownAdded.add(deviceId);
           await tx.putMember(
             MemberRecord(
               conversationId: id,
               deviceId: deviceId,
               signatureKey: entry.value,
-              side: MemberSide.unattributed,
+              side: side,
               since: nextPair,
             ),
           );
+          // The row attribution would write for this member (the same id):
+          // "device added", the own-device alert when the side is mine.
+          // R10: no system row while unaccepted.
+          if (side != MemberSide.unattributed && accepted) {
+            await tx.putMessage(
+              _systemRow(
+                id,
+                nextPair,
+                SystemLine.deviceAdded,
+                nowMicros,
+                deviceId: deviceId,
+                side: side,
+              ),
+            );
+          }
           // No row from an unreadable history.
           if (accepted &&
               refusal != KeyRefusal.none &&
@@ -283,10 +366,33 @@ extension _CommitApply on ConversationCrypto {
           await tx.setAfterPair(id, at);
         }
         await tx.clearSentBefore(id, nextPair);
+        // R9: an own self-update and an own commit that held a removal renew
+        // this device's leaf; an add-only commit does not. A `change` with
+        // no welcome added nothing, so it removed (the case of a removed
+        // member that had no pin).
+        final renewed =
+            ownPending != null &&
+            (ownPending.kind == PendingKind.selfUpdate ||
+                ownRemoved.isNotEmpty ||
+                (ownPending.kind == PendingKind.change &&
+                    ownPending.welcome == null));
         await tx.putConversationSync(
           id,
-          sync.copyWith(completedEpochs: completed, epochMustAdvance: false),
+          sync.copyWith(
+            completedEpochs: completed,
+            epochMustAdvance: false,
+            lastSelfUpdateAtMicros: renewed
+                ? nowMicros
+                : sync.lastSelfUpdateAtMicros,
+          ),
         );
+        if (daily != null && (ownAdded.isNotEmpty || ownRemoved.isNotEmpty)) {
+          await _ledger.writeIn(
+            tx,
+            daily,
+            (r) => r.withOwnChange(id, added: ownAdded, removed: ownRemoved),
+          );
+        }
         if (needKnown) await _known.addIn(tx, v, id);
         // The one history write of this transaction: only when a new id or
         // a taint was recorded (a removal never writes it).
