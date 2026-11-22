@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/vault/secure_vault.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/membership_rules.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/removal_record.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../../support/e2ee_pipeline_rig.dart';
@@ -226,6 +227,100 @@ void main() {
       expect(hooked, isTrue);
       expect(rig.keys.removeCalls, hasLength(1), reason: 'sent once');
       expect(queued(_c1, sibling), isTrue);
+    });
+  });
+
+  group('the record\'s caps (CR Minor 4, SA L1, SA L4)', () {
+    RemovalMark mark(int i, DateTime at) => RemovalMark(
+      deviceId: 'capped-device-${i.toString().padLeft(4, '0')}',
+      atMicros: at.microsecondsSinceEpoch,
+    );
+
+    Future<void> putRecord(RemovalRecord record) =>
+        rig.device.vault.transaction(
+          (tx) => tx.putSetting(kVaultSettingRemovalRecord, record.encode()),
+        );
+
+    Future<RemovalRecord> storedRecord() async => RemovalRecord.decode(
+      (await rig.device.vault.setting(kVaultSettingRemovalRecord))!,
+    );
+
+    test('at the intent cap a new removal is refused; nothing is sent and no '
+        'intent is dropped', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await stateOnly(_c1, accepted: false, mine: [sibling]);
+      final now = rig.clock.now();
+      await putRecord(
+        RemovalRecord(
+          intents: [for (var i = 0; i < kMaxRemovalIntents; i++) mark(i, now)],
+        ),
+      );
+      expectedErrors = ['removalQueue.intentCap'];
+
+      await expectLater(
+        runner.removeDevice(sibling.idString),
+        throwsA(isA<StateError>()),
+      );
+
+      expect(rig.keys.removeCalls, isEmpty);
+      final intents = (await storedRecord()).intents;
+      expect(intents, hasLength(kMaxRemovalIntents));
+      expect(intents.first.deviceId, mark(0, now).deviceId);
+    });
+
+    test('at the removed-mark cap a new removal is refused, after the expired '
+        'marks are pruned', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await stateOnly(_c1, accepted: false, mine: [sibling]);
+      final then = rig.clock.now();
+      await putRecord(
+        RemovalRecord(
+          removed: [for (var i = 0; i < kMaxRemovalIntents; i++) mark(i, then)],
+        ),
+      );
+      expectedErrors = ['removalQueue.intentCap'];
+
+      await expectLater(
+        runner.removeDevice(sibling.idString),
+        throwsA(isA<StateError>()),
+      );
+      expect(rig.keys.removeCalls, isEmpty);
+      expect(
+        await runner.wasRemovedByUser(rigBytes(mark(0, then).deviceId)),
+        isTrue,
+      );
+
+      // Once those marks expire they are pruned first, and it goes.
+      rig.clock.advance(kRemovedByUserLimit + const Duration(minutes: 1));
+      await removeAndSettle(sibling);
+
+      expect(rig.keys.removeCalls, hasLength(1));
+      final removed = (await storedRecord()).removed;
+      expect([for (final m in removed) m.deviceId], [sibling.idString]);
+    });
+
+    test('expired marks are pruned when the record is loaded', () async {
+      await setUpRig();
+      final now = rig.clock.now();
+      await putRecord(
+        RemovalRecord(
+          removed: [
+            mark(
+              1,
+              now.subtract(kRemovedByUserLimit + const Duration(hours: 1)),
+            ),
+            mark(2, now),
+          ],
+        ),
+      );
+
+      await runner.onVaultReady();
+      await runner.idle();
+
+      final removed = (await storedRecord()).removed;
+      expect([for (final m in removed) m.deviceId], [mark(2, now).deviceId]);
     });
   });
 }

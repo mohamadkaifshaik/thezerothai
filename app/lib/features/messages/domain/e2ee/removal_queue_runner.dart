@@ -217,6 +217,10 @@ class RemovalQueueRunner {
   /// a restart it costs at most one refused call.
   DateTime? _intentsNotBefore;
 
+  /// Ruling 6 (SA L4): the load dropped expired marks; the next pass
+  /// writes the record.
+  bool _recordPruned = false;
+
   final ValueNotifier<int> _pending = ValueNotifier(0);
 
   Future<void>? _running;
@@ -307,8 +311,9 @@ class RemovalQueueRunner {
   /// device's own id (use sign-out) and for an id a fresh own list does not
   /// name (review I1: callers pass an id from the own list; a stored intent
   /// for the id skips that check and is finished, ruling 3), [StateError]
-  /// with no call when there is no vault or the stored queue cannot be
-  /// read, and rethrows a failed own-list read (nothing sent) or a failed
+  /// with no call when there is no vault, the stored queue cannot be read,
+  /// or [kMaxRemovalIntents] intents or unexpired removed marks are stored
+  /// already (ruling 6; reported as `removalQueue.intentCap`), and rethrows a failed own-list read (nothing sent) or a failed
   /// RemoveKeyDevice (nothing queued). Then a pass starts at
   /// [BudgetPriority.live]; this returns once the queue is stored.
   Future<void> removeDevice(String deviceId) async {
@@ -334,6 +339,18 @@ class RemovalQueueRunner {
     if (waiting != null) {
       key = waiting.signatureKey;
     } else {
+      // CR Minor 4 and SA L1 (fix round 2, ruling 6): at a cap the new
+      // removal is refused, before anything is sent; nothing stored is
+      // dropped to make room (a hostile own list must not push out the
+      // user's real removals). Expired marks go first.
+      final now = _now();
+      _removed.removeWhere((m) => _older(m, now, kRemovedByUserLimit));
+      final marked = _removed.any((m) => m.deviceId == deviceId);
+      if (_intents.length >= kMaxRemovalIntents ||
+          (!marked && _removed.length >= kMaxRemovalIntents)) {
+        _reportBug('removalQueue.intentCap');
+        throw StateError('Too many device removals are stored.');
+      }
       // Review I1: only this user's own devices. RemoveKeyDevice of an id
       // the caller does not own answers success too (the server deletes
       // under the caller's uid only), so the call proves nothing: a fresh
@@ -369,9 +386,6 @@ class RemovalQueueRunner {
             signatureKey: key,
           ),
         );
-        while (_intents.length > kMaxRemovalIntents) {
-          _intents.removeAt(0);
-        }
         await _save(vault, queue: false);
       }
       try {
@@ -435,6 +449,7 @@ class RemovalQueueRunner {
     _mismatchReported.clear();
     _holds.clear();
     _intentsNotBefore = null;
+    _recordPruned = false;
     _publish();
   }
 
@@ -507,6 +522,10 @@ class RemovalQueueRunner {
     if (!await _ensureLoaded(vault)) return;
     final thisDevice = await vault.deviceId();
     if (thisDevice == null) return;
+    if (_recordPruned) {
+      _recordPruned = false;
+      await _save(vault, queue: false);
+    }
     // Review M1: a leftover intent first (a keys call, not a commit: the
     // queue's hold does not apply to it).
     await _runIntents(vault, priority);

@@ -39,19 +39,23 @@ extension _RemovalStore on RemovalQueueRunner {
       _entries.add(RemovalQueueEntry(deviceId: id, conversationId: c));
     }
     final now = _now();
-    _removed
-      ..removeWhere(
-        (m) => m.deviceId == deviceId || _older(m, now, kRemovedByUserLimit),
-      )
-      ..add(
+    _removed.removeWhere(
+      (m) => m.deviceId == deviceId || _older(m, now, kRemovedByUserLimit),
+    );
+    // Ruling 6: no stored mark is dropped to make room. removeDevice
+    // refuses at the cap before any call; only a removal that already went
+    // through (an intent finished meanwhile) can meet it here, and then it
+    // is still queued, without its mark.
+    if (_removed.length < kMaxRemovalIntents) {
+      _removed.add(
         RemovalMark(
           deviceId: deviceId,
           atMicros: now.microsecondsSinceEpoch,
           signatureKey: signatureKey,
         ),
       );
-    while (_removed.length > kMaxRemovalIntents) {
-      _removed.removeAt(0);
+    } else {
+      _reportBug('removalQueue.intentCap');
     }
     _intents.removeWhere((i) => i.deviceId == deviceId);
     await _save(vault);
@@ -143,9 +147,16 @@ extension _RemovalStore on RemovalQueueRunner {
       _intents
         ..clear()
         ..addAll(record.intents);
+      // SA L4 (ruling 6): expired marks go on load; the next pass writes it.
+      final now = _now();
+      final live = [
+        for (final m in record.removed)
+          if (!_older(m, now, kRemovedByUserLimit)) m,
+      ];
+      _recordPruned = live.length != record.removed.length;
       _removed
         ..clear()
-        ..addAll(record.removed);
+        ..addAll(live);
       _notBeforeMicros = queue.notBeforeMicros;
       _loadedFor = vault;
       _unreadableFor = null;
