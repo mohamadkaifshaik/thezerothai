@@ -26,6 +26,10 @@ class ConversationContext {
   /// While false, every header or inbox row saying ACCEPTED hands the
   /// conversation to [ConversationContexts.onAcceptedSeen].
   bool acceptanceSettled = false;
+
+  /// Whether the thread can be answered: from a `ListMessages` header or an
+  /// inbox row of this run (never a send answer or a cached row, audit
+  /// L6), or false after a CANNOT_MESSAGE answer.
   bool canReply = true;
 
   /// The removal clock: when this run first knew the conversation accepted.
@@ -328,19 +332,20 @@ class ConversationContexts {
   /// read from the server in THIS run: a `SendMessage` answer, or a cached
   /// row (the drift cache, which `applySent` also fills from send answers,
   /// and which may be a disk row of an earlier run). Only the peer
-  /// reference and `can_reply` are taken from it: the direction and the
-  /// state it reports are no sight, and never drive the acceptance or a
-  /// commit (Task 7 audit L5, Task 9 brief amendment 2, review m5; a send
-  /// answer can put the user's own outgoing request in the Requests
-  /// folder).
+  /// reference is taken from it: the direction, the state and `can_reply`
+  /// it reports are no sight, and never drive the acceptance or a commit
+  /// (Task 7 audit L5, Task 9 brief amendment 2, review m5; a send answer
+  /// can put the user's own outgoing request in the Requests folder).
+  /// Task 9 audit L6: a stale `can_reply` false of such a row blocked
+  /// removals; the thread's own refusal (CANNOT_MESSAGE) still sets it.
   void note(pb.Conversation row, {bool peerOnly = false}) {
     if (row.id.isEmpty) return;
     final c = of(row.id);
     if (row.hasPeer() && row.peer.userId.isNotEmpty) {
       c.peerUserId = row.peer.userId;
     }
-    c.canReply = row.canReply;
     if (peerOnly) return;
+    c.canReply = row.canReply;
     if (row.folder == Folder.FOLDER_REQUESTS) {
       c
         ..incomingRequest = true

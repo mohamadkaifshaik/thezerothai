@@ -780,7 +780,10 @@ void main() {
     test('success stores the message under the expected id and removes the '
         'row', () async {
       await setUpJoined();
-      // The answer's conversation row is taken (it says "cannot reply").
+      // The answer's conversation row says "cannot reply". Task 9 audit L6:
+      // a send answer is noted peer-only, so its can_reply is not taken
+      // (only a header or an inbox row of this run, or a CANNOT_MESSAGE
+      // answer, sets it).
       rig.server.beforeSend = (_) async =>
           rig.server.rows[_c1] = headerRow(canReply: false);
       rig.clock.advance(const Duration(seconds: 3));
@@ -799,7 +802,7 @@ void main() {
       expect(m.senderDeviceId, rig.device.deviceId);
       expect((m.generation, m.epoch), (1, 1));
       expect(m.createdAtMicros, rig.clock.now().microsecondsSinceEpoch);
-      expect(rig.contexts.of(_c1).canReply, isFalse);
+      expect(rig.contexts.of(_c1).canReply, isTrue);
       expect(rig.changed, contains(_c1));
     });
 

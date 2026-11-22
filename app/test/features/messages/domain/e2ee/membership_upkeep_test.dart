@@ -399,6 +399,24 @@ void main() {
       expect(await pin(mallory), isNull);
     });
 
+    test('a send answer\'s stale can_reply false does not block a removal '
+        '(audit L6)', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpJoined(others: [sibling], ownListed: [sibling]);
+      await synced();
+      // A send answer (noted peer-only, as the sender notes it) carries a
+      // stale can_reply false; no header or inbox row of this run says so.
+      rig.contexts.note(headerRow()..canReply = false, peerOnly: true);
+      rig.clock.advance(kDeviceListReuse);
+      ownList(const []);
+
+      await rig.upkeep.reconcile(_c1);
+
+      expect(rig.contexts.of(_c1).canReply, isTrue);
+      expect(requests(), hasLength(1));
+      expect(await pin(sibling), isNull);
+    });
+
     test('a peer claim that names another conversation adds nothing', () async {
       final bob2 = await RigPeer.create('bob2');
       await setUpJoined(alsoListed: [bob2]);

@@ -1,4 +1,7 @@
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_context.dart';
+import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
+import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
+import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// The pass-scoped "listed to the end" fact of the final-attempt gate (step
@@ -118,6 +121,36 @@ void main() {
       // A save without a witness creates none.
       context.noteSinceTokenSaved(pass, 'token-a', 'token-b');
       expect(context.probeAnsweredIn(pass, 'token-b'), isFalse);
+    });
+  });
+
+  group('can_reply (Task 9 audit L6)', () {
+    pb.Conversation row({required bool canReply}) => pb.Conversation(
+      id: 'c1',
+      peer: common.AuthorSnapshot(userId: 'ref-bob'),
+      folder: Folder.FOLDER_INBOX,
+      state: ConversationState.CONVERSATION_STATE_ACCEPTED,
+      canReply: canReply,
+    );
+
+    test('a peer-only row (a send answer, a cached row) never sets it', () {
+      final contexts = ConversationContexts();
+      contexts.note(row(canReply: false), peerOnly: true);
+      expect(contexts.of('c1').canReply, isTrue);
+      // It still gives the peer reference.
+      expect(contexts.of('c1').peerUserId, 'ref-bob');
+
+      contexts.note(row(canReply: false));
+      contexts.note(row(canReply: true), peerOnly: true);
+      expect(contexts.of('c1').canReply, isFalse);
+    });
+
+    test('a full note (a header or an inbox row read this run) sets it', () {
+      final contexts = ConversationContexts();
+      contexts.note(row(canReply: false));
+      expect(contexts.of('c1').canReply, isFalse);
+      contexts.note(row(canReply: true));
+      expect(contexts.of('c1').canReply, isTrue);
     });
   });
 }
