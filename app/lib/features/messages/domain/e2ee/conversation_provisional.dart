@@ -63,15 +63,17 @@ extension _Provisional on ConversationCrypto {
   /// closed).
   ///
   /// The key history is neither read nor written: no pin changes here.
-  /// False, with nothing written, when the marks are already at or past the
-  /// init (a replay).
+  /// [InitSettle.replay], with nothing written, when the marks are already
+  /// at or past the init; [InitSettle.settled] once it is final.
   ///
   /// Task 10: a provisional group whose pending commit is a RESET is settled
   /// by its own branch ([_ResetSettle._settleResetIn]: the pins are
   /// replaced by the new generation's members, with the reset's rows), with
   /// [ownList] and [peerList] when the reset was made in this run. What it
-  /// decided for memory is applied by [_afterOwnInit].
-  Future<bool> _settleOwnInitIn(
+  /// decided for memory is applied by [_afterOwnInit]. That branch also
+  /// answers [InitSettle.waiting], with nothing written, while a lower
+  /// generation is not walked (audit L3).
+  Future<InitSettle> _settleOwnInitIn(
     SecureVault v,
     String id,
     GroupRecord group, {
@@ -81,9 +83,9 @@ extension _Provisional on ConversationCrypto {
     DeviceList? peerList,
   }) async {
     final pending = group.pending;
-    if (!group.provisional || pending == null) return false;
+    if (!group.provisional || pending == null) return InitSettle.replay;
     if (pending.kind == PendingKind.reset) {
-      final settled = await _settleResetIn(
+      return _settleResetIn(
         v,
         id,
         group,
@@ -91,13 +93,12 @@ extension _Provisional on ConversationCrypto {
         ownList: ownList,
         peerList: peerList,
       );
-      if (settled == null) return false;
-      _resetSettled[id] = settled;
-      return true;
     }
     final g = group.generation;
     final stored = await v.conversation(id);
-    if (!MlsPair.above(pending.builtOn, stored?.afterPair)) return false;
+    if (!MlsPair.above(pending.builtOn, stored?.afterPair)) {
+      return InitSettle.replay;
+    }
     final sync = stored?.sync ?? const ConversationSync();
     final accepted = sync.requestAccepted || (delivered?.accepted ?? false);
     final nowMicros = _now().microsecondsSinceEpoch;
@@ -207,7 +208,7 @@ extension _Provisional on ConversationCrypto {
         await tx.putMessage(row);
       }
     });
-    return true;
+    return InitSettle.settled;
   }
 
   /// The server did not store this device's init of generation [g] (another
@@ -314,17 +315,15 @@ extension _Provisional on ConversationCrypto {
         if (delivered == null && await _hasInitRow(v, id, generation)) {
           return InitSettle.waiting;
         }
-        return await _settleOwnInitIn(
-              v,
-              id,
-              group,
-              thisDevice: pass.deviceId,
-              delivered: delivered,
-              ownList: ownList,
-              peerList: peerList,
-            )
-            ? InitSettle.settled
-            : InitSettle.replay;
+        return _settleOwnInitIn(
+          v,
+          id,
+          group,
+          thisDevice: pass.deviceId,
+          delivered: delivered,
+          ownList: ownList,
+          peerList: peerList,
+        );
       });
       if (result == InitSettle.settled) _afterOwnInit(id);
       return result;

@@ -23,9 +23,12 @@ extension _ResetSettle on ConversationCrypto {
   /// transaction:
   ///
   /// - the group becomes final with the after-pair (g + 1, 0);
-  /// - a lower generation goes only once its last epoch was completed or
-  ///   marked (security read L6; the caller walked it first); otherwise it
-  ///   stays until it is;
+  /// - every lower generation goes; each was walked to its end (its last
+  ///   epoch completed or marked, security read L6; the caller walked it
+  ///   first). Audit L3: while a lower generation that was NOT walked is
+  ///   stored, nothing is settled ([InitSettle.waiting], nothing written):
+  ///   a settle that kept it would leave its last epochs unread behind a
+  ///   generation the marks are already past;
   /// - the pins are replaced by the members of g + 1 (`describe`). Each
   ///   member other than this device is ADMITTED to the key history first
   ///   (device-key-history-design.md, the Task 10 row): a refused pair is
@@ -47,9 +50,12 @@ extension _ResetSettle on ConversationCrypto {
   ///   and `allow` are left as they are.
   ///
   /// A reset is made only in an accepted conversation, so the rows are
-  /// always written (R10 is checked all the same). Null, with nothing
-  /// written, when the marks are already at or past the reset (a replay).
-  Future<_ResetSettled?> _settleResetIn(
+  /// always written (R10 is checked all the same). [InitSettle.replay],
+  /// with nothing written, when the marks are already at or past the reset;
+  /// [InitSettle.waiting], with nothing written, while a lower generation
+  /// is not walked (audit L3). [InitSettle.settled]: what the settle decided
+  /// for memory is in `_resetSettled` for `_afterOwnInit`.
+  Future<InitSettle> _settleResetIn(
     SecureVault v,
     String id,
     GroupRecord group, {
@@ -60,8 +66,20 @@ extension _ResetSettle on ConversationCrypto {
     final pending = group.pending!;
     final g = group.generation;
     final stored = await v.conversation(id);
-    if (!MlsPair.above(pending.builtOn, stored?.afterPair)) return null;
+    if (!MlsPair.above(pending.builtOn, stored?.afterPair)) {
+      return InitSettle.replay;
+    }
     final sync = stored?.sync ?? const ConversationSync();
+    final done = sync.completedEpochs;
+    final lower = [
+      for (final old in await v.groups(id))
+        if (old.generation < g && !old.provisional) old,
+    ];
+    if (lower.any(
+      (old) => !done.contains(MlsPair(old.generation, old.epoch)),
+    )) {
+      return InitSettle.waiting;
+    }
     final accepted = sync.requestAccepted;
     final nowMicros = _now().microsecondsSinceEpoch;
     final since = pending.builtOn.next;
@@ -157,14 +175,8 @@ extension _ResetSettle on ConversationCrypto {
       lines.add(_systemRow(id, since, SystemLine.encryptionReset, nowMicros));
     }
     final rows = await _provisionalRows(v, id, g);
-    final done = sync.completedEpochs;
-    final walked = [
-      for (final old in await v.groups(id))
-        if (old.generation < g &&
-            !old.provisional &&
-            done.contains(MlsPair(old.generation, old.epoch)))
-          old.generation,
-    ];
+    // Every one was walked (checked above, in this same body).
+    final walked = [for (final old in lower) old.generation];
 
     await v.transaction((tx) async {
       await tx.clearProvisional(id, g, afterPair: pending.builtOn);
@@ -225,6 +237,10 @@ extension _ResetSettle on ConversationCrypto {
       // are untouched (a reset never changes them).
       await _keyHistory.writeIn(tx, id, history);
     });
-    return _ResetSettled(unattributed: unattributed, unknown: unknown);
+    _resetSettled[id] = _ResetSettled(
+      unattributed: unattributed,
+      unknown: unknown,
+    );
+    return InitSettle.settled;
   }
 }

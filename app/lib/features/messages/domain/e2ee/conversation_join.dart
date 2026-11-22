@@ -402,26 +402,32 @@ extension _WelcomeJoin on ConversationCrypto {
         if (await _hasInitRow(v, id, g)) return _Settled.ownUnanswered;
         // No init row (a reset, or the row is gone): the same success
         // steps as Task 8's send path, with no message to answer for.
-        final settled = await _settleOwnInitIn(
+        switch (await _settleOwnInitIn(
           v,
           id,
           group,
           thisDevice: poll.deviceId,
-        );
-        if (!settled) {
-          // Task 10 amendment 6: a RESET the marks already passed can never
-          // be settled; it is ended here (its commit, stored or not, is in
-          // the past), never left provisional for good.
-          if (group.pending?.kind == PendingKind.reset) {
-            await _discardProvisionalIn(v, id, g);
-            return _Settled.discarded;
-          }
-          // The marks are already at or past this init (the marks cannot be
-          // written again): the welcome is a replay, for good.
-          return _Settled.replay;
+        )) {
+          case InitSettle.settled:
+            _afterOwnInit(id);
+            return _Settled.ownStored;
+          case InitSettle.waiting:
+          case InitSettle.notProvisional:
+            // Audit L3: a lower generation is not walked yet (nothing was
+            // written): not decided now, the next poll asks again.
+            return _Settled.unknown;
+          case InitSettle.replay:
+            // Task 10 amendment 6: a RESET the marks already passed can
+            // never be settled; it is ended here (its commit, stored or
+            // not, is in the past), never left provisional for good.
+            if (group.pending?.kind == PendingKind.reset) {
+              await _discardProvisionalIn(v, id, g);
+              return _Settled.discarded;
+            }
+            // The marks are already at or past this init (the marks cannot
+            // be written again): the welcome is a replay, for good.
+            return _Settled.replay;
         }
-        _afterOwnInit(id);
-        return _Settled.ownStored;
       }
       await _discardProvisionalIn(v, id, g);
       return _Settled.discarded;

@@ -1584,6 +1584,59 @@ void main() {
     });
   });
 
+  group('a lower generation not walked (audit L3)', () {
+    test('audit L3: the reset settle waits while a lower generation that '
+        'was not walked is stored (seeded)', () async {
+      await setUpJoined();
+      await makeStuck();
+      // g's last epoch is marked walked: the settle walks nothing first.
+      final g1 = (await groupAt(1))!;
+      final s = await sync();
+      await rig.device.vault.transaction(
+        (tx) => tx.putConversationSync(
+          _c1,
+          s.copyWith(completedEpochs: [MlsPair(1, g1.epoch)]),
+        ),
+      );
+      // Seeded (no path makes it today): once the call is answered, before
+      // the settle's transaction reads the groups, generation 1 is stored
+      // at an epoch that was never walked.
+      var armed = false;
+      rig.server.onCall = (call) async {
+        if (call == 'commitConversation') armed = true;
+      };
+      rig.device.onOutbox = () async {
+        if (!armed) return;
+        armed = false;
+        await rig.device.vault.transaction(
+          (tx) => tx.putGroup(
+            GroupRecord(
+              conversationId: _c1,
+              generation: 1,
+              epoch: g1.epoch + 1,
+              state: g1.state,
+            ),
+          ),
+        );
+      };
+      await reset();
+      expect(resets(), hasLength(1));
+      expect((await groupAt(1))!.epoch, g1.epoch + 1);
+      expect(
+        (await groupAt(2))!.provisional,
+        isTrue,
+        reason: 'never settled past a generation still to be walked',
+      );
+      expect(
+        (await rig.device.vault.conversation(_c1))!.afterPair,
+        isNot(const MlsPair(2, 0)),
+      );
+      expect([
+        for (final l in await lines()) l.line,
+      ], isNot(contains(SystemLine.encryptionReset)));
+    });
+  });
+
   group('a removal of this device in g (review I-1)', () {
     test('review I-1: a removal stored at (g, e) before the reset is '
         'accepted: the reset settles into g + 1, with no deviceAdded row for '
