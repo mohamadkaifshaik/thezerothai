@@ -967,8 +967,8 @@ void main() {
       expect(liveRechecks(), 0);
     });
 
-    test('two undos in one day pause committing here until the next IST '
-        'day', () async {
+    test('two undos today pause adds until the next IST day, and an M3 '
+        'removal still commits (audit L2, ruling H)', () async {
       final sibling = await RigPeer.create('sibling');
       final bob2 = await RigPeer.create('bob2');
       await setUpJoined(
@@ -985,16 +985,65 @@ void main() {
       ownList(const []);
 
       await rig.upkeep.reconcile(_c1);
-      expect(requests(), isEmpty);
-      // No key package is spent on a change that cannot be made.
+      // The lost own phone goes, alone; the add waits.
+      expect(requests().single.welcome, isNull);
+      expect(await pin(sibling), isNull);
+      // No key package is spent on an add that cannot be made.
       expect(rig.keys.claimCalls, isEmpty);
-      expect((await pin(sibling))!.side, MemberSide.mine);
+      expect(await pin(bob2), isNull);
 
       rig.clock.advance(const Duration(days: 1));
+      await synced();
       await rig.upkeep.reconcile(_c1);
-      expect(requests(), hasLength(1));
-      expect(await pin(sibling), isNull);
+      expect(requests(), hasLength(2));
       expect((await pin(bob2))!.side, MemberSide.theirs);
+    });
+
+    test('the M5 pause still holds a peer-side automatic removal (ruling '
+        'H)', () async {
+      final bob2 = await RigPeer.create('bob2');
+      await setUpJoined(others: [bob2]);
+      await synced();
+      for (var i = 0; i < kAntiFlapUndosPerDay; i++) {
+        await rig.ledger.addUndone(_c1);
+      }
+      // bob2 is missing from two counting fetches 2 minutes apart.
+      peerList([bob]);
+      rig.clock.advance(kDeviceListReuse + _counts);
+      await rig.upkeep.reconcile(_c1);
+      rig.clock.advance(kPeerRemovalFetchGap);
+      await rig.upkeep.reconcile(_c1);
+
+      expect(requests(), isEmpty);
+      expect((await pin(bob2))!.side, MemberSide.theirs);
+    });
+
+    test('an unreadable ledger, then a queued removal still commits (audit '
+        'L2, ruling H)', () async {
+      final sibling = await RigPeer.create('sibling');
+      final bob2 = await RigPeer.create('bob2');
+      await setUpJoined(
+        others: [sibling],
+        ownListed: [sibling],
+        alsoListed: [bob2],
+      );
+      await synced();
+      peerClaims([bob, bob2]);
+      await rig.device.vault.transaction(
+        (tx) => tx.putSetting(kVaultSettingE2eeDaily, rigBytes('not json')),
+      );
+      expectedErrors = ['daily.read'];
+      // The user asked for the removal (Task 11's queue); the own list
+      // still shows the device.
+      rig.upkeep.queuedRemovals = (_) => {sibling.id};
+
+      await rig.upkeep.reconcile(_c1);
+
+      expect(requests().single.welcome, isNull);
+      expect(await pin(sibling), isNull);
+      expect(rig.keys.claimCalls, isEmpty);
+      expect(await pin(bob2), isNull);
+      expect((await rig.ledger.read()).exhausted, isTrue);
     });
   });
 

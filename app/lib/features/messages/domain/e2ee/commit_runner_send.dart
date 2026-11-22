@@ -337,6 +337,7 @@ extension _CommitSend on CommitRunner {
     _notBefore.remove(id);
     _marginStart.remove(id);
     _refusedResend.remove(id);
+    _pauseExempt.remove(id);
     _crypto.forgetOwnAdds(id);
   }
 
@@ -510,7 +511,11 @@ extension _CommitSend on CommitRunner {
     if (!_contexts.of(id).canReply) return false;
     // A commit with a welcome adds: the flag must still be on (R1).
     if (pending.welcome != null && !_session.mayStart) return false;
+    // M5, unless this run built these bytes as an exempt removal (ruling
+    // H).
+    final exempt = _pauseExempt[id];
     if (pending.kind == PendingKind.change &&
+        (exempt == null || !_same(exempt, pending.commit)) &&
         await _ledger.undone(id) >= kAntiFlapUndosPerDay) {
       return false;
     }

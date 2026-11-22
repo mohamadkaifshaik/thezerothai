@@ -242,12 +242,16 @@ extension _Reconcile on MembershipUpkeep {
     }
 
     final recheckAt = <DateTime>[];
+    // Ruling H (audit L2): the removals the M5 pause and the fail-closed
+    // ledger do not hold: the user's queued ones and M3's own devices.
+    final pauseExempt = <Uint8List>[];
     // Task 11's queue: the members it names (never this device).
     final queued = queuedRemovals?.call(id) ?? const <Uint8List>{};
     for (final m in members) {
       if (!_same(m.deviceId, thisDevice) &&
           queued.any((q) => _same(q, m.deviceId))) {
         remove(m.deviceId);
+        pauseExempt.add(m.deviceId);
       }
     }
     // M3: one readable own list decides.
@@ -257,6 +261,9 @@ extension _Reconcile on MembershipUpkeep {
         ownList: own,
         thisDeviceId: thisDevice,
       )) {
+        if (!removing.contains(vaultDeviceIdHex(m.deviceId))) {
+          pauseExempt.add(m.deviceId);
+        }
         remove(m.deviceId);
       }
     }
@@ -346,6 +353,29 @@ extension _Reconcile on MembershipUpkeep {
     // M5 and the rest of "may commit": no claim is spent on a change that
     // cannot be made now.
     if (!await _commits.mayCommit(id, PendingKind.change)) {
+      // Ruling H (audit L2): the M5 pause or the fail-closed ledger may be
+      // all that says no. A lost own phone and a removal the user asked
+      // for still go then, alone (no add, no peer-side removal), within
+      // the daily call cap; [CommitRunner.mayCommit] with `pauseExempt`
+      // still checks everything else.
+      if (pauseExempt.isNotEmpty &&
+          await _commits.mayCommit(id, PendingKind.change, pauseExempt: true)) {
+        final limitBefore = _commits.lastRateLimit;
+        final outcome = await _commits.changeLocked(
+          id,
+          removeDeviceIds: pauseExempt,
+          priority: priority,
+          pauseExempt: true,
+        );
+        _afterChange(
+          id,
+          outcome,
+          depth: depth,
+          mayRunAgain: mayRunAgain,
+          limitBefore: limitBefore,
+        );
+        return outcome;
+      }
       // Review I1 c: a change decided while this run has not pulled the
       // current pair (after an own commit) waits for one re-check, which
       // pulls first (ruling C's chain bounds it). Other reasons (M5, the
@@ -421,6 +451,28 @@ extension _Reconcile on MembershipUpkeep {
         priority: priority,
       );
     }
+    _afterChange(
+      id,
+      outcome,
+      depth: depth,
+      mayRunAgain: mayRunAgain,
+      limitBefore: limitBefore,
+    );
+    return outcome;
+  }
+
+  /// What a pass does after its change answered [outcome] (ruling C):
+  /// `applied` tells the app; `pending`, `refused` and a `superseded` with
+  /// no further pass coming ([mayRunAgain] false) arm one re-check.
+  /// [limitBefore]: [CommitRunner.lastRateLimit] before the change, so
+  /// only a RATE_LIMITED answer to THIS change names the retry time.
+  void _afterChange(
+    String id,
+    CommitOutcome outcome, {
+    required int depth,
+    required bool mayRunAgain,
+    required RateLimitedException? limitBefore,
+  }) {
     switch (outcome) {
       case CommitOutcome.applied:
         _onChanged(id);
@@ -448,7 +500,6 @@ extension _Reconcile on MembershipUpkeep {
       case CommitOutcome.notAllowed:
         break;
     }
-    return outcome;
   }
 
   /// `devicesToAdd`, without the ids the key history would refuse and the

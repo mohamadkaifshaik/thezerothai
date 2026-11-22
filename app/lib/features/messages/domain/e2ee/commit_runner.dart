@@ -214,6 +214,11 @@ class CommitRunner {
   /// not build ([lastChangeUnbuildable]).
   final Set<String> _unbuildable = {};
 
+  /// Conversation -> the bytes of a pending removal built with
+  /// `pauseExempt` in this run (ruling H): a resume of those bytes is not
+  /// held by the M5 pause either.
+  final Map<String, Uint8List> _pauseExempt = {};
+
   /// Audit M1: whether the last [change] / [changeLocked] of
   /// [conversationId] in this run answered `notAllowed` because the engine
   /// could not build it (an [MlsException] from `commitChange`, or a result
@@ -245,6 +250,7 @@ class CommitRunner {
     _marginStart.clear();
     _refusedResend.clear();
     _unbuildable.clear();
+    _pauseExempt.clear();
     _crypto.forgetOwnCommits();
   }
 
@@ -266,9 +272,28 @@ class CommitRunner {
   /// [change] checks it; a removal and a self-update need none. False for
   /// the kinds this runner does not make (`init`, `reset`). Reads only;
   /// takes no lock. Never throws.
-  Future<bool> mayCommit(String conversationId, PendingKind kind) async {
+  ///
+  /// [pauseExempt] (controller ruling H, audit L2): the question is for a
+  /// removal-only change the caller vouches is an own-device removal (M3:
+  /// an own device a readable own list no longer shows) or one the user
+  /// queued (Task 11). For it, the M5 pause and the ledger's fail-closed
+  /// answer do not say no; every other condition, the daily call cap
+  /// included, still does. Why: the pause stops flapping between members,
+  /// and a lost own phone or a removal the user asked for must still be
+  /// removable the same day; a hostile peer cannot make an honest
+  /// device's own list drop it.
+  Future<bool> mayCommit(
+    String conversationId,
+    PendingKind kind, {
+    bool pauseExempt = false,
+  }) async {
     try {
-      return await _allowed(conversationId, kind, hasAdds: false);
+      return await _allowed(
+        conversationId,
+        kind,
+        hasAdds: false,
+        pauseExempt: pauseExempt,
+      );
     } on Object catch (e, s) {
       _reportIfBug(e, s, 'commit.mayCommit');
       return false;
@@ -279,6 +304,7 @@ class CommitRunner {
     String id,
     PendingKind kind, {
     required bool hasAdds,
+    bool pauseExempt = false,
   }) async {
     if (kind != PendingKind.change && kind != PendingKind.selfUpdate) {
       return false;
@@ -299,8 +325,9 @@ class CommitRunner {
         (await vault.conversation(id))?.sync ?? const ConversationSync();
     if (_callsToday(sync) >= _cap(kind)) return false;
     // M5, through the ledger's own accessor (an unreadable record reads at
-    // its cap).
+    // its cap). Not for an exempt removal (ruling H).
     if (kind == PendingKind.change &&
+        !pauseExempt &&
         await _ledger.undone(id) >= kAntiFlapUndosPerDay) {
       return false;
     }
@@ -355,22 +382,33 @@ class CommitRunner {
   );
 
   /// [change] for a caller that ALREADY HOLDS the conversation lock.
+  ///
+  /// [pauseExempt]: see [mayCommit]. Only for a change with no adds (one
+  /// with adds is `notAllowed`); the caller vouches that every removal is
+  /// an own-device removal (M3) or a user-queued one. The exemption holds
+  /// for this run's resends of the record too; after a restart the record
+  /// is judged as any other (a fresh reconcile builds it again).
   Future<CommitOutcome> changeLocked(
     String conversationId, {
     List<UsableClaim> adds = const [],
     List<Uint8List> removeDeviceIds = const [],
     BudgetPriority priority = BudgetPriority.background,
+    bool pauseExempt = false,
   }) {
     assert(
       _locks.isHeld(conversationId),
       'The caller must hold the conversation lock.',
     );
+    if (pauseExempt && adds.isNotEmpty) {
+      return Future.value(CommitOutcome.notAllowed);
+    }
     return _commitLocked(
       conversationId,
       PendingKind.change,
       adds: adds,
       removes: removeDeviceIds,
       priority: priority,
+      pauseExempt: pauseExempt,
     );
   }
 
@@ -454,6 +492,7 @@ class CommitRunner {
     List<UsableClaim> adds = const [],
     List<Uint8List> removes = const [],
     required BudgetPriority priority,
+    bool pauseExempt = false,
   }) async {
     final PipelineOp op;
     final PendingCommit pending;
@@ -485,7 +524,12 @@ class CommitRunner {
           welcomeDeviceIds.add(utf8.decode(a.deviceId));
         }
       }
-      if (!await _allowed(id, kind, hasAdds: adds.isNotEmpty)) {
+      if (!await _allowed(
+        id,
+        kind,
+        hasAdds: adds.isNotEmpty,
+        pauseExempt: pauseExempt,
+      )) {
         return CommitOutcome.notAllowed;
       }
       // The first call's key, drawn before anything is stored: a failed
@@ -498,9 +542,11 @@ class CommitRunner {
         adds: adds,
         removes: removes,
         welcomeDeviceIds: welcomeDeviceIds,
+        pauseExempt: pauseExempt,
       );
       if (built == null) return CommitOutcome.notAllowed;
       pending = built;
+      if (pauseExempt) _pauseExempt[id] = pending.commit;
     } on BadRandom {
       _reportBug('commit.random');
       return CommitOutcome.notAllowed;
@@ -535,6 +581,7 @@ class CommitRunner {
     required List<UsableClaim> adds,
     required List<Uint8List> removes,
     required List<String> welcomeDeviceIds,
+    required bool pauseExempt,
   }) => _session.runWrite((v) async {
     op.check(v);
     final groups = await v.groups(id);
@@ -547,8 +594,10 @@ class CommitRunner {
     final calls = _callsToday(sync);
     if (calls >= _cap(kind)) return null;
     if (adds.isNotEmpty && !_session.mayStart) return null;
-    // M5, on the record as it is in this body.
+    // M5, on the record as it is in this body (not for an exempt removal,
+    // ruling H).
     if (kind == PendingKind.change &&
+        !pauseExempt &&
         (await _ledger.readLocked(v)).undoneIn(id) >= kAntiFlapUndosPerDay) {
       return null;
     }
