@@ -739,6 +739,36 @@ void main() {
       expect(rig.rpcs(before), isEmpty, reason: 'still backing off');
     });
 
+    test('a RATE_LIMITED upload while a removal starts keeps the back-off and '
+        'writes no "failed" record', () async {
+      await rig.signIn(_a);
+      rig.devices.values.single.pool.clear();
+      // The sign-out hook runs while the upload is at the server.
+      rig.server.onCall['upload'] = () => rig.service.removeThisDevice(_a);
+      rig.server.failNext['upload'] = [
+        keyServerError(
+          connect.Code.resourceExhausted,
+          common.ErrorReason.ERROR_REASON_RATE_LIMITED,
+          retryAfter: const Duration(hours: 4),
+        ),
+      ];
+      await nextRun();
+      expect(
+        rig.service.status.value,
+        const DeviceKeysStatus.failed(retryable: true),
+      );
+      expect(saved()['outcome'], 'unknown', reason: 'no "failed" record');
+      rig.server.onCall.remove('upload');
+
+      // The sign-out failed: the re-register waits for the back-off.
+      final before = rig.server.calls.length;
+      await rig.service.onSignOutFailed(_a);
+      expect(rig.rpcs(before), isEmpty, reason: 'still backing off');
+      rig.advance(const Duration(hours: 4));
+      await rig.service.onAppResumed();
+      expect(rig.rpcs(before), ['list', 'register', 'upload']);
+    });
+
     test(
       'three refused runs grow state once, then upload the saved batch',
       () async {

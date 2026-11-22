@@ -691,9 +691,12 @@ class DeviceKeysService {
     try {
       await upload();
     } on AppException catch (e) {
-      check();
+      // A typed refusal is rethrown BEFORE check(): a removal that started
+      // mid-upload must not turn it into a cancel and lose the back-off
+      // (RATE_LIMITED), the forced register or the latch. The "failed"
+      // record is written only while no removal is under way.
       if (!_unknownOutcome(e)) {
-        if (!previousUnknown) {
+        if (!previousUnknown && !_removing && _removalEpoch == epoch) {
           final refused = PendingUpload(
             batch.oneTime,
             batch.lastResort,
@@ -716,6 +719,7 @@ class DeviceKeysService {
         }
         rethrow;
       }
+      check();
       // A refusal on this retry cannot resolve the first attempt.
       await upload();
     }
