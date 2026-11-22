@@ -10,7 +10,7 @@ extension _Start on GroupStarter {
   Future<StartOutcome> _begin(
     String peer,
     _Draft draft, {
-    bool rebuild = false,
+    _Mode mode = _Mode.fresh,
   }) async {
     final op = await _op();
     if (op == null) return _out(StartResult.unavailable);
@@ -79,7 +79,7 @@ extension _Start on GroupStarter {
     // 2. The claim's id is not trusted blindly.
     final id = claimed.conversationId;
     if (!isConversationId(id)) return _out(StartResult.unavailable);
-    final asked = draft.conversationId;
+    final asked = draft.expectId ?? draft.conversationId;
     // Decision: a draft addressed by a conversation id whose claim names
     // another conversation is refused (the two cannot both be right).
     if (asked != null && asked != id) return _out(StartResult.unavailable);
@@ -135,7 +135,7 @@ extension _Start on GroupStarter {
         peer,
         draft,
         key,
-        rebuild: rebuild,
+        mode: mode,
         verified: verified,
         own: own,
         theirs: theirs,
@@ -188,7 +188,10 @@ extension _Start on GroupStarter {
   /// addressed the draft by that id, the id was computed from the two raw
   /// uids ([verified]), or the vault stores [peer] as that id's peer ref.
   bool _proven(String id, String peer, _Draft draft, bool verified) =>
-      draft.conversationId == id || verified || _known.peerOf(id) == peer;
+      draft.conversationId == id ||
+      draft.expectId == id ||
+      verified ||
+      _known.peerOf(id) == peer;
 
   /// A readable list as it is; a deferred one as the last readable list it
   /// carries; null when there is none (unreadable, or never read).
@@ -258,7 +261,7 @@ extension _Start on GroupStarter {
     String peer,
     _Draft draft,
     String key, {
-    required bool rebuild,
+    required _Mode mode,
     required bool verified,
     required DeviceList own,
     required DeviceList theirs,
@@ -272,15 +275,44 @@ extension _Start on GroupStarter {
     final existing = _proven(id, peer, draft, verified)
         ? const _Created(_CreatedKind.existing)
         : const _Created(_CreatedKind.unavailable);
-    // A conversation this vault knows of that has no group here waits for
-    // its welcome (C1): no second group is started for it. A rebuild is the
-    // one exception: the id is known from this device's own discarded init.
-    if (!rebuild && _known.contains(id)) return existing;
     final session = _messaging.cacheSession;
     try {
       return await _session.runWrite((v) async {
         op.check(v);
-        if ((await v.groups(id)).isNotEmpty) return existing;
+        final groups = await v.groups(id);
+        var replacing = false;
+        switch (mode) {
+          case _Mode.fresh:
+            // A conversation this vault knows of, or holds a group for,
+            // takes the row (C1): no second group is started for it.
+            if (groups.isNotEmpty || _known.contains(id)) return existing;
+          case _Mode.restart:
+            // Review F1 (c): read again in this body, from the vault. A
+            // group that appeared meanwhile, or any sign that this device
+            // was a member, leaves the row waiting with the sender.
+            if (groups.isNotEmpty) return existing;
+            if (!await _neverMember(v, id, peer)) {
+              return const _Created(_CreatedKind.unavailable);
+            }
+          case _Mode.replace:
+            // Review I3: the claim is made first; the old provisional
+            // group goes only here, in the transaction that stores the new
+            // one, and only while it is still the same init. A failed
+            // claim never reaches this point and leaves it untouched.
+            final only = groups.length == 1 ? groups.single : null;
+            final pending = only?.pending;
+            final commit = draft.replacesCommit;
+            if (only == null ||
+                !only.provisional ||
+                only.generation != 1 ||
+                pending == null ||
+                pending.kind != PendingKind.init ||
+                commit == null ||
+                !_same(pending.commit, commit)) {
+              return const _Created(_CreatedKind.unavailable);
+            }
+            replacing = true;
+        }
         final deviceState = await v.deviceState();
         if (deviceState == null) {
           return const _Created(_CreatedKind.unavailable);
@@ -296,10 +328,12 @@ extension _Start on GroupStarter {
           for (final r in outbox) {
             if (r.idempotencyKey == replaces) old = r;
           }
-          // Gone, or no longer a waiting row: nothing to rebuild.
+          // Gone, or no longer the row this start is for: nothing to do.
+          // A restart replaces a waiting row; a replace, the old init row.
           if (old == null ||
-              old.stage != OutboxStage.plain ||
-              old.init != null) {
+              (replacing
+                  ? old.stage != OutboxStage.encrypted || old.init == null
+                  : old.stage != OutboxStage.plain || old.init != null)) {
             return const _Created(_CreatedKind.unavailable);
           }
         }
@@ -460,6 +494,13 @@ extension _Start on GroupStarter {
         var grew = false;
         try {
           await v.transaction((tx) async {
+            if (replacing) {
+              // The old provisional group's pins go with it (putGroup below
+              // replaces its state); the key history never shrinks.
+              for (final m in pins) {
+                await tx.deleteMember(id, m.deviceId);
+              }
+            }
             await tx.putGroup(
               GroupRecord(
                 conversationId: id,

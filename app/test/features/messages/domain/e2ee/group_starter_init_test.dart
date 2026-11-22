@@ -9,6 +9,7 @@ import 'package:dzeroth/core/vault/secure_vault.dart';
 import 'package:dzeroth/core/vault/vault_status.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_crypto.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/e2ee_types.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/former_pins.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/group_starter.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/message_content_codec.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
@@ -1210,6 +1211,251 @@ void main() {
       expect(rig.server.sends, hasLength(2));
       expect((await groupOf())!.provisional, isTrue);
       expect((await rows()).single.init, isNotNull);
+    });
+  });
+
+  group('a new start for a known conversation (review F1, option c)', () {
+    /// A first message to bob whose init the server refused on the first
+    /// attempt with [error]: known, no group, a failed stage-plain row.
+    Future<void> refusedOnce([
+      AppException error = const RateLimitedException(
+        'slow down',
+        retryAfter: Duration(minutes: 1),
+      ),
+    ]) async {
+      rig.server.sendScript.add((error: error, stored: false));
+      expect((await start()).result, StartResult.started);
+      await done();
+      expect(await groupOf(), isNull);
+      expect((await rows()).single.lastError, isNotNull);
+      expect(rig.known.peerOf(_c1), _bob);
+      rig.keys.claimCalls.clear();
+    }
+
+    /// A second message after [refusedOnce]: saved, and no new start.
+    Future<void> expectNoNewStart({
+      String peer = _bob,
+      String? conversationId,
+    }) async {
+      final r = await start(
+        localId: 'local-2',
+        peer: peer,
+        conversationId: conversationId,
+        text: 'second',
+      );
+      expect(r.result, StartResult.joinedExisting);
+      expect(r.conversationId, _c1);
+      await done();
+      expect(rig.keys.claimCalls, isEmpty);
+      expect(await groupOf(), isNull);
+      final left = await rows();
+      expect(left.map((r) => r.localId), ['local-1', 'local-2']);
+      expect(left.every((r) => r.stage == OutboxStage.plain), isTrue);
+      expect(rig.server.sends, hasLength(1));
+    }
+
+    test('a new send to a conversation whose init was refused starts again '
+        'from fresh claims, and the id stays known', () async {
+      await refusedOnce();
+      final refused = rig.server.sends.single;
+
+      final r = await start(localId: 'local-2', text: 'second');
+
+      expect(r.result, StartResult.joinedExisting);
+      expect(r.conversationId, _c1);
+      await done();
+      expect(rig.keys.claimCalls.single.userId, _bob);
+      expect(rig.known.contains(_c1), isTrue);
+      final g = (await groupOf())!;
+      expect(g.provisional, isFalse);
+      expect(await rows(), isEmpty);
+      // The failed row went out first, as the new group's init, under a
+      // NEW key; the second message after it, as an ordinary message.
+      expect(rig.server.sends, hasLength(3));
+      final again = rig.server.sends[1];
+      expect(again.mlsInit, isNotNull);
+      expect(again.key, isNot(refused.key));
+      expect(rig.server.sends[2].mlsInit, isNull);
+      expect(
+        await rig.device.vault.hasMessage(
+          _c1,
+          expectedMessageId(_me, again.key),
+        ),
+        isTrue,
+      );
+      expect(
+        await rig.device.vault.hasMessage(
+          _c1,
+          expectedMessageId(_me, rig.server.sends[2].key),
+        ),
+        isTrue,
+      );
+    });
+
+    test(
+      'the user\'s retry of the failed row starts again from fresh claims',
+      () async {
+        await refusedOnce();
+
+        await starter.retryStart('local-1');
+        await done();
+
+        expect(rig.keys.claimCalls.single.userId, _bob);
+        expect((await groupOf())!.provisional, isFalse);
+        expect(await rows(), isEmpty);
+        expect(rig.server.sends, hasLength(2));
+        expect(rig.server.sends[1].mlsInit, isNotNull);
+        expect(rig.server.sends[1].key, isNot(rig.server.sends[0].key));
+      },
+    );
+
+    test(
+      'a refused init is never started again by a background trigger',
+      () async {
+        await refusedOnce();
+
+        await starter.resumeProvisional();
+        await rig.sender.drain(_c1);
+        await done();
+        await rig.restart();
+        build();
+        await starter.resumeProvisional();
+        await done();
+
+        expect(rig.keys.claimCalls, isEmpty);
+        expect(await groupOf(), isNull);
+        expect((await rows()).single.stage, OutboxStage.plain);
+        expect(rig.server.sends, hasLength(1));
+      },
+    );
+
+    test('no new start while a mark shows this device was a member', () async {
+      await refusedOnce();
+      await rig.device.vault.transaction(
+        (tx) => tx.setJoinHighWater(_c1, const MlsPair(1, 0)),
+      );
+      await expectNoNewStart();
+    });
+
+    test('no new start while a first-saw generation is stored', () async {
+      await refusedOnce();
+      await rig.device.vault.transaction(
+        (tx) => tx.putConversationSync(
+          _c1,
+          ConversationSync(
+            firstSawGeneration: 1,
+            firstSawGenerationAtMicros: rig.clock.now().microsecondsSinceEpoch,
+          ),
+        ),
+      );
+      await expectNoNewStart();
+    });
+
+    test('no new start while former pins are stored', () async {
+      await refusedOnce();
+      final v = rig.device.vault;
+      await v.transaction(
+        (tx) => const FormerPins().putIn(tx, v, _c1, [
+          MemberRecord(
+            conversationId: _c1,
+            deviceId: bob.id,
+            signatureKey: bob.key,
+            side: MemberSide.theirs,
+            since: const MlsPair(1, 1),
+          ),
+        ]),
+      );
+      await expectNoNewStart();
+    });
+
+    test('no new start for another peer than the stored peer ref', () async {
+      await refusedOnce();
+      final carol = await RigPeer.create('carol');
+      rig.keys.peers['ref-carol'] = [rigKeyDevice(carol.idString, carol.key)];
+      await expectNoNewStart(peer: 'ref-carol', conversationId: _c1);
+    });
+
+    test('no new start with the flag not on', () async {
+      await refusedOnce();
+      await rig.device.session.onFlagChanged(E2eeFlag.off, uid: _me);
+      await expectNoNewStart();
+    });
+
+    test('no new start in this run after CANNOT_MESSAGE', () async {
+      await refusedOnce(const CannotMessageException());
+      await expectNoNewStart();
+    });
+  });
+
+  group('the 24 h rebuild (review I3)', () {
+    test('a failed claim leaves the provisional group untouched, and a later '
+        'resume rebuilds it in one step', () async {
+      rig.server.sendScript.addAll([unknown, unknown]);
+      await start();
+      await done();
+      final old = (await groupOf())!;
+      final oldRow = (await rows()).single;
+      rig.server.addCommit(
+        _c1,
+        const MlsPair(1, 0),
+        rigBytes('the init of another device'),
+        fromUser: 'user-b',
+      );
+      rig.clock.advance(kProvisionalExpiry + const Duration(minutes: 1));
+      rig.keys.claimCalls.clear();
+
+      Future<void> expectUntouched(String why) async {
+        final g = (await groupOf())!;
+        expect(g.provisional, isTrue, reason: why);
+        expect(
+          g.provisionalCreatedAtMicros,
+          old.provisionalCreatedAtMicros,
+          reason: why,
+        );
+        final row = (await rows()).single;
+        expect(row.idempotencyKey, oldRow.idempotencyKey, reason: why);
+        expect(row.init, isNotNull, reason: why);
+        expect(row.lastError, isNull, reason: why);
+        expect(await rig.device.vault.members(_c1), hasLength(2), reason: why);
+      }
+
+      // (a) The claim fails for a passing reason.
+      rig.keys.claimErrors[_bob] = const NetworkException('no network');
+      await starter.resumeProvisional();
+      await done();
+      expect(rig.keys.claimCalls, hasLength(1));
+      await expectUntouched('a failed claim');
+      rig.keys.claimErrors.clear();
+
+      // (b) The own list cannot be read.
+      rig.keys.ownFails = true;
+      await starter.resumeProvisional();
+      await done();
+      expect(rig.keys.claimCalls, hasLength(1));
+      await expectUntouched('an unreadable own list');
+      rig.keys.ownFails = false;
+
+      // (c) The app restarts in between; the next resume starts again.
+      await rig.restart();
+      build();
+      rig.clock.advance(const Duration(minutes: 2));
+      rig.server.sendScript.addAll([unknown, unknown]);
+      await starter.resumeProvisional();
+      await done();
+
+      final rebuilt = (await groupOf())!;
+      expect(rebuilt.provisional, isTrue);
+      expect(
+        rebuilt.provisionalCreatedAtMicros,
+        rig.clock.now().microsecondsSinceEpoch,
+      );
+      final row = (await rows()).single;
+      expect(row.localId, oldRow.localId);
+      expect(row.idempotencyKey, isNot(oldRow.idempotencyKey));
+      expect(row.init, isNotNull);
+      expect(row.recipientUserId, _bob);
+      expect(await rig.device.vault.members(_c1), hasLength(2));
+      expect(rig.server.sends.last.key, row.idempotencyKey);
     });
   });
 

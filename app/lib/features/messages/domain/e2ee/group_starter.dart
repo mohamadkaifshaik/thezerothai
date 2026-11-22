@@ -233,6 +233,110 @@ class GroupStarter {
     BudgetPriority priority = BudgetPriority.background,
   }) => _resumeAll(priority);
 
+  /// The user's retry of the unsent row [localId] (Task 13b's `retrySend`
+  /// calls this, not the sender's `retry`). A row that still carries its
+  /// init has it resent; a waiting or failed row of a conversation whose
+  /// init was refused or abandoned starts again from fresh claims when
+  /// [_neverMember] allows it (review F1, option c); every other row is the
+  /// sender's retry. An unknown id is a no-op. Never throws.
+  Future<void> retryStart(String localId) async {
+    try {
+      final vault = _session.vault;
+      if (vault == null) return;
+      if (!_known.isLoadedFor(vault)) await _known.load(vault);
+      OutboxItem? row;
+      for (final r in (await vault.outbox()).items) {
+        if (r.localId == localId) row = r;
+      }
+      if (row == null) return;
+      if (row.init != null) return await _resumeAll(BudgetPriority.user);
+      final id = row.conversationId;
+      final peer = id == null ? null : _known.peerOf(id);
+      if (id != null && peer != null && await _restartKnown(id, peer)) return;
+    } on Object catch (e, s) {
+      _reportIfBug(e, s, 'start.retry');
+    }
+    await _sender.retry(localId);
+  }
+
+  /// Review F1, ruling (c): whether a NEW start from fresh claims may be
+  /// made for the known conversation [id] with [peer]. Read from [v] (in
+  /// the creating `runWrite` body too), never from memory or the server.
+  ///
+  /// True only when the vault shows this device was never a member: no
+  /// group of any generation, no mark, no first-saw generation, no former
+  /// pins; and the stored peer ref is [peer]. Why: a refusal must never
+  /// shrink the known set (that could reach plaintext), and "stuck for
+  /// good" after a rate limit is not acceptable. Any sign that a group
+  /// exists elsewhere keeps the row waiting for its welcome instead. Cost
+  /// if wrong: a second group is started; the server's STALE_EPOCH for
+  /// generation 1 is the backstop, and nothing is ever plaintext.
+  Future<bool> _neverMember(SecureVault v, String id, String peer) async {
+    if (_known.peerOf(id) != peer) return false;
+    if ((await v.groups(id)).isNotEmpty) return false;
+    final record = await v.conversation(id);
+    if (record?.afterPair != null ||
+        record?.joinHighWater != null ||
+        record?.sync.firstSawGeneration != null) {
+      return false;
+    }
+    return (await GroupStarter._former.of(v, id)).isEmpty;
+  }
+
+  /// Starts again from fresh claims for the head row of the known
+  /// conversation [id] (review F1, option c). Called ONLY from an explicit
+  /// trigger: a new send through [startOrRoute], or [retryStart]; never
+  /// from [resumeProvisional], a timer or a drain. True when a new
+  /// provisional group was stored (its init is then sent). Never throws.
+  Future<bool> _restartKnown(String id, String peer) async {
+    try {
+      final vault = _session.vault;
+      // Not with the flag not on, not when removed elsewhere, and not into
+      // a thread this run saw refused with CANNOT_MESSAGE.
+      if (vault == null ||
+          !_session.mayStart ||
+          _removedElsewhere() ||
+          _engineDown() ||
+          !_contexts.of(id).canReply) {
+        return false;
+      }
+      if (!await _neverMember(vault, id, peer)) return false;
+      final rows = (await vault.outbox(conversationId: id)).items;
+      // The oldest waiting row becomes the new group's first message, so
+      // the order the user typed is kept.
+      if (rows.isEmpty) return false;
+      final head = rows.first;
+      if (head.stage != OutboxStage.plain || head.init != null) return false;
+      final outcome = await _begin(
+        peer,
+        _Draft(
+          localId: head.localId,
+          content: head.content,
+          conversationId: id,
+          replaces: head.idempotencyKey,
+          createdAtMicros: head.createdAtMicros,
+        ),
+        mode: _Mode.restart,
+      );
+      if (outcome.result == StartResult.started) {
+        _onChanged(id);
+        unawaited(_resume(id, BudgetPriority.user));
+        return true;
+      }
+      final cause = outcome.cause;
+      if (outcome.result == StartResult.tryAgainTomorrow && cause != null) {
+        await _failRow(id, head.idempotencyKey, head.localId, cause);
+      }
+      return false;
+    } on _BadRandom {
+      _reportOnce('start.random');
+      return false;
+    } on Object catch (e, s) {
+      _reportIfBug(e, s, 'start.restart');
+      return false;
+    }
+  }
+
   // -------------------------------------------------------------------------
   // Routing
 
@@ -307,12 +411,19 @@ class GroupStarter {
       known = await _known.conversationForPeer(vault, peer);
     }
     if (known != null) {
-      return _viaSender(
+      final saved = await _viaSender(
         known,
         localId: localId,
         text: text,
         sharedPostId: sharedPostId,
       );
+      // Review F1 (c): a new send is an explicit trigger. When the vault
+      // shows this device was never a member (its own init was refused or
+      // abandoned), encryption starts again here; else the row waits.
+      if (saved.result == StartResult.joinedExisting) {
+        await _restartKnown(known, peer);
+      }
+      return saved;
     }
     if (conversationId == null) {
       // Second re-read R1: a recipient the stored refs do not resolve,
@@ -488,6 +599,8 @@ class _Draft {
     this.conversationId,
     this.replaces,
     this.createdAtMicros,
+    this.expectId,
+    this.replacesCommit,
   });
 
   final String localId;
@@ -503,11 +616,28 @@ class _Draft {
   final String? recipient;
   final String? conversationId;
 
-  /// The key of the stage-plain row this start encrypts again (it is
-  /// replaced by a row under a NEW key in the same transaction).
+  /// The key of the row this start encrypts again (it is replaced by a row
+  /// under a NEW key in the same transaction): a stage-plain row
+  /// ([_Mode.restart]), or the old init row ([_Mode.replace]).
   final String? replaces;
   final int? createdAtMicros;
+
+  /// The conversation id the claim must answer, for a row addressed by
+  /// recipient whose conversation is already known ([_Mode.replace]).
+  final String? expectId;
+
+  /// [_Mode.replace]: the pending commit of the provisional group this
+  /// start replaces (the group is replaced only while it is still that one).
+  final Uint8List? replacesCommit;
 }
+
+/// How a start treats what the vault already holds for the claim's id.
+///
+/// `fresh`: a first message; a known id or a stored group takes the row
+/// instead. `restart`: a known conversation this device was never a member
+/// of (review F1, option c). `replace`: the 24 h rebuild (review I3): the
+/// old provisional group is replaced in the creating transaction.
+enum _Mode { fresh, restart, replace }
 
 // One body each, shared with the sender (`pipeline_support.dart`).
 typedef _Stopped = PipelineStopped;

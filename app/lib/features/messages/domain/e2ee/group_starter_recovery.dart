@@ -47,7 +47,7 @@ extension _Recovery on GroupStarter {
                 id,
                 () => _resumeLocked(id, priority, mayRebuild: false),
               )
-            : const _Next(_NextKind.drain);
+            : const _Next(_NextKind.none);
       }
       // Scheduled here, outside the lock's zone: the resend it starts must
       // not read as holding the lock.
@@ -455,31 +455,38 @@ extension _Recovery on GroupStarter {
     // or it was removed elsewhere) the group is kept as it is: nothing is
     // sent either way, and nothing is destroyed that it could not rebuild.
     if (!mayRebuild || !_session.mayStart || _removedElsewhere()) return none;
-    if (!await _crypto.discardProvisionalLocked(id, group.generation)) {
-      return none;
+    if (row == null) {
+      // No row to send: there is nothing to rebuild the group for.
+      await _crypto.discardProvisionalLocked(id, group.generation);
+      return const _Next(_NextKind.drain);
     }
-    if (row == null) return const _Next(_NextKind.drain);
-    _forget(row.localId);
+    // Review I3. Decision: nothing is deleted here. The fresh claims come
+    // first, under no lock; the old group goes only in the transaction
+    // that stores the new one. A claim that fails for a passing reason
+    // (no network, a rate limit, a kill) then leaves this group in place
+    // and the next resume tries again, where a discard first would leave
+    // "known, no group" with nothing to retry it.
     return _Next(_NextKind.rebuild, localId: row.localId);
   }
 
-  /// Starts again from fresh claims for the stage-plain row [localId] of
-  /// [id] (its discarded group's first message). True when a new
-  /// provisional group was stored. At a daily claim cap the row fails
-  /// (`tryAgainTomorrow`); on any other refusal it waits.
+  /// The 24 h rebuild (review I3): fresh claims for the init row [localId]
+  /// of [id]'s expired provisional group, then ONE transaction that
+  /// replaces the old group, its pins and its row by the new ones under a
+  /// NEW key. True when the new group was stored. A failed claim changes
+  /// nothing. At a daily claim cap the group is discarded and the row
+  /// fails (`tryAgainTomorrow`); the user's retry starts again then.
   Future<bool> _rebuild(String id, String localId) async {
     final vault = _session.vault;
     final peer = _known.peerOf(id);
     if (vault == null || peer == null) return false;
-    OutboxItem? row;
-    for (final r in (await vault.outbox(conversationId: id)).items) {
-      if (r.localId == localId &&
-          r.stage == OutboxStage.plain &&
-          r.init == null) {
-        row = r;
-      }
+    GroupRecord? group;
+    for (final g in await vault.groups(id)) {
+      if (g.provisional) group = g;
     }
-    if (row == null) return false;
+    final pending = group?.pending;
+    if (group == null || pending == null) return false;
+    final row = await _initRow(vault, id, group.generation);
+    if (row == null || row.localId != localId) return false;
     final StartOutcome outcome;
     try {
       outcome = await _begin(
@@ -487,52 +494,81 @@ extension _Recovery on GroupStarter {
         _Draft(
           localId: row.localId,
           content: row.content,
-          conversationId: id,
+          // Addressed exactly as the old row was.
+          recipient: row.recipientUserId,
+          conversationId: row.conversationId,
+          expectId: id,
           replaces: row.idempotencyKey,
+          replacesCommit: pending.commit,
           createdAtMicros: row.createdAtMicros,
         ),
-        rebuild: true,
+        mode: _Mode.replace,
       );
     } on _BadRandom {
       _reportOnce('start.random');
       return false;
     }
     if (outcome.result == StartResult.started) {
+      _forget(localId);
       _onChanged(id);
       return true;
     }
     final cause = outcome.cause;
     if (outcome.result == StartResult.tryAgainTomorrow && cause != null) {
-      final key = row.idempotencyKey;
-      final op = await _op();
-      if (op == null) return false;
-      final failed = await _locks.run(
+      // The daily cap: no claim can succeed today, so the row fails now
+      // (the group cannot be rebuilt, and its init was not stored).
+      final discarded = await _locks.run(
         id,
-        () => _session.runWrite((v) async {
-          op.check(v);
-          OutboxItem? fresh;
-          for (final r in (await v.outbox(conversationId: id)).items) {
-            if (r.idempotencyKey == key) fresh = r;
-          }
-          if (fresh == null || fresh.stage != OutboxStage.plain) return false;
-          await v.transaction(
-            (tx) => tx.putOutbox(
-              _withAttempt(
-                fresh!,
-                fresh.attempts + 1,
-                lastError: sendErrorName(cause),
-              ),
-            ),
-          );
-          return true;
-        }),
+        () => _crypto.discardProvisionalLocked(
+          id,
+          group!.generation,
+          lastError: sendErrorName(cause),
+        ),
       );
-      if (failed) {
+      if (discarded) {
+        _forget(localId);
         _sender.rememberRefusal(localId, cause);
         _onChanged(id);
       }
     }
     return false;
+  }
+
+  /// The stage-plain row [key] of [id] fails with [cause] (a restart that
+  /// met a daily claim cap): one more attempt and the error's name.
+  Future<void> _failRow(
+    String id,
+    String key,
+    String localId,
+    AppException cause,
+  ) async {
+    final op = await _op();
+    if (op == null) return;
+    final failed = await _locks.run(
+      id,
+      () => _session.runWrite((v) async {
+        op.check(v);
+        OutboxItem? fresh;
+        for (final r in (await v.outbox(conversationId: id)).items) {
+          if (r.idempotencyKey == key) fresh = r;
+        }
+        if (fresh == null || fresh.stage != OutboxStage.plain) return false;
+        await v.transaction(
+          (tx) => tx.putOutbox(
+            _withAttempt(
+              fresh!,
+              fresh.attempts + 1,
+              lastError: sendErrorName(cause),
+            ),
+          ),
+        );
+        return true;
+      }),
+    );
+    if (failed) {
+      _sender.rememberRefusal(localId, cause);
+      _onChanged(id);
+    }
   }
 
   void _forget(String localId) {
