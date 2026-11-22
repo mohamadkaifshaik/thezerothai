@@ -1008,6 +1008,34 @@ void main() {
       await done(dmConversationId(_me, _bob));
     });
 
+    test('a failed claim for the own devices still starts, with the peer\'s '
+        'devices only (code review M7)', () async {
+      final sib = await sibling('sibling');
+      rig.keys.claimErrors[_me] = const NetworkException('no network');
+
+      final r = await start();
+      expect(r.result, StartResult.started);
+      await done();
+
+      // Both claims were made; the own one failed.
+      expect(rig.keys.claimCalls.map((c) => c.userId), [_bob, _me]);
+      expect(
+        rig.keys.claimCalls.last.excludeDeviceId,
+        rig.device.deviceIdString,
+      );
+      final init = pb.MlsInit.fromBuffer(inits().single.mlsInit!);
+      expect(init.welcomeDeviceIds, [bob.idString]);
+      final members = await rig.device.vault.members(_c1);
+      expect(members, hasLength(2));
+      expect(members.any((m) => rigEq(m.deviceId, sib.id)), isFalse);
+      expect(
+        members.singleWhere((m) => rigEq(m.deviceId, bob.id)).side,
+        MemberSide.theirs,
+      );
+      expect((await groupOf())!.provisional, isFalse);
+      expect(await rows(), isEmpty);
+    });
+
     test('the per-target claim cap is tryAgainTomorrow', () async {
       for (final name in [
         'keys_claims_per_target_daily',
@@ -1133,6 +1161,60 @@ void main() {
       expect(rig.server.sends, hasLength(2));
       expect(rig.server.sends[0].mlsInit, isNotNull);
       expect(rig.server.sends[0].same(rig.server.sends[1]), isTrue);
+      expect((await groupOf())!.provisional, isFalse);
+      expect(await rows(), isEmpty);
+    });
+
+    test('an unknown outcome with a server retry time schedules exactly one '
+        'resend, and a trigger before that time sends nothing (code review '
+        'M6)', () async {
+      const busy = (
+        error: ScreeningUnavailableException(
+          'busy',
+          retryAfter: Duration(seconds: 5),
+        ),
+        stored: false,
+      );
+      rig.server.sendScript.add(busy);
+      await start();
+      await done();
+
+      // Not resent at once: the server named a time.
+      expect(rig.server.sends, hasLength(1));
+      expect(rig.scheduled.single.delay, const Duration(seconds: 5));
+      expect((await groupOf())!.provisional, isTrue);
+
+      // Triggers before that time send nothing and schedule nothing.
+      await starter.resumeProvisional();
+      await done();
+      await starter.retryStart('local-1');
+      await done();
+      rig.clock.advance(const Duration(seconds: 4));
+      await starter.resumeProvisional();
+      await done();
+      expect(rig.server.sends, hasLength(1));
+      expect(rig.scheduled, hasLength(1));
+
+      // The one scheduled resend, at the server's time: the identical
+      // request. Unanswered again, it schedules no second one.
+      rig.clock.advance(const Duration(seconds: 1));
+      rig.server.sendScript.add(busy);
+      rig.scheduled.single.run();
+      await done();
+      expect(rig.server.sends, hasLength(2));
+      expect(rig.server.sends[0].same(rig.server.sends[1]), isTrue);
+      expect(rig.scheduled, hasLength(1));
+      expect((await groupOf())!.provisional, isTrue);
+      expect((await rows()).single.init, isNotNull);
+
+      // A later trigger, after the new time, makes one attempt.
+      await starter.resumeProvisional();
+      await done();
+      expect(rig.server.sends, hasLength(2));
+      rig.clock.advance(const Duration(seconds: 5));
+      await starter.resumeProvisional();
+      await done();
+      expect(rig.server.sends, hasLength(3));
       expect((await groupOf())!.provisional, isFalse);
       expect(await rows(), isEmpty);
     });
