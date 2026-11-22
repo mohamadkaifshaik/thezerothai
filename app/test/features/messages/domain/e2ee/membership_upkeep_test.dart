@@ -777,8 +777,14 @@ void main() {
     test('two undos in one day pause committing here until the next IST '
         'day', () async {
       final sibling = await RigPeer.create('sibling');
-      await setUpJoined(others: [sibling], ownListed: [sibling]);
+      final bob2 = await RigPeer.create('bob2');
+      await setUpJoined(
+        others: [sibling],
+        ownListed: [sibling],
+        alsoListed: [bob2],
+      );
       await synced();
+      peerClaims([bob, bob2]);
       for (var i = 0; i < kAntiFlapUndosPerDay; i++) {
         await rig.ledger.addUndone(_c1);
       }
@@ -787,12 +793,15 @@ void main() {
 
       await rig.upkeep.reconcile(_c1);
       expect(requests(), isEmpty);
+      // No key package is spent on a change that cannot be made.
+      expect(rig.keys.claimCalls, isEmpty);
       expect((await pin(sibling))!.side, MemberSide.mine);
 
       rig.clock.advance(const Duration(days: 1));
       await rig.upkeep.reconcile(_c1);
       expect(requests(), hasLength(1));
       expect(await pin(sibling), isNull);
+      expect((await pin(bob2))!.side, MemberSide.theirs);
     });
   });
 
@@ -1251,37 +1260,42 @@ void main() {
     test('one re-check per conversation keeps the earliest due time and is '
         'cancelled at pause and at sign-out', () async {
       final carol = await RigPeer.create('carol');
-      final ghost = await RigPeer.create('ghost');
       await setUpJoined();
       await synced();
-      await ghostAdded(ghost);
-      final ghostSeen = rig.contexts
-          .of(_c1)
-          .firstSeenUnattributed
-          .values
-          .single;
-      // Bob's only device unlisted: its re-check is due later than the
-      // ghost's.
-      rig.clock.advance(const Duration(seconds: 30));
+      rig.clock.advance(kDeviceListReuse + _counts);
+      // Bob's only device unlisted (never removed): its first miss F and
+      // one re-check at F + 2 minutes.
       peerList([carol]);
       peerClaims(const []);
-      rig.directory.clear();
       await rig.upkeep.reconcile(_c1);
+      final context = rig.contexts.of(_c1);
+      final bobHex = context.firstMiss.keys.single;
+      final first = context.firstMiss[bobHex]!;
       expect(liveRechecks(), 1);
       final entry = rig.upkeepScheduled.last;
-      expect(
-        rig.clock.now().add(entry.delay),
-        ghostSeen.add(kUnattributedRecheck),
-      );
-      // A later reconcile does not replace it with a later one.
+      expect(rig.clock.now().add(entry.delay), first.add(kPeerRemovalFetchGap));
+
+      // A reconcile with the same due time keeps the entry as it is.
       rig.clock.advance(const Duration(seconds: 10));
       await rig.upkeep.reconcile(_c1);
       expect(liveRechecks(), 1);
       expect(entry.cancelled, isFalse);
 
+      // An EARLIER due time replaces it (review N3: never delayed by a
+      // later one).
+      context.firstMiss[bobHex] = first.subtract(const Duration(minutes: 1));
+      await rig.upkeep.reconcile(_c1);
+      expect(entry.cancelled, isTrue);
+      expect(liveRechecks(), 1);
+      final earlier = rig.upkeepScheduled.last;
+      expect(
+        rig.clock.now().add(earlier.delay),
+        first.add(kPeerRemovalFetchGap - const Duration(minutes: 1)),
+      );
+
       // Paused: cancelled.
       rig.upkeep.cancelScheduled();
-      expect(entry.cancelled, isTrue);
+      expect(earlier.cancelled, isTrue);
       expect(liveRechecks(), 0);
       // The next trigger schedules again; sign-out cancels it.
       await rig.upkeep.reconcile(_c1);
