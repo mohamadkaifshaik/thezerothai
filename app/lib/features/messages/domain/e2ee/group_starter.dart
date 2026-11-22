@@ -368,6 +368,15 @@ class GroupStarter {
   final Set<String> _repairing = {};
 
   /// Sign-out or a new vault: forgets this run's memory.
+  ///
+  /// Binding for Task 13 (pre-flag-on fix round 2, ruling 6, code review
+  /// m-D): sign-out, and a new vault, call BOTH this and
+  /// `CommitRunner.reset()` (which clears the join code's own-commit memory,
+  /// `ConversationCrypto.forgetOwnCommits`). Why: each forgets one half of
+  /// the run. With only this one, the join code keeps the groups it already
+  /// handed over (pre-flag-on review m-2) and never hands them to the new
+  /// run; with only the other, this class keeps the refused-replay evidence
+  /// and the margins of the earlier user's run.
   void reset() {
     _unknown.clear();
     _notBefore.clear();
