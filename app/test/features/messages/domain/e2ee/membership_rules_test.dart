@@ -87,6 +87,32 @@ String _n(pb.ClaimedKeyPackage c) =>
 
 void main() {
   group('R3 checkClaims', () {
+    test('checkClaims drops a claim whose id the key history refuses', () {
+      final c = [_claim(5), _claim(6)];
+      final asked = <(String, List<int>)>[];
+      final r = checkClaims(
+        side: ClaimSide.theirs,
+        claimed: c,
+        inspected: [_info(5), _info(6)],
+        directory: _list([_dev(5), _dev(6)]),
+        ownList: _list([_dev(1), _dev(99)]),
+        members: const [],
+        thisDeviceId: _id(99),
+        forNewGroup: true,
+        // The conversation's key history admits device 6 only.
+        admissible: (hex, key) {
+          asked.add((hex, key));
+          return hex == _hex(_id(6));
+        },
+      );
+      expect(r.usable, hasLength(1));
+      expect(r.usable.single.deviceId, _id(6));
+      // Asked with the device id in hex and the claimed key.
+      expect(asked.map((a) => a.$1), [_hex(_id(5)), _hex(_id(6))]);
+      expect(asked.first.$2, _key(5));
+      expect(r.emptyFor, isEmpty);
+    });
+
     test('a package passing every check is usable', () {
       final r = _check();
       expect(r.usable, hasLength(1));

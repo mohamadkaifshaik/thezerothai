@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:fixnum/fixnum.dart';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../../../../core/crypto/crypto_engine.dart';
@@ -20,6 +19,7 @@ import 'conversation_locks.dart';
 import 'e2ee_types.dart';
 import 'message_content_codec.dart';
 import 'message_receiver.dart';
+import 'pipeline_support.dart';
 import 'sync_budget.dart';
 
 part 'encrypted_sender_support.dart';
@@ -28,11 +28,8 @@ part 'encrypted_sender_support.dart';
 /// next trigger (Open question 4's default).
 const int kStaleEpochRoundsPerDrain = 3;
 
-/// The longest ciphertext an outbox row holds (`VaultTx.putOutbox`).
-const int _kMaxOutboxCiphertext = 8192;
-
-/// The largest whole second whose microseconds stay exact on the web.
-final Int64 _maxSeconds = Int64(9007199254);
+/// The longest ciphertext an outbox row holds (shared with the starter).
+const int _kMaxOutboxCiphertext = kMaxOutboxCiphertext;
 
 /// Sending encrypted messages (Task 7, R7; security reads M1, M3, M10): a
 /// durable outbox in the vault, the gates before an encrypt, the send, and
@@ -180,6 +177,20 @@ class EncryptedSender {
     _held.clear();
   }
 
+  /// Task 8: the typed refusal of the row [localId], whose init the server
+  /// refused (the row is stored failed, at stage `plain`, under its
+  /// conversation id). Memory only, as every typed error here: [outgoing]
+  /// shows it while this run remembers it.
+  void rememberRefusal(String localId, AppException error) =>
+      _errors[localId] = error;
+
+  /// Task 8 (review F3): the row [localId] is an init row again (a new
+  /// start took it), so the typed error of its earlier failure is
+  /// forgotten. Why: [retry] returns at a row with an init before it
+  /// clears anything, and a later failure with no typed error of its own
+  /// would otherwise be shown with the old one. Memory only.
+  void forgetRefusal(String localId) => _errors.remove(localId);
+
   // -------------------------------------------------------------------------
   // The public entries
 
@@ -308,6 +319,12 @@ class EncryptedSender {
   /// stage-`encrypted` row may have been accepted: it goes only after one
   /// live pull that completed and found no echo (an echo completes the row
   /// instead; a pull that could not complete leaves it).
+  ///
+  /// Review F1 (Task 8, fix round 2), binding for Task 13b: this calls
+  /// nothing of the starter. After a discard, Task 13b calls
+  /// `GroupStarter.retryStart` for the local id of the conversation's new
+  /// oldest row, so a row that waited behind the discarded one can start
+  /// encryption (a no-op when that row is failed or needs no new start).
   Future<void> discard(String localId) async {
     final row = await _find(localId);
     final id = row?.conversationId;
@@ -1072,11 +1089,7 @@ class EncryptedSender {
 
   /// [length] bytes of the engine's CSPRNG. Audit L6: an answer of another
   /// length is [_BadRandom], before anything is stored or encrypted with it.
-  Future<Uint8List> _random(int length) async {
-    final bytes = await _engine().randomBytes(length);
-    if (bytes.length != length) throw const _BadRandom();
-    return bytes;
-  }
+  Future<Uint8List> _random(int length) => randomOf(_engine(), length);
 
   /// Reports [step] (a name only) the first time in this run.
   void _reportOnce(String step, [StackTrace? stack]) {

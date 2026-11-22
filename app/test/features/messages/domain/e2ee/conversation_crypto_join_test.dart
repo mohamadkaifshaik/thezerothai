@@ -764,8 +764,11 @@ void main() {
       return commit.commit;
     }
 
-    // 1. The server stored this device's own init: the provisional group is
-    // cleared and the welcome is a replay.
+    // 1. The server stored this device's own init: the welcome is a replay.
+    // While a row still carries the init nothing is settled here (review
+    // W1: this path has no answer for the message, and the row's key never
+    // goes out without its init; Task 8's starter replays it). Once no row
+    // carries it, the provisional group is cleared.
     final ownCommit = await provisional(_c1);
     rig.server.addCommit(
       _c1,
@@ -784,6 +787,27 @@ void main() {
     rig.device.engine.calls.clear();
     expect(await rig.crypto.processWelcomes(), isEmpty);
     expect(await ackedIds(), [w1]);
+    expect(rig.device.engine.calls, isNot(contains('joinFromWelcome')));
+    final kept = await v.group(_c1, 1);
+    expect(kept!.provisional, isTrue);
+    expect(rigEq(kept.pending!.commit, ownCommit), isTrue);
+    expect(await v.conversation(_c1), isNull);
+    final initRow = (await v.outbox(conversationId: _c1)).items.single;
+    expect(initRow.init, [9, 9]);
+    expect(initRow.stage, OutboxStage.encrypted);
+    expect(initRow.idempotencyKey, 'k' * 32);
+
+    // The row is gone (answered elsewhere): the same welcome settles it.
+    await v.transaction((tx) => tx.deleteOutbox('k' * 32));
+    rig.server.acks.clear();
+    final w1b = rig.server.addWelcome(
+      rig.device.deviceIdString,
+      _c1,
+      const MlsPair(1, 0),
+      other.welcome,
+    );
+    expect(await rig.crypto.processWelcomes(), isEmpty);
+    expect(await ackedIds(), [w1b]);
     expect(rig.device.engine.calls, isNot(contains('joinFromWelcome')));
     final cleared = await v.group(_c1, 1);
     expect(cleared!.provisional, isFalse);
