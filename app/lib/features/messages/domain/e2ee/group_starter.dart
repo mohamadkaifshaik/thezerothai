@@ -379,7 +379,9 @@ class GroupStarter {
   /// read M9; both counted before the first claim). Otherwise it stays
   /// `stuck`: with the flag off, removed elsewhere or a failed engine
   /// (`canReset` false; nothing is counted), at a limit (`canReset` true:
-  /// the user's tap), or while a reset is in progress. Never throws.
+  /// the user's tap), or while a reset is in progress. The automatic reset
+  /// adds no device this device removed from the conversation today (audit
+  /// L4; a manual reset is the user's choice). Never throws.
   Future<void> repairIfStuck(String conversationId) =>
       _repairIfStuck(conversationId);
 

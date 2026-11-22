@@ -55,8 +55,12 @@ enum _Record { ours, other, notStored, unknown, notAsked }
 /// on the provisional group of g + 1 and ends with the settle.
 extension _Reset on GroupStarter {
   /// The body of [GroupStarter.resetConversation] (its contract is written
-  /// there).
-  Future<void> _resetConversation(String id, BudgetPriority priority) async {
+  /// there). [automatic]: [GroupStarter.repairIfStuck]'s reset (audit L4).
+  Future<void> _resetConversation(
+    String id,
+    BudgetPriority priority, {
+    bool automatic = false,
+  }) async {
     if (!isConversationId(id)) throw ArgumentError('Invalid conversation id.');
     if (!_session.mayStart) {
       throw const FeatureDisabledException(
@@ -180,6 +184,7 @@ extension _Reset on GroupStarter {
         inspectedTheirs: inspectedTheirs,
         claimedMine: mine,
         inspectedMine: inspectedMine,
+        automatic: automatic,
       ),
     );
     final omitted = [
@@ -257,6 +262,14 @@ extension _Reset on GroupStarter {
   /// ONE transaction: the provisional group of g + 1 with its pending
   /// reset, and the commit-call count one higher (counted before the call).
   /// The pins and generation g's group are not touched.
+  ///
+  /// Audit L4 (controller ruling): an [automatic] reset adds no device this
+  /// device removed from [id] today (the M5 ledger's own changes, read in
+  /// this body through `isUndoOfOwnChange`, which counts every device while
+  /// the ledger is exhausted). Why: an automatic reset runs on lists the
+  /// server supplies, and must not undo this device's own removal of the
+  /// day. A manual reset is the user's choice, and its `deviceAdded` rows
+  /// show what it added.
   Future<_Created> _createReset(
     _Op op,
     String id,
@@ -267,6 +280,7 @@ extension _Reset on GroupStarter {
     required List<KeyPackageInfo?> inspectedTheirs,
     required List<kpb.ClaimedKeyPackage> claimedMine,
     required List<KeyPackageInfo?> inspectedMine,
+    bool automatic = false,
   }) async {
     const unavailable = _Created(_CreatedKind.unavailable);
     final next = g + 1;
@@ -327,13 +341,18 @@ extension _Reset on GroupStarter {
               _same(a.signatureKey, b.signatureKey) ||
               _same(a.deviceId, b.deviceId),
         );
+        // Audit L4: removed by this device here today (automatic only).
+        final daily = automatic ? await _ledger.readLocked(v) : null;
+        bool removedToday(UsableClaim c) =>
+            daily != null &&
+            daily.isUndoOfOwnChange(id, c.deviceId, removing: false);
         final usableTheirs = [
           for (final c in checkedTheirs.usable)
-            if (!onBoth(c, checkedMine.usable)) c,
+            if (!onBoth(c, checkedMine.usable) && !removedToday(c)) c,
         ];
         final usableMine = [
           for (final c in checkedMine.usable)
-            if (!onBoth(c, checkedTheirs.usable)) c,
+            if (!onBoth(c, checkedTheirs.usable) && !removedToday(c)) c,
         ];
         if (usableTheirs.isEmpty) {
           return _Created(_CreatedKind.noDevice, emptyFor: emptyFor);
@@ -868,7 +887,7 @@ extension _Reset on GroupStarter {
       // Decision: at `live` priority. Why: the repair is no user intent
       // (amendment 2) but follows the conversation's own catch-up, and a
       // deferred list would spend the day's automatic reset for nothing.
-      await _resetConversation(id, BudgetPriority.live);
+      await _resetConversation(id, BudgetPriority.live, automatic: true);
     } on E2eeActionException {
       // Counted: the conversation stays stuck with the manual offer.
     } on AppException {

@@ -179,6 +179,21 @@ void main() {
     expect(await rig.crypto.catchUp(_c1), CatchUpResult.stuck);
   }
 
+  /// Stuck again in the current generation (a second unprocessable commit
+  /// of bob's).
+  Future<void> stuckAgain() async {
+    final garbage2 = rigBytes('a second commit no engine can process');
+    rig.device.engine.failWireAlways[RigEngine.key(garbage2)] =
+        const MlsException(MlsErrorCode.badInput, 'rig');
+    rig.server.addCommit(
+      _c1,
+      rig.server.current(_c1),
+      garbage2,
+      fromUser: 'user-b',
+    );
+    expect(await rig.crypto.catchUp(_c1), CatchUpResult.stuck);
+  }
+
   Future<ConversationCryptoState> state() => rig.crypto.describeState(_c1);
 
   Future<GroupRecord?> groupAt(int g) => rig.device.vault.group(_c1, g);
@@ -1406,6 +1421,41 @@ void main() {
       expect(resets(), hasLength(1));
     });
 
+    test('audit L4: an automatic reset adds no device this device removed '
+        'here today; a manual reset still does', () async {
+      final bob2 = await RigPeer.create('bob2');
+      await setUpJoined();
+      peers([bob, bob2]);
+      await makeStuck();
+      // This device removed bob2 from this conversation today (as its own
+      // commit's transaction records it).
+      await rig.device.session.runWrite((v) async {
+        final current = await rig.ledger.readLocked(v);
+        await v.transaction(
+          (tx) => rig.ledger.writeIn(
+            tx,
+            current,
+            (r) => r.withOwnChange(_c1, removed: [bob2.id]),
+          ),
+        );
+      });
+      await starter.repairIfStuck(_c1);
+      expect(resets().single.welcomeDeviceIds, [bob.idString]);
+      expect((await groupAt(2))!.provisional, isFalse);
+      expect(await pin(bob2.id), isNull);
+
+      // The user's own reset is the user's choice (its deviceAdded rows
+      // show): bob2 is added.
+      await stuckAgain();
+      await reset();
+      expect(resets(), hasLength(2));
+      expect(resets().last.welcomeDeviceIds.toSet(), {
+        bob.idString,
+        bob2.idString,
+      });
+      expect((await pin(bob2.id))!.side, MemberSide.theirs);
+    });
+
     test('audit M2 / L5: removed elsewhere, or a failed engine: canReset is '
         'false and repairIfStuck counts nothing', () async {
       await setUpJoined();
@@ -1702,21 +1752,6 @@ void main() {
 
   group('a reset ended elsewhere, and a reset made during a resume (review '
       'm-1, m-2)', () {
-    /// Stuck again in the current generation (a second unprocessable
-    /// commit of bob's).
-    Future<void> stuckAgain() async {
-      final garbage2 = rigBytes('a second commit no engine can process');
-      rig.device.engine.failWireAlways[RigEngine.key(garbage2)] =
-          const MlsException(MlsErrorCode.badInput, 'rig');
-      rig.server.addCommit(
-        _c1,
-        rig.server.current(_c1),
-        garbage2,
-        fromUser: 'user-b',
-      );
-      expect(await rig.crypto.catchUp(_c1), CatchUpResult.stuck);
-    }
-
     test('review m-1: a reset the join path ended leaves no wait behind: a '
         'new reset made inside that wait is sent at once', () async {
       await setUpJoined();
