@@ -302,6 +302,10 @@ class DeviceDirectory {
     return out;
   }
 
+  /// True while [peerUserId] is parked: its last lookup answered
+  /// CANNOT_MESSAGE (Task 8's routing hands the caller that typed cause).
+  bool isParked(String peerUserId) => _parked.contains(peerUserId);
+
   /// The server said the peer can be replied to (`can_reply`): the peer is no
   /// longer parked.
   void markUsable(String peerUserId) => _parked.remove(peerUserId);

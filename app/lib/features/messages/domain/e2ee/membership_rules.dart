@@ -107,7 +107,10 @@ String _sideName(ClaimSide side) =>
 /// [members] with ANOTHER key, on any side, [forNewGroup] included (a known
 /// id never changes key); for [ClaimSide.theirs] the id
 /// is not in [ownList] and [ownList] is readable (an unknown own list cannot
-/// show that a device is not ours).
+/// show that a device is not ours); and, when [admissible] is given (the
+/// conversation's device key history, `KeyHistory.admissible`, with the id
+/// as [deviceIdHex]), it answers true for the pair: a device the history
+/// would refuse is never added.
 /// Claims without a package go to `emptyFor` (device ids) and nowhere else,
 /// and only when the directory is readable, lists the id as active and the id
 /// is not repeated in the claims.
@@ -120,6 +123,7 @@ ClaimCheck checkClaims({
   required List<MemberRecord> members,
   required Uint8List thisDeviceId,
   bool forNewGroup = false,
+  bool Function(String deviceIdHex, Uint8List signatureKey)? admissible,
 }) {
   final usable = <UsableClaim>[];
   final emptyFor = <Uint8List>[];
@@ -184,6 +188,7 @@ ClaimCheck checkClaims({
       if (!ownList.readable) continue;
       if (_entry(ownList, id) != null) continue;
     }
+    if (admissible != null && !admissible(deviceIdHex(id), key)) continue;
     usable.add(
       UsableClaim(
         deviceId: id,
