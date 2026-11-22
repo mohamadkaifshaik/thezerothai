@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:dzeroth/features/keys/domain/key_limits.dart';
 import 'package:dzeroth/features/keys/domain/pending_upload.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -77,7 +78,7 @@ void main() {
     final p = PendingUpload(
       List.filled(50, max),
       max,
-      1 << 62,
+      100,
       failed: true,
       lastResortMicros: 1 << 62,
     );
@@ -160,8 +161,14 @@ void main() {
     }
   });
 
-  test('a negative or non-integer count is unreadable', () {
-    for (final count in [-1, 1.5, '3', null]) {
+  test('a count of 0..100 (MaxPoolSize) is read', () {
+    for (final count in [0, 100]) {
+      expect(_decode(_json(_record(countBefore: count))).countBefore, count);
+    }
+  });
+
+  test('a negative, oversize or non-integer count is unreadable', () {
+    for (final count in [-1, 101, 1 << 62, 1.5, '3', null]) {
       expect(
         () => _decode(_json(_record(countBefore: count))),
         throwsFormatException,

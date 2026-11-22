@@ -1,21 +1,15 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart';
-
-import 'device_keys_service.dart' show kKeyPackagePoolTarget;
-
-/// The largest key package (and last-resort package) the directory
-/// accepts: the backend's `keys.MaxKeyPackageBytes`
-/// (backend/internal/keys/model.go).
-const int kMaxKeyPackageBytes = 4096;
+import 'key_limits.dart';
 
 /// The base64 length of a [kMaxKeyPackageBytes] package (padded).
 const int _maxPackageBase64 = (kMaxKeyPackageBytes + 2) ~/ 3 * 4;
 
 /// The largest record: [kKeyPackagePoolTarget] one-time packages and a
 /// last-resort one at their largest, each quoted and comma-separated, and
-/// the fixed keys, the count and `lastResortAt` (about 140 bytes with both
-/// integers at 19 digits).
+/// the fixed keys, the count (at most [kMaxKeyPackagePool]) and
+/// `lastResortAt` (19 digits at most): about 125 bytes.
 const int kMaxPendingUploadBytes =
     (kKeyPackagePoolTarget + 1) * (_maxPackageBase64 + 3) + 192;
 
@@ -74,6 +68,7 @@ class PendingUpload {
         packages.length > kKeyPackagePoolTarget ||
         count is! int ||
         count < 0 ||
+        count > kMaxKeyPackagePool ||
         !value.containsKey('lastResort') ||
         (at != null && (at is! int || at <= 0)) ||
         (outcome != 'failed' && outcome != 'unknown')) {

@@ -15,14 +15,10 @@ import '../../../core/vault/vault_status.dart' show VaultCorruptException;
 import '../../../gen/dzeroth/keys/v1/keys.pb.dart' as pb;
 import '../data/keys_repository.dart';
 import 'key_batch_day.dart';
+import 'key_limits.dart';
 import 'pending_upload.dart';
 
-/// One-time key packages uploaded at first registration, and the level a
-/// top-up restores.
-const int kKeyPackagePoolTarget = 50;
-
-/// A top-up runs when the server reports fewer than this many.
-const int kKeyPackageTopUpBelow = 20;
+export 'key_limits.dart';
 
 /// The last-resort package is replaced once it is this old.
 const Duration kLastResortMaxAge = Duration(days: 30);
@@ -84,18 +80,6 @@ const String kVaultSettingLastResortAt = 'keys.device.lastResortMicros';
 /// A record with no packages = none saved. The private parts of its
 /// packages are already in the device state ([PendingUpload]).
 const String kVaultSettingPendingUpload = 'keys.device.pendingUpload';
-
-/// The most key package batches generated per IST day (ruling E): until the
-/// core prune exists (Open question 9), a server that keeps the outcome of
-/// uploads unknown while the pool count moves must not grow the device
-/// state without limit. An honest, flaky network rarely needs more than 4.
-/// Cost: a pool that is truly drained can stay empty until the next IST day;
-/// the last-resort package still answers claims. When the server reports
-/// none (a re-registered device), a last-resort-only batch is still
-/// generated and counted at the cap (ruling 1): otherwise the device would
-/// be unreachable until IST midnight. A hostile server gains at most one
-/// package per run that way (about 24 a day, runs are hourly).
-const int kMaxKeyBatchesPerDay = 4;
 
 /// Sealed JSON `{"v":1,"day":"YYYY-MM-DD","n":k,"reported":bool}`: the
 /// batches generated on that IST day and whether the cap was reported.
@@ -189,10 +173,6 @@ class _BadPoolCount implements Exception {
 class _BatchCap implements Exception {
   const _BatchCap();
 }
-
-/// The most one-time key packages the directory stores per device (the
-/// backend's `keys.MaxPoolSize`).
-const int kMaxKeyPackagePool = 100;
 
 /// This device as the vault holds it.
 class _Local {
@@ -761,6 +741,9 @@ class DeviceKeysService {
     if (!identical(v, vault) || _currentUid() != uid) {
       throw const _Cancelled();
     }
+    final now = _now();
+    final today = istDay(now);
+    final tomorrow = istDay(now.add(const Duration(days: 1)));
     var saved = PendingUpload.empty;
     var unreadable = false;
     try {
@@ -768,7 +751,7 @@ class DeviceKeysService {
       if (bytes != null) {
         saved = PendingUpload.decode(
           bytes,
-          nowMicros: _now().microsecondsSinceEpoch,
+          nowMicros: now.microsecondsSinceEpoch,
         );
       }
     } on FormatException {
@@ -783,6 +766,66 @@ class DeviceKeysService {
     Future<void> store(PendingUpload pending) => v.transaction(
       (tx) => tx.putSetting(kVaultSettingPendingUpload, pending.encode()),
     );
+
+    // The daily cap (ruling E), read again and written in the transaction
+    // that commits each generation.
+    Future<KeyBatchDay> batchDay() async {
+      final Uint8List? bytes;
+      try {
+        bytes = await v.setting(kVaultSettingKeyBatchDay);
+      } on VaultCorruptException {
+        return KeyBatchDay.capped(today, kMaxKeyBatchesPerDay);
+      }
+      return KeyBatchDay.read(
+        bytes,
+        today: today,
+        tomorrow: tomorrow,
+        cap: kMaxKeyBatchesPerDay,
+      );
+    }
+
+    /// Generates [oneTimeCount] one-time packages (and a last-resort one
+    /// when [withLastResort]) and commits the private state, the record
+    /// ([keep] first, then the new one-time packages) and the counter in ONE
+    /// transaction. Counted whatever the cap (the caller checks it).
+    Future<PendingUpload> generate(
+      int oneTimeCount, {
+      required bool withLastResort,
+      List<Uint8List> keep = const [],
+    }) async {
+      final state = await v.deviceState();
+      if (state == null) throw StateError('No device state.');
+      final r = await _engine().generateKeyPackages(
+        state,
+        count: oneTimeCount,
+        lastResort: withLastResort,
+      );
+      final packages = r.keyPackages;
+      final pending = PendingUpload(
+        [
+          ...keep,
+          ...(withLastResort
+              ? packages.sublist(0, packages.length - 1)
+              : packages),
+        ],
+        withLastResort ? packages.last : null,
+        count,
+        lastResortMicros: withLastResort ? now.microsecondsSinceEpoch : 0,
+      );
+      await v.transaction((tx) async {
+        final current = await batchDay();
+        final counted = KeyBatchDay(
+          today,
+          current.count + 1,
+          reported: current.reported,
+        );
+        await tx.putDeviceState(r.deviceState);
+        await tx.putSetting(kVaultSettingPendingUpload, pending.encode());
+        await tx.putSetting(kVaultSettingKeyBatchDay, counted.encode());
+      });
+      return pending;
+    }
+
     if (!saved.isEmpty) {
       final previousUnknown = !saved.failed;
       // Decision (Task 14, ruling B): ANY change clears, not only a grown
@@ -798,6 +841,13 @@ class DeviceKeysService {
         // before dispatch). No fresh batch in this run: generating on every
         // count change would double the growth a hostile server can cause.
         final last = saved.lastResort;
+        if (last == null && !hasLastResort) {
+          // N-3: nothing to resend and the server has no last-resort
+          // package: a fresh one alone (counted, allowed at the cap as in
+          // ruling 1).
+          final fresh = await generate(0, withLastResort: true);
+          return (fresh, false, null);
+        }
         final lastOnly = last == null
             ? PendingUpload.empty
             : PendingUpload(
@@ -808,6 +858,17 @@ class DeviceKeysService {
               );
         await store(lastOnly);
         return (lastOnly, false, null);
+      }
+      if (saved.lastResort == null && !hasLastResort) {
+        // N-3: the saved one-time packages go again with a fresh last-resort
+        // package (counted, allowed at the cap as in ruling 1), armed as a
+        // new attempt.
+        final withLast = await generate(
+          0,
+          withLastResort: true,
+          keep: saved.oneTime,
+        );
+        return (withLast, previousUnknown, null);
       }
       if (previousUnknown) return (saved, previousUnknown, null);
       // Arm the next attempt before dispatch so a killed run is unknown.
@@ -824,26 +885,6 @@ class DeviceKeysService {
       if (unreadable) await store(PendingUpload.empty);
       return (PendingUpload.empty, false, null);
     }
-    // The daily cap (ruling E), read again and written in the transaction
-    // that commits the generation.
-    final now = _now();
-    final today = istDay(now);
-    final tomorrow = istDay(now.add(const Duration(days: 1)));
-    Future<KeyBatchDay> batchDay() async {
-      final Uint8List? bytes;
-      try {
-        bytes = await v.setting(kVaultSettingKeyBatchDay);
-      } on VaultCorruptException {
-        return KeyBatchDay.capped(today, kMaxKeyBatchesPerDay);
-      }
-      return KeyBatchDay.read(
-        bytes,
-        today: today,
-        tomorrow: tomorrow,
-        cap: kMaxKeyBatchesPerDay,
-      );
-    }
-
     final batches = await batchDay();
     var generateOneTime = oneTime;
     var generateLastResort = lastResort;
@@ -872,31 +913,10 @@ class DeviceKeysService {
       generateOneTime = 0;
       generateLastResort = true;
     }
-    final state = await v.deviceState();
-    if (state == null) throw StateError('No device state.');
-    final r = await _engine().generateKeyPackages(
-      state,
-      count: generateOneTime,
-      lastResort: generateLastResort,
+    final pending = await generate(
+      generateOneTime,
+      withLastResort: generateLastResort,
     );
-    final packages = r.keyPackages;
-    final pending = PendingUpload(
-      generateLastResort ? packages.sublist(0, packages.length - 1) : packages,
-      generateLastResort ? packages.last : null,
-      count,
-      lastResortMicros: generateLastResort ? now.microsecondsSinceEpoch : 0,
-    );
-    await v.transaction((tx) async {
-      final current = await batchDay();
-      final counted = KeyBatchDay(
-        today,
-        current.count + 1,
-        reported: current.reported,
-      );
-      await tx.putDeviceState(r.deviceState);
-      await tx.putSetting(kVaultSettingPendingUpload, pending.encode());
-      await tx.putSetting(kVaultSettingKeyBatchDay, counted.encode());
-    });
     return (pending, false, cap);
   });
 

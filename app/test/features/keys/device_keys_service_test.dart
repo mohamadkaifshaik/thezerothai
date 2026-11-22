@@ -152,6 +152,18 @@ class _Rig {
     world.advance(d);
   }
 
+  /// Moves the clock to one minute after the next IST midnight (UTC+05:30).
+  void toNextIstDay() {
+    const ist = Duration(hours: 5, minutes: 30);
+    final local = now.add(ist);
+    final midnight = DateTime.utc(
+      local.year,
+      local.month,
+      local.day,
+    ).add(const Duration(days: 1)).subtract(ist);
+    advance(midnight.difference(now) + const Duration(minutes: 1));
+  }
+
   void launch({VaultSession? realSession}) {
     session =
         realSession ?? world.launch(supported: supported, reported: reported);
@@ -832,6 +844,34 @@ void main() {
       expect(rig.engine.generated.last, (0, true));
     });
 
+    test('a saved batch without a last-resort package gets one when the '
+        'server reports none: generated, counted, sent with the saved '
+        'one-time packages', () async {
+      rig.toNextIstDay(); // the three batches fall on one IST day
+      await rig.signIn(_a);
+      final device = rig.devices.values.single;
+      device.pool.removeRange(0, 40); // 10 left: a top-up of 40, no LR
+      rig.server.failNext['upload'] = [refused()];
+      await nextRun();
+      expect(saved()['outcome'], 'failed');
+      expect(saved()['lastResort'], isNull);
+      final oneTime = rig.server.uploads.last.keyPackages;
+      expect(oneTime, hasLength(40));
+      device.lastResort = null;
+
+      await nextRun();
+      final up = rig.server.uploads.last;
+      expect(up.keyPackages, oneTime);
+      expect(up.lastResortKeyPackage, isNotEmpty);
+      expect(device.lastResort, up.lastResortKeyPackage);
+      expect(rig.engine.generated, [(50, true), (40, false), (0, true)]);
+      expect(rig.stateAtUpload.last, rig.engine.lastGenerated!.deviceState);
+      final day = jsonDecode(rig.setting(kVaultSettingKeyBatchDay)) as Map;
+      expect(day['n'], 3);
+      expect(saved()['oneTime'], isEmpty);
+      expect(rig.service.status.value, DeviceKeysStatus.ready);
+    });
+
     test('after a timeout an unchanged count reuses the saved bytes', () async {
       rig.server.failNext['upload'] = [timeout(), timeout()];
       await rig.signIn(_a);
@@ -1096,16 +1136,7 @@ void main() {
       await rig.service.onAppResumed();
     }
 
-    /// Moves the clock to one minute after the next IST midnight.
-    void toNextIstDay() {
-      final local = rig.now.add(ist);
-      final midnight = DateTime.utc(
-        local.year,
-        local.month,
-        local.day,
-      ).add(_day).subtract(ist);
-      rig.advance(midnight.difference(rig.now) + const Duration(minutes: 1));
-    }
+    void toNextIstDay() => rig.toNextIstDay();
 
     List<String> reported() => rig.reported.map((e) => e.toString()).toList();
 
@@ -1199,6 +1230,42 @@ void main() {
         expect(reported(), ['DeviceKeysError(batchCap)']);
       },
     );
+
+    test('at the cap, a cleared batch without a last-resort package still '
+        'gets one when the server reports none (counted)', () async {
+      toNextIstDay();
+      await rig.signIn(_a);
+      final device = rig.devices.values.single;
+      for (var i = 2; i < kMaxKeyBatchesPerDay; i++) {
+        device.pool.clear();
+        await nextRun();
+      }
+      // The last batch of the day (no last-resort package): both answers
+      // are lost.
+      device.pool.clear();
+      rig.server.failAfterApply['upload'] = [
+        connect.ConnectException(connect.Code.deadlineExceeded, 'timeout'),
+        connect.ConnectException(connect.Code.deadlineExceeded, 'timeout'),
+      ];
+      await nextRun();
+      expect(rig.engine.generated, hasLength(kMaxKeyBatchesPerDay));
+      expect(rig.engine.generated.last, (50, false));
+
+      // Claims moved the count, and the server lost its last-resort one.
+      device
+        ..pool.removeRange(0, 5)
+        ..lastResort = null;
+      final uploads = rig.server.uploads.length;
+      await nextRun();
+      expect(rig.engine.generated, hasLength(kMaxKeyBatchesPerDay + 1));
+      expect(rig.engine.generated.last, (0, true));
+      expect(rig.server.uploads, hasLength(uploads + 1));
+      expect(rig.server.uploads.last.keyPackages, isEmpty);
+      expect(device.lastResort, rig.server.uploads.last.lastResortKeyPackage);
+      final day = jsonDecode(rig.setting(kVaultSettingKeyBatchDay)) as Map;
+      expect(day['n'], kMaxKeyBatchesPerDay + 1);
+      expect(rig.service.status.value, DeviceKeysStatus.ready);
+    });
 
     test('at the cap a saved last-resort package is still sent', () async {
       toNextIstDay();
