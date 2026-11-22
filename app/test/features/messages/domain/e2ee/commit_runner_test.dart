@@ -17,6 +17,7 @@ import 'package:dzeroth/features/messages/domain/e2ee/membership_rules.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/message_receiver.dart'
     show kWalkBackoff;
 import 'package:dzeroth/features/messages/domain/e2ee/message_content_codec.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/sync_budget.dart';
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import 'package:fixnum/fixnum.dart';
@@ -29,6 +30,20 @@ import '../../../../support/e2ee_pipeline_rig.dart';
 const _c1 = '11111111111111111111111111111111';
 
 final RegExp _keyShape = RegExp(r'^[0-9a-f]{32}$');
+
+/// A sync budget that records the priority of every unit taken.
+class _SpyBudget extends SyncBudget {
+  _SpyBudget(RigClock clock)
+    : super(perMinute: 100000, ownDeviceCount: () => 1, now: clock.now);
+
+  final List<BudgetPriority> taken = [];
+
+  @override
+  Future<void> take(BudgetPriority priority, {Object? lane}) {
+    taken.add(priority);
+    return super.take(priority, lane: lane);
+  }
+}
 
 void main() {
   late RigCrypto rig;
@@ -56,8 +71,9 @@ void main() {
   Future<void> setUpJoined({
     bool accepted = true,
     List<RigPeer> others = const [],
+    SyncBudget Function(RigClock clock)? syncBudget,
   }) async {
-    rig = await RigCrypto.create();
+    rig = await RigCrypto.create(syncBudget: syncBudget);
     bob = await RigPeer.create('bob');
     rig.keys.peers['ref-bob'] = [
       rigKeyDevice(bob.idString, bob.key),
@@ -1164,8 +1180,11 @@ void main() {
       /// The first call is abandoned at the client's timeout and really
       /// ends only when the returned completer completes; the resend is
       /// refused. Answers that completer once the change answered pending.
-      Future<Completer<void>> abandonedThenRefused() async {
-        await setUpJoined();
+      Future<Completer<void>> abandonedThenRefused({
+        BudgetPriority priority = BudgetPriority.background,
+        SyncBudget Function(RigClock clock)? syncBudget,
+      }) async {
+        await setUpJoined(syncBudget: syncBudget);
         await synced();
         final carol = await RigPeer.create('carol');
         final ended = Completer<void>();
@@ -1185,12 +1204,39 @@ void main() {
           await rig.commits.change(
             _c1,
             adds: [await claim(carol, ClaimSide.theirs)],
+            priority: priority,
           ),
           CommitOutcome.pending,
         );
         rig.server.onCall = null;
         return ended;
       }
+
+      test('the resume a call\'s end schedules for a change made at user '
+          'priority runs at live: a timer is no user intent (Task 9 round P, '
+          'review Minor 1)', () async {
+        late _SpyBudget budget;
+        final ended = await abandonedThenRefused(
+          priority: BudgetPriority.user,
+          syncBudget: (clock) => budget = _SpyBudget(clock),
+        );
+        ended.complete();
+        await pumpEventQueue();
+        expect(rig.commitScheduled.map((s) => s.delay), [
+          kRequestInFlightMargin,
+        ]);
+
+        budget.taken.clear();
+        rig.clock.advance(kRequestInFlightMargin);
+        await runScheduled();
+
+        // The resume ran (its catch-up took units) and discarded the
+        // refused commit, never at user priority.
+        expect(engineCalls('discardCommit'), 1);
+        expect(budget.taken, isNotEmpty);
+        expect(budget.taken.first, BudgetPriority.live);
+        expect(budget.taken, isNot(contains(BudgetPriority.user)));
+      });
 
       test('a call that ends 20 s after the client timeout: no discard until '
           'the margin has passed after it ended', () async {

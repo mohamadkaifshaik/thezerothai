@@ -526,12 +526,21 @@ extension _CommitSend on CommitRunner {
   /// end of the discard margin (at most one scheduled per conversation).
   /// Scheduled in the root zone: the callback must not read as holding the
   /// conversation lock this was called under.
+  ///
+  /// Task 9 round P (review Minor 1, the starter's m-4 rule): a timer is no
+  /// user intent, so a resume scheduled from a change made at
+  /// [BudgetPriority.user] runs at [BudgetPriority.live] (still ahead of
+  /// the background sweep); any other priority is kept. Why: the timer
+  /// must not spend the user's reserve of the budget.
   void _scheduleResume(String id, Duration wait, BudgetPriority priority) {
     if (_resumeScheduled.containsKey(id)) return;
+    final later = priority == BudgetPriority.user
+        ? BudgetPriority.live
+        : priority;
     _resumeScheduled[id] = Zone.root.run(
       () => _schedule(wait, () {
         _resumeScheduled.remove(id);
-        unawaited(resumePending(id, priority: priority));
+        unawaited(resumePending(id, priority: later));
       }),
     );
   }
