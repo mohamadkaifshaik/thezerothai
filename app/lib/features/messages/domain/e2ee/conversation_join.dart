@@ -49,6 +49,31 @@ extension _WelcomeJoin on ConversationCrypto {
       return _Join(_Outcome.walkFirst, label: label);
     }
 
+    // Task 10 amendment 6: a provisional RESET of a LOWER generation (this
+    // device's reset into g' < g, still unanswered). A join of g would set
+    // the marks past it, and a provisional group whose marks are at or past
+    // its pending commit can never be settled (`InitSettle.replay`): it
+    // would be left provisional for good, holding every send. It is
+    // settled or discarded first from the server's first commit of g', as
+    // the labelled generation's is below. Settled: this welcome waits for
+    // the next poll (g' is then walked to its end before g is joined).
+    for (final lower in await poll.vault.groups(id)) {
+      if (!lower.provisional ||
+          lower.generation >= g ||
+          lower.pending?.kind != PendingKind.reset) {
+        continue;
+      }
+      switch (await _settleProvisional(poll, id, lower)) {
+        case _Settled.discarded:
+          break;
+        case _Settled.ownStored:
+        case _Settled.ownUnanswered:
+        case _Settled.replay:
+        case _Settled.unknown:
+          return const _Join(_Outcome.transient);
+      }
+    }
+
     // 2a. A provisional group of the labelled generation (security read M8).
     final provisional = await poll.vault.group(id, g);
     if (provisional != null && provisional.provisional) {
@@ -356,7 +381,7 @@ extension _WelcomeJoin on ConversationCrypto {
             ) ==
             pending.builtOn &&
         _sameBytes(first.commit, pending.commit);
-    return _session.runWrite((v) async {
+    final settled = await _session.runWrite((v) async {
       poll.check(v);
       final group = await v.group(id, g);
       if (group == null || !group.provisional) {
@@ -377,23 +402,42 @@ extension _WelcomeJoin on ConversationCrypto {
         if (await _hasInitRow(v, id, g)) return _Settled.ownUnanswered;
         // No init row (a reset, or the row is gone): the same success
         // steps as Task 8's send path, with no message to answer for.
-        final settled = await _settleOwnInitIn(
+        switch (await _settleOwnInitIn(
           v,
           id,
           group,
           thisDevice: poll.deviceId,
-        );
-        if (!settled) {
-          // The marks are already at or past this init (the marks cannot be
-          // written again): the welcome is a replay, for good.
-          return _Settled.replay;
+        )) {
+          case InitSettle.settled:
+            _afterOwnInit(id);
+            return _Settled.ownStored;
+          case InitSettle.waiting:
+          case InitSettle.notProvisional:
+            // Audit L3: a lower generation is not walked yet (nothing was
+            // written): not decided now, the next poll asks again.
+            return _Settled.unknown;
+          case InitSettle.replay:
+            // Task 10 amendment 6: a RESET the marks already passed can
+            // never be settled; it is ended here (its commit, stored or
+            // not, is in the past), never left provisional for good.
+            if (group.pending?.kind == PendingKind.reset) {
+              await _discardProvisionalIn(v, id, g);
+              return _Settled.discarded;
+            }
+            // The marks are already at or past this init (the marks cannot
+            // be written again): the welcome is a replay, for good.
+            return _Settled.replay;
         }
-        _afterOwnInit(id);
-        return _Settled.ownStored;
       }
       await _discardProvisionalIn(v, id, g);
       return _Settled.discarded;
     });
+    // Audit L6: a reset ended here is the starter's to forget.
+    if (pending?.kind == PendingKind.reset &&
+        (settled == _Settled.ownStored || settled == _Settled.discarded)) {
+      onOwnResetEnded?.call(id);
+    }
+    return settled;
   }
 }
 

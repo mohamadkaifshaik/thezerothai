@@ -54,6 +54,29 @@ void main() {
       }
     });
 
+    test('keptAfterSelfRemoval round-trips; absent reads false and is not '
+        'written while false', () {
+      PendingCommit make({required bool kept}) => PendingCommit(
+        kind: PendingKind.reset,
+        builtOn: const MlsPair(2, 0),
+        commit: Uint8List(3),
+        keptAfterSelfRemoval: kept,
+      );
+      expect(
+        PendingCommit.decode(make(kept: true).encode()).keptAfterSelfRemoval,
+        isTrue,
+      );
+      final plain = make(kept: false).encode();
+      expect(PendingCommit.decode(plain).keptAfterSelfRemoval, isFalse);
+      final m = jsonDecode(utf8.decode(plain)) as Map<String, Object?>;
+      expect(m.containsKey('keptAfterSelfRemoval'), isFalse);
+      expect(
+        () =>
+            PendingCommit.decode(_json({...m, 'keptAfterSelfRemoval': 'yes'})),
+        _corrupt,
+      );
+    });
+
     test('the encoding is JSON with v 1, base64 bytes and a [g, e] pair', () {
       final text = utf8.decode(
         PendingCommit(

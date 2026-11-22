@@ -5,10 +5,11 @@ part of 'group_starter.dart';
 /// before a send.
 extension _Recovery on GroupStarter {
   /// Resumes or expires every provisional group this class owns (its
-  /// pending commit is an init), one conversation lock at a time: a young
-  /// one has its init resent byte for byte; one [kProvisionalExpiry] old
-  /// is decided by the server's first stored commit ([_expireLocked]).
-  /// Never throws.
+  /// pending commit is an init or, Task 10, a reset), one conversation lock
+  /// at a time. An init: a young one has its init resent byte for byte; one
+  /// [kProvisionalExpiry] old is decided by the server's first stored commit
+  /// ([_expireLocked]). A reset: its record at (g + 1, 0) decides, and a
+  /// young one is resent only as [_resetResumeLocked] allows. Never throws.
   Future<void> _resumeAll(BudgetPriority priority) async {
     final vault = _session.vault;
     if (vault == null) return;
@@ -49,6 +50,20 @@ extension _Recovery on GroupStarter {
               )
             : const _Next(_NextKind.none);
       }
+      await _afterNext(id, next, priority);
+    } on Object catch (e, s) {
+      _reportIfBug(e, s, 'start.resume');
+    }
+  }
+
+  /// What a locked step asked for, run once the lock was released (the
+  /// resume's and the reset's). Never throws.
+  Future<void> _afterNext(
+    String id,
+    _Next next,
+    BudgetPriority priority,
+  ) async {
+    try {
       // Scheduled here, outside the lock's zone: the resend it starts must
       // not read as holding the lock. Review m-4 (the sender's m1 rule): a
       // timer is no user intent, so the resend never runs at user priority
@@ -88,6 +103,12 @@ extension _Recovery on GroupStarter {
           // provisional and the row still carries its init.
           await _receiver.pullLive(id, priority: priority);
           await _sender.drain(id, priority: priority);
+        case _NextKind.settledReset:
+          // Task 10: the reset is final; catch up on g + 1 (attribution
+          // of its members) and the rows waiting behind it go out (a row
+          // of g is answered STALE_EPOCH and re-encrypted in g + 1).
+          await _crypto.catchUp(id, priority: priority);
+          await _sender.drain(id, priority: priority);
       }
     } on Object catch (e, s) {
       _reportIfBug(e, s, 'start.resume');
@@ -108,11 +129,14 @@ extension _Recovery on GroupStarter {
       if (g.provisional) group = g;
     }
     final pending = group?.pending;
-    // Not provisional (settled meanwhile), or a provisional group that is
-    // not an init's (Task 10's reset owns that one).
-    if (group == null || pending == null || pending.kind != PendingKind.init) {
-      return none;
+    if (group == null || pending == null) return none;
+    // Task 10 amendment 4: a provisional reset is resumed, or settled or
+    // expired from its record at (g + 1, 0), by its own steps.
+    if (pending.kind == PendingKind.reset) {
+      return _resetResumeLocked(op, id, group, pending, priority);
     }
+    // Not an init's (nothing else is ever provisional).
+    if (pending.kind != PendingKind.init) return none;
     final row = await _initRow(op.vault, id, group.generation);
     if (_ageOf(group) < kProvisionalExpiry) {
       // Audit M3. Decision: a young group with no readable init row waits;
@@ -882,12 +906,17 @@ OutboxItem _withAttempt(OutboxItem r, int attempts, {String? lastError}) =>
     );
 
 /// What a locked step asks to run once the lock is released.
-enum _NextKind { none, drain, join, pull, rebuild }
+/// `settledReset` (Task 10): an own reset settled; catch up, then drain.
+enum _NextKind { none, drain, join, pull, rebuild, settledReset }
 
 class _Next {
-  const _Next(this.kind, {this.localId, this.resendAfter});
+  const _Next(this.kind, {this.localId, this.resendAfter, this.refusal});
 
   final _NextKind kind;
+
+  /// Task 10: the server's refusal of a reset, for the user's
+  /// [GroupStarter.resetConversation] to throw (the group is gone).
+  final AppException? refusal;
 
   /// The local id of the row to rebuild, with [_NextKind.rebuild].
   final String? localId;
