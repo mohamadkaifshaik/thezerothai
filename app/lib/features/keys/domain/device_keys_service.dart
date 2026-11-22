@@ -653,11 +653,19 @@ class DeviceKeysService {
             batch.countBefore,
             failed: true,
           );
-          await _persist(
-            vault,
-            uid,
-            (tx) => tx.putSetting(kVaultSettingPendingUpload, refused.encode()),
-          );
+          // Best effort: the typed refusal (back-off, forced register,
+          // latch) must survive a failed write; the saved record then stays
+          // "unknown", which only makes the next run read the count first.
+          try {
+            await _persist(
+              vault,
+              uid,
+              (tx) =>
+                  tx.putSetting(kVaultSettingPendingUpload, refused.encode()),
+            );
+          } catch (_, stack) {
+            _report('pendingUploadWrite', stack);
+          }
         }
         rethrow;
       }

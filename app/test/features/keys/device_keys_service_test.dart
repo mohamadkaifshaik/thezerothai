@@ -674,6 +674,71 @@ void main() {
     connect.ConnectException timeout() =>
         connect.ConnectException(connect.Code.deadlineExceeded, 'timeout');
 
+    /// A session over the real vault on an in-memory database.
+    (VaultDatabase, VaultSession) realVault() {
+      final db = VaultDatabase.forTesting(NativeDatabase.memory());
+      final cipher = FakeVaultCipher();
+      final session = VaultSession(
+        openCipher: (_, {required create}) async => cipher,
+        openVault: ({
+          required uid,
+          required cipher,
+          String? expectedStorage,
+          required create,
+        }) => openVaultOnDatabase(db, uid: uid, cipher: cipher),
+        wipeVaultFile: ({required alias, String? expectedStorage}) async {},
+        deleteVaultKey: ({required alias}) async {},
+        createOwner: () => FakeVaultOwner(rig.world),
+        markers: rig.world.markers,
+        supported: true,
+        launchId: 'keys-real-vault',
+        now: () => rig.now,
+      );
+      return (db, session);
+    }
+
+    const rejectPending =
+        'CREATE TRIGGER reject_pending BEFORE INSERT ON vault_settings '
+        "WHEN NEW.setting_key = 'keys.device.pendingUpload' "
+        "BEGIN SELECT RAISE(ABORT, 'injected'); END";
+
+    test('a failed "failed" record write does not replace the typed refusal: '
+        'RATE_LIMITED still backs off', () async {
+      final (db, session) = realVault();
+      rig.launch(realSession: session);
+      await rig.signIn(_a);
+      final vault = session.vault!;
+      addTearDown(vault.close);
+      rig.devices.values.single.pool.clear();
+      // The batch is saved; the write after the refusal is rejected.
+      rig.server.onCall['upload'] = () => db.customStatement(rejectPending);
+      rig.server.failNext['upload'] = [
+        keyServerError(
+          connect.Code.resourceExhausted,
+          common.ErrorReason.ERROR_REASON_RATE_LIMITED,
+          retryAfter: const Duration(hours: 4),
+        ),
+      ];
+      await nextRun();
+      expect(
+        rig.service.status.value,
+        const DeviceKeysStatus.failed(retryable: true),
+      );
+      expect(rig.reported.map((e) => e.toString()), [
+        'DeviceKeysError(pendingUploadWrite)',
+      ]);
+      final record =
+          jsonDecode(utf8.decode((await vault.setting(setting))!)) as Map;
+      expect(record['outcome'], 'unknown', reason: 'the armed record stays');
+
+      await db.customStatement('DROP TRIGGER reject_pending');
+      rig.server.onCall.remove('upload');
+      rig.advance(const Duration(hours: 2));
+      final before = rig.server.calls.length;
+      await rig.service.onAppResumed();
+      expect(rig.rpcs(before), isEmpty, reason: 'still backing off');
+    });
+
     test(
       'three refused runs grow state once, then upload the saved batch',
       () async {
@@ -850,24 +915,7 @@ void main() {
     test(
       'private state and sealed pending packages commit together before upload',
       () async {
-        final db = VaultDatabase.forTesting(NativeDatabase.memory());
-        final cipher = FakeVaultCipher();
-        final session = VaultSession(
-          openCipher: (_, {required create}) async => cipher,
-          openVault: ({
-            required uid,
-            required cipher,
-            String? expectedStorage,
-            required create,
-          }) => openVaultOnDatabase(db, uid: uid, cipher: cipher),
-          wipeVaultFile: ({required alias, String? expectedStorage}) async {},
-          deleteVaultKey: ({required alias}) async {},
-          createOwner: () => FakeVaultOwner(rig.world),
-          markers: rig.world.markers,
-          supported: true,
-          launchId: 'keys-real-vault',
-          now: () => rig.now,
-        );
+        final (db, session) = realVault();
         rig.launch(realSession: session);
         await rig.signIn(_a);
         final vault = session.vault!;
