@@ -547,9 +547,33 @@ extension _Reset on GroupStarter {
     AppException? refusal,
     bool expire = false,
   }) async {
-    const none = _Next(_NextKind.none);
     final provedAt = _now();
     final record = await _resetRecord(op.vault, id, pending, priority);
+    return _resetDecideOnLocked(
+      id,
+      group,
+      pending,
+      priority,
+      record,
+      provedAt,
+      refusal: refusal,
+      expire: expire,
+    );
+  }
+
+  /// [_resetDecideLocked]'s decision on a [record] whose listing started at
+  /// [provedAt].
+  Future<_Next> _resetDecideOnLocked(
+    String id,
+    GroupRecord group,
+    PendingCommit pending,
+    BudgetPriority priority,
+    _Record record,
+    DateTime provedAt, {
+    AppException? refusal,
+    bool expire = false,
+  }) async {
+    const none = _Next(_NextKind.none);
     switch (record) {
       case _Record.ours:
         return _resetSettleLocked(id, group, priority);
@@ -682,11 +706,27 @@ extension _Reset on GroupStarter {
 
   /// Amendment 4: [resumeProvisional] for a provisional RESET, with the
   /// lock held. Its record at (g + 1, 0) decides first (a restart finds a
-  /// stored reset and settles it; another winner is joined). Young and not
-  /// stored: the identical bytes are sent once more (spaced, counted, never
-  /// inside the margin before the expiry; never again after a refusal of
-  /// them). [kProvisionalExpiry] old and not stored: the group goes, only
-  /// on a listing that started after the margin with no call still out.
+  /// stored reset and settles it; another winner is joined).
+  /// [kProvisionalExpiry] old and not stored: the group goes, only on a
+  /// listing that started after the margin with no call still out.
+  ///
+  /// Young (review I1: the server draws both of its caps BEFORE it
+  /// recognises a retry, `service_mls.go` `commitCaps`, so every needless
+  /// resend spends one of this conversation's 20 calls and one of the
+  /// user's 10 resets a day, shared by every conversation):
+  /// - held back after an unknown outcome ([CommitCallTracker.heldBack]):
+  ///   nothing, not even the listing (one sync unit spared per trigger);
+  /// - the record is OURS: never a call. The server holds the reset; the
+  ///   settle (which may wait, for example while g's walk is interrupted)
+  ///   is retried at the next trigger;
+  /// - another record, or the server past g + 1: decided as before;
+  /// - NOT stored: the identical bytes are sent once more (spaced, counted,
+  ///   never inside the margin before the expiry, never again after a
+  ///   refusal of them);
+  /// - the record could not be read: sent once more only when no call of
+  ///   these bytes was made (nor the record first seen) in this run within
+  ///   [kRequestInFlightMargin] ([CommitCallTracker.marginLeft] at now), so
+  ///   at most one resend per margin however many triggers come.
   Future<_Next> _resetResumeLocked(
     _Op op,
     String id,
@@ -701,16 +741,31 @@ extension _Reset on GroupStarter {
     final refused = _resetRefused[id];
     final wasRefused = refused != null && _same(refused, pending.commit);
     final expired = _ageOf(group) >= kProvisionalExpiry;
-    final decided = await _resetDecideLocked(
-      op,
+    if (expired || wasRefused) {
+      return _resetDecideLocked(op, id, group, pending, priority, expire: true);
+    }
+    if (_resetCalls.heldBack(id)) return none;
+    final provedAt = _now();
+    final record = await _resetRecord(op.vault, id, pending, priority);
+    final decided = await _resetDecideOnLocked(
       id,
       group,
       pending,
       priority,
-      expire: expired || wasRefused,
+      record,
+      provedAt,
     );
-    if (expired || wasRefused) return decided;
-    // Young: still in place and not stored (or not known) -> one resend.
+    switch (record) {
+      case _Record.ours:
+      case _Record.other:
+        return decided;
+      case _Record.notStored:
+        break;
+      case _Record.unknown:
+        if (_resetCalls.marginLeft(id, pending.commit, _now()) != null) {
+          return decided;
+        }
+    }
     if (decided.kind != _NextKind.none || decided.resendAfter != null) {
       return decided;
     }

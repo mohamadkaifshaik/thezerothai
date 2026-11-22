@@ -931,6 +931,9 @@ void main() {
       ended.complete();
       await pumpEventQueue();
       expect(rig.scheduled.single.delay, kRequestInFlightMargin);
+      // The timer fires after its delay (review I1: a resume inside the
+      // wait after the unknown outcome does not even list).
+      rig.clock.advance(kRequestInFlightMargin);
       await runScheduled();
       final g2 = (await groupAt(2))!;
       expect(g2.provisional, isFalse);
@@ -987,7 +990,7 @@ void main() {
       await reset();
       expect(resets(), hasLength(1));
       expect(rig.scheduled.single.delay, kCommitRetryWaitMax);
-      // A resume before that time lists, and sends nothing.
+      // A resume before that time sends nothing (nor lists: review I1).
       await starter.resumeProvisional();
       await starter.settled(_c1);
       expect(resets(), hasLength(1));
@@ -1087,6 +1090,101 @@ void main() {
       expect(resets(), hasLength(3));
       expect(resets()[0].sameBytes(resets()[2]), isTrue);
       expect((await groupAt(2))!.provisional, isFalse);
+    });
+
+    test('review I1: a stored reset whose settle waits makes no further call '
+        'over three resumes', () async {
+      await setUpJoined();
+      await makeStuck();
+      // Both calls are stored (the second a recognised retry); every
+      // listing of the first run fails, so the reset stays provisional.
+      rig.server.commitScript.addAll([lostAnswer, lostAnswer]);
+      var listings = 0;
+      var walkFails = false;
+      rig.server.onCall = (call) async {
+        if (call == 'commitConversation') listingsFail = true;
+        if (call != 'listConversationCommits') return;
+        listings++;
+        if (listingsFail) throw const NetworkException('rig: no listing');
+        // Only the first listing of a resume works (the record is found
+        // as ours); the walk of g that the settle starts is interrupted.
+        if (walkFails && listings > 1) {
+          throw const NetworkException('rig: the walk of g is interrupted');
+        }
+      };
+      await reset();
+      expect(resets(), hasLength(2));
+      expect((await groupAt(2))!.provisional, isTrue);
+      expect(rig.server.resetDraws[_me], 2);
+      expect((await sync()).commitCallsToday, 2);
+
+      listingsFail = false;
+      walkFails = true;
+      for (var i = 0; i < 3; i++) {
+        rig.clock.advance(kRequestInFlightMargin);
+        listings = 0;
+        await starter.resumeProvisional();
+        await starter.settled(_c1);
+        expect(listings, greaterThan(0), reason: 'resume $i read the record');
+      }
+      expect(resets(), hasLength(2), reason: 'an accepted reset needs no call');
+      expect(rig.server.resetDraws[_me], 2);
+      expect(rig.server.commitDraws['$_me|$_c1'], 2);
+      expect((await sync()).commitCallsToday, 2);
+      expect((await groupAt(2))!.provisional, isTrue);
+
+      // The next trigger whose walk completes settles it, still with no
+      // call.
+      walkFails = false;
+      await starter.resumeProvisional();
+      await starter.settled(_c1);
+      expect((await groupAt(2))!.provisional, isFalse);
+      expect(resets(), hasLength(2));
+    });
+
+    test('review I1: a reset whose record cannot be read is resent at most '
+        'once per margin, and not listed while held back', () async {
+      await setUpJoined();
+      await makeStuck();
+      rig.server.commitScript.addAll([lostAnswer, lostAnswer]);
+      var listings = 0;
+      rig.server.onCall = (call) async {
+        if (call == 'commitConversation') listingsFail = true;
+        if (call != 'listConversationCommits') return;
+        listings++;
+        if (listingsFail) throw const NetworkException('rig: no listing');
+      };
+      await reset();
+      expect(resets(), hasLength(2));
+
+      // Held back by the last unknown outcome: no listing, no call.
+      listings = 0;
+      await starter.resumeProvisional();
+      await starter.settled(_c1);
+      expect(listings, 0, reason: 'heldBack is checked before the listing');
+      expect(resets(), hasLength(2));
+
+      // Past the wait, every listing still fails: one resend.
+      rig.clock.advance(kRequestInFlightMargin);
+      await starter.resumeProvisional();
+      await starter.settled(_c1);
+      expect(resets(), hasLength(3));
+      // More triggers inside the margin of that resend: no call.
+      for (var i = 0; i < 3; i++) {
+        rig.clock.advance(const Duration(seconds: 1));
+        await starter.resumeProvisional();
+        await starter.settled(_c1);
+      }
+      expect(resets(), hasLength(3));
+      expect(rig.server.resetDraws[_me], 3);
+      // One margin later: one more.
+      rig.clock.advance(kRequestInFlightMargin);
+      await starter.resumeProvisional();
+      await starter.settled(_c1);
+      expect(resets(), hasLength(4));
+      expect(resets()[0].sameBytes(resets()[3]), isTrue);
+      expect((await sync()).commitCallsToday, 4);
+      expect((await groupAt(2))!.provisional, isTrue);
     });
   });
 
