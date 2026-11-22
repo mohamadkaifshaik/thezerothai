@@ -313,12 +313,25 @@ class GroupStarter {
     return null;
   }
 
-  /// The user's retry of the unsent row [localId] (Task 13b's `retrySend`
-  /// calls this, not the sender's `retry`). A row that still carries its
-  /// init has it resent; a waiting or failed row of a conversation whose
-  /// init was refused or abandoned starts again from fresh claims when
-  /// [_neverMember] allows it (review F1, option c); every other row is the
-  /// sender's retry. An unknown id is a no-op. Never throws.
+  /// The user's retry of the unsent row [localId]. Task 13b's `retrySend`
+  /// calls this for EVERY retry of an unsent row, never the sender's
+  /// `retry` (which would clear the failure of a row only a new start can
+  /// send). A row that still carries its init has it resent; a waiting or
+  /// failed row of a conversation whose init was refused or abandoned
+  /// starts again from fresh claims when [_neverMember] allows it (review
+  /// F1, option c); every other row is the sender's retry. An unknown id is
+  /// a no-op. Never throws.
+  ///
+  /// The new start is made with the conversation's OLDEST waiting row (the
+  /// order the user typed is kept), which is [localId]'s row, or an older
+  /// row that is not failed; an older FAILED row is never sent by the retry
+  /// of another row (review 3d), and nothing starts then.
+  ///
+  /// Review N1. A start that could be made here and was not (the lookup or
+  /// the claim failed, no device, a daily cap, another start running)
+  /// leaves the row as it is: failed, with its reason, or the cap's. Why:
+  /// the sender's `retry` clears the failure, and the row would then read
+  /// "waiting" with no reason and no retry control, for good.
   Future<void> retryStart(String localId) async {
     try {
       final vault = _session.vault;
@@ -332,7 +345,15 @@ class GroupStarter {
       if (row.init != null) return await _resumeAll(BudgetPriority.user);
       final id = row.conversationId;
       final peer = id == null ? null : _known.peerOf(id);
-      if (id != null && peer != null && await _restartKnown(id, peer)) return;
+      if (id != null &&
+          peer != null &&
+          await _restartKnown(id, peer, retried: localId) ==
+              _Restart.notStarted) {
+        return;
+      }
+      // Not eligible: the sender's row. Started: the sender's retry does
+      // nothing for the row that now carries the init, and clears the
+      // failure of [localId] when the start took an older row.
     } on Object catch (e, s) {
       _reportIfBug(e, s, 'start.retry');
     }
@@ -366,9 +387,17 @@ class GroupStarter {
   /// Starts again from fresh claims for the head row of the known
   /// conversation [id] (review F1, option c). Called ONLY from an explicit
   /// trigger: a new send through [startOrRoute], or [retryStart]; never
-  /// from [resumeProvisional], a timer or a drain. True when a new
-  /// provisional group was stored (its init is then sent). Never throws.
-  Future<bool> _restartKnown(String id, String peer) async {
+  /// from [resumeProvisional], a timer or a drain. [retried]: the local id
+  /// of the row the user retried; null for a new send. Never throws.
+  ///
+  /// Review N1: three answers, because the caller of a retry must tell "the
+  /// sender's row" (`notEligible`: the sender's retry runs) from "a start
+  /// that was not made" (`notStarted`: the row keeps its failure).
+  Future<_Restart> _restartKnown(
+    String id,
+    String peer, {
+    String? retried,
+  }) async {
     try {
       final vault = _session.vault;
       // Not with the flag not on, not when removed elsewhere, and not into
@@ -378,15 +407,26 @@ class GroupStarter {
           _removedElsewhere() ||
           _engineDown() ||
           !_contexts.of(id).canReply) {
-        return false;
+        return _Restart.notEligible;
       }
-      if (!await _neverMember(vault, id, peer)) return false;
+      if (!await _neverMember(vault, id, peer)) return _Restart.notEligible;
       final rows = (await vault.outbox(conversationId: id)).items;
       // The oldest waiting row becomes the new group's first message, so
       // the order the user typed is kept.
-      if (rows.isEmpty) return false;
+      if (rows.isEmpty) return _Restart.notStarted;
       final head = rows.first;
-      if (head.stage != OutboxStage.plain || head.init != null) return false;
+      if (head.stage != OutboxStage.plain || head.init != null) {
+        return _Restart.notEligible;
+      }
+      // Review 3d. Decision: a failed row stays failed until the user
+      // retries or discards THAT row. Why: Task 7's rule is "nothing goes
+      // past a failed head row"; a bubble marked "not sent" must not go out
+      // hours later because another message was typed, and `canReply`
+      // (CANNOT_MESSAGE) is forgotten at a restart. Cost: later sends wait
+      // behind a failed head the user never touches, as everywhere else.
+      if (head.lastError != null && head.localId != retried) {
+        return _Restart.notStarted;
+      }
       final outcome = await _begin(
         peer,
         _Draft(
@@ -401,19 +441,21 @@ class GroupStarter {
       if (outcome.result == StartResult.started) {
         _onChanged(id);
         unawaited(_resume(id, BudgetPriority.user));
-        return true;
+        return _Restart.started;
       }
       final cause = outcome.cause;
       if (outcome.result == StartResult.tryAgainTomorrow && cause != null) {
         await _failRow(id, head.idempotencyKey, head.localId, cause);
       }
-      return false;
+      return _Restart.notStarted;
     } on _BadRandom {
       _reportOnce('start.random');
-      return false;
+      return _Restart.notStarted;
     } on Object catch (e, s) {
+      // Decision: a failed read says nothing about whose row this is; the
+      // row is left as it is (its failure included).
       _reportIfBug(e, s, 'start.restart');
-      return false;
+      return _Restart.notStarted;
     }
   }
 
@@ -743,6 +785,15 @@ class _Draft {
 /// of (review F1, option c). `replace`: the 24 h rebuild (review I3): the
 /// old provisional group is replaced in the creating transaction.
 enum _Mode { fresh, restart, replace }
+
+/// What [GroupStarter._restartKnown] did (review N1).
+///
+/// `started`: a new provisional group is stored and its init is being sent.
+/// `notEligible`: not a conversation a new start is for (this device was a
+/// member, or the flag is not on, it was removed elsewhere, the thread
+/// cannot be answered): the rows are the sender's. `notStarted`: a start
+/// could be made and was not; the row stays as it is.
+enum _Restart { started, notEligible, notStarted }
 
 // One body each, shared with the sender (`pipeline_support.dart`).
 typedef _Stopped = PipelineStopped;

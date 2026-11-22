@@ -159,8 +159,7 @@ void main() {
     expect(unexpected, isEmpty, reason: 'unexpected pipeline errors');
   });
 
-  Future<StartOutcome>
-  start({
+  Future<StartOutcome> start({
     String localId = 'local-1',
     String peer = _bob,
     String? conversationId,
@@ -999,14 +998,17 @@ void main() {
       expect(await rows(), isEmpty);
     });
 
-    test('a start outcome has no text form that shows the conversation id', () async {
-      gate = Completer<void>();
-      final r = await start();
-      expect(r.conversationId, _c1);
-      expect(r.toString(), isNot(contains(_c1)));
-      gate!.complete();
-      await done();
-    });
+    test(
+      'a start outcome has no text form that shows the conversation id',
+      () async {
+        gate = Completer<void>();
+        final r = await start();
+        expect(r.conversationId, _c1);
+        expect(r.toString(), isNot(contains(_c1)));
+        gate!.complete();
+        await done();
+      },
+    );
 
     test('a random answer of another length stores nothing', () async {
       await rig.dispose();
@@ -1399,11 +1401,25 @@ void main() {
       rig.keys.claimCalls.clear();
     }
 
-    /// A second message after [refusedOnce]: saved, and no new start.
+    /// The user discards the failed row of [refusedOnce]: known, no group,
+    /// no row (a new send is then the head row, review 3d).
+    Future<void> discardFailed() async {
+      await rig.sender.discard('local-1');
+      expect(await rows(), isEmpty);
+    }
+
+    const cap = RateLimitedException(
+      'cap',
+      limitName: 'keys_claims_per_target_daily',
+    );
+
+    /// After [refusedOnce] and the discard of its failed row, a second
+    /// message (the head row, not failed): saved, and no new start.
     Future<void> expectNoNewStart({
       String peer = _bob,
       String? conversationId,
     }) async {
+      await discardFailed();
       final r = await start(
         localId: 'local-2',
         peer: peer,
@@ -1416,15 +1432,16 @@ void main() {
       expect(rig.keys.claimCalls, isEmpty);
       expect(await groupOf(), isNull);
       final left = await rows();
-      expect(left.map((r) => r.localId), ['local-1', 'local-2']);
+      expect(left.map((r) => r.localId), ['local-2']);
       expect(left.every((r) => r.stage == OutboxStage.plain), isTrue);
       expect(rig.server.sends, hasLength(1));
     }
 
-    test('a new send to a conversation whose init was refused starts again '
-        'from fresh claims, and the id stays known', () async {
+    test('after the failed row is discarded, a new send starts again from '
+        'fresh claims with the new row, and the id stays known', () async {
       await refusedOnce();
       final refused = rig.server.sends.single;
+      await discardFailed();
 
       final r = await start(localId: 'local-2', text: 'second');
 
@@ -1436,20 +1453,59 @@ void main() {
       final g = (await groupOf())!;
       expect(g.provisional, isFalse);
       expect(await rows(), isEmpty);
-      // The failed row went out first, as the new group's init, under a
-      // NEW key; the second message after it, as an ordinary message.
+      // The new row went out as the new group's init, under its own key.
+      expect(rig.server.sends, hasLength(2));
+      final again = rig.server.sends[1];
+      expect(again.mlsInit, isNotNull);
+      expect(again.key, isNot(refused.key));
+      final stored = (await rig.device.vault.message(
+        _c1,
+        expectedMessageId(_me, again.key),
+      ))!;
+      expect(decodeMessageContentLenient(stored.content!).text, 'second');
+    });
+
+    test('a new send behind a failed head row makes no claim and leaves the '
+        'head failed; the retry of the head sends both in order', () async {
+      await refusedOnce();
+      final refused = rig.server.sends.single;
+
+      final r = await start(localId: 'local-2', text: 'second');
+
+      expect(r.result, StartResult.joinedExisting);
+      expect(r.conversationId, _c1);
+      await done();
+      expect(rig.keys.claimCalls, isEmpty);
+      expect(await groupOf(), isNull);
+      var left = await rows();
+      expect(left.map((r) => r.localId), ['local-1', 'local-2']);
+      expect(left.every((r) => r.stage == OutboxStage.plain), isTrue);
+      expect(left.first.lastError, 'RateLimitedException');
+      expect(left.last.lastError, isNull);
+      final shown = await rig.sender.outgoing(_c1);
+      expect(shown.first.status, OutgoingStatus5a.failed);
+      expect(shown.last.status, OutgoingStatus5a.waiting);
+      expect(rig.server.sends, hasLength(1));
+
+      // The user's retry of the failed head: it goes out first, as the new
+      // group's init under a NEW key; the second message after it.
+      await starter.retryStart('local-1');
+      await done();
+
+      expect(rig.keys.claimCalls.single.userId, _bob);
+      expect((await groupOf())!.provisional, isFalse);
+      left = await rows();
+      expect(left, isEmpty);
       expect(rig.server.sends, hasLength(3));
       final again = rig.server.sends[1];
       expect(again.mlsInit, isNotNull);
       expect(again.key, isNot(refused.key));
       expect(rig.server.sends[2].mlsInit, isNull);
-      expect(
-        await rig.device.vault.hasMessage(
-          _c1,
-          expectedMessageId(_me, again.key),
-        ),
-        isTrue,
-      );
+      final first = (await rig.device.vault.message(
+        _c1,
+        expectedMessageId(_me, again.key),
+      ))!;
+      expect(decodeMessageContentLenient(first.content!).text, 'hello');
       expect(
         await rig.device.vault.hasMessage(
           _c1,
@@ -1457,6 +1513,111 @@ void main() {
         ),
         isTrue,
       );
+    });
+
+    test('the retry of a row behind a failed head row starts nothing and '
+        'changes neither row', () async {
+      await refusedOnce();
+      await start(localId: 'local-2', text: 'second');
+      await done();
+
+      await starter.retryStart('local-2');
+      await done();
+
+      expect(rig.keys.claimCalls, isEmpty);
+      expect(await groupOf(), isNull);
+      final left = await rows();
+      expect(left.map((r) => r.localId), ['local-1', 'local-2']);
+      expect(left.first.lastError, 'RateLimitedException');
+      expect(rig.server.sends, hasLength(1));
+    });
+
+    test('the retry of a later row starts with the oldest waiting row when '
+        'that row is not failed', () async {
+      await refusedOnce();
+      await discardFailed();
+      // Two rows saved while nothing may start (the flag is not on).
+      await rig.device.session.onFlagChanged(E2eeFlag.off, uid: _me);
+      await start(localId: 'local-2', text: 'second');
+      await start(localId: 'local-3', text: 'third');
+      await done();
+      await rig.device.session.onFlagChanged(E2eeFlag.on, uid: _me);
+      expect(rig.keys.claimCalls, isEmpty);
+
+      await starter.retryStart('local-3');
+      await done();
+
+      expect(rig.keys.claimCalls.single.userId, _bob);
+      expect(await rows(), isEmpty);
+      expect(rig.server.sends, hasLength(3));
+      final init = rig.server.sends[1];
+      expect(init.mlsInit, isNotNull);
+      final first = (await rig.device.vault.message(
+        _c1,
+        expectedMessageId(_me, init.key),
+      ))!;
+      expect(decodeMessageContentLenient(first.content!).text, 'second');
+      expect(rig.server.sends[2].mlsInit, isNull);
+    });
+
+    test('a retry whose claim fails keeps the row failed and retryable, and '
+        'a later retry starts', () async {
+      await refusedOnce();
+      rig.keys.claimErrors[_bob] = const NetworkException('no network');
+
+      await starter.retryStart('local-1');
+      await done();
+
+      expect(rig.keys.claimCalls, hasLength(1));
+      expect(await groupOf(), isNull);
+      final row = (await rows()).single;
+      expect(row.stage, OutboxStage.plain);
+      expect(row.lastError, 'RateLimitedException');
+      var shown = (await rig.sender.outgoing(_c1)).single;
+      expect(shown.status, OutgoingStatus5a.failed);
+      expect(shown.retryable, isTrue);
+      expect(shown.error, isA<RateLimitedException>());
+      expect(shown.tryTomorrow, isFalse);
+
+      // The peer's list cannot be read: the same.
+      rig.keys.claimErrors.clear();
+      rig.keys.peerFails = true;
+      await starter.retryStart('local-1');
+      await done();
+      shown = (await rig.sender.outgoing(_c1)).single;
+      expect(shown.status, OutgoingStatus5a.failed);
+      expect(shown.retryable, isTrue);
+      expect(rig.keys.claimCalls, hasLength(1));
+
+      // The network is back.
+      rig.keys.peerFails = false;
+      await starter.retryStart('local-1');
+      await done();
+      expect(rig.keys.claimCalls, hasLength(2));
+      expect((await groupOf())!.provisional, isFalse);
+      expect(await rows(), isEmpty);
+      expect(rig.server.sends, hasLength(2));
+      expect(rig.server.sends[1].mlsInit, isNotNull);
+    });
+
+    test('a retry at the per-target claim cap leaves the row failed with '
+        'tryTomorrow', () async {
+      await refusedOnce();
+      rig.keys.claimErrors[_bob] = cap;
+
+      await starter.retryStart('local-1');
+      await done();
+
+      expect(rig.keys.claimCalls, hasLength(1));
+      expect(await groupOf(), isNull);
+      final row = (await rows()).single;
+      expect(row.stage, OutboxStage.plain);
+      expect(row.lastError, 'RateLimitedException');
+      final shown = (await rig.sender.outgoing(_c1)).single;
+      expect(shown.status, OutgoingStatus5a.failed);
+      expect(shown.tryTomorrow, isTrue);
+      expect(shown.retryable, isTrue);
+      expect(rig.server.sends, hasLength(1));
     });
 
     test(
