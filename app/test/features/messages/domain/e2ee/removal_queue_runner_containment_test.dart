@@ -126,6 +126,55 @@ void main() {
     });
   });
 
+  group('the removed mark does not skip the key history (fix round 4, SA '
+      'N2)', () {
+    /// The sibling, added by bob while this device was behind, is pinned
+    /// unattributed and queued with a mark carrying its key; then the
+    /// conversation's key history answers `unrecorded` for it (held, not
+    /// admitted).
+    Future<RigPeer> markedButUnrecorded() async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await join(_c1);
+      await synced();
+      await bobAdds(_c1, [sibling]);
+      await removeAndSettle(sibling);
+      expect((await pin(sibling))!.side, MemberSide.unattributed);
+      expect(queued(_c1, sibling), isTrue);
+      expect(requests(), isEmpty);
+      await rig.putKeyHistory(
+        _c1,
+        ids: [(bob.id, bob.key)],
+        held: [(sibling.id, sibling.key)],
+        closed: true,
+      );
+      return sibling;
+    }
+
+    test('a pass keeps the entry and reports it', () async {
+      final sibling = await markedButUnrecorded();
+      expectedErrors = ['removalQueue.keyHistory'];
+
+      await runner.runPass();
+      await runner.runPass();
+
+      expect(requests(), isEmpty);
+      expect((await pin(sibling))!.side, MemberSide.unattributed);
+      expect(queued(_c1, sibling), isTrue);
+    });
+
+    test('the upkeep\'s reconcile keeps it too', () async {
+      final sibling = await markedButUnrecorded();
+      await rig.receiver.pullLive(_c1);
+      expect(rig.contexts.of(_c1).syncedSinceStart, isTrue);
+
+      await rig.upkeep.reconcile(_c1);
+
+      expect(requests(), isEmpty);
+      expect((await pin(sibling))!.side, MemberSide.unattributed);
+    });
+  });
+
   group('a retry of a removal whose outcome is unknown (CR Minor 1)', () {
     test('removeDevice finishes the intent although the own list no longer '
         'names the device', () async {

@@ -18,7 +18,9 @@ import 'conversation_context.dart';
 import 'conversation_crypto.dart';
 import 'conversation_locks.dart';
 import 'device_directory.dart';
+import 'device_key_history.dart' show KeyHistory, KeyRefusal;
 import 'e2ee_types.dart';
+import 'former_pins.dart';
 import 'membership_rules.dart' show mayRemoveOwnDevice;
 import 'membership_upkeep.dart';
 import 'message_receiver.dart';
@@ -234,6 +236,10 @@ class RemovalQueueRunner {
 
   /// Conversations whose `removalQueue.keyMismatch` was reported this run.
   final Set<String> _mismatchReported = {};
+
+  /// Fix round 4, ruling 11: conversations whose `removalQueue.keyHistory`
+  /// was reported this run.
+  final Set<String> _historyReported = {};
 
   /// Review I2: conversations held by their own daily commit cap, until
   /// the time (capped at 24 h). Memory only: the F-7 record has no field
@@ -538,6 +544,7 @@ class RemovalQueueRunner {
     _unreadableFor = null;
     _removed.clear();
     _mismatchReported.clear();
+    _historyReported.clear();
     _holds.clear();
     _intentsNotBefore = null;
     _recordPruned = false;

@@ -97,7 +97,17 @@ extension _RemovalAttempt on RemovalQueueRunner {
       if (_pruneAgainst(id, members, thisDevice, caughtUp: true)) {
         await _save(vault);
       }
-      var removes = _removable(id, members);
+      // Fix round 4, ruling 11 (SA N2): the key history, read only when an
+      // unattributed pin could be removed through its mark.
+      final history = members.any((m) => m.side == MemberSide.unattributed)
+          ? await _crypto.keyHistory.of(
+              vault,
+              id,
+              currentPins: members,
+              formerPins: await const FormerPins().of(vault, id),
+            )
+          : null;
+      var removes = _removable(id, members, history);
       if (removes.isEmpty) return false;
       // Ruling H: a removal the user asked for is exempt from the M5 pause
       // and the fail-closed ledger. Ruling 11: an entry the pass queued for
@@ -172,7 +182,18 @@ extension _RemovalAttempt on RemovalQueueRunner {
   /// ever removed, so a peer's device (`theirs`) is never touched by the
   /// queue (fix round 2, ruling 9: the last-device backstop, which no pin
   /// could reach, is gone).
-  List<Uint8List> _removable(String id, List<MemberRecord> members) {
+  ///
+  /// Fix round 4, ruling 11 (SA N2): a marked `unattributed` pin goes only
+  /// when [history] answers neither `unrecorded` nor `unreadable` for its
+  /// (id, key) pair, the guard M2 has (`mayRemoveUnattributed`): a hostile
+  /// own list must not let the mark skip the key-history guards. Otherwise
+  /// the entry stays and is reported (`removalQueue.keyHistory`, once per
+  /// conversation and run). No [history]: unreadable.
+  List<Uint8List> _removable(
+    String id,
+    List<MemberRecord> members,
+    KeyHistory? history,
+  ) {
     final queued = queuedFor(id);
     final out = <Uint8List>[];
     for (final m in members) {
@@ -182,6 +203,14 @@ extension _RemovalAttempt on RemovalQueueRunner {
         if (key == null) continue;
         if (!_same(key, m.signatureKey)) {
           if (_mismatchReported.add(id)) _reportBug('removalQueue.keyMismatch');
+          continue;
+        }
+        final refusal =
+            history?.refusal(vaultDeviceIdHex(m.deviceId), m.signatureKey) ??
+            KeyRefusal.unreadable;
+        if (refusal == KeyRefusal.unrecorded ||
+            refusal == KeyRefusal.unreadable) {
+          if (_historyReported.add(id)) _reportBug('removalQueue.keyHistory');
           continue;
         }
       } else if (m.side != MemberSide.mine) {
