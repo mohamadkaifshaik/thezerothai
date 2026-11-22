@@ -289,22 +289,37 @@ func (r *FirestoreRepo) Register(ctx context.Context, uid string, d Device, now 
 // memory, on documents already read: Register keeps every document, removing ones included, under the cap, so the Limit
 // still covers all of them).
 func (r *FirestoreRepo) List(ctx context.Context, uid string) ([]Device, error) {
+	live, _, err := r.listDocs(ctx, uid)
+	return live, err
+}
+
+// ExportDevices implements ExportSource: the List query, with the documents carrying removedAt returned apart (pending)
+// instead of skipped, so the export never leaves stored data out.
+func (r *FirestoreRepo) ExportDevices(ctx context.Context, uid string) ([]Device, []PendingRemoval, error) {
+	return r.listDocs(ctx, uid)
+}
+
+// listDocs is the one device query of List and ExportDevices (Limit MaxDevicesPerUser, oldest first), split into live
+// devices and documents carrying removedAt.
+func (r *FirestoreRepo) listDocs(ctx context.Context, uid string) ([]Device, []PendingRemoval, error) {
 	snaps, err := r.devices(uid).OrderBy("createdAt", firestore.Asc).Limit(MaxDevicesPerUser).Documents(ctx).GetAll()
 	if err != nil {
-		return nil, logger.RedactErr(fmt.Errorf("keys: list devices: %w", err), uid)
+		return nil, nil, logger.RedactErr(fmt.Errorf("keys: list devices: %w", err), uid)
 	}
-	out := make([]Device, 0, len(snaps))
+	live := make([]Device, 0, len(snaps))
+	var pending []PendingRemoval
 	for _, s := range snaps {
 		var d deviceDoc
 		if err := s.DataTo(&d); err != nil {
-			return nil, logger.RedactErr(fmt.Errorf("keys: decode device: %w", err), uid)
+			return nil, nil, logger.RedactErr(fmt.Errorf("keys: decode device: %w", err), uid)
 		}
 		if d.removed() {
+			pending = append(pending, PendingRemoval{Device: d.device(s.Ref.ID), RemovedAt: *d.RemovedAt})
 			continue
 		}
-		out = append(out, d.device(s.Ref.ID))
+		live = append(live, d.device(s.Ref.ID))
 	}
-	return out, nil
+	return live, pending, nil
 }
 
 // Remove implements Repo. Each round deletes the whole pool in pages of removePageSize (each a query with Limit, the loop

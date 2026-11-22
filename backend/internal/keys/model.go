@@ -95,6 +95,13 @@ type RemovalMark struct {
 	ExpireAt  time.Time
 }
 
+// PendingRemoval is a device document carrying removedAt (a REMOTE removal that has not deleted it yet) as the export
+// reads it: the stored metadata (Device; key bytes are never exported) and the document's removedAt.
+type PendingRemoval struct {
+	Device    Device
+	RemovedAt time.Time
+}
+
 // ValidDeviceID reports whether s matches [A-Za-z0-9_-]{16,64}.
 func ValidDeviceID(s string) bool {
 	if len(s) < 16 || len(s) > 64 {

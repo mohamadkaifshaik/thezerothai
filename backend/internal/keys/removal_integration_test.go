@@ -3,7 +3,9 @@
 package keys
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -323,7 +325,62 @@ func TestRemoval_RaceWithRegister(t *testing.T) {
 	t.Logf("register refused in %d of 50 runs", refused)
 }
 
-// TestRemoval_ListRemovalMarksPagesByID: the export read pages the marks by document id, afterID exclusive.
+// TestRemoval_ExportListsPendingRemoval (security audit M2(a)): the export reads the device documents on the emulator; a
+// document carrying removedAt is listed under removed_devices with removal_pending and its stored metadata until it is
+// deleted, then only its mark is.
+func TestRemoval_ExportListsPendingRemoval(t *testing.T) {
+	e := newRepoEnv(t)
+	ctx := context.Background()
+	uid := uniqueUID()
+	e.seed(t, uid, 2, 3)
+	if err := e.repo.MarkRemoved(ctx, uid, dvc(1), it0); err != nil { // stopped after the mark
+		t.Fatal(err)
+	}
+	type row struct {
+		DeviceID       string `json:"device_id"`
+		RemovalPending bool   `json:"removal_pending"`
+		Device         *struct {
+			KeyPackageCount int  `json:"key_package_count"`
+			HasLastResort   bool `json:"has_last_resort"`
+		} `json:"device"`
+	}
+	export := func() (devices []string, removed []row) {
+		t.Helper()
+		var buf bytes.Buffer
+		if err := NewExporter(e.repo).ExportUser(ctx, uid, &buf); err != nil {
+			t.Fatal(err)
+		}
+		var out struct {
+			Devices []struct {
+				DeviceID string `json:"device_id"`
+			} `json:"devices"`
+			RemovedDevices []row `json:"removed_devices"`
+		}
+		if err := json.Unmarshal(buf.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		for _, d := range out.Devices {
+			devices = append(devices, d.DeviceID)
+		}
+		return devices, out.RemovedDevices
+	}
+	devices, removed := export()
+	if fmt.Sprint(devices) != fmt.Sprint([]string{dvc(0)}) {
+		t.Fatalf("devices = %v, want only %s", devices, dvc(0))
+	}
+	if len(removed) != 1 || removed[0].DeviceID != dvc(1) || !removed[0].RemovalPending || removed[0].Device == nil ||
+		removed[0].Device.KeyPackageCount != 3 || !removed[0].Device.HasLastResort {
+		t.Fatalf("removed_devices = %+v, want %s pending with its pool of 3 and a last resort", removed, dvc(1))
+	}
+	if err := e.repo.Remove(ctx, uid, dvc(1)); err != nil {
+		t.Fatal(err)
+	}
+	if _, removed = export(); len(removed) != 1 || removed[0].RemovalPending || removed[0].Device != nil {
+		t.Fatalf("after the delete removed_devices = %+v, want the mark only", removed)
+	}
+}
+
+// TestRemoval_ListRemovalMarksPagesByID:the export read pages the marks by document id, afterID exclusive.
 func TestRemoval_ListRemovalMarksPagesByID(t *testing.T) {
 	e := newRepoEnv(t)
 	ctx := context.Background()

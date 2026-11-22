@@ -11,16 +11,22 @@ import (
 	"time"
 )
 
-// fakeExportSource answers List from list and pages marks by device id (afterID exclusive), like the repository.
+// fakeExportSource answers ExportDevices from list and pending and pages marks by device id (afterID exclusive), like
+// the repository.
 type fakeExportSource struct {
 	list    func(ctx context.Context, uid string) ([]Device, error)
+	pending []PendingRemoval
 	marks   []RemovalMark
 	markErr error
 	pages   []int // limits seen by ListRemovalMarks
 }
 
-func (f *fakeExportSource) List(ctx context.Context, uid string) ([]Device, error) {
-	return f.list(ctx, uid)
+func (f *fakeExportSource) ExportDevices(ctx context.Context, uid string) ([]Device, []PendingRemoval, error) {
+	devs, err := f.list(ctx, uid)
+	if err != nil {
+		return nil, nil, err
+	}
+	return devs, f.pending, nil
 }
 
 func (f *fakeExportSource) ListRemovalMarks(_ context.Context, _, afterID string, limit int) ([]RemovalMark, error) {
@@ -70,6 +76,45 @@ func TestExporter_Golden(t *testing.T) {
 	}
 	// No key material of any kind: the 0x07 and 0x09 key bytes never appear in any encoding.
 	for _, bad := range []string{"signature", `"last_resort"`, `"key_packages"`, "BwcH", "\\u0007"} {
+		if strings.Contains(got.String(), bad) {
+			t.Errorf("export contains %q", bad)
+		}
+	}
+}
+
+// TestExporter_PendingRemovalIsListed (security audit M2(a), right of access): a device document carrying removedAt (a
+// REMOTE removal that has not deleted it yet) is stored data, so it is exported under removed_devices with
+// removal_pending true and its stored metadata, until it is deleted, never under devices. With its mark it is one row
+// (the mark's times); without one (the mark's TTL ran out first) it is a row of its own, with removed_at from the
+// document and no expires_at. Rows stay ordered by device id.
+func TestExporter_PendingRemovalIsListed(t *testing.T) {
+	t0 := time.Date(2026, 11, 1, 6, 30, 0, 0, time.UTC)
+	t1 := time.Date(2026, 11, 17, 12, 30, 5, 0, time.UTC)
+	src := devicesOnly([]Device{{ID: "device-aaaaaaaaaaaaaaaa", CreatedAt: t0, LastSeenAt: t1}})
+	src.pending = []PendingRemoval{
+		{Device: Device{ID: "device-yyyyyyyyyyyyyyyy", SignatureKey: bytes.Repeat([]byte{7}, 32), CreatedAt: t0, LastSeenAt: t0, PoolCount: 3, HasLastResort: true}, RemovedAt: t1},
+		{Device: Device{ID: "device-cccccccccccccccc", CreatedAt: t0, LastSeenAt: t1}, RemovedAt: t1},
+	}
+	src.marks = []RemovalMark{
+		{DeviceID: "device-cccccccccccccccc", RemovedAt: t1, ExpireAt: t1.Add(RemovalMarkTTL)},
+		{DeviceID: "device-zzzzzzzzzzzzzzzz", RemovedAt: t0, ExpireAt: t0.Add(RemovalMarkTTL)},
+	}
+	var got bytes.Buffer
+	if err := NewExporter(src).ExportUser(context.Background(), "u1", &got); err != nil {
+		t.Fatal(err)
+	}
+	const want = `{"devices":[` +
+		`{"device_id":"device-aaaaaaaaaaaaaaaa","created_at":"2026-11-01T06:30:00Z","last_seen_at":"2026-11-17T12:30:05Z","key_package_count":0,"has_last_resort":false}],` +
+		`"removed_devices":[` +
+		`{"device_id":"device-cccccccccccccccc","removed_at":"2026-11-17T12:30:05Z","expires_at":"2027-02-15T12:30:05Z","removal_pending":true,` +
+		`"device":{"device_id":"device-cccccccccccccccc","created_at":"2026-11-01T06:30:00Z","last_seen_at":"2026-11-17T12:30:05Z","key_package_count":0,"has_last_resort":false}},` +
+		`{"device_id":"device-yyyyyyyyyyyyyyyy","removed_at":"2026-11-17T12:30:05Z","removal_pending":true,` +
+		`"device":{"device_id":"device-yyyyyyyyyyyyyyyy","created_at":"2026-11-01T06:30:00Z","last_seen_at":"2026-11-01T06:30:00Z","key_package_count":3,"has_last_resort":true}},` +
+		`{"device_id":"device-zzzzzzzzzzzzzzzz","removed_at":"2026-11-01T06:30:00Z","expires_at":"2027-01-30T06:30:00Z"}]}` + "\n"
+	if got.String() != want {
+		t.Errorf("export =\n%s\nwant\n%s", got.String(), want)
+	}
+	for _, bad := range []string{"signature", "BwcH", "\\u0007"} {
 		if strings.Contains(got.String(), bad) {
 			t.Errorf("export contains %q", bad)
 		}
