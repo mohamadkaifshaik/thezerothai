@@ -319,6 +319,12 @@ class EncryptedSender {
   /// stage-`encrypted` row may have been accepted: it goes only after one
   /// live pull that completed and found no echo (an echo completes the row
   /// instead; a pull that could not complete leaves it).
+  ///
+  /// Review F1 (Task 8, fix round 2), binding for Task 13b: this calls
+  /// nothing of the starter. After a discard, Task 13b calls
+  /// `GroupStarter.retryStart` for the local id of the conversation's new
+  /// oldest row, so a row that waited behind the discarded one can start
+  /// encryption (a no-op when that row is failed or needs no new start).
   Future<void> discard(String localId) async {
     final row = await _find(localId);
     final id = row?.conversationId;

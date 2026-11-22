@@ -376,6 +376,14 @@ class GroupStarter {
   /// F1, option c); every other row is the sender's retry. An unknown id is
   /// a no-op. Never throws.
   ///
+  /// Review F1 (fix round 2), binding for Task 13b: after the user discards
+  /// an unsent row (`EncryptedSender.discard`), call this for the local id
+  /// of the conversation's NEW oldest row. Why: under review 3d nothing
+  /// passes a failed head row without a touch, and the discard is that
+  /// touch; without this call the rows behind the discarded one read
+  /// "waiting" with no control until the user types again. It starts when
+  /// that row is not failed and is a no-op otherwise.
+  ///
   /// The new start is made with the conversation's OLDEST waiting row (the
   /// order the user typed is kept), which is [localId]'s row, or an older
   /// row that is not failed; an older FAILED row is never sent by the retry
