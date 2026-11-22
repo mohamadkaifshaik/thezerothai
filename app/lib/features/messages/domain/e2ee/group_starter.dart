@@ -40,8 +40,9 @@ import 'sync_budget.dart';
 part 'group_starter_recovery.dart';
 part 'group_starter_start.dart';
 
-/// R6: how long a provisional group's init is resent before the stored
-/// commits decide what became of it.
+/// R6: the age at which the stored commits decide what became of a
+/// provisional group. Its init is resent until [kInitResendMargin] before
+/// that.
 const Duration kProvisionalExpiry = Duration(hours: 24);
 
 /// The longest the server works on one request: the Cloud Run request
@@ -144,7 +145,9 @@ String dmConversationId(String a, String b) {
 /// `runWrite` body, with no mark. The row then goes out with its init,
 /// byte for byte under the same key, until the server answers. This class
 /// owns every row that carries an `init`; [EncryptedSender] sends none of
-/// them and nothing behind one. The two ends of a provisional group are
+/// them and nothing behind one. A row loses its init only with the
+/// server's answer for its message or with the discard of its group
+/// (review W1: its key never goes out without the init). The two ends of a provisional group are
 /// [ConversationCrypto.settleOwnInitLocked] (the one success function, also
 /// the join code's) and [ConversationCrypto.discardProvisionalLocked].
 ///
@@ -272,11 +275,14 @@ class GroupStarter {
 
   /// R6 step 4: called at vault ready and before any send. Every provisional
   /// group whose pending commit is an init is resumed (its init resent byte
-  /// for byte under the same key) or, once older than [kProvisionalExpiry],
-  /// settled from the server's first stored commit: cleared when that
-  /// commit is this init, else replaced by a new group from fresh
-  /// claims (claimed first; a failed claim changes nothing). One
-  /// conversation lock at a time. Never throws.
+  /// for byte under the same key, until [kInitResendMargin] before
+  /// [kProvisionalExpiry]) or, once [kProvisionalExpiry] old, decided by
+  /// the server's first stored commit. That commit is this init: the
+  /// identical request is sent once more and the group is cleared with the
+  /// server's replayed answer (review W1; with no answer nothing changes).
+  /// Else it is replaced by a new group from fresh claims (claimed first;
+  /// a failed claim changes nothing). One conversation lock at a time.
+  /// Never throws.
   Future<void> resumeProvisional({
     BudgetPriority priority = BudgetPriority.background,
   }) => _resumeAll(priority);
@@ -940,8 +946,12 @@ class GroupStarter {
   }
 }
 
-/// The first message of a start: a new draft, or (a rebuild) the stage-plain
-/// row [replaces] of a discarded provisional group. No `toString`.
+/// The first message of a start: a new draft, or the row [replaces] that
+/// this start encrypts again: the waiting stage-plain row of a known
+/// conversation ([_Mode.restart]), or the init row of the expired
+/// provisional group the start replaces ([_Mode.replace]; that group is
+/// not discarded first, it goes in the creating transaction). No
+/// `toString`.
 class _Draft {
   const _Draft({
     required this.localId,

@@ -192,8 +192,10 @@ extension _Start on GroupStarter {
         return _out(StartResult.started, id);
       case _CreatedKind.existing:
         // Started meanwhile (the claimed packages are wasted, bounded by
-        // the claim caps): the row goes to the sender. A rebuilt row is
-        // already the sender's.
+        // the claim caps): a new draft's row goes to the sender. A draft
+        // with no typed text here is a restart's stage-plain row, which
+        // is the sender's already (the 24 h replace never answers
+        // `existing`: its row stays the old init row).
         final text = draft.text;
         if (text == null) return _out(StartResult.joinedExisting, id);
         return _viaSender(

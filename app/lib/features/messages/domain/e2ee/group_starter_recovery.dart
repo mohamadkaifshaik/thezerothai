@@ -6,8 +6,8 @@ part of 'group_starter.dart';
 extension _Recovery on GroupStarter {
   /// Resumes or expires every provisional group this class owns (its
   /// pending commit is an init), one conversation lock at a time: a young
-  /// one has its init resent byte for byte; one older than
-  /// [kProvisionalExpiry] is settled from the server's first stored commit.
+  /// one has its init resent byte for byte; one [kProvisionalExpiry] old
+  /// is decided by the server's first stored commit ([_expireLocked]).
   /// Never throws.
   Future<void> _resumeAll(BudgetPriority priority) async {
     final vault = _session.vault;
@@ -351,8 +351,11 @@ extension _Recovery on GroupStarter {
   /// a refusal or a STALE_EPOCH may delete the group: whether the server
   /// holds this init all the same. Decision: the stored commits decide, not
   /// one `ListMessages` page (a stored init can hide behind 50 newer
-  /// messages, and the server's replay record expires); deleting a group
-  /// the server stored would lock its creator out of it, with no welcome.
+  /// messages). The server's replay of a stored message does not expire,
+  /// but a refusal made before its replay lookup (the recipient checks, a
+  /// rate limit, a disabled feature) can follow a stored init all the
+  /// same; deleting a group the server stored would lock its creator out
+  /// of it, with no welcome.
   ///
   /// Null: the init is not stored (the caller goes on to discard). Else
   /// what to do instead: the group settled with the message's answer when
@@ -519,8 +522,11 @@ extension _Recovery on GroupStarter {
   // -------------------------------------------------------------------------
   // Expiry
 
-  /// A provisional group older than [kProvisionalExpiry] (or one whose row
-  /// is gone), with the lock held: the server's first stored commit decides.
+  /// A provisional group [kProvisionalExpiry] old or older (with its init
+  /// row, or with none), with the lock held: the server's first stored
+  /// commit decides. This init: the identical request is replayed for the
+  /// message's answer (review W1). Another, or none: the rebuild, or (no
+  /// row) the discard.
   Future<_Next> _expireLocked(
     _Op op,
     String id,

@@ -1412,9 +1412,11 @@ void main() {
     test('on a retry, a STALE_EPOCH or a refusal never deletes a group whose '
         'init is the first stored commit', () async {
       // The first attempt was stored and its answer lost. The retry is
-      // answered STALE_EPOCH (the server's replay record is gone).
+      // answered STALE_EPOCH all the same (scripted: the real server
+      // replays a stored message for good, ahead of STALE_EPOCH; the
+      // starter must not rely on that to keep the group).
       rig.server.sendScript.addAll([
-        (error: const NetworkException('timed out'), stored: true),
+        lostAnswer,
         (
           error: const StaleEpochException(
             'stale',
@@ -1438,7 +1440,7 @@ void main() {
         (await rig.device.vault.conversation(_c1))!.afterPair,
         const MlsPair(1, 0),
       );
-      // The message came back as the live pull's echo.
+      // The first ListMessages page held the message: settled with it.
       expect(await rows(), isEmpty);
       expect(
         await rig.device.vault.hasMessage(_c1, row.expectedMessageId),
