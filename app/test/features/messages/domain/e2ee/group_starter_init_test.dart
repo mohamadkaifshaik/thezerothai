@@ -2416,6 +2416,192 @@ void main() {
     );
   });
 
+  group('a delete asks the stored commits again (audit M3, review F2)', () {
+    /// An unanswered init of a group now older than 24 h; nothing stored
+    /// at the server.
+    Future<({GroupRecord group, OutboxItem row})> expired() async {
+      rig.server.sendScript.addAll([unknown, unknown]);
+      await start();
+      await done();
+      final state = (group: (await groupOf())!, row: (await rows()).single);
+      rig.clock.advance(kProvisionalExpiry + const Duration(minutes: 1));
+      rig.keys.claimCalls.clear();
+      return state;
+    }
+
+    /// The server stores this device's init now (a request it took long
+    /// over): from here on the first stored commit is this init.
+    void storeOwnInit(GroupRecord group) => rig.server.addCommit(
+      _c1,
+      const MlsPair(1, 0),
+      group.pending!.commit,
+      fromUser: _me,
+    );
+
+    Future<void> expectKept(
+      ({GroupRecord group, OutboxItem row}) old,
+      String why,
+    ) async {
+      final g = (await groupOf())!;
+      expect(g.provisional, isTrue, reason: why);
+      expect(
+        rigEq(g.pending!.commit, old.group.pending!.commit),
+        isTrue,
+        reason: why,
+      );
+      expect(
+        g.provisionalCreatedAtMicros,
+        old.group.provisionalCreatedAtMicros,
+        reason: why,
+      );
+      expect(await rig.device.vault.members(_c1), hasLength(2), reason: why);
+      final row = (await rows()).single;
+      expect(row.idempotencyKey, old.row.idempotencyKey, reason: why);
+      expect(row.init, isNotNull, reason: why);
+      expect(row.stage, OutboxStage.encrypted, reason: why);
+      expect(row.lastError, isNull, reason: why);
+    }
+
+    test('the discard for a peer with no device is not made when the init '
+        'was stored while the lookups ran', () async {
+      final old = await expired();
+      rig.keys.peers[_bob] = [];
+      var stored = false;
+      rig.keys.onGet = () async {
+        if (!stored) storeOwnInit(old.group);
+        stored = true;
+      };
+
+      await starter.resumeProvisional();
+      await done();
+
+      expect(stored, isTrue);
+      await expectKept(old, 'stored during the lookup');
+    });
+
+    test('the discard at the claim cap is not made when the init was stored '
+        'while the lookups ran', () async {
+      final old = await expired();
+      rig.keys.claimErrors[_bob] = const RateLimitedException(
+        'cap',
+        limitName: 'keys_claims_per_target_daily',
+      );
+      var stored = false;
+      rig.keys.onGet = () async {
+        if (!stored) storeOwnInit(old.group);
+        stored = true;
+      };
+
+      await starter.resumeProvisional();
+      await done();
+
+      expect(rig.keys.claimCalls, hasLength(1));
+      await expectKept(old, 'stored before the cap answer');
+    });
+
+    test('neither discard is made while the commits cannot be asked', () async {
+      final old = await expired();
+      rig.keys.peers[_bob] = [];
+      // The first listing (the expiry's) answers; the one before the
+      // discard fails.
+      var listings = 0;
+      rig.server.onCall = (call) async {
+        if (call == 'listConversationCommits' && ++listings > 1) {
+          throw const NetworkException('no network');
+        }
+      };
+
+      await starter.resumeProvisional();
+      await done();
+
+      expect(listings, 2);
+      await expectKept(old, 'the commits did not answer');
+    });
+
+    test('the 24 h replace is not made when the init was stored while the '
+        'rebuild claimed', () async {
+      final old = await expired();
+      final answer = rig.keys.claims[_bob]!;
+      rig.keys.claims[_bob] = () async {
+        storeOwnInit(old.group);
+        return answer();
+      };
+
+      await starter.resumeProvisional();
+      await done();
+
+      expect(rig.keys.claimCalls, hasLength(1));
+      await expectKept(old, 'stored during the claim');
+      // Nothing of a new group went out.
+      expect(
+        rig.server.sends.every((s) => s.key == old.row.idempotencyKey),
+        isTrue,
+      );
+    });
+
+    test('a provisional group with no init row waits until it is 24 h old, '
+        'and is discarded only then', () async {
+      await rig.seedProvisional(_c1, [bob]);
+      await rig.known.add(_c1, peerUserId: _bob);
+      rig.server.calls.clear();
+
+      await starter.resumeProvisional();
+      await done();
+
+      // Young: its row may only be unreadable now, and a send may be in
+      // flight. Nothing is asked and nothing is deleted.
+      expect((await groupOf())!.provisional, isTrue);
+      expect(await rig.device.vault.members(_c1), hasLength(2));
+      expect(rig.server.calls, isEmpty);
+
+      rig.clock.advance(kProvisionalExpiry);
+      await starter.resumeProvisional();
+      await done();
+      expect(rig.server.calls, contains('listConversationCommits'));
+      expect(await groupOf(), isNull);
+    });
+
+    test('an init is not resent within the margin before expiry, so nothing '
+        'is in flight when the commits are asked', () async {
+      expect(
+        kInitResendMargin,
+        kServerRequestDeadline + const Duration(seconds: 30),
+      );
+      rig.server.sendScript.addAll([unknown, unknown]);
+      await start();
+      await done();
+      expect(rig.server.sends, hasLength(2));
+
+      // Just before the margin: the init is still resent.
+      rig.clock.advance(
+        kProvisionalExpiry - kInitResendMargin - const Duration(seconds: 1),
+      );
+      rig.server.sendScript.add(unknown);
+      await starter.resumeProvisional();
+      await done();
+      expect(rig.server.sends, hasLength(3));
+      expect(
+        (await starter.pendingInit(conversationId: _c1))!.status,
+        OutgoingStatus5a.sending,
+      );
+
+      // Inside the margin: no send, no commit listing, nothing changed.
+      rig.clock.advance(const Duration(seconds: 1));
+      rig.server.calls.clear();
+      await starter.resumeProvisional();
+      await done();
+      rig.clock.advance(kInitResendMargin - const Duration(seconds: 1));
+      await starter.resumeProvisional();
+      await done();
+      expect(rig.server.calls, isEmpty);
+      expect((await groupOf())!.provisional, isTrue);
+      expect((await rows()).single.init, isNotNull);
+      final shown = (await starter.pendingInit(conversationId: _c1))!;
+      expect(shown.status, OutgoingStatus5a.waiting);
+      expect(shown.waitingOn, SendBlock.provisional);
+    });
+  });
+
   group('resumeProvisional', () {
     test('a provisional group older than 24 h whose init is the first stored '
         'commit is cleared, not rebuilt', () async {

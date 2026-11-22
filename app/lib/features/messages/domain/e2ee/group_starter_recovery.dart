@@ -42,7 +42,7 @@ extension _Recovery on GroupStarter {
       if (next.kind == _NextKind.rebuild && rebuild != null) {
         // Fresh claims under no lock; then the new init is sent. One
         // rebuild per resume.
-        next = await _rebuild(id, rebuild)
+        next = await _rebuild(id, rebuild, priority)
             ? await _locks.run(
                 id,
                 () => _resumeLocked(id, priority, mayRebuild: false),
@@ -107,17 +107,34 @@ extension _Recovery on GroupStarter {
       return none;
     }
     final row = await _initRow(op.vault, id, group.generation);
-    final created = group.provisionalCreatedAtMicros;
-    final age = created == null
-        ? kProvisionalExpiry
-        : _now().difference(
-            DateTime.fromMicrosecondsSinceEpoch(created, isUtc: true),
-          );
-    if (row != null && age < kProvisionalExpiry) {
+    if (_ageOf(group) < kProvisionalExpiry) {
+      // Audit M3. Decision: a young group with no readable init row waits;
+      // it is not expired. Why: the row may only be unreadable now, and a
+      // request of it may still be in flight; the commits asked now could
+      // answer "not stored" and the discard that follows cannot be undone.
+      // At 24 h the commits decide, with nothing in flight.
+      if (row == null) return none;
+      // Inside the margin before expiry no init is sent ([_sendsNoMore]).
+      if (_sendsNoMore(group)) return none;
       return _sendLocked(op, id, group, row, priority);
     }
     return _expireLocked(op, id, group, pending, row, priority, mayRebuild);
   }
+
+  /// How long ago [group] was made provisional; [kProvisionalExpiry] when
+  /// it carries no creation time.
+  Duration _ageOf(GroupRecord group) {
+    final created = group.provisionalCreatedAtMicros;
+    if (created == null) return kProvisionalExpiry;
+    return _now().difference(
+      DateTime.fromMicrosecondsSinceEpoch(created, isUtc: true),
+    );
+  }
+
+  /// Audit M3: whether [group]'s init is sent no more: it is within
+  /// [kInitResendMargin] of [kProvisionalExpiry], or older.
+  bool _sendsNoMore(GroupRecord group) =>
+      _ageOf(group) >= kProvisionalExpiry - kInitResendMargin;
 
   /// The row that carries the init of [id]'s provisional group: addressed
   /// by its id, or by the recipient reference stored for it.
@@ -221,6 +238,11 @@ extension _Recovery on GroupStarter {
     var tries = replay || _unknown.contains(row.localId) ? 1 : 2;
     while (true) {
       if (!op.live) return none;
+      // Audit M3: checked before EVERY request of the loop, so the
+      // automatic resend does not start inside the margin either. A replay
+      // is exempt: the commits already said "stored", and no answer to it
+      // deletes anything.
+      if (!replay && _sendsNoMore(group)) return none;
       final pb.SendMessageResponse response;
       try {
         response = await _messaging.sendEncrypted(
@@ -529,7 +551,12 @@ extension _Recovery on GroupStarter {
     // sent either way, and nothing is destroyed that it could not rebuild.
     if (!mayRebuild || !_session.mayStart || _removedElsewhere()) return none;
     if (row == null) {
-      // No row to send: there is nothing to rebuild the group for.
+      // No row to send: there is nothing to rebuild the group for. Audit
+      // M3: the "not stored" this discard rests on is the answer read just
+      // above, in this same hold of the lock, with no await between the
+      // two; the group is 24 h old, so no request of it is in flight
+      // ([kInitResendMargin]). A second listing here would be the same
+      // call twice.
       await _crypto.discardProvisionalLocked(id, group.generation);
       return const _Next(_NextKind.drain);
     }
@@ -590,8 +617,15 @@ extension _Recovery on GroupStarter {
   /// NEW key. True when the new group was stored. A failed claim changes
   /// nothing. At a daily claim cap (`tryAgainTomorrow`), and when the peer
   /// lists no usable device (review N5), the group is discarded and the row
-  /// fails with that reason; the user's retry starts again then.
-  Future<bool> _rebuild(String id, String localId) async {
+  /// fails with that reason; the user's retry starts again then. Before
+  /// either discard, and before the replace, the stored commits are asked
+  /// again under the lock (review F2, audit M3): a delete is made only on a
+  /// "not stored" read in the same hold.
+  Future<bool> _rebuild(
+    String id,
+    String localId,
+    BudgetPriority priority,
+  ) async {
     final vault = _session.vault;
     final peer = _known.peerOf(id);
     if (vault == null || peer == null) return false;
@@ -619,6 +653,7 @@ extension _Recovery on GroupStarter {
           createdAtMicros: row.createdAtMicros,
         ),
         mode: _Mode.replace,
+        priority: priority,
       );
     } on _BadRandom {
       _reportOnce('start.random');
@@ -654,14 +689,22 @@ extension _Recovery on GroupStarter {
       reason = null;
     }
     if (reason != null) {
-      final discarded = await _locks.run(
-        id,
-        () => _crypto.discardProvisionalLocked(
+      final discarded = await _locks.run(id, () async {
+        // Review F2. Decision: the commits are asked again here, in the
+        // hold of the lock that discards, and the group goes only on "not
+        // stored". Why: the expiry's own answer is from an earlier hold,
+        // before two lookups of up to 30 s each and a claim; a request the
+        // server took long over can be stored in between, and a creator
+        // that deleted a stored group is locked out of the conversation
+        // (no welcome exists for it). An answer that does not say keeps
+        // the group; the next resume asks again.
+        if (await _ownInitStored(id, pending, priority) != false) return false;
+        return _crypto.discardProvisionalLocked(
           id,
           group!.generation,
           lastError: reason,
-        ),
-      );
+        );
+      });
       if (discarded) {
         _forget(localId);
         if (cause != null) _sender.rememberRefusal(localId, cause);

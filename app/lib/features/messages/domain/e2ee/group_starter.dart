@@ -44,6 +44,24 @@ part 'group_starter_start.dart';
 /// commits decide what became of it.
 const Duration kProvisionalExpiry = Duration(hours: 24);
 
+/// The longest the server works on one request: the Cloud Run request
+/// timeout, `request_timeout_seconds` (30 s today) in
+/// `infra/terraform/modules/cloud-run-api/variables.tf`, the bound
+/// `backend/internal/messaging/service_sync.go` (`EpochResumeTrail`) names
+/// for a send's stamp-to-commit time. Whoever raises that timeout raises
+/// this too.
+const Duration kServerRequestDeadline = Duration(seconds: 30);
+
+/// Audit M3. How long before [kProvisionalExpiry] an init is sent no more:
+/// the server's request deadline plus the client's own wait for an answer
+/// ([kMlsRpcTimeout]). Why: at expiry the stored commits decide, and a
+/// "not stored" there deletes the group; a request still in flight could
+/// be stored after that answer, and the server would then hold a group
+/// its creator deleted (no welcome exists for a creator). With this margin
+/// the last request left the client, and the server, before the commits
+/// are asked.
+final Duration kInitResendMargin = kServerRequestDeadline + kMlsRpcTimeout;
+
 /// The `limit_name` of the two daily claim caps (KP): 20 claims per target,
 /// 300 claims in all.
 const String kLimitClaimsPerTargetDaily = 'keys_claims_per_target_daily';
@@ -270,8 +288,9 @@ class GroupStarter {
   /// `sending`, or `waiting` with why the init is held: `unavailable` (the
   /// flag is not on, or this device was removed elsewhere), `cannotMessage`,
   /// `notSynced` (a member is not attributable), `provisional` (review N5:
-  /// the group is [kProvisionalExpiry] old or older, its init is sent no
-  /// more, and the stored commits or a rebuild decide at the next resume).
+  /// the group is within [kInitResendMargin] of [kProvisionalExpiry] or
+  /// older, its init is sent no more, and the stored commits, a replay or
+  /// a rebuild decide at the next resume).
   /// Always `retryable: false`, never `failed`: a row that failed is no
   /// longer an init row, and `outgoing` lists it. The user's retry of this
   /// row goes through [retryStart] like every other (it resumes the init).
@@ -307,16 +326,10 @@ class GroupStarter {
       if (group == null) continue;
       final r = await _initRow(vault, id, group.generation);
       if (r == null) continue;
-      // The age that [_resumeLocked] sends by: a group at or past
-      // [kProvisionalExpiry] (or with no creation time) has its init sent
-      // no more.
-      final created = group.provisionalCreatedAtMicros;
-      final expired =
-          created == null ||
-          _now().difference(
-                DateTime.fromMicrosecondsSinceEpoch(created, isUtc: true),
-              ) >=
-              kProvisionalExpiry;
+      // The age that [_resumeLocked] sends by: a group within
+      // [kInitResendMargin] of [kProvisionalExpiry] or older (or with no
+      // creation time) has its init sent no more.
+      final expired = _sendsNoMore(group);
       final SendBlock held;
       if (!_session.mayStart || _removedElsewhere()) {
         held = SendBlock.unavailable;

@@ -7,10 +7,13 @@ part of 'group_starter.dart';
 extension _Start on GroupStarter {
   /// Steps 1 to 3 for [draft] to [peer]. `started`: the provisional group
   /// and the stage-encrypted row are stored (the caller sends the init).
+  /// [priority]: the budget priority of the one commit listing a
+  /// [_Mode.replace] makes before it replaces (audit M3).
   Future<StartOutcome> _begin(
     String peer,
     _Draft draft, {
     _Mode mode = _Mode.fresh,
+    BudgetPriority priority = BudgetPriority.user,
   }) async {
     final op = await _op();
     if (op == null) return _out(StartResult.unavailable);
@@ -137,6 +140,7 @@ extension _Start on GroupStarter {
         draft,
         key,
         mode: mode,
+        priority: priority,
         verified: verified,
         own: own,
         theirs: theirs,
@@ -290,6 +294,7 @@ extension _Start on GroupStarter {
     _Draft draft,
     String key, {
     required _Mode mode,
+    required BudgetPriority priority,
     required bool verified,
     required DeviceList own,
     required DeviceList theirs,
@@ -305,6 +310,26 @@ extension _Start on GroupStarter {
         : const _Created(_CreatedKind.unavailable);
     final session = _messaging.cacheSession;
     try {
+      if (mode == _Mode.replace) {
+        // Audit M3. Decision: the stored commits are asked once more here,
+        // with the lock held, right before the transaction that deletes
+        // the old provisional group; it is replaced only on "not stored".
+        // Why: the expiry's answer is from an earlier hold of the lock,
+        // before the lookups and the claim. A request the server stored in
+        // between would leave it holding a group this device deleted, and
+        // the rebuilt init would be answered STALE_EPOCH with no welcome
+        // to join from. An answer that does not say replaces nothing; the
+        // claimed packages are wasted (bounded by the claim caps) and the
+        // next resume settles or rebuilds.
+        PendingCommit? pending;
+        for (final g in await op.vault.groups(id)) {
+          if (g.provisional) pending = g.pending;
+        }
+        if (pending == null ||
+            await _ownInitStored(id, pending, priority) != false) {
+          return const _Created(_CreatedKind.unavailable);
+        }
+      }
       return await _session.runWrite((v) async {
         op.check(v);
         final groups = await v.groups(id);
