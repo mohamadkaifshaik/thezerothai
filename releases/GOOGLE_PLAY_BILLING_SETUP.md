@@ -18,15 +18,15 @@ after creation/activation; the following are proposed names, not created product
 | Item | Proposed value |
 | --- | --- |
 | Android package | `com.dzeroth.dzeroth` |
-| Play subscription | `premium` |
+| Play subscription | `plus` |
 | Play base plan | `monthly` |
-| RevenueCat product | `premium:monthly` |
-| RevenueCat entitlement | existing `dzeroth_pro` |
+| RevenueCat product | `plus:monthly` |
+| RevenueCat entitlement | existing `plus_access` |
 | Offering | existing `default` |
 | Package | existing `$rc_monthly`, with the new Android product attached |
 
 Keep the Test Store product attached for Test Store builds. Do not replace its key
-with a real-store key. No launch price or trial is selected by this code.
+with a real-store key. Set the India storefront price to ₹99 per month including GST.
 
 Official instructions: [create subscriptions and base plans](https://support.google.com/googleplay/android-developer/answer/140504),
 [RevenueCat Google product identifiers](https://www.revenuecat.com/docs/getting-started/entitlements/android-products).
@@ -67,24 +67,24 @@ native tests before enabling that separate feature. See RevenueCat's
 ## 3. Map the product
 
 Import the actual Play subscription/base plan into RevenueCat. Attach that product
-to `dzeroth_pro`, then to the monthly package in the current `default` offering.
+to `plus_access`, then to the monthly package in the current `default` offering.
 Check its store state and credential validation in the dashboard. Only actual
 store identifiers belong in the following configuration examples.
 
-For the proposed Premium mapping:
+For the monthly Plus product:
 
 ```json
-{"premium:monthly":{"Store":"play_store","Entitlement":"dzeroth_pro"}}
+{"plus:monthly":{"Store":"play_store","Entitlement":"plus_access"}}
 ```
 
 The Flutter monthly-product mapping is:
 
 ```json
-{"premium:monthly":"premium"}
+{"plus:monthly":"plus"}
 ```
 
-Optional future Plus products map to `plus_access` on the server and `plus` in the
-client. Give each tier its own store product and package. Custom package names
+Configure one purchasable Plus package per storefront. Historical Premium
+products may remain in the server verification catalog for restores. Custom package names
 are supported, but their actual store billing period must be `P1M`.
 
 The verifier matches the subscription **and** base plan. RevenueCat's v1 customer
@@ -127,8 +127,8 @@ it is not an instruction to remove previously configured billing. To stop new
 sales while preserving verification, keep configuration enabled and set
 `DEV_BILLING_PURCHASES_ENABLED=false`, then redeploy through the same path.
 
-New real-store checkout is restricted to `ENV=dev` in this rollout. This does not
-authorize deployment to the GCP production project. Verified subscription status,
+Dev checkout accepts the configured receipt environment. Production checkout
+requires production receipts and its own release configuration (section 7). Verified subscription status,
 restore and paid-feature enforcement are independent of the new-sales switch.
 
 ## 5. Connect RevenueCat webhooks to the deployed dev API
@@ -194,3 +194,24 @@ test accounts/environments and review any transition for existing bindings.
 
 Store connection, native-device validation, secret provisioning and real-sale
 enablement remain external rollout prerequisites, not completed work.
+
+## 7. Tagged production releases
+
+After store validation, configure the production project and dashboard webhook
+against its permanent API endpoint. Use the same variable names as section 4
+with the `PROD_` prefix. The tagged workflow sets the receipt environment to
+`PRODUCTION`. Use production-specific pinned secret references and app IDs.
+
+Set repository variables `PROD_REVENUECAT_ANDROID_PUBLIC_API_KEY` and/or
+`PROD_REVENUECAT_IOS_PUBLIC_API_KEY` for each store represented in
+`PROD_REVENUECAT_PRODUCTS_JSON`. Use distinct product IDs across stores because
+the server catalog is keyed by product ID. Each mobile release derives its
+monthly products from that catalog. A platform with no configured products or
+key can still display verified status, as can the production web build.
+
+Set `PROD_BILLING_CONFIG_ENABLED=true` to apply billing configuration to the
+zero-traffic candidate. Keep `PROD_BILLING_PURCHASES_ENABLED=false` until the
+webhook and store verification work on the intended environment. To open or
+pause checkout, set the purchases flag and release through the normal staged
+promotion. Leaving configuration disabled preserves inherited Cloud Run
+settings, so use the purchases flag explicitly to pause existing sales.

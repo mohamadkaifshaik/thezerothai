@@ -41,4 +41,25 @@ REVENUECAT_PRODUCTS_JSON='{"monthly":{"Store":"test_store","Entitlement":"dzerot
 REVENUECAT_PRODUCTS_JSON='{"premium:monthly":{"Store":"play_store","Entitlement":"unknown"}}' reject
 REVENUECAT_PRODUCTS_JSON='{"premium|monthly":{"Store":"play_store","Entitlement":"dzeroth_pro"}}' reject
 REVENUECAT_PRODUCTS_JSON='{"premium:monthly":{"Store":"play_store","Entitlement":"dzeroth_pro","extra":"|BILLING_PURCHASES_ENABLED=true"}}' reject
-echo "billing candidate configuration fixtures passed"
+mobile=$here/../mobile-billing-defines.sh
+export REVENUECAT_PRODUCTS_JSON='{"plus:monthly":{"Store":"play_store","Entitlement":"plus_access"},"ios_plus":{"Store":"app_store","Entitlement":"plus_access"}}'
+REVENUECAT_PUBLIC_API_KEY=goog_fixture bash "$mobile" android | jq -e '
+  .BILLING_STATUS_ENABLED == "true" and .REVENUECAT_PUBLIC_API_KEY == "goog_fixture"
+  and (.REVENUECAT_MONTHLY_PRODUCTS_JSON | fromjson) == {"plus:monthly":"plus"}' >/dev/null
+REVENUECAT_PUBLIC_API_KEY=appl_fixture bash "$mobile" ios | jq -e '
+  (.REVENUECAT_MONTHLY_PRODUCTS_JSON | fromjson) == {"ios_plus":"plus"}' >/dev/null
+BILLING_CONFIG_ENABLED=false bash "$mobile" android | jq -e '. == {}' >/dev/null
+REVENUECAT_PRODUCTS_JSON='{"premium":{"Store":"play_store","Entitlement":"premium_access"}}' REVENUECAT_PUBLIC_API_KEY='' bash "$mobile" ios |
+  jq -e '. == {"BILLING_STATUS_ENABLED":"true"}' >/dev/null
+if REVENUECAT_PRODUCTS_JSON='{"a":{"Store":"play_store","Entitlement":"plus_access"},"b":{"Store":"play_store","Entitlement":"plus_access"}}' REVENUECAT_PUBLIC_API_KEY=goog_fixture bash "$mobile" android > "$work/args" 2>/dev/null; then
+  echo "multiple checkout products accepted for one store" >&2
+  exit 1
+fi
+for key in '' sk_fixture test_fixture appl_fixture; do
+  if REVENUECAT_PUBLIC_API_KEY=$key bash "$mobile" android > "$work/args" 2>/dev/null; then
+    echo "invalid Android release key accepted" >&2
+    exit 1
+  fi
+  [ ! -s "$work/args" ]
+done
+echo "billing candidate and mobile configuration fixtures passed"

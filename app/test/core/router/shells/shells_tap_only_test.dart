@@ -245,7 +245,7 @@ void main() {
       expect(find.byType(PremiumDialog), findsNothing);
       await tester.tap(find.bySemanticsLabel(RegExp(r'^More, menu')));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Premium'));
+      await tester.tap(find.text('Subscriptions'));
       await tester.pumpAndSettle();
       expect(find.byType(PremiumDialog), findsOneWidget);
       expect(app.path, AppRouter.premiumPath);

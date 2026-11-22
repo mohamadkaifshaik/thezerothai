@@ -8,8 +8,7 @@ import '../domain/subscription_models.dart';
 import '../../../core/router/page_below.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/tablet_modal.dart';
-import '../../../shared/widgets/primitives/app_accent_headline.dart';
-import '../../../shared/widgets/primitives/app_status_pill.dart';
+import '../../../core/widgets/privacy_policy_link.dart';
 import '../../../shared/widgets/primitives/app_surface.dart';
 import '../domain/premium_plans.dart';
 
@@ -29,7 +28,7 @@ class PremiumDialog extends StatelessWidget {
   /// The tablet presentation (`dialogPageHost`); null: today's.
   final TabletModalHost? host;
 
-  static const title = 'Premium';
+  static const title = 'Subscriptions';
   static const titleKey = ValueKey('premium-dialog-title');
 
   @override
@@ -80,7 +79,7 @@ class PremiumDialog extends StatelessWidget {
                 if (context.read<SubscriptionCubit?>() case final cubit?)
                   _SubscriptionActions(cubit: cubit),
                 if (context.read<SubscriptionCubit?>() == null)
-                  const _PremiumBody(),
+                  const _PlanOverview(preview: true),
               ],
             ),
           ),
@@ -127,10 +126,11 @@ class _SubscriptionActions extends StatelessWidget {
           !kIsWeb &&
           (defaultTargetPlatform == TargetPlatform.android ||
               defaultTargetPlatform == TargetPlatform.iOS);
+      final hasStoreUi = native && cubit.hasStoreUi;
       final canBuy =
-          native &&
+          hasStoreUi &&
           state.phase == SubscriptionPhase.ready &&
-          state.offerings.isNotEmpty &&
+          state.offerings.length == 1 &&
           state.access?.purchasesAvailable == true &&
           tier == SubscriptionTier.free;
       final message = switch (state.phase) {
@@ -144,37 +144,57 @@ class _SubscriptionActions extends StatelessWidget {
         SubscriptionPhase.unavailable =>
           'Subscription status is unavailable. Please try again.',
         SubscriptionPhase.ready => switch (tier) {
-          SubscriptionTier.premium => 'Your Premium subscription is active.',
+          SubscriptionTier.premium ||
           SubscriptionTier.plus => 'Your Plus subscription is active.',
           _ =>
             state.access?.purchasesAvailable == true
-                ? 'You are on the Free plan.'
-                : 'Subscriptions are not available to purchase yet.',
+                ? (hasStoreUi && state.offerings.length != 1
+                      ? 'You are on Free. A monthly Plus offer is currently unavailable.'
+                      : 'You are on the Free plan.')
+                : 'New subscriptions are currently unavailable.',
         },
       };
       return Padding(
         padding: const EdgeInsets.all(AppSpacing.lg),
         child: Column(
-          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            _PlanOverview(
+              price: canBuy ? state.offerings.single.localizedPrice : null,
+            ),
+            const Divider(height: AppSpacing.lg),
+            Text(
+              'Your subscription',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: AppSpacing.sm),
             Semantics(liveRegion: true, child: Text(message)),
-            if (canBuy)
-              ...state.offerings.map(
-                (offering) => ListTile(
-                  title: Text(
-                    offering.tier == SubscriptionTier.premium
-                        ? 'Premium'
-                        : 'Plus',
-                  ),
-                  subtitle: Text('${offering.localizedPrice} / month'),
+            if (busy) const LinearProgressIndicator(),
+            if (canBuy) ...[
+              const SizedBox(height: AppSpacing.md),
+              FilledButton(
+                onPressed: () => cubit.purchase(state.offerings.single),
+                child: Text(
+                  'Get Plus · ${state.offerings.single.localizedPrice}/month',
                 ),
               ),
-            if (busy) const LinearProgressIndicator(),
-            if (canBuy)
-              FilledButton(
-                onPressed: cubit.showPaywall,
-                child: const Text('View subscription plans'),
+              const SizedBox(height: AppSpacing.xs),
+              const Text(
+                'Renews monthly until canceled in your store account.',
               ),
+              Wrap(
+                children: [
+                  TextButton(
+                    onPressed: () => launchTerms(context),
+                    child: const Text('Terms of Service'),
+                  ),
+                  TextButton(
+                    onPressed: () => launchPrivacyPolicy(context),
+                    child: const Text('Privacy Policy'),
+                  ),
+                ],
+              ),
+            ],
             if (state.uid != null)
               Wrap(
                 spacing: AppSpacing.sm,
@@ -188,12 +208,12 @@ class _SubscriptionActions extends StatelessWidget {
                         ? null
                         : cubit.restore,
                     child: Text(
-                      kIsWeb
-                          ? 'Recover subscription status'
-                          : 'Restore purchases',
+                      hasStoreUi
+                          ? 'Restore purchases'
+                          : 'Recover subscription status',
                     ),
                   ),
-                  if (native)
+                  if (hasStoreUi && tier != SubscriptionTier.free)
                     TextButton(
                       onPressed: busy ? null : cubit.manageSubscription,
                       child: const Text('Manage subscription'),
@@ -228,110 +248,118 @@ class PremiumDialogPage extends Page<void> {
   }
 }
 
-/// The headline, the two static plan cards and the footer. Nothing here is
-/// tappable and no price comes from anywhere but [kPremiumPlans].
-class _PremiumBody extends StatelessWidget {
-  const _PremiumBody();
+/// Both the launch preview and signed-in billing sheet use this comparison.
+class _PlanOverview extends StatelessWidget {
+  const _PlanOverview({this.price, this.preview = false});
 
-  static const heroSubtitle =
-      'Paid plans are not available yet. Planned monthly prices are '
-      'inclusive of GST.';
-  static const footer = 'No payment details are asked for anywhere in the app.';
+  final String? price;
+  final bool preview;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final media = MediaQuery.of(context);
-    final sideBySide =
-        media.size.width >= AppBreakpoints.mobile &&
-        media.textScaler.scale(1) < 2;
-    final cards = [for (final plan in kPremiumPlans) _PlanCard(plan: plan)];
+    final localPrice = price;
+    final plusPrice = localPrice != null
+        ? '$localPrice/month'
+        : preview
+        ? kPremiumPlans.single.priceLabel
+        : 'Monthly subscription';
+    final plans = [
+      _PlanCard(
+        name: 'Free',
+        price: 'No subscription needed',
+        details: 'Read and follow conversations, reply, message, and write posts up to 280 characters.',
+        icon: Icons.chat_bubble_outline,
+      ),
+      _PlanCard(
+        name: 'Plus',
+        price: plusPrice,
+        details: 'Everything in Free, plus posts up to 15,000 characters and article publishing.',
+        icon: Icons.edit_outlined,
+        featured: true,
+      ),
+    ];
     return Padding(
-      padding: const EdgeInsets.all(AppSpacing.md),
+      padding: preview ? const EdgeInsets.all(AppSpacing.md) : EdgeInsets.zero,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Premium.html: the accent eyebrow, the display headline, the line.
-          Text(
-            'Coming soon'.toUpperCase(),
-            style: AppTextStyles.eyebrow(theme)
-                .copyWith(color: context.appColors.accentText),
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          const AppAccentHeadline(
-            lead: 'A little ',
-            accent: 'extra',
-            size: AppAccountLayout.dialogHeadline,
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          Text(
-            heroSubtitle,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.lg),
-          if (sideBySide)
-            IntrinsicHeight(
-              child: Row(
+          Text('Compare plans', style: theme.textTheme.headlineSmall),
+          const SizedBox(height: AppSpacing.md),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              if (constraints.maxWidth >= 480 &&
+                  MediaQuery.textScalerOf(context).scale(1) < 1.5) {
+                return IntrinsicHeight(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Expanded(child: plans.first),
+                      const SizedBox(width: AppSpacing.sm),
+                      Expanded(child: plans.last),
+                    ],
+                  ),
+                );
+              }
+              return Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Expanded(child: cards[0]),
-                  const SizedBox(width: AppSpacing.md),
-                  Expanded(child: cards[1]),
+                  plans.first,
+                  const SizedBox(height: AppSpacing.sm),
+                  plans.last,
                 ],
-              ),
-            )
-          else ...[
-            cards[0],
-            const SizedBox(height: AppSpacing.md),
-            cards[1],
-          ],
-          const SizedBox(height: AppSpacing.lg),
-          Text(
-            footer,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
+              );
+            },
           ),
+          if (preview) ...[
+            const SizedBox(height: AppSpacing.md),
+            Text(
+              'India launch price includes GST. Checkout is currently unavailable.',
+              style: theme.textTheme.bodySmall,
+            ),
+          ],
         ],
       ),
     );
   }
 }
 
-/// One plan: name, price, "incl. GST" and a "Coming soon" pill. One semantics
-/// node ("Plus, ₹235 a month including GST, coming soon"); not a button.
 class _PlanCard extends StatelessWidget {
-  const _PlanCard({required this.plan});
+  const _PlanCard({
+    required this.name,
+    required this.price,
+    required this.details,
+    required this.icon,
+    this.featured = false,
+  });
 
-  final PremiumPlan plan;
+  final String name;
+  final String price;
+  final String details;
+  final IconData icon;
+  final bool featured;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Semantics(
-      container: true,
-      label: '${plan.name}, ${plan.spokenPrice} including GST, coming soon',
-      child: ExcludeSemantics(
-        child: AppSurface(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(plan.name, style: theme.textTheme.titleMedium),
-              const SizedBox(height: AppSpacing.sm),
-              Text(plan.priceLabel, style: theme.textTheme.headlineSmall),
-              const SizedBox(height: AppSpacing.xs),
-              Text(
-                'incl. GST',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-              const SizedBox(height: AppSpacing.smd),
-              const AppStatusPill(label: 'Coming soon'),
-            ],
-          ),
+    return MergeSemantics(
+      child: AppSurface(
+        elevated: featured,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              icon,
+              color: featured
+                  ? context.appColors.accentText
+                  : theme.colorScheme.onSurfaceVariant,
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            Text(name, style: theme.textTheme.titleMedium),
+            Text(price, style: theme.textTheme.headlineSmall),
+            const SizedBox(height: AppSpacing.sm),
+            Text(details, style: theme.textTheme.bodyMedium),
+          ],
         ),
       ),
     );

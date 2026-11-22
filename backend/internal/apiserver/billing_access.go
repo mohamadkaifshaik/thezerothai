@@ -60,7 +60,7 @@ func (a verifiedBillingAccess) publishArticle(ctx context.Context, uid string) e
 		return err
 	}
 	if !billing.CapabilitiesFor(tier, billing.FeatureAvailability{Articles: true}).PublishArticle {
-		return connect.NewError(connect.CodePermissionDenied, errors.New("premium subscription required"))
+		return connect.NewError(connect.CodePermissionDenied, errors.New("publishing requires a Plus subscription"))
 	}
 	return nil
 }

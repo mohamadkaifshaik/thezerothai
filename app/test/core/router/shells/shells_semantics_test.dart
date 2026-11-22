@@ -153,14 +153,11 @@ void main() {
       await tester.pumpAndSettle();
       final r = _read(tester, find.byType(PremiumDialog));
 
-      expect(r.headers.first, 'Premium');
+      expect(r.headers.first, 'Subscriptions');
       expect(r.buttons, ['Close']);
       expect(r.tappable, ['Close']);
-      for (final card in [
-        'Plus, ₹235 a month including GST, coming soon',
-        'Premium, ₹850 a month including GST, coming soon',
-      ]) {
-        expect(find.bySemanticsLabel(card), findsOneWidget, reason: card);
+      for (final benefit in ['280 characters', 'article publishing']) {
+        expect(find.bySemanticsLabel(RegExp(benefit)), findsOneWidget);
       }
     });
   }

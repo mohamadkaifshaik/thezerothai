@@ -61,10 +61,10 @@ func TestRealStoreVerificationWithSalesOffAndWebhookRevocation(t *testing.T) {
 		t.Fatal(err)
 	}
 	access, err := s.GetMySubscription(caller, connect.NewRequest(&billingv1.GetMySubscriptionRequest{}))
-	if err != nil || access.Msg.Tier != billingv1.SubscriptionTier_SUBSCRIPTION_TIER_PREMIUM || access.Msg.PurchasesAvailable {
+	if err != nil || access.Msg.Tier != billingv1.SubscriptionTier_SUBSCRIPTION_TIER_PLUS || access.Msg.PurchasesAvailable {
 		t.Fatal("sales-off mode did not preserve verified paid access")
 	}
-	s.EnableStorePurchases(map[string]Product{"premium:monthly": {Store: "play_store", Entitlement: ProEntitlement}})
+	s.EnableStorePurchases(map[string]Product{"premium:monthly": {Store: "play_store", Entitlement: PlusEntitlement}})
 	access, err = s.GetMySubscription(caller, connect.NewRequest(&billingv1.GetMySubscriptionRequest{}))
 	if err != nil || access.Msg.PurchasesAvailable {
 		t.Fatal("existing subscriber was offered duplicate checkout")
@@ -83,7 +83,7 @@ func TestRealStoreVerificationWithSalesOffAndWebhookRevocation(t *testing.T) {
 	}
 	// A status read in read-only composition cannot call or commit a verifier.
 	readOnly := NewServer(nil, store, nil)
-	readOnly.EnableStorePurchases(map[string]Product{"premium:monthly": {Store: "play_store", Entitlement: ProEntitlement}})
+	readOnly.EnableStorePurchases(map[string]Product{"premium:monthly": {Store: "play_store", Entitlement: PlusEntitlement}})
 	before := calls
 	access, err = readOnly.GetMySubscription(caller, connect.NewRequest(&billingv1.GetMySubscriptionRequest{}))
 	if err != nil || access.Msg.PurchasesAvailable || access.Msg.VerificationState != billingv1.VerificationState_VERIFICATION_STATE_UNAVAILABLE || calls != before {
