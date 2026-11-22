@@ -500,7 +500,8 @@ extension _Reconcile on MembershipUpkeep {
   }
 
   /// The peer's user reference: this run's context, else the cached inbox
-  /// row (noted as one). Null when neither knows it.
+  /// row (its peer only: a cached row is no sight, review m5). Null when
+  /// neither knows it.
   Future<String?> _peerRef(String id) async {
     final context = _contexts.of(id);
     String? known() {
@@ -510,7 +511,7 @@ extension _Reconcile on MembershipUpkeep {
 
     if (known() != null) return known();
     final row = await _messaging.cachedConversation(id);
-    if (row != null) _contexts.note(row);
+    if (row != null) _contexts.note(row, peerOnly: true);
     return known();
   }
 

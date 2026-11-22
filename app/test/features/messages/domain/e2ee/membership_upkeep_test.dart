@@ -1309,6 +1309,59 @@ void main() {
       expect((await sync()).requestAccepted, isFalse);
     });
 
+    test('a cached row is no sight: neither its Requests folder nor its '
+        'ACCEPTED drives the acceptance (review m5)', () async {
+      // An incoming request, cached on disk from an earlier run.
+      await setUpJoined(
+        accepted: false,
+        folder: Folder.FOLDER_REQUESTS,
+        state: ConversationState.CONVERSATION_STATE_REQUEST,
+      );
+      // A member to attribute, so attribution needs the peer reference.
+      final ghost = await RigPeer.create('ghost');
+      await rig.device.vault.transaction(
+        (tx) => tx.putMember(
+          MemberRecord(
+            conversationId: _c1,
+            deviceId: ghost.id,
+            signatureKey: ghost.key,
+            side: MemberSide.unattributed,
+            since: const MlsPair(1, 1),
+          ),
+        ),
+      );
+      await rig.putKeyHistory(
+        _c1,
+        ids: [(bob.id, bob.key), (ghost.id, ghost.key)],
+      );
+      rig.realAcceptance = true;
+      rig.watchAcceptance = true;
+      await rig.restart();
+      // This run has read no header and no inbox row: attribution falls
+      // back to the cached row for the peer reference.
+      await rig.crypto.attributeMembers(_c1);
+      final context = rig.contexts.of(_c1);
+      expect(context.peerUserId, 'ref-bob');
+      expect(context.incomingRequest, isNull);
+      expect(context.requestSeenInHeader, isFalse);
+      await expectLater(
+        rig.upkeep.acceptForReply(_c1, priority: BudgetPriority.user),
+        throwsA(isA<StateError>()),
+      );
+      expect(rig.server.acceptRequests, isEmpty);
+
+      // A cached row saying ACCEPTED starts no acceptance either.
+      rig.server.rows[_c1] = headerRow(
+        state: ConversationState.CONVERSATION_STATE_ACCEPTED,
+      );
+      rig.contexts.clear();
+      await rig.crypto.attributeMembers(_c1);
+      await rig.upkeep.idle();
+      expect(rig.contexts.of(_c1).peerUserId, 'ref-bob');
+      expect((await sync()).requestAccepted, isFalse);
+      expect(requests(), isEmpty);
+    });
+
     test('acceptForReply refuses a thread that cannot be answered (review '
         'm7)', () async {
       final sibling = await RigPeer.create('sibling');

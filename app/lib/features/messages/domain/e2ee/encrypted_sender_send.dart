@@ -134,7 +134,7 @@ extension _Send on EncryptedSender {
     if (response.hasConversation() && response.conversation.id == id) {
       // The peer and can_reply only: a send answer's direction and state
       // never drive the acceptance (Task 9 brief amendment 2).
-      _contexts.note(response.conversation, sendAnswer: true);
+      _contexts.note(response.conversation, peerOnly: true);
     }
     _forget(row.localId);
     _onChanged(id);

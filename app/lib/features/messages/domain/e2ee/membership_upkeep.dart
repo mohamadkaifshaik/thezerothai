@@ -49,7 +49,8 @@ const FormerPins _former = FormerPins();
 /// ([noteAcceptedSeen], brief amendment 1; Task 13 sets it as
 /// `ConversationContexts.onAcceptedSeen`). A `SendMessage` answer is never
 /// one (amendment 2): its direction and state are not taken
-/// (`ConversationContexts.note(sendAnswer: true)`).
+/// (`ConversationContexts.note(peerOnly: true)`), and neither is a cached
+/// row (review m5: only rows read from the server in this run count).
 ///
 /// **The re-check timer (amendment 10).** At most one per conversation,
 /// through the injected [schedule], keeping the EARLIEST due time (a later

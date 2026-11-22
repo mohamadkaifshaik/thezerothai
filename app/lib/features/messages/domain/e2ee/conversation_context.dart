@@ -324,19 +324,23 @@ class ConversationContexts {
   /// Takes the facts a conversation header row carries. Never sets
   /// `acceptedSeenAt` (the caller owns the clock).
   ///
-  /// [sendAnswer]: the row came with a `SendMessage` answer. Only the peer
+  /// [peerOnly]: the row is not a `ListMessages` header or an inbox row
+  /// read from the server in THIS run: a `SendMessage` answer, or a cached
+  /// row (the drift cache, which `applySent` also fills from send answers,
+  /// and which may be a disk row of an earlier run). Only the peer
   /// reference and `can_reply` are taken from it: the direction and the
-  /// state it reports never drive the acceptance or a commit (Task 7 audit
-  /// L5, Task 9 brief amendment 2; a send answer can put the user's own
-  /// outgoing request in the Requests folder).
-  void note(pb.Conversation row, {bool sendAnswer = false}) {
+  /// state it reports are no sight, and never drive the acceptance or a
+  /// commit (Task 7 audit L5, Task 9 brief amendment 2, review m5; a send
+  /// answer can put the user's own outgoing request in the Requests
+  /// folder).
+  void note(pb.Conversation row, {bool peerOnly = false}) {
     if (row.id.isEmpty) return;
     final c = of(row.id);
     if (row.hasPeer() && row.peer.userId.isNotEmpty) {
       c.peerUserId = row.peer.userId;
     }
     c.canReply = row.canReply;
-    if (sendAnswer) return;
+    if (peerOnly) return;
     if (row.folder == Folder.FOLDER_REQUESTS) {
       c
         ..incomingRequest = true
