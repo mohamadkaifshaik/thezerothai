@@ -599,6 +599,20 @@ class RigServer {
   /// when `stored` (a lost answer), without storing anything otherwise.
   final List<({Object error, bool stored})> commitScript = [];
 
+  /// The server's two `CommitConversation` caps (`commitCaps` in
+  /// `backend/internal/messaging/service_sync.go`): calls per (user,
+  /// conversation) per day, and reset calls per user per day across every
+  /// conversation. Null: no cap (the draws are still counted).
+  int? commitCapPerConversation;
+  int? resetCapPerUser;
+
+  /// The units drawn from those caps: `'user|conversation'` -> calls, and
+  /// user -> reset calls. As the real server (`service_mls.go`: `commitCaps`
+  /// runs before `Repo.Commit`), every call that reaches the caps draws,
+  /// a recognised retry too, and a refused draw counts nothing.
+  final Map<String, int> commitDraws = {};
+  final Map<String, int> resetDraws = {};
+
   /// Every `AcceptMessageRequest` call (the conversation id), a refused one
   /// too.
   final List<String> acceptRequests = [];
@@ -641,6 +655,36 @@ class RigServer {
   Future<void> _enter(String call) async {
     calls.add(call);
     await onCall?.call(call);
+  }
+
+  /// `commitCaps`: the per-(user, conversation) cap first, then the reset
+  /// cap for a reset; each `DailyCap.Allow` counts only when it allows, so
+  /// a reset refused by its own cap has still drawn the first one.
+  void _drawCommitCaps(
+    String user,
+    String conversationId, {
+    required bool reset,
+  }) {
+    final key = '$user|$conversationId';
+    final calls = commitDraws[key] ?? 0;
+    final convCap = commitCapPerConversation;
+    if (convCap != null && calls >= convCap) {
+      throw const RateLimitedException(
+        'rig: commit cap',
+        limitName: 'messages_commits_per_conversation_daily',
+      );
+    }
+    commitDraws[key] = calls + 1;
+    if (!reset) return;
+    final resets = resetDraws[user] ?? 0;
+    final resetCap = resetCapPerUser;
+    if (resetCap != null && resets >= resetCap) {
+      throw const RateLimitedException(
+        'rig: reset cap',
+        limitName: 'messages_resets_daily',
+      );
+    }
+    resetDraws[user] = resets + 1;
   }
 }
 
@@ -1090,7 +1134,9 @@ class RigMessaging implements MessagingRepository {
   /// STALE_EPOCH with the current pair; otherwise the commit is stored, with
   /// a welcome labelled [builtOn] per welcome device id, and the answer is
   /// the pair after it. [RigServer.commitScript] replaces the answer of a
-  /// call. A reset names only the generation: its record (and its
+  /// call. Every call that is not a scripted unstored answer first draws the
+  /// server's caps ([RigServer.commitDraws], [RigServer.resetDraws]), a
+  /// recognised retry too. A reset names only the generation: its record (and its
   /// welcomes) is at (g + 1, 0), its answer (g + 1, 1).
   @override
   Future<MlsPair> commitConversation({
@@ -1119,6 +1165,11 @@ class RigMessaging implements MessagingRepository {
         ? null
         : _server.commitScript.removeAt(0);
     if (scripted != null && !scripted.stored) throw scripted.error;
+    // The caps, drawn before any read and so before retry recognition
+    // (`commitCaps`): a recognised retry spends them too. A scripted
+    // unstored answer above stands for a call that never got this far (or
+    // whose refusal the test names itself).
+    _server._drawCommitCaps(user, conversationId, reset: reset);
     final current = _server.current(conversationId);
     // A reset of generation g (Task 10) names g with any epoch, stores its
     // record at (g + 1, 0) with welcomes labelled so, and answers

@@ -864,6 +864,48 @@ void main() {
   });
 
   group('the call rules (amendment 1) and timer priority (amendment 2)', () {
+    test('a recognised retry of a stored reset still draws both server '
+        'caps (the rig models commitCaps)', () async {
+      await setUpJoined();
+      await makeStuck();
+      rig.server.commitScript.addAll([lostAnswer, lostAnswer]);
+      rig.server.onCall = (call) async {
+        if (call == 'commitConversation') listingsFail = true;
+        if (call == 'listConversationCommits' && listingsFail) {
+          throw const NetworkException('rig: no listing');
+        }
+      };
+      await reset();
+      expect(resets(), hasLength(2));
+      // The second call was recognised as a retry (nothing more stored).
+      expect(rig.server.commitAt(_c1, const MlsPair(2, 0)), isNotNull);
+      expect(rig.server.current(_c1), const MlsPair(2, 1));
+      expect(rig.server.resetDraws[_me], 2);
+      expect(rig.server.commitDraws['$_me|$_c1'], 2);
+      // At the user's reset cap the server refuses before recognising.
+      rig.server.resetCapPerUser = 2;
+      await expectLater(
+        rig.messaging.commitConversation(
+          idempotencyKey: 'k',
+          conversationId: _c1,
+          builtOn: const MlsPair(1, 0),
+          commit: resets().first.commit,
+          welcome: resets().first.welcome,
+          welcomeDeviceIds: resets().first.welcomeDeviceIds,
+          reset: true,
+        ),
+        throwsA(
+          isA<RateLimitedException>().having(
+            (e) => e.limitName,
+            'limitName',
+            kLimitResetsDaily,
+          ),
+        ),
+      );
+      expect(rig.server.commitDraws['$_me|$_c1'], 3);
+      expect(rig.server.resetDraws[_me], 2);
+    });
+
     test('another reset won is not decided while an abandoned reset call '
         'still runs; its end decides', () async {
       await setUpJoined();
