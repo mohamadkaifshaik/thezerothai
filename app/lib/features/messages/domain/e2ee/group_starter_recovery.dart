@@ -721,13 +721,17 @@ extension _Recovery on GroupStarter {
     return false;
   }
 
-  /// The stage-plain row [key] of [id] fails with [cause] (a restart that
-  /// met a daily claim cap): one more attempt and the error's name.
+  /// The stage-plain row [key] of [id] fails with the error name [name] (a
+  /// restart that met a daily claim cap, or that could not be made, review
+  /// W2): one more attempt and the name. [cause], when there is a typed
+  /// error, is what the sender shows with it; with none, an error this run
+  /// remembered for the row earlier is forgotten.
   Future<void> _failRow(
     String id,
     String key,
     String localId,
-    AppException cause,
+    String name,
+    AppException? cause,
   ) async {
     final op = await _op();
     if (op == null) return;
@@ -742,18 +746,18 @@ extension _Recovery on GroupStarter {
         if (fresh == null || fresh.stage != OutboxStage.plain) return false;
         await v.transaction(
           (tx) => tx.putOutbox(
-            _withAttempt(
-              fresh!,
-              fresh.attempts + 1,
-              lastError: sendErrorName(cause),
-            ),
+            _withAttempt(fresh!, fresh.attempts + 1, lastError: name),
           ),
         );
         return true;
       }),
     );
     if (failed) {
-      _sender.rememberRefusal(localId, cause);
+      if (cause != null) {
+        _sender.rememberRefusal(localId, cause);
+      } else {
+        _sender.forgetRefusal(localId);
+      }
       _onChanged(id);
     }
   }

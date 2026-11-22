@@ -73,6 +73,14 @@ const String kLimitClaimsDaily = 'keys_claims_daily';
 /// with a null `error`, and the user's retry starts again ([retryStart]).
 const String kStartErrorPeerHasNoDevice = 'PeerHasNoDevice';
 
+/// The stored error names of a head row whose new start, asked for by the
+/// user (a new send or a retry), could not be made and gave no typed error
+/// (review W2): the peer's list or the claim could not be had, or nothing
+/// can be started now (a state in doubt, a vault that closed). As with
+/// [kStartErrorPeerHasNoDevice]: `failed`, retryable, a null `error`.
+const String kStartErrorLookupFailed = 'LookupFailed';
+const String kStartErrorUnavailable = 'StartUnavailable';
+
 /// What [GroupStarter.startOrRoute] did with a first message.
 ///
 /// `started`: this device created a provisional group; the row is saved and
@@ -391,9 +399,11 @@ class GroupStarter {
   ///
   /// Review N1. A start that could be made here and was not (the lookup or
   /// the claim failed, no device, a daily cap, another start running)
-  /// leaves the row as it is: failed, with its reason, or the cap's. Why:
-  /// the sender's `retry` clears the failure, and the row would then read
-  /// "waiting" with no reason and no retry control, for good.
+  /// leaves a failed row as it is: failed, with its reason, or the cap's.
+  /// Why: the sender's `retry` clears the failure, and the row would then
+  /// read "waiting" with no reason and no retry control, for good. Review
+  /// W2: for the same reason a head row that was NOT failed gets a failure
+  /// when the start it asked for cannot be made ([_restartKnown]).
   Future<void> retryStart(String localId) async {
     try {
       final vault = _session.vault;
@@ -532,8 +542,44 @@ class GroupStarter {
         return _Restart.started;
       }
       final cause = outcome.cause;
-      if (outcome.result == StartResult.tryAgainTomorrow && cause != null) {
-        await _failRow(id, head.idempotencyKey, head.localId, cause);
+      switch (outcome.result) {
+        case StartResult.tryAgainTomorrow:
+          // The daily cap: the row fails with it, a failed row too (the
+          // cap is today's reason).
+          if (cause != null) {
+            await _failRow(
+              id,
+              head.idempotencyKey,
+              head.localId,
+              sendErrorName(cause),
+              cause,
+            );
+          }
+        case StartResult.lookupFailed:
+        case StartResult.peerHasNoDevice:
+        case StartResult.unavailable:
+          // Review W2. Decision: an eligible start the user asked for that
+          // could not be made fails a head row that had no failure: with
+          // the cause's name, else a fixed one. Why: the row would
+          // otherwise read "waiting" with no reason and no retry control
+          // (the state N1 and N5 were ruled against); failed, it is
+          // retryable, and the retry comes back here. A head row that
+          // already failed keeps its own reason (review N1).
+          if (head.lastError == null) {
+            await _failRow(
+              id,
+              head.idempotencyKey,
+              head.localId,
+              _startErrorName(outcome.result, cause),
+              cause,
+            );
+          }
+        case StartResult.started:
+        case StartResult.joinedExisting:
+        case StartResult.plaintext:
+          // `joinedExisting`: a group appeared meanwhile; the row is the
+          // sender's. A restart never answers `plaintext`.
+          break;
       }
       return _Restart.notStarted;
     } on _BadRandom {
@@ -545,6 +591,19 @@ class GroupStarter {
       _reportIfBug(e, s, 'start.restart');
       return _Restart.notStarted;
     }
+  }
+
+  /// The stored error name of a start that could not be made (review W2):
+  /// the cause's own name when it has one the sender stores, else the
+  /// fixed name of [result].
+  String _startErrorName(StartResult result, AppException? cause) {
+    final named = cause == null ? null : sendErrorName(cause);
+    if (named != null && named != 'AppException') return named;
+    return switch (result) {
+      StartResult.peerHasNoDevice => kStartErrorPeerHasNoDevice,
+      StartResult.lookupFailed => kStartErrorLookupFailed,
+      _ => kStartErrorUnavailable,
+    };
   }
 
   // -------------------------------------------------------------------------

@@ -2030,6 +2030,102 @@ void main() {
       expect(rig.server.sends, hasLength(1));
     });
 
+    test('a new send whose start cannot be made fails its row, retryable, '
+        'instead of leaving it waiting with no reason (review W2)', () async {
+      await refusedOnce();
+      await discardFailed();
+
+      // (1) The peer's list cannot be read: lookupFailed.
+      rig.keys.peerFails = true;
+      var r = await start(localId: 'local-2', text: 'second');
+      expect(r.result, StartResult.joinedExisting);
+      await done();
+      expect(await groupOf(), isNull);
+      var row = (await rows()).single;
+      expect(row.localId, 'local-2');
+      expect(row.stage, OutboxStage.plain);
+      expect(row.lastError, kStartErrorLookupFailed);
+      var shown = (await rig.sender.outgoing(_c1)).single;
+      expect(shown.status, OutgoingStatus5a.failed);
+      expect(shown.retryable, isTrue);
+      expect(shown.error, isNull);
+      rig.keys.peerFails = false;
+      await rig.sender.discard('local-2');
+
+      // (2) A claim that fails with a typed error: its name, and the typed
+      // error is remembered.
+      rig.keys.claimErrors[_bob] = const FeatureDisabledException('off');
+      r = await start(localId: 'local-3', text: 'third');
+      expect(r.result, StartResult.joinedExisting);
+      await done();
+      row = (await rows()).single;
+      expect(row.lastError, 'FeatureDisabledException');
+      shown = (await rig.sender.outgoing(_c1)).single;
+      expect(shown.status, OutgoingStatus5a.failed);
+      expect(shown.error, isA<FeatureDisabledException>());
+      rig.keys.claimErrors.clear();
+      await rig.sender.discard('local-3');
+
+      // (3) The claim names another conversation: unavailable.
+      final answer = rig.keys.claims[_bob]!;
+      rig.keys.claims[_bob] = () async => kpb.ClaimKeyPackagesResponse(
+        conversationId: _c2,
+        keyPackages: [await packageOf(bob)],
+      );
+      r = await start(localId: 'local-4', text: 'fourth');
+      expect(r.result, StartResult.joinedExisting);
+      await done();
+      row = (await rows()).single;
+      expect(row.lastError, kStartErrorUnavailable);
+      shown = (await rig.sender.outgoing(_c1)).single;
+      expect(shown.status, OutgoingStatus5a.failed);
+      expect(shown.retryable, isTrue);
+      expect(await groupOf(), isNull);
+      expect(await groupOf(_c2), isNull);
+
+      // The user's retry of that row starts once the start can be made.
+      rig.keys.claims[_bob] = answer;
+      await starter.retryStart('local-4');
+      await done();
+      expect((await groupOf())!.provisional, isFalse);
+      expect(await rows(), isEmpty);
+    });
+
+    test('the retry of a waiting head row whose start cannot be made fails '
+        'the row, retryable (review W2)', () async {
+      await refusedOnce();
+      await discardFailed();
+      // A row saved while nothing may start (the flag is not on): the head
+      // row, waiting, not failed.
+      await rig.device.session.onFlagChanged(E2eeFlag.off, uid: _me);
+      await start(localId: 'local-2', text: 'second');
+      await done();
+      await rig.device.session.onFlagChanged(E2eeFlag.on, uid: _me);
+      expect((await rows()).single.lastError, isNull);
+      // The peer lists no device now.
+      rig.keys.peers[_bob] = [];
+
+      await starter.retryStart('local-2');
+      await done();
+
+      expect(rig.keys.claimCalls, isEmpty);
+      expect(await groupOf(), isNull);
+      final row = (await rows()).single;
+      expect(row.stage, OutboxStage.plain);
+      expect(row.lastError, kStartErrorPeerHasNoDevice);
+      final shown = (await rig.sender.outgoing(_c1)).single;
+      expect(shown.status, OutgoingStatus5a.failed);
+      expect(shown.retryable, isTrue);
+      expect(shown.error, isNull);
+
+      // The peer has a device again: the retry starts.
+      person(_bob, _c1, [bob]);
+      await starter.retryStart('local-2');
+      await done();
+      expect((await groupOf())!.provisional, isFalse);
+      expect(await rows(), isEmpty);
+    });
+
     test('no new start while a first-saw generation is stored', () async {
       await refusedOnce();
       await rig.device.vault.transaction(
