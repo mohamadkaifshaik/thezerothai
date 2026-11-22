@@ -970,6 +970,38 @@ void main() {
       expect((await groupRecord()).pending, isNull);
       expect(requests(), hasLength(2));
     });
+
+    test('an unknown outcome with no server time holds the next resend for '
+        'the margin: two resumes inside it make one call in total', () async {
+      await setUpJoined();
+      await synced();
+      rig.server.commitScript
+        ..add((error: offline, stored: false))
+        ..add((error: offline, stored: false));
+      expect(await rig.commits.selfUpdate(_c1), CommitOutcome.pending);
+      expect(requests(), hasLength(2));
+      // In the same run: no call before the margin's end.
+      expect(await rig.commits.resumePending(_c1), CommitOutcome.pending);
+      expect(requests(), hasLength(2));
+
+      // A new run resends at once (it knows no earlier time), and then
+      // holds the same way.
+      await rig.restart();
+      rig.server.commitScript.add((error: offline, stored: false));
+      expect(await rig.commits.resumePending(_c1), CommitOutcome.pending);
+      expect(requests(), hasLength(3));
+      expect(await rig.commits.resumePending(_c1), CommitOutcome.pending);
+      expect(requests(), hasLength(3));
+      rig.clock.advance(kRequestInFlightMargin - second);
+      expect(await rig.commits.resumePending(_c1), CommitOutcome.pending);
+      expect(requests(), hasLength(3));
+      expect((await sync()).commitCallsToday, 3);
+
+      rig.clock.advance(second);
+      expect(await rig.commits.resumePending(_c1), CommitOutcome.applied);
+      expect(requests(), hasLength(4));
+      expect(requests()[0].sameBytes(requests()[3]), isTrue);
+    });
   });
 
   group('when a commit may be made', () {

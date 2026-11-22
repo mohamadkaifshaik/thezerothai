@@ -147,8 +147,9 @@ class CommitRunner {
   // Memory of this run. Nothing here is a fact a write relies on: after a
   // restart a pending commit is only resent sooner.
 
-  /// Conversation -> no commit call before this time (the server's retry
-  /// time of an unknown outcome).
+  /// Conversation -> no resume makes a commit call before this time: the
+  /// server's retry time of an unknown outcome, or, when it named none,
+  /// [kRequestInFlightMargin] after that outcome (review I2).
   final Map<String, DateTime> _notBefore = {};
 
   /// The conversations a resume is scheduled for (one each).

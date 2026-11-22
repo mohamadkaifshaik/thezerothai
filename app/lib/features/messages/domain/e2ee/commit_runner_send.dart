@@ -63,7 +63,13 @@ extension _CommitSend on CommitRunner {
               if (left > 0) _scheduleResume(id, wait, priority);
               return CommitOutcome.pending;
             }
-            // The identical bytes once more, as one more counted call.
+            // The server named none (review I2): a later resume sends
+            // nothing before the margin's end. Without this every resume
+            // would be one more counted call while the commit RPC times
+            // out, and the day's cap would be spent in a row.
+            _notBefore[id] = _now().add(kRequestInFlightMargin);
+            // The identical bytes once more now (this step's one resend),
+            // as one more counted call.
             if (left > 0 && await _countCall(op, id, pending.kind)) continue;
             return CommitOutcome.pending;
           }
