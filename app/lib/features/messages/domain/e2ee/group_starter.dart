@@ -346,6 +346,13 @@ class GroupStarter {
   late DateTime _runStartedAt;
   final Set<String> _sentThisRun = {};
 
+  /// Fix round 3, ruling 1 (audit L-2): the keys of the init rows whose
+  /// first request in this run found attempts stored by an earlier run.
+  /// That run's request may still land, so [discardInit] holds such a row
+  /// until [kInitResendMargin] after [_runStartedAt], as it holds a row
+  /// this run never sent.
+  final Set<String> _earlierRunRows = {};
+
   /// Fix round 2, ruling 8: conversation -> the local id of the init row
   /// this run last sent a request of, so a discard known only by its
   /// conversation (the join code's, the expiry's with no row) forgets that
@@ -400,6 +407,7 @@ class GroupStarter {
     _marginArmed.clear();
     _replayRefused.clear();
     _sentThisRun.clear();
+    _earlierRunRows.clear();
     _initRowOf.clear();
     _runStartedAt = _now();
     _resetCalls.clear();

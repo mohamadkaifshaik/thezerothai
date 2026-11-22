@@ -3770,6 +3770,68 @@ void main() {
       expect(rig.server.sends, hasLength(sends));
     });
 
+    /// Fix round 3, ruling 1: the earlier run's last request may still land.
+    /// After a restart, the resume sends the row once more (its first
+    /// request in this run) and the server refuses it for good.
+    Future<OutboxItem> refusedAfterRestart({required bool listable}) async {
+      final row = await unanswered();
+      await rig.restart();
+      build();
+      rig.server.sendScript.add((
+        error: const FeatureDisabledException('off'),
+        stored: false,
+      ));
+      if (!listable) {
+        rig.server.onCall = (call) async {
+          if (call == 'listConversationCommits') {
+            throw const NetworkException('no network');
+          }
+        };
+      }
+      final sends = rig.server.sends.length;
+      await starter.resumeProvisional();
+      await done();
+      expect(rig.server.sends, hasLength(sends + 1));
+      expect(rig.server.sends.last.same(rig.server.sends.first), isTrue);
+      rig.server.onCall = null;
+      return row;
+    }
+
+    test('after a restart, the resume sends the row and is refused, its '
+        'listing cannot be read: a tap inside the margin after the restart '
+        'is held; then the record decides (pre-flag-on fix round 3, ruling '
+        '1, audit L-2)', () async {
+      final row = await refusedAfterRestart(listable: false);
+      await expectUnchanged(row, 'the resume decided nothing');
+      rig.server.calls.clear();
+
+      rig.clock.advance(kInitResendMargin - const Duration(seconds: 1));
+      expect(await starter.discardInit(_c1), InitDiscard.held);
+      await expectUnchanged(row, 'the earlier run\'s request may still land');
+      expect(rig.server.calls, isEmpty, reason: 'nothing is asked');
+
+      rig.clock.advance(const Duration(seconds: 1));
+      expect(await starter.discardInit(_c1), InitDiscard.discarded);
+      await expectDiscarded('the margin after the restart has passed');
+    });
+
+    test('after a restart, the resume\'s own "not stored" read inside the '
+        'margin after the restart decides nothing: a refused retry keeps '
+        'the group (pre-flag-on fix round 3, ruling 1; the Task 9 restart '
+        'limit)', () async {
+      final row = await refusedAfterRestart(listable: true);
+      // The listing said "not stored", but the earlier run's request may
+      // still be stored after it: the group and the row stay.
+      await expectUnchanged(row, 'a refusal inside the margin after restart');
+      // One resume is armed for the margin's end, so the record decides
+      // without another trigger.
+      expect(rig.scheduled.map((s) => s.delay), contains(kInitResendMargin));
+
+      rig.clock.advance(kInitResendMargin);
+      expect(await starter.discardInit(_c1), InitDiscard.discarded);
+      await expectDiscarded('the margin after the restart has passed');
+    });
+
     test('the server holds the init as this device\'s and it is younger '
         'than 24 h: held, nothing changes', () async {
       final row = await unanswered(stored: true);

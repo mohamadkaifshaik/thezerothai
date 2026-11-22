@@ -289,6 +289,22 @@ extension _Recovery on GroupStarter {
       // Pre-flag-on review I-1: only the answer to the LAST request counts
       // as a refused replay ([GroupStarter._replayRefused]).
       _replayRefused.remove(row.localId);
+      // Fix round 3, ruling 1 (audit L-2, code review Minor 3). Decision:
+      // the row's FIRST request in this run, with attempts stored by an
+      // earlier run, counts that run's last request as an unknown outcome
+      // that started when this run began: every "not stored" read (here in
+      // the resume, and in [GroupStarter.discardInit]) decides nothing until
+      // [kInitResendMargin] after it, and the discard is held until then
+      // ([GroupStarter._earlierRunRows]). Why: the earlier process may have
+      // sent it just before it ended, and it can still be stored after this
+      // run's refusal and listing; a discard then deletes a group the
+      // server holds (no welcome exists for its creator). This closes the
+      // Task 9 restart limit of [_noteUnknownStart]. A replay too: harmless,
+      // the commits already said "stored".
+      if (row.attempts > 0 && !_sentThisRun.contains(key)) {
+        _earlierRunRows.add(key);
+        _noteUnknownStart(id, _runStartedAt);
+      }
       // Fix round 2, ruling 3: this run made a request of the row.
       _sentThisRun.add(key);
       _initRowOf[id] = row.localId;
@@ -706,8 +722,9 @@ extension _Recovery on GroupStarter {
   /// discard then deletes a group the server holds (no welcome exists
   /// for its creator). Cost: a refusal right after an unknown attempt is
   /// decided one margin later (Task 8 decided it at once). Memory of this
-  /// run: after a restart the calls of the earlier run are not counted (a
-  /// stated limit; the process that made them is gone).
+  /// run; after a restart (fix round 3, ruling 1) a row's first request in
+  /// this run notes the earlier run's last request as started when this
+  /// run began ([_sendLocked]).
   void _noteUnknownStart(String id, DateTime at) {
     final last = _initUnknownStartedAt[id];
     if (last == null || at.isAfter(last)) _initUnknownStartedAt[id] = at;

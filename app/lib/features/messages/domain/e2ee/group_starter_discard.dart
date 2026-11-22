@@ -71,8 +71,16 @@ extension _InitDiscard on GroupStarter {
       // clock catches up (the fail-safe direction). Not for the marks
       // already past the init below: that group can never settle,
       // whatever lands.
+      //
+      // Fix round 3, ruling 1 (audit L-2): a row this run did send is held
+      // the same way when its first request in this run found the earlier
+      // run's attempts ([GroupStarter._earlierRunRows]). Why: sending it
+      // again does not stop the earlier run's request from landing.
+      final key = row.idempotencyKey;
+      final earlierRun =
+          !_sentThisRun.contains(key) || _earlierRunRows.contains(key);
       if (row.attempts > 0 &&
-          !_sentThisRun.contains(row.idempotencyKey) &&
+          earlierRun &&
           _now().isBefore(_runStartedAt.add(kInitResendMargin))) {
         return InitDiscard.held;
       }
