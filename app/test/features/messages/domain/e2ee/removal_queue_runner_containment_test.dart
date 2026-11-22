@@ -711,6 +711,42 @@ void main() {
       expect(await pin(sibling), isNull);
     });
 
+    test('one own list that missed the device does not freeze into a '
+        'removal: the next pass\'s list names it, and the unmarked entry '
+        'goes (fix round 4, CR2 M-1)', () async {
+      final sibling = await removedElsewhereByUser();
+      for (var i = 0; i < kAntiFlapUndosPerDay; i++) {
+        await rig.ledger.addUndone(_c1);
+      }
+      await runner.onVaultReady();
+      await runner.idle();
+      expect(queued(_c1, sibling), isTrue, reason: 'the glitch queued it');
+
+      // The list names it again (the miss was a glitch).
+      rig.keys.own.add(rigKeyDevice(sibling.idString, sibling.key));
+      await runner.runPass();
+
+      expect(queued(_c1, sibling), isFalse);
+      expect((await stored())!.entries, isEmpty);
+      expect(requests(), isEmpty);
+      expect((await pin(sibling))!.side, MemberSide.mine);
+    });
+
+    test('reconcile leaves a queued id with no removed mark to M3: a list '
+        'that names it keeps it (fix round 4, CR2 M-1)', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await join(_c1, others: [sibling]);
+      await synced();
+      rig.upkeep.queuedRemovals = (_) => {sibling.id};
+      rig.upkeep.removedByUser = (_) => false;
+
+      await rig.upkeep.reconcile(_c1);
+
+      expect(requests(), isEmpty);
+      expect((await pin(sibling))!.side, MemberSide.mine);
+    });
+
     test('a mine pin the own list still shows is never queued', () async {
       final sibling = await RigPeer.create('sibling');
       await setUpRig(ownListed: [sibling]);

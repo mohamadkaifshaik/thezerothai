@@ -181,7 +181,10 @@ extension _RemovalStore on RemovalQueueRunner {
   /// of the device landed; this queues it again once the add is applied.
   /// A mark whose key differs is not queued and is reported
   /// (`removalQueue.keyMismatch`, once per conversation and run).
-  Future<void> _queueLostOwn(
+  ///
+  /// Answers the own list it read (fix round 4, ruling 3: the pass's
+  /// attempts drop an unmarked entry whose device it names), or null.
+  Future<DeviceList?> _queueLostOwn(
     SecureVault vault,
     Uint8List thisDevice,
     BudgetPriority priority,
@@ -211,12 +214,14 @@ extension _RemovalStore on RemovalQueueRunner {
       if (mine.isNotEmpty) pins[c] = mine;
       if (ours.isNotEmpty) marked[c] = ours;
     }
-    if ((pins.isEmpty && marked.isEmpty) || !_current(vault, resets)) return;
+    if ((pins.isEmpty && marked.isEmpty) || !_current(vault, resets)) {
+      return null;
+    }
     final own = pins.isEmpty
         ? null
         : await _directory.own(fresh: true, priority: priority);
     final ranked = await _byRecentActivity(vault);
-    if (!_current(vault, resets)) return;
+    if (!_current(vault, resets)) return own;
     var changed = false;
     for (final c in ranked) {
       for (final m in marked[c] ?? const <MemberRecord>[]) {
@@ -249,6 +254,7 @@ extension _RemovalStore on RemovalQueueRunner {
       }
     }
     if (changed) await _save(vault);
+    return own;
   }
 
   /// Loads the stored queue and the runner's record for [vault] when this

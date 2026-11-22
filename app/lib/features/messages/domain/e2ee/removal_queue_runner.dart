@@ -116,7 +116,10 @@ const String kLimitCommitsPerConversationDaily =
 /// conversation with group state (the M3 condition), so a removal made on
 /// another own device reaches the conversations this device holds even
 /// when none of them is opened. Those entries are not user-queued: no
-/// pause exemption.
+/// pause exemption. A later pass whose own list names the device again
+/// drops such an unmarked entry (fix round 4, ruling 3: one list glitch
+/// must not freeze into a removal), and reconcile leaves unmarked queued
+/// ids to its own M3 decision.
 ///
 /// **One owner per pass (amendment 4).** The upkeep's `queuedRemovals` is
 /// [queuedFor] (set by the constructor), so `reconcile`'s one commit
@@ -621,7 +624,7 @@ class RemovalQueueRunner {
     // Ruling 11 (SA M2): own devices the own list no longer shows, queued
     // even while the queue is held (queuing is local; the hold is for
     // commits).
-    await _queueLostOwn(vault, thisDevice, priority, resets);
+    final own = await _queueLostOwn(vault, thisDevice, priority, resets);
     if (!_current(vault, resets)) return;
     final notBefore = _notBeforeMicros;
     if (notBefore != null) {
@@ -644,7 +647,7 @@ class RemovalQueueRunner {
         if (_now().isBefore(held)) continue;
         _holds.remove(id);
       }
-      if (await _attempt(vault, id, thisDevice, priority, resets)) return;
+      if (await _attempt(vault, id, thisDevice, priority, resets, own)) return;
     }
     // Review I2: the earliest per-conversation hold left starts the next
     // pass.

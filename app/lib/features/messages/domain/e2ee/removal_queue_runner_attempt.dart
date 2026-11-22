@@ -5,14 +5,24 @@ part of 'removal_queue_runner.dart';
 /// prune of the conversation's entries against its pins.
 extension _RemovalAttempt on RemovalQueueRunner {
   /// One conversation's turn. True: RATE_LIMITED by a limit of the whole
-  /// user, the pass stops.
+  /// user, the pass stops. [own]: the own list this pass read fresh (or
+  /// reused while young, ruling 6), null when it read none.
   Future<bool> _attempt(
     SecureVault vault,
     String id,
     Uint8List thisDevice,
     BudgetPriority priority,
     int resets,
+    DeviceList? own,
   ) async {
+    // Fix round 4, ruling 3 (CR2 M-1): an entry with no removed mark was
+    // queued because one own list did not show its device. When this
+    // pass's list names it again, the miss was a glitch: the entry goes,
+    // so it never freezes into a later removal (and the flapping that
+    // would follow). An entry of the user's removal has a mark.
+    if (own != null && own.readableNonEmpty && _dropListed(id, own)) {
+      await _save(vault);
+    }
     // Parked entries wait for their hook; no call. CR Minor 6 (fix round 2,
     // ruling 8): they are pruned first, under the lock and from the stored
     // pins only (read only, no call), so one whose device another commit
@@ -177,6 +187,23 @@ extension _RemovalAttempt on RemovalQueueRunner {
       out.add(m.deviceId);
     }
     return out;
+  }
+
+  /// Ruling 3 (fix round 4): drops [id]'s entries that have no removed mark
+  /// and whose device the readable [own] list names. True when the queue
+  /// changed.
+  bool _dropListed(String id, DeviceList own) {
+    final before = _entries.length;
+    _entries.removeWhere(
+      (e) =>
+          e.conversationId == id &&
+          !_removedByUser(e.deviceId) &&
+          own.devices.any((d) => _same(d.deviceId, e.deviceId)),
+    );
+    if (!_entries.any((e) => e.conversationId == id)) _holds.remove(id);
+    final changed = _entries.length != before;
+    if (changed) _publish();
+    return changed;
   }
 
   /// [_pruneAgainst] from the stored pins of [id]. [caughtUp]: the caller

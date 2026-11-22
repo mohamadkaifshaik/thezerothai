@@ -275,12 +275,14 @@ extension _Reconcile on MembershipUpkeep {
         } else if (m.side != MemberSide.mine) {
           continue;
         }
+        // Fix round 4, ruling 3 (CR2 M-1): a queued id with no removed mark
+        // is a lost own device the runner's pass found on one own list; M3
+        // below decides it on this pass's own list, so one list that missed
+        // it does not freeze into a removal (and flapping). No seam set (no
+        // runner): every queued id is the user's.
+        if (removedByUser?.call(m.deviceId) == false) continue;
         remove(m.deviceId);
-        // Fix round 2, ruling 11: exempt only when the user removed it (a
-        // removed mark); the queue also holds lost own devices its pass
-        // found, which M3 below exempts when this pass's own list agrees.
-        // No seam set (no runner): every queued id is the user's.
-        if (removedByUser?.call(m.deviceId) ?? true) exempt(m.deviceId);
+        exempt(m.deviceId);
       }
     }
     // M3: one readable own list decides.
