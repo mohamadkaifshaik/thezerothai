@@ -517,6 +517,12 @@ void main() {
       expect(queued(_c1, twin), isFalse);
       expect(runner.pending.value, 0);
       expect((await stored())!.entries, isEmpty);
+      // SA L2 (fix round 2, ruling 13): the mark goes with the entry, and
+      // after a restart too.
+      expect(await runner.wasRemovedByUser(twin.id), isFalse);
+      await rig.restart();
+      runner = build();
+      expect(await runner.wasRemovedByUser(twin.id), isFalse);
     });
 
     test('the upkeep\'s reconcile never removes a queued id pinned on the '

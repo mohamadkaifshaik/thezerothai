@@ -270,7 +270,9 @@ class RemovalQueueRunner {
   /// restart) or while an intent for it waits with an unknown outcome
   /// (review M1; a definite refusal drops it, ruling 4). A queue entry alone
   /// is not an answer: the queue also holds own devices no user removed
-  /// (ruling 11). Loads the stored record
+  /// (ruling 11). Own side only (SA L2, ruling 13): it answers for the
+  /// user's own devices; an id the queue found pinned on the peer's side
+  /// loses its mark. Loads the stored record
   /// first. Throws [StateError] when there is no vault or the record cannot
   /// be read: the answer is UNKNOWN then, and the caller must use only
   /// devices from a fresh directory. Read only.
@@ -805,19 +807,27 @@ class RemovalQueueRunner {
     Uint8List thisDevice,
   ) {
     final before = _entries.length;
-    var notOwn = false;
+    final notOwn = <Uint8List>[];
     _entries.removeWhere((e) {
       if (e.conversationId != id) return false;
       if (_same(e.deviceId, thisDevice)) return true;
       final pinned = members.where((m) => _same(m.deviceId, e.deviceId));
       if (pinned.isEmpty) return true;
       if (pinned.any((m) => m.side == MemberSide.theirs)) {
-        notOwn = true;
+        notOwn.add(e.deviceId);
         return true;
       }
       return false;
     });
-    if (notOwn) _reportBug('removalQueue.notOwn');
+    if (notOwn.isNotEmpty) {
+      // SA L2 (fix round 2, ruling 13): not this user's device, so not one
+      // the user removed either: its mark goes too (written with the
+      // queue by the caller's save).
+      _removed.removeWhere(
+        (m) => notOwn.any((d) => _same(utf8.encode(m.deviceId), d)),
+      );
+      _reportBug('removalQueue.notOwn');
+    }
     if (!_entries.any((e) => e.conversationId == id)) _holds.remove(id);
     final changed = _entries.length != before;
     if (changed) _publish();
