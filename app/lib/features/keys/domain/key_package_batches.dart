@@ -30,7 +30,9 @@ extension _KeyPackageBatches on DeviceKeysService {
   /// fresh one (private parts and public packages in one transaction).
   /// Returns the batch to upload (empty: nothing), whether the saved
   /// batch's last outcome was unknown, and the cap to throw once the batch
-  /// is sent (a last-resort-only batch generated at the cap; else null).
+  /// is sent (a last-resort-only batch generated at the cap, or a saved
+  /// batch sent without the last-resort package the bound held back; else
+  /// null).
   Future<(PendingUpload, bool, _BatchCap?)> _takeOrGenerateBatch(
     SecureVault vault,
     String uid, {
@@ -84,6 +86,21 @@ extension _KeyPackageBatches on DeviceKeysService {
         cap: kMaxKeyBatchesPerDay,
       );
     }
+
+    // Marks [batches] as reported and reports it, once per IST day.
+    Future<void> reportCap(KeyBatchDay batches) async {
+      if (batches.reported) return;
+      final marked = KeyBatchDay(today, batches.count, reported: true);
+      await v.transaction(
+        (tx) => tx.putSetting(kVaultSettingKeyBatchDay, marked.encode()),
+      );
+      _report(batches.invalid ? 'batchDay' : 'batchCap', StackTrace.current);
+    }
+
+    // Ruling 1 (fix 3): a last-resort-only generation past the cap is
+    // allowed only while the counter is below this; the runs that trigger
+    // them are not throttled.
+    const lastResortBound = kMaxKeyBatchesPerDay + kMaxLastResortOnlyPerDay;
 
     /// Generates [oneTimeCount] one-time packages (and a last-resort one
     /// when [withLastResort]) and commits the private state, the record
@@ -144,8 +161,13 @@ extension _KeyPackageBatches on DeviceKeysService {
         final last = saved.lastResort;
         if (last == null && !hasLastResort) {
           // N-3: nothing to resend and the server has no last-resort
-          // package: a fresh one alone (counted, allowed at the cap as in
-          // ruling 1).
+          // package: a fresh one alone (counted, allowed past the cap up to
+          // [lastResortBound]; past that, the cap).
+          final batches = await batchDay();
+          if (batches.count >= lastResortBound) {
+            await reportCap(batches);
+            throw const _BatchCap();
+          }
           final fresh = await generate(0, withLastResort: true);
           return (fresh, false, null);
         }
@@ -160,18 +182,28 @@ extension _KeyPackageBatches on DeviceKeysService {
         await store(lastOnly);
         return (lastOnly, false, null);
       }
+      _BatchCap? cap;
       if (saved.lastResort == null && !hasLastResort) {
         // N-3: the saved one-time packages go again with a fresh last-resort
-        // package (counted, allowed at the cap as in ruling 1), armed as a
-        // new attempt.
-        final withLast = await generate(
-          0,
-          withLastResort: true,
-          keep: saved.oneTime,
-        );
-        return (withLast, previousUnknown, null);
+        // package (counted, allowed past the cap up to [lastResortBound]),
+        // armed as a new attempt.
+        final batches = await batchDay();
+        if (batches.count < lastResortBound) {
+          final withLast = await generate(
+            0,
+            withLastResort: true,
+            keep: saved.oneTime,
+          );
+          return (withLast, previousUnknown, null);
+        }
+        // Past the bound: no fresh one. Decision: the saved one-time
+        // packages (already generated) are still sent as they are, and the
+        // cap is thrown after the upload, so the cap does not hold back a
+        // batch that costs no new state.
+        await reportCap(batches);
+        cap = const _BatchCap();
       }
-      if (previousUnknown) return (saved, previousUnknown, null);
+      if (previousUnknown) return (saved, previousUnknown, cap);
       // Arm the next attempt before dispatch so a killed run is unknown.
       final retry = PendingUpload(
         saved.oneTime,
@@ -180,7 +212,7 @@ extension _KeyPackageBatches on DeviceKeysService {
         lastResortMicros: saved.lastResortMicros,
       );
       await store(retry);
-      return (retry, previousUnknown, null);
+      return (retry, previousUnknown, cap);
     }
     if (oneTime <= 0 && !lastResort) {
       if (unreadable) await store(PendingUpload.empty);
@@ -195,22 +227,19 @@ extension _KeyPackageBatches on DeviceKeysService {
       // rotation the server does not need), or the counter is invalid:
       // marked and reported once a day. `batchDay` (a counter that did not
       // open, decode, or is dated more than a day ahead) is kept apart from
-      // `batchCap` (a real cap) so local corruption shows as such.
-      final blocks = hasLastResort || oneTime > 0;
-      if ((blocks || batches.invalid) && !batches.reported) {
-        final marked = KeyBatchDay(today, batches.count, reported: true);
-        await v.transaction(
-          (tx) => tx.putSetting(kVaultSettingKeyBatchDay, marked.encode()),
-        );
-        _report(batches.invalid ? 'batchDay' : 'batchCap', StackTrace.current);
-      }
+      // `batchCap` (a real cap) so local corruption shows as such. Past
+      // [lastResortBound] even a missing last-resort package is held back.
+      final spent = batches.count >= lastResortBound;
+      final blocks = hasLastResort || oneTime > 0 || spent;
+      if (blocks || batches.invalid) await reportCap(batches);
       if (blocks) {
         cap = const _BatchCap();
-        if (hasLastResort) throw cap;
+        if (hasLastResort || spent) throw cap;
       }
       // Ruling 1: the server holds no last-resort package. Without one the
       // device is unreachable once the pool is empty, so a last-resort-only
-      // batch is generated and counted even at the cap.
+      // batch is generated and counted past the cap, below
+      // [lastResortBound].
       generateOneTime = 0;
       generateLastResort = true;
     }

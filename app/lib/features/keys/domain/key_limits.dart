@@ -25,7 +25,20 @@ const int kMaxKeyPackageBytes = 4096;
 /// Cost: a pool that is truly drained can stay empty until the next IST day;
 /// the last-resort package still answers claims. When the server reports
 /// none (a re-registered device), a last-resort-only batch is still
-/// generated and counted at the cap (ruling 1): otherwise the device would
-/// be unreachable until IST midnight. A hostile server gains at most one
-/// package per run that way (about 24 a day, runs are hourly).
+/// generated and counted past the cap, up to [kMaxLastResortOnlyPerDay]
+/// more: otherwise the device would be unreachable until IST midnight.
+///
+/// The bound per IST day is therefore at most 4 batches of 51 packages
+/// (50 one-time + 1 last-resort) plus 24 single last-resort packages:
+/// 4 * 51 + 24 = 228 private packages a day.
 const int kMaxKeyBatchesPerDay = 4;
+
+/// The single last-resort packages generated per IST day once the stored
+/// counter has reached [kMaxKeyBatchesPerDay] (a server that reports no
+/// last-resort package, or a saved batch that needs one). The runs that
+/// can trigger them (vault ready, the flag turning on, a failed sign-out,
+/// any run after a capped one) are not throttled, so this is a ceiling of
+/// its own: once the counter reaches `kMaxKeyBatchesPerDay +
+/// kMaxLastResortOnlyPerDay`, nothing more is generated that day. 24
+/// covers one per hourly run.
+const int kMaxLastResortOnlyPerDay = 24;

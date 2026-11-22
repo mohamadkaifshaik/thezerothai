@@ -206,6 +206,72 @@ void main() {
       expect(rig.service.status.value, DeviceKeysStatus.ready);
     });
 
+    // A counter of today at the last-resort-only bound.
+    void atLastResortBound() =>
+        rig.file()!.rows[kVaultSettingKeyBatchDay] = jsonEncode({
+          'v': 1,
+          'day': istDay(rig.now),
+          'n': kMaxKeyBatchesPerDay + kMaxLastResortOnlyPerDay,
+          'reported': false,
+        });
+
+    test('past the last-resort-only bound, a saved batch without a '
+        'last-resort package is sent as it is (nothing generated), then the '
+        'cap', () async {
+      await rig.signIn(_a);
+      final device = rig.devices.values.single;
+      device.pool.removeRange(0, 40);
+      rig.server.failNext['upload'] = [refused()];
+      await nextRun();
+      final oneTime = rig.server.uploads.last.keyPackages;
+      expect(oneTime, hasLength(40));
+      device.lastResort = null;
+      atLastResortBound();
+      final generated = rig.engine.generated.length;
+
+      await nextRun();
+      final up = rig.server.uploads.last;
+      expect(up.keyPackages, oneTime);
+      expect(up.lastResortKeyPackage, isEmpty);
+      expect(rig.engine.generated, hasLength(generated));
+      expect(saved()['oneTime'], isEmpty);
+      expect(
+        rig.service.status.value,
+        const DeviceKeysStatus.failed(retryable: true),
+      );
+      expect(rig.reported.map((e) => e.toString()), [
+        'DeviceKeysError(batchCap)',
+      ]);
+    });
+
+    test('past the last-resort-only bound, a cleared batch gets no fresh '
+        'last-resort package: the cap', () async {
+      await rig.signIn(_a);
+      final device = rig.devices.values.single;
+      device.pool.removeRange(10, device.pool.length);
+      rig.server.failAfterApply['upload'] = [timeout(), timeout()];
+      await nextRun();
+      expect(saved()['outcome'], 'unknown');
+      expect(saved()['lastResort'], isNull);
+      device
+        ..pool.removeRange(0, 5)
+        ..lastResort = null;
+      atLastResortBound();
+      final generated = rig.engine.generated.length;
+      final uploads = rig.server.uploads.length;
+
+      await nextRun();
+      expect(rig.engine.generated, hasLength(generated));
+      expect(rig.server.uploads, hasLength(uploads));
+      expect(
+        rig.service.status.value,
+        const DeviceKeysStatus.failed(retryable: true),
+      );
+      expect(rig.reported.map((e) => e.toString()), [
+        'DeviceKeysError(batchCap)',
+      ]);
+    });
+
     test('after a timeout an unchanged count reuses the saved bytes', () async {
       rig.server.failNext['upload'] = [timeout(), timeout()];
       await rig.signIn(_a);
@@ -564,6 +630,46 @@ void main() {
         expect(reported(), ['DeviceKeysError(batchCap)']);
       },
     );
+
+    test('at the cap, a server that keeps dropping its last-resort package '
+        'gets at most $kMaxLastResortOnlyPerDay last-resort-only batches a '
+        'day, however often the run is started', () async {
+      toNextIstDay();
+      await rig.signIn(_a);
+      final device = rig.devices.values.single;
+      for (var i = 2; i <= kMaxKeyBatchesPerDay; i++) {
+        device.pool.clear();
+        await nextRun();
+      }
+      expect(rig.engine.generated, hasLength(kMaxKeyBatchesPerDay));
+      const bound = kMaxKeyBatchesPerDay + kMaxLastResortOnlyPerDay;
+      // The first run at the cap is an hour on; the rest are not throttled
+      // (a capped run is a failure, as vault-ready and a failed sign-out).
+      rig.advance(_hour);
+      for (var i = 0; i < kMaxLastResortOnlyPerDay + 6; i++) {
+        device
+          ..pool.clear()
+          ..lastResort = null;
+        await rig.service.ensureReady();
+        expect(
+          rig.service.status.value,
+          const DeviceKeysStatus.failed(retryable: true),
+        );
+      }
+      expect(rig.engine.generated, hasLength(bound));
+      expect(
+        rig.engine.generated.skip(kMaxKeyBatchesPerDay),
+        everyElement((0, true)),
+      );
+      final day = jsonDecode(rig.setting(kVaultSettingKeyBatchDay)) as Map;
+      expect(day['n'], bound);
+      final uploads = rig.server.uploads.length;
+      device.lastResort = null;
+      await rig.service.ensureReady();
+      expect(rig.engine.generated, hasLength(bound));
+      expect(rig.server.uploads, hasLength(uploads));
+      expect(reported(), ['DeviceKeysError(batchCap)']);
+    });
 
     test('at the cap, a cleared batch without a last-resort package still '
         'gets one when the server reports none (counted)', () async {
