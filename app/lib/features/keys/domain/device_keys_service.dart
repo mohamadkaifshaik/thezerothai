@@ -713,6 +713,10 @@ class DeviceKeysService {
               (tx) =>
                   tx.putSetting(kVaultSettingPendingUpload, refused.encode()),
             );
+          } on _Cancelled {
+            // The vault or the user changed: the run is over, not a failed
+            // write.
+            rethrow;
           } catch (_, stack) {
             _report('pendingUploadWrite', stack);
           }

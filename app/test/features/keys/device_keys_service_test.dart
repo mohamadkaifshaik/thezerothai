@@ -739,6 +739,19 @@ void main() {
       expect(rig.rpcs(before), isEmpty, reason: 'still backing off');
     });
 
+    test('a refusal after the user changed cancels the run: the "failed" '
+        'record write is not reported as a write failure', () async {
+      await rig.signIn(_a);
+      rig.devices.values.single.pool.clear();
+      rig.server.onCall['upload'] = () async => rig.uid = _b;
+      rig.server.failNext['upload'] = [refused()];
+      await nextRun();
+      expect(rig.reported, isEmpty);
+      expect(rig.service.status.value, DeviceKeysStatus.idle);
+      final record = jsonDecode(rig.setting(setting, _a)) as Map;
+      expect(record['outcome'], 'unknown');
+    });
+
     test('a RATE_LIMITED upload while a removal starts keeps the back-off and '
         'writes no "failed" record', () async {
       await rig.signIn(_a);
