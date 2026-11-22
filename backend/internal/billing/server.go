@@ -35,7 +35,7 @@ func (s *Server) EnableSandboxPurchases() {
 }
 
 // EnableStorePurchases is called only at startup after the composition
-// root validates the dev rollout gate. Only reviewed, real-store products may
+// root validates the deployment configuration. Only reviewed, real-store products may
 // advertise checkout; verification and restore remain available with sales off.
 func (s *Server) EnableStorePurchases(products map[string]Product) {
 	s.purchasableTiers = nil

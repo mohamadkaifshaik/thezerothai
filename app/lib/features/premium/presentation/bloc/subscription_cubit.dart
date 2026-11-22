@@ -41,6 +41,11 @@ class SubscriptionCubit extends Cubit<SubscriptionState> {
        super(const SubscriptionState());
 
   final SubscriptionRepository _repository;
+  bool get hasStoreUi => switch (_repository) {
+    HostedSubscriptionRepository(:final hasStoreUi) => hasStoreUi,
+    _ => false,
+  };
+
   final SessionEpoch _sessionEpoch;
   final DateTime Function() _now;
   int _generation = 0;

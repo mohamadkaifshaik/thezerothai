@@ -25,6 +25,7 @@ abstract interface class SubscriptionRepository {
 }
 
 abstract interface class HostedSubscriptionRepository {
+  bool get hasStoreUi;
   Future<SubscriptionPurchaseResult> presentPaywall(String uid);
   Future<void> presentCustomerCenter(String uid);
 }

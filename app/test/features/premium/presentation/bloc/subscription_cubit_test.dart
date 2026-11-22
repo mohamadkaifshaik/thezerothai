@@ -25,6 +25,8 @@ SubscriptionAccess _free(String uid, {bool sales = false}) =>
 
 class _Repository
     implements SubscriptionRepository, HostedSubscriptionRepository {
+  @override
+  bool get hasStoreUi => true;
   Future<SubscriptionAccess> Function(String) access = (uid) async =>
       _free(uid);
   Future<SubscriptionPurchaseResult> Function() transaction = () async =>

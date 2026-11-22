@@ -14,7 +14,7 @@ func TestRealStoreCheckoutConfiguration(t *testing.T) {
 		{name: "production transactions in dev", env: "dev", webhooks: "true", sales: "true"},
 		{name: "license testing in dev", env: "dev", webhooks: "true", sales: "true", environment: "SANDBOX"},
 		{name: "missing webhook setup", env: "dev", sales: "true", wantError: true},
-		{name: "prod rollout not authorized", env: "prod", webhooks: "true", sales: "true", wantError: true},
+		{name: "production checkout", env: "prod", webhooks: "true", sales: "true"},
 		{name: "sandbox forbidden in prod", env: "prod", webhooks: "true", environment: "SANDBOX", wantError: true},
 		{name: "unknown receipt environment", env: "dev", webhooks: "true", environment: "test", wantError: true},
 		{name: "local cannot enable real store", env: "local", webhooks: "true", sales: "true", wantError: true},

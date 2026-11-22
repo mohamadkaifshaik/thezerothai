@@ -1,8 +1,10 @@
 # RevenueCat Flutter setup
 
 `dzeroth_pro` maps to Premium; Plus remains supported. `monthly` is the
-Premium Test Store product identifier. This guide is a complete SDK sandbox
-example, not registration of the unfinished production billing service.
+Premium Test Store product identifier. The mobile app initializes the SDK through its
+authenticated subscription repository. Sections 1 through 3 illustrate standalone
+sandbox use. For store builds, use
+the [store and release configuration](GOOGLE_PLAY_BILLING_SETUP.md).
 
 ## 1. Install from a normal local PowerShell terminal
 
@@ -193,8 +195,8 @@ for the actual product/store/environment before server readback can grant it.
 
 The native paywall must NOT bypass the repository's purchase guard or server
 sales-availability check. The example above is not wired into the production
-Premium dialog. Production registration still requires the billing RPCs, durable
-webhook reconciliation and feature enforcement described in SUBSCRIPTIONS.md.
+Premium dialog. The app uses its own repository-backed paywall action. The billing RPCs, durable
+webhook reconciliation and paid-feature checks are wired in the Go API server.
 
 Android MainActivity now extends FlutterFragmentActivity for native paywalls;
 existing notification initialization is retained. Existing launchMode singleTop,

@@ -168,12 +168,15 @@ class RevenueCatPurchaseGateway
   Future<SubscriptionPurchaseResult> restore() async {
     _requireIdentity();
     _packages.clear();
-    if (kIsWeb) {
-      await rc.Purchases.invalidateCustomerInfoCache();
-      await rc.Purchases.getCustomerInfo();
-    } else {
-      await rc.Purchases.restorePurchases();
-    }
-    return const SubscriptionPurchaseResult(PurchaseDisposition.verifying);
+    final info = kIsWeb
+        ? await getCustomerInfo(refresh: true)
+        : await rc.Purchases.restorePurchases();
+    final restored = info.entitlements.active.keys.any(
+      (id) =>
+          id == proEntitlement || id == 'premium_access' || id == 'plus_access',
+    );
+    return SubscriptionPurchaseResult(
+      restored ? PurchaseDisposition.verifying : PurchaseDisposition.refreshed,
+    );
   }
 }

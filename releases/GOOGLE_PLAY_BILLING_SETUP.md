@@ -127,8 +127,8 @@ it is not an instruction to remove previously configured billing. To stop new
 sales while preserving verification, keep configuration enabled and set
 `DEV_BILLING_PURCHASES_ENABLED=false`, then redeploy through the same path.
 
-New real-store checkout is restricted to `ENV=dev` in this rollout. This does not
-authorize deployment to the GCP production project. Verified subscription status,
+Dev checkout accepts the configured receipt environment. Production checkout
+requires production receipts and its own release configuration (section 7). Verified subscription status,
 restore and paid-feature enforcement are independent of the new-sales switch.
 
 ## 5. Connect RevenueCat webhooks to the deployed dev API
@@ -194,3 +194,24 @@ test accounts/environments and review any transition for existing bindings.
 
 Store connection, native-device validation, secret provisioning and real-sale
 enablement remain external rollout prerequisites, not completed work.
+
+## 7. Tagged production releases
+
+After store validation, configure the production project and dashboard webhook
+against its permanent API endpoint. Use the same variable names as section 4
+with the `PROD_` prefix. The tagged workflow sets the receipt environment to
+`PRODUCTION`. Use production-specific pinned secret references and app IDs.
+
+Set repository variables `PROD_REVENUECAT_ANDROID_PUBLIC_API_KEY` and/or
+`PROD_REVENUECAT_IOS_PUBLIC_API_KEY` for each store represented in
+`PROD_REVENUECAT_PRODUCTS_JSON`. Use distinct product IDs across stores because
+the server catalog is keyed by product ID. Each mobile release derives its
+monthly products from that catalog. A platform with no configured products or
+key can still display verified status, as can the production web build.
+
+Set `PROD_BILLING_CONFIG_ENABLED=true` to apply billing configuration to the
+zero-traffic candidate. Keep `PROD_BILLING_PURCHASES_ENABLED=false` until the
+webhook and store verification work on the intended environment. To open or
+pause checkout, set the purchases flag and release through the normal staged
+promotion. Leaving configuration disabled preserves inherited Cloud Run
+settings, so use the purchases flag explicitly to pause existing sales.

@@ -698,8 +698,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	}
 	billingServer := billing.NewServer(nil, nil, nil)
 	var articlePublishingAccess func(context.Context, string) error
-	if cfg.BillingWebhook.PurchasesEnabled && (!cfg.BillingWebhook.Enabled || cfg.Env != "dev" || cfg.AuthEmulator || cfg.BillingSandbox.Enabled) {
-		return nil, nil, fmt.Errorf("real purchase rollout requires dev, configured webhooks, and no emulators")
+	if cfg.BillingWebhook.PurchasesEnabled && (!cfg.BillingWebhook.Enabled || (cfg.Env != "dev" && cfg.Env != "prod") || cfg.AuthEmulator || cfg.BillingSandbox.Enabled) {
+		return nil, nil, fmt.Errorf("real purchase rollout requires dev/prod, configured webhooks, and no emulators")
 	}
 	var billingWebhookRecovery trendsStep
 	if cfg.BillingWebhook.Enabled {

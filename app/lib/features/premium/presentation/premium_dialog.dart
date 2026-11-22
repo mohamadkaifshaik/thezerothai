@@ -127,8 +127,9 @@ class _SubscriptionActions extends StatelessWidget {
           !kIsWeb &&
           (defaultTargetPlatform == TargetPlatform.android ||
               defaultTargetPlatform == TargetPlatform.iOS);
+      final hasStoreUi = native && cubit.hasStoreUi;
       final canBuy =
-          native &&
+          hasStoreUi &&
           state.phase == SubscriptionPhase.ready &&
           state.offerings.isNotEmpty &&
           state.access?.purchasesAvailable == true &&
@@ -188,12 +189,12 @@ class _SubscriptionActions extends StatelessWidget {
                         ? null
                         : cubit.restore,
                     child: Text(
-                      kIsWeb
-                          ? 'Recover subscription status'
-                          : 'Restore purchases',
+                      hasStoreUi
+                          ? 'Restore purchases'
+                          : 'Recover subscription status',
                     ),
                   ),
-                  if (native)
+                  if (hasStoreUi)
                     TextButton(
                       onPressed: busy ? null : cubit.manageSubscription,
                       child: const Text('Manage subscription'),
