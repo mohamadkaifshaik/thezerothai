@@ -255,22 +255,15 @@ extension _Reconcile on MembershipUpkeep {
     // Ruling H (audit L2): the removals the M5 pause and the fail-closed
     // ledger do not hold: the user's queued ones and M3's own devices.
     final pauseExempt = <Uint8List>[];
-    // Task 11's queue: the members it names (never this device), and only
-    // `mine` pins (Task 11 review I1: the queue removes this user's own
-    // devices; the runner drops an entry pinned on the peer's side), or an
-    // `unattributed` pin whose key is the key of the user's removed mark
-    // (fix round 2, ruling 1).
-    // Task 9 audit L5 (Task 11 amendment 1) stays as a backstop: never the
-    // peer's last peer-side member.
+    // Task 11's queue: the members it names (never this device). Only
+    // `mine` pins, and an `unattributed` pin whose key is the key of the
+    // user's removed mark (fix round 2, ruling 1), are ever removed from it,
+    // so a peer's device (`theirs`) is never touched by the queue (Task 11
+    // review I1; the runner drops an entry pinned on the peer's side).
     final queued = queuedRemovals?.call(id) ?? const <Uint8List>{};
-    var queuedTheirs = members.where((m) => m.side == MemberSide.theirs).length;
     for (final m in members) {
       if (!_same(m.deviceId, thisDevice) &&
           queued.any((q) => _same(q, m.deviceId))) {
-        if (m.side == MemberSide.theirs) {
-          if (queuedTheirs <= 1) continue;
-          queuedTheirs--;
-        }
         if (m.side == MemberSide.unattributed) {
           final key = removedKeyOf?.call(m.deviceId);
           if (key == null || !_same(key, m.signatureKey)) continue;

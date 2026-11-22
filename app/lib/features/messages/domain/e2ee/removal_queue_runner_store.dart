@@ -165,7 +165,6 @@ extension _RemovalStore on RemovalQueueRunner {
       _notBeforeMicros = queue.notBeforeMicros;
       _loadedFor = vault;
       _unreadableFor = null;
-      _lastKept.clear();
       _publish();
       return true;
     } on VaultCorruptException {

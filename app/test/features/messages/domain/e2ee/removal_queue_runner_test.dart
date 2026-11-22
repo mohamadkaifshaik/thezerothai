@@ -467,7 +467,7 @@ void main() {
     );
   });
 
-  group('own devices only (review I1; amendment 1 stays as a backstop)', () {
+  group('own devices only (review I1)', () {
     test('an id that is not in a fresh own list is refused and nothing is '
         'sent', () async {
       final sibling = await RigPeer.create('sibling');
@@ -526,8 +526,8 @@ void main() {
       await join(_c1, others: [twin]);
       await synced();
       await _pinAs(twin, MemberSide.theirs);
-      // As if the queue still named it (two peer-side members, so the last
-      // device guard alone would let one go).
+      // As if the queue still named it (two peer-side members: neither is
+      // the peer's last, so only the own-devices rule keeps it).
       rig.upkeep.queuedRemovals = (_) => {twin.id};
 
       await rig.upkeep.reconcile(_c1);

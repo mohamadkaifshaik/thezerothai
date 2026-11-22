@@ -75,10 +75,10 @@ const String kLimitCommitsPerConversationDaily =
 /// upkeep's reconcile, fed from this queue, follows the same rule
 /// (`removedKeyOf`).
 ///
-/// **The last peer-side device (Task 9 audit L5, brief amendment 1)** stays
-/// as a backstop: a peer-side member is never removed as the peer's last
-/// one ([lastPeerDeviceKept] would report it). With own devices only it
-/// is not reached.
+/// Only `mine` pins (and those marked `unattributed` ones) are ever
+/// removed, so a peer's device is never touched by the queue. (Fix round 2,
+/// ruling 9: the last peer-side device backstop of amendment 1 could not be
+/// reached by any pin and is gone, with `lastPeerDeviceKept`.)
 ///
 /// **Rate limits (audit L1, round P; amendment 2).** A RATE_LIMITED answer
 /// to THIS pass's change is read from [CommitRunner.lastRateLimitIn] of the
@@ -199,10 +199,6 @@ class RemovalQueueRunner {
   /// The vault whose stored queue could not be read (reported once).
   SecureVault? _unreadableFor;
 
-  /// Conversations whose last pass kept a queued peer-side device because
-  /// it is the peer's last peer-side member (amendment 1).
-  final Set<String> _lastKept = {};
-
   /// Conversations whose `removalQueue.keyMismatch` was reported this run.
   final Set<String> _mismatchReported = {};
 
@@ -293,11 +289,6 @@ class RemovalQueueRunner {
     }
     return null;
   }
-
-  /// Amendment 1: the last pass of [conversationId] kept a queued device
-  /// because it is the peer's last peer-side member. The entry stays.
-  bool lastPeerDeviceKept(String conversationId) =>
-      _lastKept.contains(conversationId);
 
   /// Amendment 7: the stored queue of the open vault could not be read.
   bool get unreadable =>
@@ -450,7 +441,6 @@ class RemovalQueueRunner {
     _loadedFor = null;
     _unreadableFor = null;
     _removed.clear();
-    _lastKept.clear();
     _mismatchReported.clear();
     _holds.clear();
     _intentsNotBefore = null;
@@ -707,23 +697,15 @@ class RemovalQueueRunner {
   /// positive proof it is this user's device. Any other `unattributed` one
   /// waits for its attribution; one whose key differs from its mark's is
   /// reported (`removalQueue.keyMismatch`, once per conversation and run).
-  /// Never this device (pruned already). The last-device guard stays as a
-  /// backstop (amendment 1; [_lastKept] records it): a peer-side member
-  /// never passes it as the last one.
+  /// Never this device (pruned already). Only these two kinds of pin are
+  /// ever removed, so a peer's device (`theirs`) is never touched by the
+  /// queue (fix round 2, ruling 9: the last-device backstop, which no pin
+  /// could reach, is gone).
   List<Uint8List> _removable(String id, List<MemberRecord> members) {
     final queued = queuedFor(id);
     final out = <Uint8List>[];
-    var theirs = members.where((m) => m.side == MemberSide.theirs).length;
-    var kept = false;
     for (final m in members) {
       if (!queued.any((q) => _same(q, m.deviceId))) continue;
-      if (m.side == MemberSide.theirs) {
-        if (theirs <= 1) {
-          kept = true;
-          continue;
-        }
-        theirs--;
-      }
       if (m.side == MemberSide.unattributed) {
         final key = _removedKeyOf(m.deviceId);
         if (key == null) continue;
@@ -735,11 +717,6 @@ class RemovalQueueRunner {
         continue;
       }
       out.add(m.deviceId);
-    }
-    if (kept) {
-      _lastKept.add(id);
-    } else {
-      _lastKept.remove(id);
     }
     return out;
   }
@@ -777,10 +754,7 @@ class RemovalQueueRunner {
       return false;
     });
     if (notOwn) _reportBug('removalQueue.notOwn');
-    if (!_entries.any((e) => e.conversationId == id)) {
-      _lastKept.remove(id);
-      _holds.remove(id);
-    }
+    if (!_entries.any((e) => e.conversationId == id)) _holds.remove(id);
     final changed = _entries.length != before;
     if (changed) _publish();
     return changed;
