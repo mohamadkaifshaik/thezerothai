@@ -1899,6 +1899,10 @@ class RigCrypto {
   late SyncBudget readBudget;
   late DeviceDirectory directory;
 
+  /// The [directory]'s own sync budget (a test pauses it to defer the
+  /// directory's list calls only).
+  late SyncBudget directoryBudget;
+
   /// The locks of this app run: a [restart] starts with new ones (memory
   /// starts again; a pass that was in flight holds only the old ones).
   ConversationLocks locks = ConversationLocks();
@@ -2014,13 +2018,14 @@ class RigCrypto {
       ownDeviceCount: () => 1,
       now: clock.now,
     );
+    rig.directoryBudget = SyncBudget(
+      perMinute: 100000,
+      ownDeviceCount: () => 1,
+      now: clock.now,
+    );
     rig.directory = DeviceDirectory(
       keys: rig.keys,
-      budget: SyncBudget(
-        perMinute: 100000,
-        ownDeviceCount: () => 1,
-        now: clock.now,
-      ),
+      budget: rig.directoryBudget,
       now: clock.now,
     );
     rig.keys.own.add(

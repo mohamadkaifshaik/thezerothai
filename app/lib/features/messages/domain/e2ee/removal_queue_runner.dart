@@ -263,6 +263,13 @@ class RemovalQueueRunner {
   /// a restart it costs at most one refused call.
   DateTime? _intentsNotBefore;
 
+  /// Fix round 5, ruling 2 (R1): when the last RemoveKeyDevice of this run
+  /// succeeded. An own list fetched before it is neither reused by a pass
+  /// nor used to drop an unmarked entry: it may still name that device (a
+  /// removal queued without a mark at the mark cap, while the refresh
+  /// after it was deferred). Memory only.
+  DateTime? _lastRemovedAt;
+
   /// Ruling 6 (SA L4): the load dropped expired marks; the next pass
   /// writes the record.
   bool _recordPruned = false;
@@ -583,6 +590,7 @@ class RemovalQueueRunner {
     _holds.clear();
     _intentsNotBefore = null;
     _recordPruned = false;
+    _lastRemovedAt = null;
     _publish();
   }
 

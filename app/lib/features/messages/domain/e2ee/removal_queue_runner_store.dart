@@ -27,6 +27,8 @@ extension _RemovalStore on RemovalQueueRunner {
     BudgetPriority priority,
   ) async {
     final id = Uint8List.fromList(utf8.encode(deviceId));
+    // Fix round 5, ruling 2 (R1): RemoveKeyDevice of it succeeded by now.
+    _lastRemovedAt = _now();
     final ranked = await _byRecentActivity(vault);
     // SA N1 (fix round 4, ruling 10): the ids pinned anywhere, read only
     // when the marks are at their cap (to find one that carries no weight).
@@ -254,10 +256,14 @@ extension _RemovalStore on RemovalQueueRunner {
     // [kLostOwnListReuse] is reused (no call); otherwise one fresh read.
     // It is read whenever a `mine` pin exists, queued or not: the attempts
     // drop an unmarked entry whose device it names (ruling 3).
+    // Fix round 5, ruling 2 (R1): a young list fetched before the last
+    // removal is not reused (it may still name the removed device).
+    final young = _directory.ownYoungerThan(kLostOwnListReuse);
     final own = pins.isEmpty
         ? null
-        : _directory.ownYoungerThan(kLostOwnListReuse) ??
-              await _directory.own(fresh: true, priority: priority);
+        : young != null && !_beforeLastRemoval(young)
+        ? young
+        : await _directory.own(fresh: true, priority: priority);
     if (!_current(vault, resets)) return own;
     bool queuedIn(String c, Uint8List d) =>
         _entries.any((e) => e.conversationId == c && _same(e.deviceId, d));
@@ -404,6 +410,16 @@ extension _RemovalStore on RemovalQueueRunner {
         await tx.putSetting(kVaultSettingRemovalRecord, record);
       });
     });
+  }
+
+  /// Fix round 5, ruling 2 (R1): [list] was fetched before the last
+  /// successful RemoveKeyDevice of this run ([_lastRemovedAt]), so it may
+  /// still name the device removed then.
+  bool _beforeLastRemoval(DeviceList list) {
+    final last = _lastRemovedAt;
+    if (last == null) return false;
+    final at = list.fetchedAt;
+    return at == null || at.isBefore(last);
   }
 
   void _publish() {

@@ -597,6 +597,54 @@ void main() {
       expect(await runner.wasRemovedByUser(sibling.id), isFalse);
     });
 
+    test('a removal queued without a mark is not dropped by a young own list '
+        'read before it (fix round 5, R1)', () async {
+      const c2 = '22222222222222222222222222222222';
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await join(_c1, others: [sibling]);
+      await synced();
+      final now = rig.clock.now();
+      await putRecord(
+        RemovalRecord(
+          removed: [for (var i = 0; i < kMaxRemovalIntents; i++) mark(i, now)],
+        ),
+      );
+      // Every mark is still needed, so the sibling is queued without one.
+      await stateOnly(c2, accepted: false);
+      await rig.device.vault.transaction(
+        (tx) => tx.putSetting(
+          kVaultSettingRemovalQueue,
+          RemovalQueue(
+            entries: [
+              for (var i = 0; i < kMaxRemovalIntents; i++)
+                RemovalQueueEntry(
+                  deviceId: rigBytes(mark(i, now).deviceId),
+                  conversationId: c2,
+                  parked: true,
+                ),
+            ],
+          ).encode(),
+        ),
+      );
+      // A young own list, read before the removal, names the sibling.
+      await rig.directory.own(fresh: true);
+      rig.clock.advance(const Duration(seconds: 10));
+      // The budget is paused (the rig splits it in two; in the app it is
+      // one): the refresh after the removal is deferred, and no commit goes.
+      final until = rig.clock.now().add(const Duration(hours: 1));
+      rig.directoryBudget.pauseUntil(until);
+      budget.pauseUntil(until);
+      expectedErrors = ['removalQueue.markCap'];
+
+      await removeAndSettle(sibling);
+
+      expect(rig.keys.removeCalls.single.deviceId, sibling.idString);
+      expect(await runner.wasRemovedByUser(sibling.id), isFalse);
+      expect(queued(_c1, sibling), isTrue, reason: 'still queued');
+      expect((await pin(sibling))!.side, MemberSide.mine);
+    });
+
     test('expired marks are pruned when the record is loaded', () async {
       await setUpRig();
       final now = rig.clock.now();

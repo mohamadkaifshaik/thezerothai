@@ -20,7 +20,12 @@ extension _RemovalAttempt on RemovalQueueRunner {
     // pass's list names it again, the miss was a glitch: the entry goes,
     // so it never freezes into a later removal (and the flapping that
     // would follow). An entry of the user's removal has a mark.
-    if (own != null && own.readableNonEmpty && _dropListed(id, own)) {
+    // Fix round 5, ruling 2 (R1): never on a list fetched before the last
+    // removal; it may still name the device just removed.
+    if (own != null &&
+        own.readableNonEmpty &&
+        !_beforeLastRemoval(own) &&
+        _dropListed(id, own)) {
       await _save(vault);
     }
     // Parked entries wait for their hook; no call. CR Minor 6 (fix round 2,
