@@ -152,6 +152,23 @@ void main() {
 
   const offline = NetworkException('rig: no answer');
 
+  /// This device's own change of [_c1], recorded as an own commit's
+  /// transaction records it ([DailyLedger.writeIn] with
+  /// [DailyRecord.withOwnChange]).
+  Future<void> ownChange({
+    List<Uint8List> added = const [],
+    List<Uint8List> removed = const [],
+  }) => rig.device.session.runWrite((v) async {
+    final current = await rig.ledger.readLocked(v);
+    await v.transaction(
+      (tx) => rig.ledger.writeIn(
+        tx,
+        current,
+        (r) => r.withOwnChange(_c1, added: added, removed: removed),
+      ),
+    );
+  });
+
   /// Runs the one resume the runner scheduled, as its timer would, and
   /// waits until that resume has left the conversation lock.
   Future<void> runScheduled() async {
@@ -169,7 +186,7 @@ void main() {
       await bobCommits(add: [await carol.keyPackage()]);
       expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
       // As this device's own add of today (the runner records it so).
-      await rig.ledger.noteOwnChange(_c1, added: [carol.id]);
+      await ownChange(added: [carol.id]);
       expect(await rig.ledger.undone(_c1), 0);
 
       await bobCommits(remove: [carol.id]);
@@ -188,7 +205,7 @@ void main() {
         'undo', () async {
       await setUpJoined();
       final carol = await RigPeer.create('carol');
-      await rig.ledger.noteOwnChange(_c1, removed: [carol.id]);
+      await ownChange(removed: [carol.id]);
 
       await bobCommits(add: [await carol.keyPackage()]);
       expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
@@ -202,7 +219,7 @@ void main() {
         await setUpJoined();
         final carol = await RigPeer.create('carol');
         final dave = await RigPeer.create('dave');
-        await rig.ledger.noteOwnChange(_c1, added: [dave.id]);
+        await ownChange(added: [dave.id]);
 
         // One commit per catch-up (each closes an epoch's walk).
         await bobSelfUpdate();
@@ -224,7 +241,7 @@ void main() {
       for (var i = 0; i < kAntiFlapUndosPerDay; i++) {
         await bobCommits(add: [await carol.keyPackage()]);
         expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
-        await rig.ledger.noteOwnChange(_c1, added: [carol.id]);
+        await ownChange(added: [carol.id]);
         expect((await state()).committingPausedToday, isFalse);
         await bobCommits(remove: [carol.id]);
         expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
@@ -242,7 +259,7 @@ void main() {
       final carol = await RigPeer.create('carol');
       await bobCommits(add: [await carol.keyPackage()]);
       expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
-      await rig.ledger.noteOwnChange(_c1, added: [carol.id]);
+      await ownChange(added: [carol.id]);
       rig.clock.advance(const Duration(days: 1));
 
       await bobCommits(remove: [carol.id]);

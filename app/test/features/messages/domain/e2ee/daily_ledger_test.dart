@@ -77,6 +77,25 @@ void main() {
     onUnexpectedError: (e, _) => reported.add(e),
   );
 
+  /// This device's own change of [c], recorded as an own commit's
+  /// transaction records it: [DailyLedger.writeIn] with
+  /// [DailyRecord.withOwnChange].
+  Future<void> ownChange(
+    DailyLedger l,
+    String c, {
+    List<Uint8List> added = const [],
+    List<Uint8List> removed = const [],
+  }) => session.runWrite((v) async {
+    final current = await l.readLocked(v);
+    await v.transaction(
+      (tx) => l.writeIn(
+        tx,
+        current,
+        (r) => r.withOwnChange(c, added: added, removed: removed),
+      ),
+    );
+  });
+
   test('counts survive a new DailyLedger on the same vault', () async {
     final first = ledger();
     await first.addUndone(_conv);
@@ -434,10 +453,10 @@ void main() {
     final a = Uint8List.fromList([1, 2, 3]);
     final b = Uint8List.fromList([4, 5, 6]);
 
-    test('noteOwnChange records what this device added and removed '
+    test('an own change records what this device added and removed '
         'today', () async {
       final l = ledger();
-      await l.noteOwnChange(_conv, added: [a], removed: [b]);
+      await ownChange(l, _conv, added: [a], removed: [b]);
 
       final second = ledger();
       expect(await second.isUndoOfOwnChange(_conv, a, removing: true), isTrue);
@@ -456,8 +475,8 @@ void main() {
 
     test('the last own change of a device is the one that counts', () async {
       final l = ledger();
-      await l.noteOwnChange(_conv, removed: [a]);
-      await l.noteOwnChange(_conv, added: [a]);
+      await ownChange(l, _conv, removed: [a]);
+      await ownChange(l, _conv, added: [a]);
 
       expect(await l.isUndoOfOwnChange(_conv, a, removing: true), isTrue);
       expect(await l.isUndoOfOwnChange(_conv, a, removing: false), isFalse);
@@ -465,7 +484,7 @@ void main() {
 
     test('an own change is forgotten on the next IST day', () async {
       final l = ledger();
-      await l.noteOwnChange(_conv, added: [a]);
+      await ownChange(l, _conv, added: [a]);
       clock = DateTime.utc(clock.year, 3, 10, 18, 31);
       expect(await l.isUndoOfOwnChange(_conv, a, removing: true), isFalse);
     });
@@ -473,7 +492,7 @@ void main() {
     test('undoesOwnChange is true when any device of the commit reverses an '
         'own change', () async {
       final l = ledger();
-      await l.noteOwnChange(_conv, added: [a]);
+      await ownChange(l, _conv, added: [a]);
       final r = await l.read();
 
       expect(r.undoesOwnChange(_conv, added: const [], removed: [a]), isTrue);
@@ -492,7 +511,7 @@ void main() {
     test('withUndoCounted raises the count once and uses the own change '
         'up', () async {
       final l = ledger();
-      await l.noteOwnChange(_conv, added: [a, b]);
+      await ownChange(l, _conv, added: [a, b]);
       final counted = (await l.read()).withUndoCounted(
         _conv,
         added: const [],

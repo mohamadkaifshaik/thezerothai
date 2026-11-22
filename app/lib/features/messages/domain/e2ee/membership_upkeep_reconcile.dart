@@ -76,8 +76,8 @@ extension _Reconcile on MembershipUpkeep {
         : now.add(kRequestInFlightMargin);
   }
 
-  /// The held entry (the acceptance steps, [MembershipUpkeep
-  /// .reconcileLocked]): ONE pass. Review m-3: a second pass here could
+  /// The held entry (the acceptance steps only; review m-5 removed the
+  /// public held entry): ONE pass. Review m-3: a second pass here could
   /// never commit, because a `superseded` answer leaves the conversation
   /// unsynced and the held steps cannot pull. Plan step 4's "once more on
   /// the caught-up group" is the re-check that answer arms instead (ruling

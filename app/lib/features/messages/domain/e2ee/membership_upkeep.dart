@@ -207,19 +207,10 @@ class MembershipUpkeep {
     BudgetPriority priority = BudgetPriority.background,
   }) => _reconcileUnheld(conversationId, priority, recheck: false);
 
-  /// [reconcile] for a caller that ALREADY HOLDS the conversation lock: one
-  /// pass. It cannot pull, so a `superseded` answer arms one re-check,
-  /// which pulls and reconciles on the new group (review m-3, ruling C).
-  Future<void> reconcileLocked(
-    String conversationId, {
-    BudgetPriority priority = BudgetPriority.background,
-  }) {
-    assert(
-      _locks.isHeld(conversationId),
-      'The caller must hold the conversation lock.',
-    );
-    return _reconcileLocked(conversationId, priority, recheck: false);
-  }
+  // Review m-5: no held `reconcileLocked` or `selfUpdateIfDueLocked` entry.
+  // Nothing called them, and a held reconcile cannot pull, so it is the
+  // weaker entry; the acceptance steps reach the held pass privately. Task
+  // 13 wires the unheld [reconcile] and [selfUpdateIfDue].
 
   /// R9 and the R7 follow-up. Called when the conversation is opened and
   /// after a successful send in it (Task 13's wiring), and from
@@ -236,19 +227,6 @@ class MembershipUpkeep {
     conversationId,
     () => _selfUpdateGuarded(conversationId, priority, caughtUp: false),
   );
-
-  /// [selfUpdateIfDue] for a caller that ALREADY HOLDS the conversation
-  /// lock.
-  Future<void> selfUpdateIfDueLocked(
-    String conversationId, {
-    BudgetPriority priority = BudgetPriority.background,
-  }) {
-    assert(
-      _locks.isHeld(conversationId),
-      'The caller must hold the conversation lock.',
-    );
-    return _selfUpdateGuarded(conversationId, priority, caughtUp: false);
-  }
 
   /// R10: the conversation became accepted (the user accepted, or the
   /// server said so). In this order, before any encrypt: `requestAccepted`

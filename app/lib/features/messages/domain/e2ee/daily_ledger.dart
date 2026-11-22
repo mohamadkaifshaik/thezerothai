@@ -327,17 +327,10 @@ class DailyLedger {
   Future<int> undone(String conversationId) async =>
       (await read()).undoneIn(conversationId);
 
-  /// M5: this device added [added] to and removed [removed] from
-  /// [conversationId] today ([DailyRecord.withOwnChange]). For a caller
-  /// outside a `runWrite` body; a commit's own transaction records it
-  /// through [writeIn] with the same record method.
-  Future<void> noteOwnChange(
-    String conversationId, {
-    List<Uint8List> added = const [],
-    List<Uint8List> removed = const [],
-  }) => _update(
-    (r) => r.withOwnChange(conversationId, added: added, removed: removed),
-  );
+  // M5: this device's own change is recorded only by its commit's own
+  // transaction, through [writeIn] with [DailyRecord.withOwnChange] (review
+  // m-5: no separate entry outside a commit, which a later caller could
+  // pick instead and leave the record apart from the commit).
 
   Future<void> addUndone(String conversationId) => _update(
     (r) => r.copyWith(
