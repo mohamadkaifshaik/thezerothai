@@ -124,4 +124,82 @@ void main() {
       expect(await runner.wasRemovedByUser(sibling.id), isTrue);
     });
   });
+
+  group('a leftover intent in a pass (CR Minor 2)', () {
+    /// An intent whose RemoveKeyDevice outcome is unknown.
+    Future<RigPeer> unknownIntent() async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await stateOnly(_c1, accepted: false, mine: [sibling]);
+      rig.keys.removeError = const NetworkException('rig: timed out');
+      await expectLater(
+        runner.removeDevice(sibling.idString),
+        throwsA(isA<NetworkException>()),
+      );
+      expect(await runner.wasRemovedByUser(sibling.id), isTrue);
+      return sibling;
+    }
+
+    test('a definite refusal drops the intent', () async {
+      final sibling = await unknownIntent();
+      rig.keys.removeError = const ValidationException('rig');
+
+      await runner.runPass();
+
+      expect(rig.keys.removeCalls, hasLength(2));
+      expect(await runner.wasRemovedByUser(sibling.id), isFalse);
+      rig.keys.removeError = null;
+      await runner.runPass();
+      expect(rig.keys.removeCalls, hasLength(2), reason: 'not sent again');
+      expect(runner.queuedFor(_c1), isEmpty);
+    });
+
+    test('RATE_LIMITED keeps the intent until the retry time, with one '
+        'timer', () async {
+      final sibling = await unknownIntent();
+      rig.keys.removeError = const RateLimitedException(
+        'rig',
+        retryAfter: Duration(minutes: 10),
+      );
+
+      await runner.runPass();
+      expect(rig.keys.removeCalls, hasLength(2));
+      expect(await runner.wasRemovedByUser(sibling.id), isTrue);
+      expect(runnerScheduled.where((s) => !s.cancelled), hasLength(1));
+      expect(runnerScheduled.last.delay, const Duration(minutes: 10));
+
+      // Not sooner, whoever asks.
+      rig.keys.removeError = null;
+      rig.clock.advance(const Duration(minutes: 5));
+      await runner.runPass();
+      await runner.onAppResumed();
+      await runner.idle();
+      expect(rig.keys.removeCalls, hasLength(2));
+
+      rig.clock.advance(const Duration(minutes: 5));
+      await runTimer();
+      expect(rig.keys.removeCalls, hasLength(3));
+      expect(queued(_c1, sibling), isTrue);
+    });
+
+    test('wasRemovedByUser does not answer from a queue entry alone', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await stateOnly(_c1, accepted: false, mine: [sibling]);
+      // Queued, with no removal by the user behind it.
+      await rig.device.vault.transaction(
+        (tx) => tx.putSetting(
+          kVaultSettingRemovalQueue,
+          RemovalQueue(
+            entries: [
+              RemovalQueueEntry(deviceId: sibling.id, conversationId: _c1),
+            ],
+          ).encode(),
+        ),
+      );
+
+      expect(await runner.wasRemovedByUser(sibling.id), isFalse);
+      expect(queued(_c1, sibling), isTrue);
+    });
+  });
 }

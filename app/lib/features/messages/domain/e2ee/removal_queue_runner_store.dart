@@ -64,21 +64,50 @@ extension _RemovalStore on RemovalQueueRunner {
 
   /// Review M1: every intent left from a call whose outcome is unknown is
   /// sent again (RemoveKeyDevice of a removed device answers success), then
-  /// queued. A failure keeps it for the next pass; one older than
+  /// queued. An unknown outcome keeps it for the next pass; one older than
   /// [kRemovalIntentLimit] is dropped. An intent [removeDevice] is sending
   /// is left to it.
+  ///
+  /// CR Minor 2 (fix round 2, ruling 4): a definite refusal drops the
+  /// intent, as [removeDevice] does. A RATE_LIMITED answer keeps it and
+  /// holds every intent until the server's retry time (the fallback minute
+  /// when it named none, capped at [kMaxServerRetryWait]; memory only), on
+  /// the runner's one timer; the queue's own pass goes on meanwhile.
   Future<void> _runIntents(SecureVault vault, BudgetPriority priority) async {
     final now = _now();
     final before = _intents.length;
     _intents.removeWhere((i) => _older(i, now, kRemovalIntentLimit));
     if (_intents.length != before) await _save(vault, queue: false);
+    final held = _intentsNotBefore;
+    if (held != null) {
+      if (now.isBefore(held)) {
+        if (_intents.isNotEmpty) _armTimer(held);
+        return;
+      }
+      _intentsNotBefore = null;
+    }
     for (final intent in List.of(_intents)) {
       if (_sending.contains(intent.deviceId)) continue;
       if (!identical(_session.vault, vault) || !_loaded) return;
       try {
         await _sendRemove(intent.deviceId);
+      } on RateLimitedException catch (e) {
+        if (!identical(_loadedFor, vault)) return;
+        final at = _now().add(_retryWait(e));
+        _intentsNotBefore = at;
+        _armTimer(at);
+        return;
       } on Object catch (e, s) {
-        _reportIfBug(e, s, 'removalQueue.intent');
+        if (_definiteRefusal(e) && identical(_loadedFor, vault)) {
+          _intents.removeWhere((i) => i.deviceId == intent.deviceId);
+          try {
+            await _save(vault, queue: false);
+          } on Object catch (e, s) {
+            _reportIfBug(e, s, 'removalQueue.intentWrite');
+          }
+        } else {
+          _reportIfBug(e, s, 'removalQueue.intent');
+        }
         continue;
       }
       if (!identical(_session.vault, vault) || !_loaded) return;
@@ -180,6 +209,17 @@ extension _RemovalStore on RemovalQueueRunner {
 /// [AppException] leave the outcome unknown.
 bool _definiteRefusal(Object e) =>
     e is AppException && e is! NetworkException && e is! UnknownApiException;
+
+/// How long a RATE_LIMITED answer holds: the server's retry time, else
+/// [kDeviceKeysRateLimitFallback] (Open question 7), capped at
+/// [kMaxServerRetryWait] (24 h, security read L1).
+Duration _retryWait(RateLimitedException limit) {
+  var wait = limit.retryAfter;
+  if (wait == null || wait <= Duration.zero) {
+    wait = kDeviceKeysRateLimitFallback;
+  }
+  return wait > kMaxServerRetryWait ? kMaxServerRetryWait : wait;
+}
 
 bool _older(RemovalMark m, DateTime now, Duration limit) =>
     now.microsecondsSinceEpoch - m.atMicros > limit.inMicroseconds;

@@ -212,6 +212,11 @@ class RemovalQueueRunner {
   /// conversation costs at most one refused call.
   final Map<String, DateTime> _holds = {};
 
+  /// Ruling 4 (fix round 2): a RATE_LIMITED answer to a leftover intent's
+  /// RemoveKeyDevice holds every intent until this time. Memory only: after
+  /// a restart it costs at most one refused call.
+  DateTime? _intentsNotBefore;
+
   final ValueNotifier<int> _pending = ValueNotifier(0);
 
   Future<void>? _running;
@@ -243,10 +248,13 @@ class RemovalQueueRunner {
 
   /// Amendment 6 and concern 1, for Task 10's `_createReset` and
   /// reconcile's own-device adds (a follow-up after Task 10 merges):
-  /// whether the user removed [deviceId]. True when RemoveKeyDevice of it
-  /// succeeded less than [kRemovedByUserLimit] ago (stored in the vault, so
-  /// it survives a restart), while an intent for it waits (review M1), or
-  /// while it is queued for any conversation. Loads the stored record
+  /// whether the user removed [deviceId]. True only for a confirmed
+  /// removal (RemoveKeyDevice of it succeeded less than
+  /// [kRemovedByUserLimit] ago; stored in the vault, so it survives a
+  /// restart) or while an intent for it waits with an unknown outcome
+  /// (review M1; a definite refusal drops it, ruling 4). A queue entry alone
+  /// is not an answer: the queue also holds own devices no user removed
+  /// (ruling 11). Loads the stored record
   /// first. Throws [StateError] when there is no vault or the record cannot
   /// be read: the answer is UNKNOWN then, and the caller must use only
   /// devices from a fresh directory. Read only.
@@ -261,8 +269,7 @@ class RemovalQueueRunner {
     if (_removed.any((m) => names(m) && !_older(m, now, kRemovedByUserLimit))) {
       return true;
     }
-    if (_intents.any(names)) return true;
-    return _entries.any((e) => _same(e.deviceId, deviceId));
+    return _intents.any(names);
   }
 
   /// Ruling 1 (fix round 2; the upkeep's `removedKeyOf`): the key the fresh
@@ -422,6 +429,7 @@ class RemovalQueueRunner {
     _lastKept.clear();
     _mismatchReported.clear();
     _holds.clear();
+    _intentsNotBefore = null;
     _publish();
   }
 
@@ -618,12 +626,7 @@ class RemovalQueueRunner {
         !identical(limit, limitBefore);
     var changed = await _prune(vault, id, thisDevice);
     if (rateLimited) {
-      var wait = limit.retryAfter;
-      if (wait == null || wait <= Duration.zero) {
-        wait = kDeviceKeysRateLimitFallback;
-      }
-      if (wait > kMaxServerRetryWait) wait = kMaxServerRetryWait;
-      final at = _now().add(wait);
+      final at = _now().add(_retryWait(limit));
       if (limit.limitName == kLimitCommitsPerConversationDaily) {
         // Review I2: this conversation's own daily cap holds it alone (in
         // memory); the pass goes on, so the lost device leaves every other
@@ -787,10 +790,13 @@ class RemovalQueueRunner {
     return [for (final e in indexed) e.$2];
   }
 
-  /// One timer for the pass at [at] (the queue's `notBeforeMicros`),
-  /// running a background pass.
+  /// One timer for the pass at [at] (the queue's `notBeforeMicros`, a
+  /// per-conversation hold, or the intents' hold), running a background
+  /// pass. An armed timer that runs no later is kept (ruling 4: one timer;
+  /// its pass arms the next one).
   void _armTimer(DateTime at) {
-    if (_timerCancel != null && _timerAt == at) return;
+    final armed = _timerAt;
+    if (_timerCancel != null && armed != null && !armed.isAfter(at)) return;
     cancelScheduled();
     var delay = at.difference(_now());
     if (delay.isNegative) delay = Duration.zero;
