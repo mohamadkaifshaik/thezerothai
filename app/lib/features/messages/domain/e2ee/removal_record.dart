@@ -5,8 +5,8 @@ import '../../../../core/vault/vault_status.dart';
 
 /// Vault setting: the removal queue runner's own record (Task 11 review M1
 /// and concern 1), next to the F-7 queue (`kVaultSettingRemovalQueue`).
-/// Sealed `{"v":1,"intents":[{"id":deviceId,"at":micros}],
-/// "removed":[{"id":deviceId,"at":micros}]}`.
+/// Sealed `{"v":1,"intents":[{"id":deviceId,"at":micros,"key":b64}],
+/// "removed":[{"id":deviceId,"at":micros,"key":b64}]}`; `key` is optional.
 const String kVaultSettingRemovalRecord = 'messages.e2ee.removalRecord';
 
 /// The most intents kept, and the most removed devices remembered (the
@@ -24,12 +24,21 @@ const Duration kRemovedByUserLimit = Duration(days: 30);
 /// asked for whose `RemoveKeyDevice` outcome is not known yet, written
 /// BEFORE the call (review M1). In [RemovalRecord.removed]: a device the
 /// user removed, with the time RemoveKeyDevice succeeded (concern 1).
-/// [deviceId] is the server's device id string. No `toString`.
+/// [deviceId] is the server's device id string. [signatureKey]: the key the
+/// fresh own list showed for the device when the user removed it (fix round
+/// 2, ruling 1): a pin of the id left `unattributed` with this very key is
+/// the user's removed device. Null for a mark written without one. No
+/// `toString`.
 class RemovalMark {
-  const RemovalMark({required this.deviceId, required this.atMicros});
+  const RemovalMark({
+    required this.deviceId,
+    required this.atMicros,
+    this.signatureKey,
+  });
 
   final String deviceId;
   final int atMicros;
+  final Uint8List? signatureKey;
 }
 
 /// The runner's record. Values only; no `toString` (it holds device ids).
@@ -68,6 +77,7 @@ class RemovalRecord {
   static Map<String, Object?> _json(RemovalMark m) => {
     'id': m.deviceId,
     'at': m.atMicros,
+    if (m.signatureKey case final key?) 'key': base64Encode(key),
   };
 
   static List<Object?> _list(Object? v) {
@@ -79,9 +89,18 @@ class RemovalRecord {
     if (v is! Map<String, Object?>) throw const FormatException('mark');
     final id = v['id'];
     final at = v['at'];
-    if (id is! String || id.isEmpty || at is! int || at < 0) {
+    final key = v['key'];
+    if (id is! String ||
+        id.isEmpty ||
+        at is! int ||
+        at < 0 ||
+        (key != null && key is! String)) {
       throw const FormatException('mark');
     }
-    return RemovalMark(deviceId: id, atMicros: at);
+    return RemovalMark(
+      deviceId: id,
+      atMicros: at,
+      signatureKey: key == null ? null : base64Decode(key as String),
+    );
   }
 }

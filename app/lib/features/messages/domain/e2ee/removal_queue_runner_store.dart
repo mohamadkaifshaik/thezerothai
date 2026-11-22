@@ -23,6 +23,7 @@ extension _RemovalStore on RemovalQueueRunner {
   Future<void> _queueRemoved(
     SecureVault vault,
     String deviceId,
+    Uint8List? signatureKey,
     BudgetPriority priority,
   ) async {
     final id = Uint8List.fromList(utf8.encode(deviceId));
@@ -43,7 +44,11 @@ extension _RemovalStore on RemovalQueueRunner {
         (m) => m.deviceId == deviceId || _older(m, now, kRemovedByUserLimit),
       )
       ..add(
-        RemovalMark(deviceId: deviceId, atMicros: now.microsecondsSinceEpoch),
+        RemovalMark(
+          deviceId: deviceId,
+          atMicros: now.microsecondsSinceEpoch,
+          signatureKey: signatureKey,
+        ),
       );
     while (_removed.length > kMaxRemovalIntents) {
       _removed.removeAt(0);
@@ -77,7 +82,12 @@ extension _RemovalStore on RemovalQueueRunner {
         continue;
       }
       if (!identical(_session.vault, vault) || !_loaded) return;
-      await _queueRemoved(vault, intent.deviceId, priority);
+      await _queueRemoved(
+        vault,
+        intent.deviceId,
+        intent.signatureKey,
+        priority,
+      );
     }
   }
 

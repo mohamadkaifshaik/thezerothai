@@ -257,7 +257,9 @@ extension _Reconcile on MembershipUpkeep {
     final pauseExempt = <Uint8List>[];
     // Task 11's queue: the members it names (never this device), and only
     // `mine` pins (Task 11 review I1: the queue removes this user's own
-    // devices; the runner drops an entry pinned on the peer's side).
+    // devices; the runner drops an entry pinned on the peer's side), or an
+    // `unattributed` pin whose key is the key of the user's removed mark
+    // (fix round 2, ruling 1).
     // Task 9 audit L5 (Task 11 amendment 1) stays as a backstop: never the
     // peer's last peer-side member.
     final queued = queuedRemovals?.call(id) ?? const <Uint8List>{};
@@ -269,7 +271,12 @@ extension _Reconcile on MembershipUpkeep {
           if (queuedTheirs <= 1) continue;
           queuedTheirs--;
         }
-        if (m.side != MemberSide.mine) continue;
+        if (m.side == MemberSide.unattributed) {
+          final key = removedKeyOf?.call(m.deviceId);
+          if (key == null || !_same(key, m.signatureKey)) continue;
+        } else if (m.side != MemberSide.mine) {
+          continue;
+        }
         remove(m.deviceId);
         pauseExempt.add(m.deviceId);
       }

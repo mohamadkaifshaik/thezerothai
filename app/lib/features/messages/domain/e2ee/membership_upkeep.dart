@@ -163,6 +163,14 @@ class MembershipUpkeep {
   /// acceptance's reconcile too, in its one commit; review I1 b).
   Set<Uint8List> Function(String conversationId)? queuedRemovals;
 
+  /// Task 11 fix round 2, ruling 1: the signature key the fresh own list
+  /// showed when the user removed [deviceId] (its "removed by the user"
+  /// mark), or null without such a mark. A queued id pinned `unattributed`
+  /// with exactly that key is the user's removed device, so it is removed:
+  /// RemoveKeyDevice took it out of the own list, and no list can attribute
+  /// it any more.
+  Uint8List? Function(Uint8List deviceId)? removedKeyOf;
+
   /// Conversation -> the one scheduled re-check, with its due time.
   final Map<String, _Recheck> _rechecks = {};
 
