@@ -33,6 +33,7 @@ import 'known_conversations.dart';
 import 'membership_rules.dart';
 import 'message_content_codec.dart';
 import 'message_receiver.dart';
+import 'pipeline_support.dart';
 import 'sync_budget.dart';
 
 part 'group_starter_recovery.dart';
@@ -46,9 +47,6 @@ const Duration kProvisionalExpiry = Duration(hours: 24);
 /// 300 claims in all.
 const String kLimitClaimsPerTargetDaily = 'keys_claims_per_target_daily';
 const String kLimitClaimsDaily = 'keys_claims_daily';
-
-/// The longest ciphertext an outbox row holds (`VaultTx.putOutbox`).
-const int _kMaxOutboxCiphertext = 8192;
 
 /// What [GroupStarter.startOrRoute] did with a first message.
 ///
@@ -436,11 +434,7 @@ class GroupStarter {
 
   /// [length] bytes of the engine's CSPRNG; an answer of another length is
   /// [_BadRandom], before anything is stored or encrypted with it.
-  Future<Uint8List> _random(int length) async {
-    final bytes = await _engine().randomBytes(length);
-    if (bytes.length != length) throw const _BadRandom();
-    return bytes;
-  }
+  Future<Uint8List> _random(int length) => randomOf(_engine(), length);
 
   /// One unit of the sync budget; false (make no call) while paused.
   Future<bool> _takeSyncUnit(BudgetPriority priority) async {
@@ -507,38 +501,17 @@ class _Draft {
   final int? createdAtMicros;
 }
 
-/// The vault the operation started with is no longer the session's.
-class _Stopped implements Exception {
-  const _Stopped();
-}
+// One body each, shared with the sender (`pipeline_support.dart`).
+typedef _Stopped = PipelineStopped;
+typedef _BadRandom = BadRandom;
+typedef _Op = PipelineOp;
 
-/// The random source answered another length than was asked.
-class _BadRandom implements Exception {
-  const _BadRandom();
-}
+String _hexOf(List<int> b) => hexOf(b);
 
-/// One operation's vault, user and device; no `toString`.
-class _Op {
-  _Op(this.session, this.vault, this.uid, this.deviceId);
+int? _microsOf(pb.Message m) => serverMicros(m);
 
-  final VaultSession session;
-  final SecureVault vault;
-  final String uid;
-  final Uint8List deviceId;
+Duration? _retryAfterOf(AppException e) => retryAfterOf(e);
 
-  bool get live {
-    final v = session.vault;
-    return identical(v, vault) && v?.uid == uid;
-  }
-
-  /// The first thing every runWrite body does.
-  void check(SecureVault v) {
-    if (!identical(v, vault) || v.uid != uid || !live) throw const _Stopped();
-  }
-}
-
-String _hexOf(List<int> b) =>
-    b.map((x) => x.toRadixString(16).padLeft(2, '0')).join();
 
 /// Constant-time equality of two byte lists (the length is not secret).
 bool _same(List<int> a, List<int> b) {
@@ -550,17 +523,3 @@ bool _same(List<int> a, List<int> b) {
   return diff == 0;
 }
 
-/// The largest whole second whose microseconds stay exact on the web.
-final Int64 _maxSeconds = Int64(9007199254);
-
-/// A message's `created_at` in microseconds; null when it is unset or not a
-/// time this client holds exactly.
-int? _microsOf(pb.Message m) {
-  if (!m.hasCreatedAt()) return null;
-  final seconds = m.createdAt.seconds;
-  final nanos = m.createdAt.nanos;
-  if (seconds.isNegative || seconds > _maxSeconds) return null;
-  if (nanos < 0 || nanos > 999999999) return null;
-  final micros = seconds.toInt() * 1000000 + nanos ~/ 1000;
-  return micros > kMaxPairComponent ? null : micros;
-}

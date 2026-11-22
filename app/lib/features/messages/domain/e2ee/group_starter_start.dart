@@ -396,7 +396,7 @@ extension _Start on GroupStarter {
             }) ||
             encrypted.epoch != 1 ||
             encrypted.ciphertext.isEmpty ||
-            encrypted.ciphertext.length > _kMaxOutboxCiphertext) {
+            encrypted.ciphertext.length > kMaxOutboxCiphertext) {
           _reportOnce('start.group');
           return _Created(_CreatedKind.unavailable, emptyFor: emptyFor);
         }

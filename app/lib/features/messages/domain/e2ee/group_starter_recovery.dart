@@ -562,14 +562,6 @@ OutboxItem _withAttempt(OutboxItem r, int attempts, {String? lastError}) =>
       lastError: lastError ?? r.lastError,
     );
 
-/// The server's retry time of an unknown outcome, capped at
-/// [kMaxServerRetryWait] (security read L1); null when it named none.
-Duration? _retryAfterOf(AppException e) {
-  final wait = e is ScreeningUnavailableException ? e.retryAfter : null;
-  if (wait == null || wait <= Duration.zero) return null;
-  return wait > kMaxServerRetryWait ? kMaxServerRetryWait : wait;
-}
-
 /// What a locked step asks to run once the lock is released.
 enum _NextKind { none, drain, join, pull, rebuild }
 

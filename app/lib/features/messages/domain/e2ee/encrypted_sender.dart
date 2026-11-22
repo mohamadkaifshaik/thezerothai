@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:fixnum/fixnum.dart';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../../../../core/crypto/crypto_engine.dart';
@@ -20,6 +19,7 @@ import 'conversation_locks.dart';
 import 'e2ee_types.dart';
 import 'message_content_codec.dart';
 import 'message_receiver.dart';
+import 'pipeline_support.dart';
 import 'sync_budget.dart';
 
 part 'encrypted_sender_support.dart';
@@ -28,11 +28,8 @@ part 'encrypted_sender_support.dart';
 /// next trigger (Open question 4's default).
 const int kStaleEpochRoundsPerDrain = 3;
 
-/// The longest ciphertext an outbox row holds (`VaultTx.putOutbox`).
-const int _kMaxOutboxCiphertext = 8192;
-
-/// The largest whole second whose microseconds stay exact on the web.
-final Int64 _maxSeconds = Int64(9007199254);
+/// The longest ciphertext an outbox row holds (shared with the starter).
+const int _kMaxOutboxCiphertext = kMaxOutboxCiphertext;
 
 /// Sending encrypted messages (Task 7, R7; security reads M1, M3, M10): a
 /// durable outbox in the vault, the gates before an encrypt, the send, and
@@ -1079,11 +1076,7 @@ class EncryptedSender {
 
   /// [length] bytes of the engine's CSPRNG. Audit L6: an answer of another
   /// length is [_BadRandom], before anything is stored or encrypted with it.
-  Future<Uint8List> _random(int length) async {
-    final bytes = await _engine().randomBytes(length);
-    if (bytes.length != length) throw const _BadRandom();
-    return bytes;
-  }
+  Future<Uint8List> _random(int length) => randomOf(_engine(), length);
 
   /// Reports [step] (a name only) the first time in this run.
   void _reportOnce(String step, [StackTrace? stack]) {
