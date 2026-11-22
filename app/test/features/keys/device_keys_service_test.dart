@@ -950,6 +950,33 @@ void main() {
       expect(rig.setting(setting), record);
     });
 
+    test('a RegisterKeyDevice answer over 100 is refused too: nothing is '
+        'generated or sent, and it is reported', () async {
+      await rig.signIn(_a);
+      final device = rig.devices.values.single..lastResort = null;
+      // The list answers 50; the register (stay active) answers 101.
+      rig.server.onCall['register'] = () async => device.pool.addAll(
+        List.generate(51, (i) => Uint8List.fromList([9, 9, i])),
+      );
+      final state = rig.file()!.deviceState;
+      final record = rig.setting(setting);
+      rig.advance(kDeviceStayActiveAfter + _hour);
+      final before = rig.server.calls.length;
+      await rig.service.onAppResumed();
+      expect(rig.rpcs(before), ['list', 'register']);
+      expect(
+        rig.service.status.value,
+        const DeviceKeysStatus.failed(retryable: true),
+      );
+      expect(rig.reported.map((e) => e.toString()), [
+        'DeviceKeysError(poolCount)',
+      ]);
+      expect(rig.engine.generated, hasLength(1));
+      expect(rig.server.uploads, hasLength(1));
+      expect(rig.file()!.deviceState, state);
+      expect(rig.setting(setting), record);
+    });
+
     test('a refusal on the retry does not resolve the first timeout', () async {
       await rig.signIn(_a);
       final pool = rig.devices.values.single.pool;
