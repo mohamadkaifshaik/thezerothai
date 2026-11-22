@@ -3086,6 +3086,86 @@ void main() {
       await done();
       expect(rig.server.calls, ['listConversationCommits']);
     });
+
+    test('a refusal after an abandoned init call that is still running keeps '
+        'the provisional group; after the margin past its end the refusal '
+        'decides (Task 9 ruling N)', () async {
+      // The first attempt outlives the client's wait (a token fetch stalled
+      // before it left) and is still running; the automatic resend is
+      // refused, and the commits list none (the abandoned request may still
+      // be stored after that listing).
+      final ended = Completer<void>();
+      rig.server.beforeSend = (send) async {
+        if (rig.server.sends.length != 1) return;
+        rig.clock.advance(kMlsRpcTimeout);
+        rig.server.abandon(send.key, ended.future);
+      };
+      rig.server.sendScript.addAll([
+        unknown,
+        (error: const FeatureDisabledException('off'), stored: false),
+      ]);
+      await start();
+      await done();
+      rig.server.beforeSend = null;
+
+      expect(rig.server.sends, hasLength(2));
+      expect((await groupOf())!.provisional, isTrue);
+      final kept = (await rows()).single;
+      expect(kept.init, isNotNull);
+      expect(kept.lastError, isNull);
+      expect(rig.server.calls, isNot(contains('listMlsMessages')));
+
+      // The call ends 20 s later: one resume, at the margin past its end.
+      rig.clock.advance(const Duration(seconds: 20));
+      ended.complete();
+      await pumpEventQueue();
+      expect(rig.scheduled.map((s) => s.delay), [kInitResendMargin]);
+
+      // After the margin the same refusal, with no commit stored, is
+      // definitive: the group goes and the row fails.
+      rig.clock.advance(kInitResendMargin);
+      rig.server.sendScript.add((
+        error: const FeatureDisabledException('off'),
+        stored: false,
+      ));
+      rig.scheduled.single.run();
+      await done();
+      expect(rig.server.sends, hasLength(3));
+      expect(await groupOf(), isNull);
+      expect((await rows()).single.lastError, isNotNull);
+    });
+
+    test('a refusal whose commit listing started inside the margin after an '
+        'abandoned init call ended keeps the provisional group (Task 9 '
+        'ruling N, provedAt)', () async {
+      // The abandoned first call ends while the commit listing of the
+      // refused resend is in flight: the listing started before the call's
+      // end, so its "not stored" proves nothing.
+      final ended = Completer<void>();
+      rig.server.beforeSend = (send) async {
+        if (rig.server.sends.length != 1) return;
+        rig.clock.advance(kMlsRpcTimeout);
+        rig.server.abandon(send.key, ended.future);
+      };
+      rig.server.onCall = (call) async {
+        if (call != 'listConversationCommits' || ended.isCompleted) return;
+        rig.clock.advance(const Duration(seconds: 1));
+        ended.complete();
+        await pumpEventQueue();
+      };
+      rig.server.sendScript.addAll([
+        unknown,
+        (error: const FeatureDisabledException('off'), stored: false),
+      ]);
+      await start();
+      await done();
+      rig.server.beforeSend = null;
+      rig.server.onCall = null;
+
+      expect(ended.isCompleted, isTrue);
+      expect((await groupOf())!.provisional, isTrue);
+      expect((await rows()).single.lastError, isNull);
+    });
   });
 
   group('resumeProvisional', () {

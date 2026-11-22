@@ -367,6 +367,10 @@ extension _Recovery on GroupStarter {
   /// same; deleting a group the server stored would lock its creator out
   /// of it, with no welcome.
   ///
+  /// Task 9 ruling N: an earlier attempt that outlived the client's wait
+  /// and may still land makes the commits' answer "not decided"
+  /// ([_ownInitStored]): the group is kept and the row keeps its init.
+  ///
   /// Null: the init is not stored (the caller goes on to discard). Else
   /// what to do instead: the group settled with the message's answer when
   /// the first page holds it; otherwise nothing is decided and the group
@@ -603,12 +607,32 @@ extension _Recovery on GroupStarter {
   /// conversation has no commit, or another one first. Null: the answer
   /// does not say, or could not be had (nothing is decided on it). One
   /// `ListConversationCommits` call, with the lock held.
+  ///
+  /// Task 9 ruling N (the runner's audit M2 rule, here for every keep or
+  /// discard of the starter: a retry's refusal or STALE_EPOCH, the expiry,
+  /// the rebuild's discard and its replace). "Not stored" is answered only
+  /// when no init call of [id] that outlived the client's wait could still
+  /// land: none still runs, and [kInitResendMargin] had passed after the
+  /// last one's end when the listing STARTED (`provedAt`, review N1's rule).
+  /// Otherwise null: nothing is decided, and that call's end schedules the
+  /// resume that asks again ([_trackInit]). Why: a "not stored" read while
+  /// the request can still be stored deletes a group the server then holds,
+  /// which locks its creator out (no welcome exists for a creator). "Stored"
+  /// is kept as read: it cannot be undone by a later store.
   Future<bool?> _ownInitStored(
     String id,
     PendingCommit pending,
     BudgetPriority priority,
   ) async {
     if (!await _takeSyncUnit(priority)) return null;
+    final provedAt = _now();
+    final own = await _listOwnInit(id, pending);
+    if (own == false && _initMayStillLand(id, at: provedAt)) return null;
+    return own;
+  }
+
+  /// The one `ListConversationCommits` call of [_ownInitStored].
+  Future<bool?> _listOwnInit(String id, PendingCommit pending) async {
     bool? own;
     try {
       final page = await _messaging.listConversationCommits(
@@ -823,12 +847,14 @@ extension _Recovery on GroupStarter {
 
   /// Whether an init request of [id] may still reach the server: a call
   /// whose client wait ran out still runs, or ended less than
-  /// [kInitResendMargin] ago.
-  bool _initMayStillLand(String id) {
+  /// [kInitResendMargin] before [at] (now when not given; ruling N passes
+  /// the start of a commit listing).
+  bool _initMayStillLand(String id, {DateTime? at}) {
     if ((_initCallsOut[id] ?? 0) > 0) return true;
     final ended = _initCallEndedAt[id];
     if (ended == null) return false;
-    if (_now().isBefore(ended.add(kInitResendMargin))) return true;
+    if ((at ?? _now()).isBefore(ended.add(kInitResendMargin))) return true;
+    // [at] is never after now: the margin has passed by now as well.
     _initCallEndedAt.remove(id);
     return false;
   }
