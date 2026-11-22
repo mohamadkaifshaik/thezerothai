@@ -1642,6 +1642,56 @@ void main() {
       expect(rig.server.sends[1].mlsInit, isNotNull);
     });
 
+    test('one new start per conversation at a time: a second trigger while '
+        'the claim is in flight makes no second claim', () async {
+      await refusedOnce();
+      final answer = rig.keys.claims[_bob]!;
+      final entered = Completer<void>();
+      final release = Completer<void>();
+      rig.keys.claims[_bob] = () async {
+        // Only the first claim is held in flight.
+        if (!entered.isCompleted) {
+          entered.complete();
+          await release.future;
+        }
+        return answer();
+      };
+
+      final first = starter.retryStart('local-1');
+      await entered.future;
+      // The user taps retry again while the first start's claim is out.
+      await starter.retryStart('local-1');
+
+      expect(rig.keys.claimCalls, hasLength(1));
+      final row = (await rows()).single;
+      expect(row.stage, OutboxStage.plain);
+      expect(row.lastError, 'RateLimitedException');
+
+      release.complete();
+      await first;
+      await done();
+      expect(rig.keys.claimCalls, hasLength(1));
+      expect((await groupOf())!.provisional, isFalse);
+      expect(await rows(), isEmpty);
+      expect(rig.server.sends, hasLength(2));
+
+      // The single flight ended with the start: a later one is not refused.
+      final carol = await RigPeer.create('carol');
+      person('ref-carol', _c2, [carol]);
+      rig.server.sendScript.add((
+        error: const DegradedModeException('degraded'),
+        stored: false,
+      ));
+      await start(localId: 'local-3', peer: 'ref-carol');
+      await done(_c2);
+      rig.keys.claimErrors['ref-carol'] = const NetworkException('down');
+      await starter.retryStart('local-3');
+      rig.keys.claimErrors.clear();
+      await starter.retryStart('local-3');
+      await done(_c2);
+      expect((await groupOf(_c2))!.provisional, isFalse);
+    });
+
     test('a retry at the per-target claim cap leaves the row failed with '
         'tryTomorrow', () async {
       await refusedOnce();

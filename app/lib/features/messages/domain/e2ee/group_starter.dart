@@ -210,6 +210,11 @@ class GroupStarter {
   /// The resume running per conversation (single flight).
   final Map<String, Future<void>> _running = {};
 
+  /// The conversations a new start of a known conversation is running for
+  /// ([_restartKnown], single flight). Not cleared by [reset]: a start in
+  /// flight removes its own entry when it ends.
+  final Set<String> _restarting = {};
+
   /// Local ids whose init's outcome stayed unknown after the automatic
   /// resend: each later trigger makes one attempt.
   final Set<String> _unknown = {};
@@ -428,17 +433,31 @@ class GroupStarter {
       if (head.lastError != null && head.localId != retried) {
         return _Restart.notStarted;
       }
-      final outcome = await _begin(
-        peer,
-        _Draft(
-          localId: head.localId,
-          content: head.content,
-          conversationId: id,
-          replaces: head.idempotencyKey,
-          createdAtMicros: head.createdAtMicros,
-        ),
-        mode: _Mode.restart,
-      );
+      // Review N3. Decision: one new start per conversation at a time; a
+      // trigger that comes while one runs starts nothing and leaves its row
+      // as it is. Why: each start claims the peer's one-time packages and
+      // counts against the 20 claims per target per day, and the second
+      // claim is always wasted (the lock then finds the first one's group).
+      // Taken only here, after the checks above, with no await before
+      // [_begin]: a row that is the sender's is never answered
+      // `notStarted` because another call was reading.
+      if (!_restarting.add(id)) return _Restart.notStarted;
+      final StartOutcome outcome;
+      try {
+        outcome = await _begin(
+          peer,
+          _Draft(
+            localId: head.localId,
+            content: head.content,
+            conversationId: id,
+            replaces: head.idempotencyKey,
+            createdAtMicros: head.createdAtMicros,
+          ),
+          mode: _Mode.restart,
+        );
+      } finally {
+        _restarting.remove(id);
+      }
       if (outcome.result == StartResult.started) {
         _onChanged(id);
         unawaited(_resume(id, BudgetPriority.user));
