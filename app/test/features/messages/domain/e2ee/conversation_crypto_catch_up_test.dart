@@ -149,8 +149,10 @@ void main() {
       locks: rig.locks,
       contexts: rig.contexts,
       known: rig.known,
+      ledger: rig.ledger,
       now: rig.clock.now,
       onChanged: rig.changed.add,
+      removedElsewhere: () => rig.removedElsewhere,
       onUnexpectedError: (e, _) => rig.unexpected.add(e),
     )..sink = sink;
   }

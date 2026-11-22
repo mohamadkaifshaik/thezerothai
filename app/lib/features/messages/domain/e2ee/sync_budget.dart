@@ -30,7 +30,11 @@ class BudgetPaused implements Exception {
 
 /// Who is waiting for a unit of a [SyncBudget].
 enum BudgetPriority {
-  /// The open conversation and sends.
+  /// The open conversation and sends. For `EncryptedSender.drain` it is
+  /// more than a budget place: a user-priority drain may accept an incoming
+  /// request (Task 9 amendment 5), so only the composer's send and the
+  /// user's retry drain with it (review m2); an open, a push or a poll
+  /// drains at [background] (or [live]).
   user,
 
   /// Work for a conversation the user is not looking at that should not

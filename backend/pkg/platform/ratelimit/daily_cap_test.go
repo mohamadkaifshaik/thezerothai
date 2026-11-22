@@ -49,6 +49,20 @@ func TestDailyCap_ResetsAtISTMidnight(t *testing.T) {
 	}
 }
 
+// Sampling before the lock allows a delayed call to roll the counter back across midnight.
+func TestDailyCap_SamplesDayUnderCounterLock(t *testing.T) {
+	d := NewDailyCap(1)
+	counter := d.items.GetOrSet("uid", func() *dailyCounter { return &dailyCounter{} })
+	d.WithClock(func() time.Time {
+		if counter.mu.TryLock() {
+			counter.mu.Unlock()
+			t.Fatal("read the date before acquiring the counter lock")
+		}
+		return time.Now()
+	})
+	d.Allow("uid")
+}
+
 func TestDailyCap_KeysAreIndependent(t *testing.T) {
 	d := NewDailyCap(1)
 	now := time.Now()

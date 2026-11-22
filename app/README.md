@@ -75,4 +75,10 @@ workflow):
 ORG_GRADLE_PROJECT_dzerothRequireReleaseSigning=true flutter build appbundle --release
 ```
 
+The tagged Android release job requires four GitHub Actions secrets in the `prod` environment.
+Set `DZEROTH_UPLOAD_STORE_BASE64` to the base64-encoded upload keystore and
+set `DZEROTH_UPLOAD_STORE_PASSWORD`, `DZEROTH_UPLOAD_KEY_ALIAS`, and
+`DZEROTH_UPLOAD_KEY_PASSWORD` for its upload key. A separate signing job signs the compiled AAB and verifies its signer against
+this alias before publishing the release artifact.
+
 See the [repository README](../README.md) for the project overview and commands.

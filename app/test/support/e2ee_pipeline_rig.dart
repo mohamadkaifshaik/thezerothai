@@ -14,6 +14,7 @@ import 'package:dzeroth/core/vault/vault_session.dart';
 import 'package:dzeroth/core/vault/vault_status.dart';
 import 'package:dzeroth/features/keys/data/keys_repository.dart';
 import 'package:dzeroth/features/messages/data/messaging_repository.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/commit_runner.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_context.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_crypto.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_locks.dart';
@@ -23,6 +24,7 @@ import 'package:dzeroth/features/messages/domain/e2ee/device_directory.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/e2ee_types.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/encrypted_sender.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/known_conversations.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/membership_upkeep.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/sync_budget.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/keys/v1/keys.pb.dart' as kpb;
@@ -146,10 +148,16 @@ class RigEngine implements CryptoEngine {
   }
 
   @override
-  Future<KeyPackageInfo> inspectKeyPackage(Uint8List keyPackage) {
+  Future<KeyPackageInfo> inspectKeyPackage(Uint8List keyPackage) async {
     _enter('inspectKeyPackage');
-    return inner.inspectKeyPackage(keyPackage);
+    final real = await inner.inspectKeyPackage(keyPackage);
+    return rewriteInspect?.call(keyPackage, real) ?? real;
   }
+
+  /// Rewrites what `inspectKeyPackage` reads from a package (a package
+  /// that names another device id or key than the engine built it for).
+  KeyPackageInfo? Function(Uint8List keyPackage, KeyPackageInfo real)?
+  rewriteInspect;
 
   @override
   Future<Uint8List> createGroup(Uint8List deviceState, Uint8List groupId) {
@@ -560,10 +568,86 @@ class RigServer {
   /// (an error answered for a message the server kept, or a lost answer).
   final List<({Object error, bool stored})> sendScript = [];
 
+  /// Message id -> the request `sendEncrypted` stored it from (the real
+  /// server's request hash: the conversation, the pair, the ciphertext, the
+  /// commitment and the init). A message put there with [addMessage] has
+  /// none, and any request of its key replays it.
+  final Map<String, RigSend> _requests = {};
+
   /// Runs at the start of every `sendEncrypted` call, after it is recorded
   /// (a race: something happens while the request is in flight).
   Future<void> Function(RigSend send)? beforeSend;
   String? sendResponseId;
+
+  /// Recipient reference -> the conversation a send addressed by that
+  /// recipient lands in (the server's deterministic id). A recipient not
+  /// listed here is not implemented by the rig.
+  final Map<String, String> recipients = {};
+
+  /// Conversation ids the drift cache's ever-encrypted set holds
+  /// (`cachedEverEncrypted`).
+  final Set<String> everEncrypted = {};
+
+  /// Runs while a `cachedConversationWith` read is in flight (a race).
+  Future<void> Function()? onCacheRead;
+
+  /// Every `commitConversation` request, in order (a refused one too).
+  final List<RigCommitCall> commitRequests = [];
+
+  /// When not empty, the next `commitConversation` call takes its first
+  /// entry: the call throws `error`, after the commit was stored as usual
+  /// when `stored` (a lost answer), without storing anything otherwise.
+  final List<({Object error, bool stored})> commitScript = [];
+
+  /// The server's two `CommitConversation` caps (`commitCaps` in
+  /// `backend/internal/messaging/service_sync.go`): calls per (user,
+  /// conversation) per day, and reset calls per user per day across every
+  /// conversation. Null: no cap (the draws are still counted).
+  int? commitCapPerConversation;
+  int? resetCapPerUser;
+
+  /// The units drawn from those caps: `'user|conversation'` -> calls, and
+  /// user -> reset calls. As the real server (`service_mls.go`: `commitCaps`
+  /// runs before `Repo.Commit`), every call that reaches the caps draws,
+  /// a recognised retry too, and a refused draw counts nothing.
+  final Map<String, int> commitDraws = {};
+  final Map<String, int> resetDraws = {};
+
+  /// Every `AcceptMessageRequest` call (the conversation id), a refused one
+  /// too.
+  final List<String> acceptRequests = [];
+
+  /// Thrown by every `AcceptMessageRequest` call while set. Otherwise the
+  /// call accepts: the header row of the conversation, when there is one,
+  /// moves to the inbox with state ACCEPTED (a fake that changes state on
+  /// success, brief amendment 4).
+  Object? acceptError;
+
+  /// The conversation row a `SendMessage` answer carries instead of the
+  /// header row (null: the header row).
+  pb.Conversation? sendAnswerRow;
+
+  final Map<String, Future<void>> _abandoned = {};
+
+  /// Task 9 audit M2: the call under [key] outlived the client's wait and
+  /// really ends when [ended] completes (`abandonedMlsCall` answers it until
+  /// then, as the real repository does).
+  void abandon(String key, Future<void> ended) {
+    _abandoned[key] = ended;
+    unawaited(
+      ended.then((_) {
+        if (identical(_abandoned[key], ended)) _abandoned.remove(key);
+      }),
+    );
+  }
+
+  /// The bytes of the commit stored at [pair], or null.
+  Uint8List? commitAt(String conversationId, MlsPair pair) {
+    for (final c in _commits[conversationId] ?? const <_Commit>[]) {
+      if (c.pair == pair) return c.bytes;
+    }
+    return null;
+  }
 
   /// A repository for the user [user] (its commits come back `from_self`).
   RigMessaging viewFor(String user) => RigMessaging(this, user);
@@ -571,6 +655,36 @@ class RigServer {
   Future<void> _enter(String call) async {
     calls.add(call);
     await onCall?.call(call);
+  }
+
+  /// `commitCaps`: the per-(user, conversation) cap first, then the reset
+  /// cap for a reset; each `DailyCap.Allow` counts only when it allows, so
+  /// a reset refused by its own cap has still drawn the first one.
+  void _drawCommitCaps(
+    String user,
+    String conversationId, {
+    required bool reset,
+  }) {
+    final key = '$user|$conversationId';
+    final calls = commitDraws[key] ?? 0;
+    final convCap = commitCapPerConversation;
+    if (convCap != null && calls >= convCap) {
+      throw const RateLimitedException(
+        'rig: commit cap',
+        limitName: 'messages_commits_per_conversation_daily',
+      );
+    }
+    commitDraws[key] = calls + 1;
+    if (!reset) return;
+    final resets = resetDraws[user] ?? 0;
+    final resetCap = resetCapPerUser;
+    if (resetCap != null && resets >= resetCap) {
+      throw const RateLimitedException(
+        'rig: reset cap',
+        limitName: 'messages_resets_daily',
+      );
+    }
+    resetDraws[user] = resets + 1;
   }
 }
 
@@ -595,6 +709,8 @@ class RigSend {
     required this.ciphertext,
     required this.pair,
     required this.commitment,
+    this.recipientUserId,
+    this.mlsInit,
   });
 
   final String key;
@@ -603,13 +719,64 @@ class RigSend {
   final MlsPair pair;
   final Uint8List commitment;
 
+  /// The recipient reference of a send addressed by recipient.
+  final String? recipientUserId;
+
+  /// The serialized `MlsInit` of a send that starts encryption.
+  final Uint8List? mlsInit;
+
   /// Byte for byte the same request.
   bool same(RigSend other) =>
       key == other.key &&
       conversationId == other.conversationId &&
+      recipientUserId == other.recipientUserId &&
       pair == other.pair &&
       rigEq(ciphertext, other.ciphertext) &&
-      rigEq(commitment, other.commitment);
+      rigEq(commitment, other.commitment) &&
+      (mlsInit == null) == (other.mlsInit == null) &&
+      rigEq(mlsInit ?? const [], other.mlsInit ?? const []);
+
+  /// The same request as the real server hashes it: the conversation is the
+  /// resolved one (not compared here), so the addressing does not count;
+  /// the pair, the bytes and the init (its presence and its bytes) do.
+  bool sameRequest(RigSend other) =>
+      pair == other.pair &&
+      rigEq(ciphertext, other.ciphertext) &&
+      rigEq(commitment, other.commitment) &&
+      (mlsInit == null) == (other.mlsInit == null) &&
+      rigEq(mlsInit ?? const [], other.mlsInit ?? const []);
+}
+
+/// One `commitConversation` request as the rig server received it.
+class RigCommitCall {
+  RigCommitCall({
+    required this.key,
+    required this.conversationId,
+    required this.builtOn,
+    required this.commit,
+    required this.welcome,
+    required this.welcomeDeviceIds,
+    required this.reset,
+  });
+
+  final String key;
+  final String conversationId;
+  final MlsPair builtOn;
+  final Uint8List commit;
+  final Uint8List? welcome;
+  final List<String> welcomeDeviceIds;
+  final bool reset;
+
+  /// The same commit, byte for byte (the key is not part of it: the server
+  /// recognises a retry by the stored bytes).
+  bool sameBytes(RigCommitCall other) =>
+      conversationId == other.conversationId &&
+      builtOn == other.builtOn &&
+      reset == other.reset &&
+      rigEq(commit, other.commit) &&
+      (welcome == null) == (other.welcome == null) &&
+      rigEq(welcome ?? const [], other.welcome ?? const []) &&
+      welcomeDeviceIds.join('|') == other.welcomeDeviceIds.join('|');
 }
 
 class _Stored {
@@ -645,6 +812,22 @@ class RigMessaging implements MessagingRepository {
   @override
   Future<pb.Conversation?> cachedConversation(String conversationId) async =>
       _server.rows[conversationId];
+
+  /// The cached row whose header names [peerUserId] (the first one).
+  @override
+  Future<pb.Conversation?> cachedConversationWith(String peerUserId) async {
+    await _server.onCacheRead?.call();
+    for (final row in _server.rows.values) {
+      if (row.peer.userId == peerUserId) return row;
+    }
+    return null;
+  }
+
+  /// The ever-encrypted set, or the cached row's marker.
+  @override
+  Future<bool> cachedEverEncrypted(String conversationId) async =>
+      _server.everEncrypted.contains(conversationId) ||
+      (_server.rows[conversationId]?.lastMessage.encrypted ?? false);
 
   @override
   Future<void> noteEverEncrypted(
@@ -823,11 +1006,16 @@ class RigMessaging implements MessagingRepository {
     );
   }
 
-  /// The contract for a send addressed by conversation id: the message id
-  /// is `expectedMessageId(user, key)`; a key seen before answers with the
+  /// The contract for a send: the message id is
+  /// `expectedMessageId(user, key)`; a key seen before answers with the
   /// stored message; a pair that is not the conversation's current one is
-  /// STALE_EPOCH with the current pair. [RigServer.sendScript] replaces the
-  /// answer of a call.
+  /// STALE_EPOCH with the current pair. A send addressed by recipient lands
+  /// in [RigServer.recipients]' conversation (its STALE_EPOCH names that
+  /// id). With an `mls_init` on a conversation that has no commit, the
+  /// init's commit is stored at (1, 0) with a welcome labelled (1, 0) per
+  /// welcome device id, and the message at (1, 1); on a conversation that
+  /// has one it is STALE_EPOCH. [RigServer.sendScript] replaces the answer
+  /// of a call.
   @override
   Future<pb.SendMessageResponse> sendEncrypted({
     required String idempotencyKey,
@@ -845,11 +1033,15 @@ class RigMessaging implements MessagingRepository {
       ciphertext: Uint8List.fromList(ciphertext),
       pair: pair,
       commitment: Uint8List.fromList(reportCommitment),
+      recipientUserId: recipientUserId,
+      mlsInit: mlsInit == null ? null : Uint8List.fromList(mlsInit),
     );
     _server.sends.add(send);
     await _server.beforeSend?.call(send);
+    final byRecipient = conversationId == null;
+    conversationId ??= _server.recipients[recipientUserId];
     if (conversationId == null) {
-      throw UnimplementedError('rig: a send addressed by recipient');
+      throw UnimplementedError('rig: a send to an unlisted recipient');
     }
     final scripted = _server.sendScript.isEmpty
         ? null
@@ -860,13 +1052,39 @@ class RigMessaging implements MessagingRepository {
     for (final s in _server._messages[conversationId] ?? const <_Stored>[]) {
       if (s.message.id == id) stored = s.message.deepCopy();
     }
+    // The real server (`repo_firestore.go`, `Send` and `replayOrRefuse`): a
+    // stored message of this key replays only for the same request hash;
+    // another request under the key (other bytes, or the init left out) is
+    // VALIDATION idempotency_key. The replay is permanent and wins over
+    // STALE_EPOCH (`service_init_test.go`, TestSendInit_Replay).
+    final earlier = _server._requests[id];
+    if (stored != null && earlier != null && !earlier.sameRequest(send)) {
+      throw const IdempotencyKeyReusedException('idempotency_key');
+    }
     if (stored == null) {
       final current = _server.current(conversationId);
-      if (pair != current && scripted == null) {
+      if (mlsInit != null && current == const MlsPair(0, 0)) {
+        final init = pb.MlsInit.fromBuffer(mlsInit);
+        _server.addCommit(
+          conversationId,
+          const MlsPair(1, 0),
+          Uint8List.fromList(init.commit),
+          fromUser: user,
+        );
+        for (final device in init.welcomeDeviceIds) {
+          _server.addWelcome(
+            device,
+            conversationId,
+            const MlsPair(1, 0),
+            Uint8List.fromList(init.welcome),
+          );
+        }
+      } else if ((mlsInit != null || pair != current) && scripted == null) {
         throw StaleEpochException(
           'stale',
           generation: current.generation,
           epoch: current.epoch,
+          conversationId: byRecipient ? conversationId : null,
         );
       }
       stored = pb.Message(
@@ -881,17 +1099,132 @@ class RigMessaging implements MessagingRepository {
         reportCommitment: reportCommitment,
       );
       _server.addMessage(stored);
+      _server._requests[id] = send;
     }
     if (scripted != null) throw scripted.error;
     return pb.SendMessageResponse(
       message: stored.deepCopy()..id = _server.sendResponseId ?? stored.id,
-      conversation: _server.rows[conversationId],
+      conversation: _server.sendAnswerRow ?? _server.rows[conversationId],
     );
+  }
+
+  /// `AcceptMessageRequest`: [RigServer.acceptError] refuses it; otherwise
+  /// the header row moves to the inbox, ACCEPTED.
+  @override
+  Future<void> acceptMessageRequest({
+    required String idempotencyKey,
+    required String conversationId,
+  }) async {
+    _server.acceptRequests.add(conversationId);
+    await _server._enter('acceptMessageRequest');
+    final error = _server.acceptError;
+    if (error != null) throw error;
+    final row = _server.rows[conversationId];
+    if (row != null) {
+      _server.rows[conversationId] = row.deepCopy()
+        ..folder = Folder.FOLDER_INBOX
+        ..state = ConversationState.CONVERSATION_STATE_ACCEPTED;
+    }
+  }
+
+  /// The contract for a commit (`backend/internal/messaging/mls.go`): a
+  /// record at [builtOn] from this user with identical bytes, on a
+  /// conversation that has left that pair, is a retry and answers the
+  /// current pair; otherwise a pair that is not the current one is
+  /// STALE_EPOCH with the current pair; otherwise the commit is stored, with
+  /// a welcome labelled [builtOn] per welcome device id, and the answer is
+  /// the pair after it. [RigServer.commitScript] replaces the answer of a
+  /// call. Every call that is not a scripted unstored answer first draws the
+  /// server's caps ([RigServer.commitDraws], [RigServer.resetDraws]), a
+  /// recognised retry too. A reset names only the generation: its record (and its
+  /// welcomes) is at (g + 1, 0), its answer (g + 1, 1).
+  @override
+  Future<MlsPair> commitConversation({
+    required String idempotencyKey,
+    required String conversationId,
+    required MlsPair builtOn,
+    required Uint8List commit,
+    Uint8List? welcome,
+    List<String> welcomeDeviceIds = const [],
+    bool reset = false,
+  }) async {
+    // Recorded first: an `onCall` hook of this call can read the request.
+    _server.commitRequests.add(
+      RigCommitCall(
+        key: idempotencyKey,
+        conversationId: conversationId,
+        builtOn: builtOn,
+        commit: Uint8List.fromList(commit),
+        welcome: welcome == null ? null : Uint8List.fromList(welcome),
+        welcomeDeviceIds: [...welcomeDeviceIds],
+        reset: reset,
+      ),
+    );
+    await _server._enter('commitConversation');
+    final scripted = _server.commitScript.isEmpty
+        ? null
+        : _server.commitScript.removeAt(0);
+    if (scripted != null && !scripted.stored) throw scripted.error;
+    // The caps, drawn before any read and so before retry recognition
+    // (`commitCaps`): a recognised retry spends them too. A scripted
+    // unstored answer above stands for a call that never got this far (or
+    // whose refusal the test names itself).
+    _server._drawCommitCaps(user, conversationId, reset: reset);
+    final current = _server.current(conversationId);
+    // A reset of generation g (Task 10) names g with any epoch, stores its
+    // record at (g + 1, 0) with welcomes labelled so, and answers
+    // (g + 1, 1); the server's `commitRecordPair` / `commitNextPair`.
+    final at = reset ? MlsPair(builtOn.generation + 1, 0) : builtOn;
+    final stale = reset
+        ? builtOn.generation != current.generation
+        : builtOn != current;
+    _Commit? record;
+    for (final c in _server._commits[conversationId] ?? const <_Commit>[]) {
+      if (c.pair == at) record = c;
+    }
+    final MlsPair answer;
+    if (record != null &&
+        record.fromUser == user &&
+        rigEq(record.bytes, commit) &&
+        MlsPair.above(current, at)) {
+      answer = current;
+    } else if (stale) {
+      throw StaleEpochException(
+        'stale',
+        generation: current.generation,
+        epoch: current.epoch,
+      );
+    } else {
+      _server.addCommit(
+        conversationId,
+        at,
+        Uint8List.fromList(commit),
+        fromUser: user,
+      );
+      if (welcome != null) {
+        for (final device in welcomeDeviceIds) {
+          _server.addWelcome(
+            device,
+            conversationId,
+            at,
+            Uint8List.fromList(welcome),
+          );
+        }
+      }
+      answer = at.next;
+    }
+    if (scripted != null) throw scripted.error;
+    return answer;
   }
 
   /// RATE_LIMITED hold of the list reads (the rig's [RigServer.readHold]).
   @override
   RateLimitedException? rateLimitedFor() => _server.readHold;
+
+  /// [RigServer.abandon]'s calls.
+  @override
+  Future<void>? abandonedMlsCall(String idempotencyKey) =>
+      _server._abandoned[idempotencyKey];
 
   @override
   Future<pb.ListWelcomesResponse> listWelcomes({
@@ -1410,6 +1743,43 @@ class RigKeys implements KeysRepository {
   int listCalls = 0;
   final List<List<String>> getCalls = [];
 
+  /// Thrown by every `GetKeyDevices` call while set (CANNOT_MESSAGE,
+  /// RATE_LIMITED...).
+  Object? peerError;
+
+  /// Runs while a `GetKeyDevices` call is in flight (a race).
+  Future<void> Function()? onGet;
+
+  /// `ClaimKeyPackages`: user reference -> the answer of each claim for it
+  /// (built per call: a claim hands out fresh packages). An unlisted
+  /// reference answers an empty claim.
+  final Map<String, Future<kpb.ClaimKeyPackagesResponse> Function()> claims =
+      {};
+
+  /// User reference -> thrown by every claim for it while set.
+  final Map<String, Object> claimErrors = {};
+
+  /// Every claim call, in order (a refused one too).
+  final List<({String userId, String excludeDeviceId, String key})> claimCalls =
+      [];
+
+  @override
+  Future<kpb.ClaimKeyPackagesResponse> claim({
+    required String userId,
+    String excludeDeviceId = '',
+    required String idempotencyKey,
+  }) async {
+    claimCalls.add((
+      userId: userId,
+      excludeDeviceId: excludeDeviceId,
+      key: idempotencyKey,
+    ));
+    final error = claimErrors[userId];
+    if (error != null) throw error;
+    final answer = claims[userId];
+    return answer == null ? kpb.ClaimKeyPackagesResponse() : answer();
+  }
+
   @override
   Future<kpb.ListMyKeyDevicesResponse> listMine() async {
     listCalls++;
@@ -1420,6 +1790,9 @@ class RigKeys implements KeysRepository {
   @override
   Future<kpb.GetKeyDevicesResponse> getDevices(List<String> userIds) async {
     getCalls.add([...userIds]);
+    await onGet?.call();
+    final error = peerError;
+    if (error != null) throw error;
     if (peerFails) throw const NetworkException('rig');
     return kpb.GetKeyDevicesResponse(
       users: [
@@ -1441,6 +1814,29 @@ class RigOffer {
   final String welcomeId;
   final RigAdd add;
   final MlsPair label;
+}
+
+/// One callback a pipeline part asked its `schedule` seam to run later, as
+/// a timer would hold it: bound to the zone the seam was called in (a
+/// `Timer` runs its callback there), with the cancel handle the seam
+/// answered. The rig never runs it; a test does.
+class RigScheduled {
+  RigScheduled(this.delay, void Function() run)
+    : zone = Zone.current,
+      run = Zone.current.bindCallback(run);
+
+  final Duration delay;
+
+  /// The zone the seam was called in.
+  final Zone zone;
+
+  /// The callback, run in [zone].
+  final void Function() run;
+
+  /// The handle the seam answered was called.
+  bool cancelled = false;
+
+  void cancel() => cancelled = true;
 }
 
 /// One device under test with a [ConversationCrypto] over the rig server, a
@@ -1480,12 +1876,58 @@ class RigCrypto {
   late EncryptedSender sender;
 
   /// Task 9's acceptance (the sender's `acceptForReplyLocked` seam): every
-  /// call is recorded in [acceptCalls]; with no script the call fails.
+  /// call is recorded in [acceptCalls] (its priority in
+  /// [acceptPriorities]); a script set here answers it; with none, the
+  /// real [upkeep] does when [realAcceptance] is set, and the call fails
+  /// otherwise.
   Future<void> Function(String conversationId)? onAcceptForReply;
   final List<String> acceptCalls = [];
+  final List<BudgetPriority> acceptPriorities = [];
+
+  /// The sender's seam calls the real `MembershipUpkeep.acceptForReplyLocked`
+  /// (Task 9) when no [onAcceptForReply] script is set.
+  bool realAcceptance = false;
+
+  /// Task 13's wiring of brief amendment 1: the contexts hand every
+  /// header's ACCEPTED to `upkeep.noteAcceptedSeen`. Off by default, so the
+  /// tests of Tasks 5-8 see no acceptance steps; read at [_wire] (set it
+  /// before a [restart], or call [watchAcceptanceNow]).
+  bool watchAcceptance = false;
+
+  /// The own user reference the upkeep claims own devices with.
+  String? ownUserId = 'user-a';
+
+  /// Membership upkeep (Task 9), over this rig's runner, crypto and
+  /// directory.
+  late MembershipUpkeep upkeep;
+
+  /// What the upkeep asked to run later (its re-check timer): never run by
+  /// the rig; a test runs an entry itself.
+  final List<RigScheduled> upkeepScheduled = [];
+
+  /// Wires [watchAcceptance] now, without a restart.
+  void watchAcceptanceNow() {
+    watchAcceptance = true;
+    contexts.onAcceptedSeen = upkeep.noteAcceptedSeen;
+  }
+
+  /// The commit runner (Task 9), over this rig's crypto, receiver and ledger.
+  late CommitRunner commits;
+
+  /// What the commit runner asked to run later (its `schedule` seam): never
+  /// run by the rig; a test runs an entry itself.
+  final List<RigScheduled> commitScheduled = [];
 
   /// Task 12's "removed elsewhere" fact, as the sender reads it.
   bool removedElsewhere = false;
+
+  /// The engine every component of this rig is handed instead of the
+  /// device's (a guarded engine that answers `unavailable`, say); null: the
+  /// device's [RigDevice.engine].
+  CryptoEngine? engineOverride;
+
+  /// The engine the components ask for now.
+  CryptoEngine engineNow() => engineOverride ?? device.engine;
 
   /// What the sender asked to run later (its `schedule` seam): never run by
   /// the rig; a test runs an entry itself.
@@ -1544,28 +1986,30 @@ class RigCrypto {
   Future<void> _wire() async {
     known = KnownConversations(session: device.session);
     await known.load(device.vault);
+    ledger = DailyLedger(
+      session: device.session,
+      now: clock.now,
+      onUnexpectedError: (e, _) => unexpected.add(e),
+    );
     crypto = ConversationCrypto(
       session: device.session,
-      engine: () => device.engine,
+      engine: engineNow,
       messaging: messaging,
       directory: directory,
       syncBudget: syncBudget,
       locks: locks,
       contexts: contexts,
       known: known,
+      ledger: ledger,
       now: clock.now,
       onChanged: changed.add,
-      onUnexpectedError: (e, _) => unexpected.add(e),
-    );
-    ledger = DailyLedger(
-      session: device.session,
-      now: clock.now,
+      removedElsewhere: () => removedElsewhere,
       onUnexpectedError: (e, _) => unexpected.add(e),
     );
     receiver = MessageReceiver(
       crypto: crypto,
       session: device.session,
-      engine: () => device.engine,
+      engine: engineNow,
       messaging: messaging,
       syncBudget: syncBudget,
       readBudget: readBudget,
@@ -1582,22 +2026,68 @@ class RigCrypto {
       crypto: crypto,
       receiver: receiver,
       session: device.session,
-      engine: () => device.engine,
+      engine: engineNow,
       messaging: messaging,
       locks: locks,
       contexts: contexts,
       now: clock.now,
       onChanged: changed.add,
-      acceptForReplyLocked: (id) async {
+      acceptForReplyLocked: (id, {required priority}) async {
         acceptCalls.add(id);
+        acceptPriorities.add(priority);
         final accept = onAcceptForReply;
-        if (accept == null) throw StateError('rig: no acceptance scripted');
-        await accept(id);
+        if (accept != null) return accept(id);
+        if (!realAcceptance) throw StateError('rig: no acceptance scripted');
+        await upkeep.acceptForReplyLocked(id, priority: priority);
       },
       removedElsewhere: () => removedElsewhere,
       schedule: (delay, run) => scheduled.add((delay: delay, run: run)),
       onUnexpectedError: (e, _) => unexpected.add(e),
     );
+    commits = CommitRunner(
+      crypto: crypto,
+      receiver: receiver,
+      session: device.session,
+      engine: engineNow,
+      messaging: messaging,
+      ledger: ledger,
+      locks: locks,
+      contexts: contexts,
+      now: clock.now,
+      onChanged: changed.add,
+      removedElsewhere: () => removedElsewhere,
+      schedule: (delay, run) {
+        final entry = RigScheduled(delay, run);
+        commitScheduled.add(entry);
+        return entry.cancel;
+      },
+      onUnexpectedError: (e, _) => unexpected.add(e),
+    );
+    upkeep = MembershipUpkeep(
+      commits: commits,
+      receiver: receiver,
+      ledger: ledger,
+      crypto: crypto,
+      session: device.session,
+      engine: engineNow,
+      messaging: messaging,
+      keys: keys,
+      directory: directory,
+      known: known,
+      locks: locks,
+      contexts: contexts,
+      now: clock.now,
+      onChanged: changed.add,
+      ownUserId: () => ownUserId,
+      removedElsewhere: () => removedElsewhere,
+      schedule: (delay, run) {
+        final entry = RigScheduled(delay, run);
+        upkeepScheduled.add(entry);
+        return entry.cancel;
+      },
+      onUnexpectedError: (e, _) => unexpected.add(e),
+    );
+    contexts.onAcceptedSeen = watchAcceptance ? upkeep.noteAcceptedSeen : null;
   }
 
   /// An app restart: the vault file is opened again; memory starts again.

@@ -6,6 +6,8 @@ import 'package:dzeroth/core/crypto/mls_derivations.dart';
 import 'package:dzeroth/core/crypto/mls_pair.dart';
 import 'package:dzeroth/core/vault/vault_records.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/device_directory.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/device_key_history.dart'
+    show KeyRefusal;
 import 'package:dzeroth/features/messages/domain/e2ee/membership_rules.dart';
 import 'package:dzeroth/gen/dzeroth/keys/v1/keys.pb.dart' as pb;
 import 'package:flutter_test/flutter_test.dart';
@@ -87,6 +89,32 @@ String _n(pb.ClaimedKeyPackage c) =>
 
 void main() {
   group('R3 checkClaims', () {
+    test('checkClaims drops a claim whose id the key history refuses', () {
+      final c = [_claim(5), _claim(6)];
+      final asked = <(String, List<int>)>[];
+      final r = checkClaims(
+        side: ClaimSide.theirs,
+        claimed: c,
+        inspected: [_info(5), _info(6)],
+        directory: _list([_dev(5), _dev(6)]),
+        ownList: _list([_dev(1), _dev(99)]),
+        members: const [],
+        thisDeviceId: _id(99),
+        forNewGroup: true,
+        // The conversation's key history admits device 6 only.
+        admissible: (hex, key) {
+          asked.add((hex, key));
+          return hex == _hex(_id(6));
+        },
+      );
+      expect(r.usable, hasLength(1));
+      expect(r.usable.single.deviceId, _id(6));
+      // Asked with the device id in hex and the claimed key.
+      expect(asked.map((a) => a.$1), [_hex(_id(5)), _hex(_id(6))]);
+      expect(asked.first.$2, _key(5));
+      expect(r.emptyFor, isEmpty);
+    });
+
     test('a package passing every check is usable', () {
       final r = _check();
       expect(r.usable, hasLength(1));
@@ -679,6 +707,7 @@ void main() {
           peerList: peerList ?? _list([_dev(2)], at: at),
           firstSeenUnattributedAt: firstSeen ?? seen,
           acceptedSeenAt: acc ?? accepted,
+          refusal: KeyRefusal.none,
         );
         expect(un(), isTrue);
         expect(
@@ -721,6 +750,7 @@ void main() {
             peerList: _list([_dev(2)], at: at),
             firstSeenUnattributedAt: seen,
             acceptedSeenAt: null,
+            refusal: KeyRefusal.none,
           ),
           isFalse,
         );
@@ -738,6 +768,51 @@ void main() {
         expect(un(member: _member(7, MemberSide.theirs)), isFalse);
       },
     );
+
+    group('the key history decides which unattributed members may go '
+        '(device-key-history-design.md, "Removal rule (Task 9)")', () {
+      final seen = t0;
+      final at = t0.add(const Duration(minutes: 2));
+      bool un(KeyRefusal refusal, {DeviceList? own, DeviceList? peerList}) =>
+          mayRemoveUnattributed(
+            member: _member(7, MemberSide.unattributed),
+            ownList: own ?? _list([_dev(1)], at: at),
+            peerList: peerList ?? _list([_dev(2)], at: at),
+            firstSeenUnattributedAt: seen,
+            acceptedSeenAt: accepted,
+            refusal: refusal,
+          );
+
+      test('an unrecorded or unreadable member is never removed '
+          'automatically', () {
+        expect(un(KeyRefusal.none), isTrue);
+        expect(un(KeyRefusal.unrecorded), isFalse);
+        expect(un(KeyRefusal.unreadable), isFalse);
+      });
+
+      test('a tainted member whose current key the directory lists is not '
+          'removed automatically', () {
+        // Unlisted: it goes like any ghost.
+        expect(un(KeyRefusal.tainted), isTrue);
+        // Its current pair on either list keeps it.
+        expect(
+          un(KeyRefusal.tainted, peerList: _list([_dev(2), _dev(7)], at: at)),
+          isFalse,
+        );
+        expect(
+          un(KeyRefusal.tainted, own: _list([_dev(1), _dev(7)], at: at)),
+          isFalse,
+        );
+        // The id listed with ANOTHER key does not show its current pair.
+        expect(
+          un(
+            KeyRefusal.tainted,
+            peerList: _list([_dev(2), _dev(7, key: 70)], at: at),
+          ),
+          isTrue,
+        );
+      });
+    });
   });
 
   group('M1 devicesToAdd', () {
@@ -825,6 +900,24 @@ void main() {
         ),
         isEmpty,
       );
+    });
+
+    test('a device the key history would refuse is not offered for a claim '
+        '(brief amendment 6)', () {
+      final asked = <String>[];
+      final r = devicesToAdd(
+        ownList: _list([_dev(1), _dev(2)]),
+        peerList: _list([_dev(3), _dev(4)]),
+        members: const [],
+        thisDeviceId: _id(99),
+        admissible: (hex, key) {
+          asked.add(hex);
+          return hex != _hex(_id(2)) && hex != _hex(_id(4));
+        },
+      );
+      expect(r.map((e) => e.deviceId), [_id(1), _id(3)]);
+      // Asked with the key the list shows.
+      expect(asked, containsAll([_hex(_id(2)), _hex(_id(4))]));
     });
   });
 
