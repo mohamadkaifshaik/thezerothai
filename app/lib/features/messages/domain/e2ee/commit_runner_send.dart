@@ -52,6 +52,12 @@ extension _CommitSend on CommitRunner {
           return await _afterCatchUp(op, id, pending, priority);
         } on AppException catch (e) {
           if (sendOutcomeUnknown(e)) {
+            // Review N2: a sign-out (or a new vault) while the call was out
+            // ran reset(): no retry time and no resume is armed after it.
+            // Stated limit: a pause does not end the op, so a call in
+            // flight across cancelScheduled() can still arm one resume;
+            // its callback reads everything fresh.
+            if (!op.live) return CommitOutcome.pending;
             isFirst = false;
             left--;
             final named = retryAfterOf(e);

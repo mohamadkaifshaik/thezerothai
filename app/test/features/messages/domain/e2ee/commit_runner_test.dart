@@ -1403,6 +1403,32 @@ void main() {
       expect((await groupRecord()).pending, isNull);
       expect(requests(), hasLength(2));
     });
+
+    test('a call still in flight at sign-out arms no resume when it answers '
+        'with a retry time (review N2)', () async {
+      await setUpJoined();
+      await synced();
+      rig.server.commitScript.add((
+        error: const ScreeningUnavailableException(
+          'busy',
+          retryAfter: Duration(seconds: 90),
+        ),
+        stored: false,
+      ));
+      // Sign-out while the call is out: the vault closes, the runner is
+      // reset; then the call answers "busy".
+      rig.server.onCall = (call) async {
+        if (call != 'commitConversation') return;
+        await rig.device.session.close();
+        rig.commits.reset();
+      };
+
+      expect(await rig.commits.selfUpdate(_c1), CommitOutcome.pending);
+
+      rig.server.onCall = null;
+      expect(requests(), hasLength(1));
+      expect(rig.commitScheduled, isEmpty);
+    });
   });
 
   group('the paths that discard or keep a commit', () {
