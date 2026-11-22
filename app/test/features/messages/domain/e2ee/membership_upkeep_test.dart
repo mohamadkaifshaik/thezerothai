@@ -1124,6 +1124,25 @@ void main() {
       expect(rig.server.sends.single.pair, const MlsPair(1, 2));
     });
 
+    test('the acceptance removes a queued own device the own list still '
+        'shows, in its one commit, with no wait (review m3)', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRequest(sibling);
+      // Nothing else would change: the queue is the only reason.
+      rig.upkeep.queuedRemovals = (_) => {sibling.id};
+
+      await rig.upkeep.onAccepted(_c1);
+
+      expect((await sync()).requestAccepted, isTrue);
+      expect(requests(), hasLength(1));
+      expect(requests().single.welcome, isNull);
+      expect(await pin(sibling), isNull);
+      // The own list still shows it: only the queue removed it.
+      expect(rig.keys.own.any((d) => d.deviceId == sibling.idString), isTrue);
+      // No removal clock for it: no re-check was needed.
+      expect(liveRechecks(), 0);
+    });
+
     test('the acceptance with a queued removal and a deregistered own device '
         'makes one commit (review I1 b)', () async {
       final sibling = await RigPeer.create('sibling');
