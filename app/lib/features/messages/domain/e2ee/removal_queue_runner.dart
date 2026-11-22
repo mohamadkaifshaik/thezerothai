@@ -594,6 +594,9 @@ class RemovalQueueRunner {
     _intentsNotBefore = null;
     _recordPruned = false;
     _lastRemovedAt = null;
+    // Fix round 5, ruling 5 (m5): a removal of the old run is not joined
+    // by the next run's call for the same id (its own call, sent again).
+    _removing.clear();
     _publish();
   }
 
