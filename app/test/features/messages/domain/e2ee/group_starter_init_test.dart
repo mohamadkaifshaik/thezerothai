@@ -2650,6 +2650,88 @@ void main() {
       await expectKept(old, 'the commits did not answer');
     });
 
+    test('expiry with the commit listing failing changes nothing and claims '
+        'nothing (review W3)', () async {
+      final old = await expired();
+      rig.server.onCall = (call) async {
+        if (call == 'listConversationCommits') {
+          throw const NetworkException('no network');
+        }
+      };
+
+      await starter.resumeProvisional();
+      await done();
+
+      expect(rig.server.calls.last, 'listConversationCommits');
+      await expectKept(old, 'the listing failed');
+      expect((await rows()).single.attempts, old.row.attempts);
+      expect(rig.keys.claimCalls, isEmpty);
+      expect(rig.server.sends, hasLength(2));
+    });
+
+    test('expiry with the sync budget paused changes nothing, calls nothing '
+        'and claims nothing (review W3)', () async {
+      final old = await expired();
+      rig.syncBudget.pauseUntil(
+        rig.clock.now().add(const Duration(minutes: 1)),
+      );
+      expect(rig.syncBudget.paused, isTrue);
+      rig.server.calls.clear();
+
+      await starter.resumeProvisional();
+      await done();
+
+      expect(rig.server.calls, isEmpty);
+      await expectKept(old, 'the budget is paused');
+      expect((await rows()).single.attempts, old.row.attempts);
+      expect(rig.keys.claimCalls, isEmpty);
+    });
+
+    test('a refusal of a retry with the commit listing failing deletes '
+        'nothing, fails nothing and claims nothing (review W3)', () async {
+      // The first attempt's outcome is unknown; the retry is refused, and
+      // the commits that would say whether the init is stored cannot be
+      // listed.
+      rig.server.sendScript.addAll([
+        unknown,
+        (error: const FeatureDisabledException('off'), stored: false),
+      ]);
+      rig.server.onCall = (call) async {
+        if (call == 'listConversationCommits') {
+          throw const NetworkException('no network');
+        }
+      };
+      gate = Completer<void>();
+      await start();
+      final old = (group: (await groupOf())!, row: (await rows()).single);
+      rig.keys.claimCalls.clear();
+      gate!.complete();
+      await done();
+
+      expect(rig.server.sends, hasLength(2));
+      expect(rig.server.calls, contains('listConversationCommits'));
+      await expectKept(old, 'the listing failed after a refusal');
+      expect(rig.keys.claimCalls, isEmpty);
+      expect(await rig.sender.outgoing(_c1), isEmpty);
+      expect(await starter.pendingInit(conversationId: _c1), isNotNull);
+
+      // The same after a STALE_EPOCH on a retry.
+      rig.server.sendScript.add((
+        error: const StaleEpochException(
+          'stale',
+          generation: 1,
+          epoch: 1,
+          conversationId: _c1,
+        ),
+        stored: false,
+      ));
+      await starter.resumeProvisional();
+      await done();
+      expect(rig.server.sends, hasLength(3));
+      await expectKept(old, 'the listing failed after STALE_EPOCH');
+      expect(rig.device.engine.calls, isNot(contains('joinFromWelcome')));
+    });
+
     test('the 24 h replace is not made when the init was stored while the '
         'rebuild claimed', () async {
       final old = await expired();
