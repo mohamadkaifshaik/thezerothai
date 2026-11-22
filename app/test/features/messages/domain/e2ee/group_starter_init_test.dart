@@ -377,6 +377,33 @@ void main() {
       expect(rig.keys.claimCalls, isEmpty);
       expect(rig.server.sends, isEmpty);
     });
+
+    test('a vault on this device that is not open is never plaintext, '
+        'whatever the flag says', () async {
+      // The vault knows _c1 as the conversation with bob; the drift cache
+      // holds no marker for it.
+      await rig.known.add(_c1, peerUserId: _bob);
+      // The vault's writes close (its lock was taken): no vault to ask.
+      rig.device.owner!.steal();
+      await pumpEventQueue();
+      expect(rig.device.session.vault, isNull);
+      expect(rig.device.session.vaultKnown, isTrue);
+      // A known set that was cleared with the vault (sign-out wiring).
+      rig.known.clear();
+
+      for (final flag in [E2eeFlag.off, E2eeFlag.unknown, E2eeFlag.on]) {
+        await rig.device.session.onFlagChanged(flag, uid: _me);
+        expect(rig.device.session.vault, isNull);
+        for (final id in [null, _c1]) {
+          final r = await start(conversationId: id);
+          expect(r.result, StartResult.unavailable, reason: '$flag $id');
+        }
+      }
+      expect(rig.keys.getCalls, isEmpty);
+      expect(rig.keys.listCalls, 0);
+      expect(rig.keys.claimCalls, isEmpty);
+      expect(rig.server.sends, isEmpty);
+    });
   });
 
   group('the own-device alert', () {

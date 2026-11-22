@@ -285,6 +285,14 @@ class GroupStarter {
     required String sharedPostId,
   }) async {
     final vault = _session.vault;
+    // Review I1. Decision: a vault exists on this device and cannot be
+    // asked now (opening, a key outage, a lost lock): its known set is the
+    // only record that a conversation is encrypted, so nothing is routed
+    // without it. Never plaintext, whatever the flag says; with no vault
+    // on the device at all the flag decides as before (R1's inertness).
+    if (vault == null && _session.vaultKnown) {
+      return _out(StartResult.unavailable);
+    }
     if (vault != null && !_known.isLoadedFor(vault)) await _known.load(vault);
 
     // 1. Known first (security read C1): the known set and the cache's
@@ -512,7 +520,6 @@ int? _microsOf(pb.Message m) => serverMicros(m);
 
 Duration? _retryAfterOf(AppException e) => retryAfterOf(e);
 
-
 /// Constant-time equality of two byte lists (the length is not secret).
 bool _same(List<int> a, List<int> b) {
   if (a.length != b.length) return false;
@@ -522,4 +529,3 @@ bool _same(List<int> a, List<int> b) {
   }
   return diff == 0;
 }
-
