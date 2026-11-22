@@ -10,6 +10,7 @@ import 'package:dzeroth/features/messages/domain/e2ee/daily_ledger.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/device_directory.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/e2ee_types.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/membership_rules.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/pipeline_support.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/sync_budget.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/keys/v1/keys.pb.dart' as kpb;
@@ -802,6 +803,56 @@ void main() {
       expect(requests(), hasLength(1));
       expect(await pin(sibling), isNull);
       expect((await pin(bob2))!.side, MemberSide.theirs);
+    });
+  });
+
+  group('a pending record (9a decision 2)', () {
+    test('a reconcile with a pending record resends its bytes before any '
+        'list call, and a pending answer ends the pass', () async {
+      const offline = NetworkException('rig: no answer');
+      final sibling = await RigPeer.create('sibling');
+      await setUpJoined(others: [sibling], ownListed: [sibling]);
+      await synced();
+      // Two calls with no answer: the self-update's record stays pending.
+      rig.server.commitScript
+        ..add((error: offline, stored: false))
+        ..add((error: offline, stored: false));
+      expect(await rig.commits.selfUpdate(_c1), CommitOutcome.pending);
+      expect(requests(), hasLength(2));
+      // A removal the pass would make once it got past the record.
+      rig.clock.advance(kDeviceListReuse + kRequestInFlightMargin);
+      ownList(const []);
+      final lists = rig.keys.listCalls;
+      final gets = rig.keys.getCalls.length;
+      int? listsAtCommit;
+      int? getsAtCommit;
+      rig.server.onCall = (call) async {
+        if (call != 'commitConversation') return;
+        listsAtCommit ??= rig.keys.listCalls;
+        getsAtCommit ??= rig.keys.getCalls.length;
+      };
+      rig.server.calls.clear();
+      // The resend gets no answer either.
+      rig.server.commitScript.add((error: offline, stored: false));
+
+      await rig.upkeep.reconcile(_c1);
+
+      // The identical bytes went out before any list call.
+      expect(requests(), hasLength(3));
+      expect(requests()[2].sameBytes(requests()[0]), isTrue);
+      expect(listsAtCommit, lists);
+      expect(getsAtCommit, gets);
+      // `pending` ended the pass: nothing after the call.
+      expect(rig.server.calls.last, 'commitConversation');
+      expect(
+        rig.server.calls.skipWhile((c) => c != 'commitConversation').skip(1),
+        isEmpty,
+      );
+      expect(rig.keys.listCalls, lists);
+      expect(rig.keys.getCalls, hasLength(gets));
+      expect(rig.keys.claimCalls, isEmpty);
+      expect((await groupRecord()).pending, isNotNull);
+      expect((await pin(sibling))!.side, MemberSide.mine);
     });
   });
 
