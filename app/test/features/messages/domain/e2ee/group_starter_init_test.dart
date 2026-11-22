@@ -1208,6 +1208,65 @@ void main() {
       expect(await rows(), isEmpty);
     });
 
+    test('on a retry, a STALE_EPOCH or a refusal never deletes a group whose '
+        'init is the first stored commit', () async {
+      // The first attempt was stored and its answer lost. The retry is
+      // answered STALE_EPOCH (the server's replay record is gone).
+      rig.server.sendScript.addAll([
+        (error: const NetworkException('timed out'), stored: true),
+        (
+          error: const StaleEpochException(
+            'stale',
+            generation: 1,
+            epoch: 1,
+            conversationId: _c1,
+          ),
+          stored: false,
+        ),
+      ]);
+      gate = Completer<void>();
+      await start();
+      final row = (await rows()).single;
+      gate!.complete();
+      await done();
+
+      expect((await groupOf())!.provisional, isFalse);
+      expect(await rig.device.vault.members(_c1), hasLength(2));
+      expect(rig.device.engine.calls, isNot(contains('joinFromWelcome')));
+      expect(
+        (await rig.device.vault.conversation(_c1))!.afterPair,
+        const MlsPair(1, 0),
+      );
+      // The message came back as the live pull's echo.
+      expect(await rows(), isEmpty);
+      expect(
+        await rig.device.vault.hasMessage(_c1, row.expectedMessageId),
+        isTrue,
+      );
+
+      // A refusal on a retry, with the stored message not on the first
+      // ListMessages page (50 newer messages): the commit check decides.
+      final carol = await RigPeer.create('carol');
+      person('ref-carol', _c2, [carol]);
+      rig.server.sendScript.addAll([
+        (error: const NetworkException('timed out'), stored: true),
+        (error: const FeatureDisabledException('off'), stored: false),
+      ]);
+      var hidden = false;
+      rig.server.rewriteLive = (real) {
+        if (hidden) return real;
+        hidden = true;
+        return pb.ListMessagesResponse(conversation: real.conversation);
+      };
+      await start(localId: 'local-2', peer: 'ref-carol');
+      await done(_c2);
+
+      expect(hidden, isTrue);
+      expect((await groupOf(_c2))!.provisional, isFalse);
+      expect(await rig.device.vault.members(_c2), hasLength(2));
+      expect(await rows(), isEmpty);
+    });
+
     test('FEATURE_DISABLED on a retry without it is a refusal', () async {
       rig.server.sendScript.addAll([
         unknown,

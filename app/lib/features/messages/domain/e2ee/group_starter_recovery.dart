@@ -233,6 +233,10 @@ extension _Recovery on GroupStarter {
           _unknown.add(row.localId);
           return none;
         }
+        if (!first) {
+          final kept = await _keptIfStored(id, group, row, priority);
+          if (kept != null) return kept;
+        }
         // Another device started first. The discard never touches the key
         // history or a mark.
         if (!await _crypto.discardProvisionalLocked(id, g)) return none;
@@ -256,21 +260,12 @@ extension _Recovery on GroupStarter {
           _unknown.add(row.localId);
           return none;
         }
-        // A refusal. On a retry (an earlier attempt's outcome is unknown)
-        // the server may hold the init all the same: its first page says.
-        // The brief names FEATURE_DISABLED and CANNOT_MESSAGE; decision:
-        // every refusal of a retry is checked this way (never a delete on a
-        // refusal that may follow a stored init).
+        // A refusal. The brief names FEATURE_DISABLED and CANNOT_MESSAGE on
+        // a retry; decision: every refusal of a retry is checked (never a
+        // delete on an answer that may follow a stored init).
         if (!first) {
-          final found = await _storedAnyway(id, row);
-          if (found.unknown) {
-            _unknown.add(row.localId);
-            return none;
-          }
-          final delivered = found.delivered;
-          if (delivered != null) {
-            return _settle(id, g, row, delivered, priority);
-          }
+          final kept = await _keptIfStored(id, group, row, priority);
+          if (kept != null) return kept;
         }
         return _refuse(id, g, row, e);
       } on Object catch (e, s) {
@@ -294,6 +289,54 @@ extension _Recovery on GroupStarter {
         priority,
       );
     }
+  }
+
+  /// Review M3. On a RETRY (an earlier attempt's outcome is unknown), before
+  /// a refusal or a STALE_EPOCH may delete the group: whether the server
+  /// holds this init all the same. Decision: the stored commits decide, not
+  /// one `ListMessages` page (a stored init can hide behind 50 newer
+  /// messages, and the server's replay record expires); deleting a group
+  /// the server stored would lock its creator out of it, with no welcome.
+  ///
+  /// Null: the init is not stored (the caller goes on to discard). Else
+  /// what to do instead: the group settled (with the message's answer when
+  /// the first page holds it, else without), or nothing when the commits
+  /// do not say.
+  Future<_Next?> _keptIfStored(
+    String id,
+    GroupRecord group,
+    OutboxItem row,
+    BudgetPriority priority,
+  ) async {
+    const none = _Next(_NextKind.none);
+    final pending = group.pending;
+    final own = pending == null
+        ? null
+        : await _ownInitStored(id, pending, priority);
+    if (own == false) return null;
+    if (own == null) {
+      _unknown.add(row.localId);
+      return none;
+    }
+    final found = await _storedAnyway(id, row);
+    final delivered = found.delivered;
+    if (delivered != null) {
+      return _settle(id, group.generation, row, delivered, priority);
+    }
+    // Stored, and the page does not show the message: settled without its
+    // answer; the live pull brings the echo, or the sender resends it.
+    final settled = await _crypto.settleOwnInitLocked(
+      id,
+      group.generation,
+      priority: priority,
+    );
+    if (settled != InitSettle.settled) {
+      _unknown.add(row.localId);
+      return none;
+    }
+    _forget(row.localId);
+    _onChanged(id);
+    return const _Next(_NextKind.pull);
   }
 
   /// `requestAccepted` comes from the answer's conversation state, for this
@@ -407,36 +450,7 @@ extension _Recovery on GroupStarter {
     bool mayRebuild,
   ) async {
     const none = _Next(_NextKind.none);
-    if (!await _takeSyncUnit(priority)) return none;
-    // Null: the answer does not say (nothing is decided on it).
-    bool? own;
-    try {
-      final page = await _messaging.listConversationCommits(
-        conversationId: id,
-        after: null,
-        pageSize: kCommitPageSize,
-      );
-      if (page.commits.isEmpty) {
-        // No commit at all, and the server says the conversation has none.
-        own = page.mlsGeneration == Int64.ZERO && page.mlsEpoch == Int64.ZERO
-            ? false
-            : null;
-      } else {
-        final c = page.commits.first;
-        final cg = pairComponentFromInt64(c.mlsGeneration);
-        final ce = pairComponentFromInt64(c.mlsEpoch);
-        if (cg != null && ce != null) {
-          own =
-              MlsPair(cg, ce) == pending.builtOn &&
-              _same(c.commit, pending.commit);
-        }
-      }
-    } on NotFoundException {
-      own = false;
-    } on Object catch (e, s) {
-      _reportIfBug(e, s, 'start.listConversationCommits');
-      return none;
-    }
+    final own = await _ownInitStored(id, pending, priority);
     if (own == null) return none;
     if (own) {
       // The init was accepted: the same success steps, without an answer
@@ -467,6 +481,48 @@ extension _Recovery on GroupStarter {
     // and the next resume tries again, where a discard first would leave
     // "known, no group" with nothing to retry it.
     return _Next(_NextKind.rebuild, localId: row.localId);
+  }
+
+  /// Whether the server's first stored commit is this device's init
+  /// ([pending]): at its `builtOn` pair, with its exact bytes. False: the
+  /// conversation has no commit, or another one first. Null: the answer
+  /// does not say, or could not be had (nothing is decided on it). One
+  /// `ListConversationCommits` call, with the lock held.
+  Future<bool?> _ownInitStored(
+    String id,
+    PendingCommit pending,
+    BudgetPriority priority,
+  ) async {
+    if (!await _takeSyncUnit(priority)) return null;
+    bool? own;
+    try {
+      final page = await _messaging.listConversationCommits(
+        conversationId: id,
+        after: null,
+        pageSize: kCommitPageSize,
+      );
+      if (page.commits.isEmpty) {
+        // No commit at all, and the server says the conversation has none.
+        own = page.mlsGeneration == Int64.ZERO && page.mlsEpoch == Int64.ZERO
+            ? false
+            : null;
+      } else {
+        final c = page.commits.first;
+        final cg = pairComponentFromInt64(c.mlsGeneration);
+        final ce = pairComponentFromInt64(c.mlsEpoch);
+        if (cg != null && ce != null) {
+          own =
+              MlsPair(cg, ce) == pending.builtOn &&
+              _same(c.commit, pending.commit);
+        }
+      }
+    } on NotFoundException {
+      own = false;
+    } on Object catch (e, s) {
+      _reportIfBug(e, s, 'start.listConversationCommits');
+      return null;
+    }
+    return own;
   }
 
   /// The 24 h rebuild (review I3): fresh claims for the init row [localId]
