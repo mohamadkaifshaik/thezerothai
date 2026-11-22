@@ -3166,6 +3166,53 @@ void main() {
       expect((await groupOf())!.provisional, isTrue);
       expect((await rows()).single.lastError, isNull);
     });
+
+    test(
+      'a refusal whose commit listing starts 1 s before the margin after '
+      'an abandoned init call\'s end, and returns 2 s later, keeps the '
+      'provisional group (Task 9 round P, the review\'s provedAt gap)',
+      () async {
+        // The abandoned first call ends at T. The refused retry's listing
+        // starts at T + margin - 1 s (inside the margin) and returns at
+        // T + margin + 1 s (past it): only the listing's start may decide.
+        final ended = Completer<void>();
+        rig.server.beforeSend = (send) async {
+          if (rig.server.sends.length != 1) return;
+          rig.clock.advance(kMlsRpcTimeout);
+          rig.server.abandon(send.key, ended.future);
+        };
+        rig.server.sendScript.addAll([unknown, unknown]);
+        await start();
+        await done();
+        rig.server.beforeSend = null;
+        expect(rig.server.sends, hasLength(2));
+
+        // T: the abandoned call ends.
+        ended.complete();
+        await pumpEventQueue();
+        rig.scheduled.clear();
+
+        rig.clock.advance(kInitResendMargin - const Duration(seconds: 1));
+        var listings = 0;
+        rig.server.onCall = (call) async {
+          if (call != 'listConversationCommits') return;
+          listings++;
+          rig.clock.advance(const Duration(seconds: 2));
+        };
+        rig.server.sendScript.add((
+          error: const FeatureDisabledException('off'),
+          stored: false,
+        ));
+        await starter.resumeProvisional();
+        await done();
+        rig.server.onCall = null;
+
+        expect(rig.server.sends, hasLength(3));
+        expect(listings, 1);
+        expect((await groupOf())!.provisional, isTrue);
+        expect((await rows()).single.lastError, isNull);
+      },
+    );
   });
 
   group('resumeProvisional', () {
