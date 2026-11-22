@@ -9,12 +9,15 @@ extension _Reconcile on MembershipUpkeep {
   /// (`applied`, `superseded`) leaves the conversation unsynced, and the
   /// live pull that syncs it takes the lock itself, so it runs here,
   /// between two holds, before the ONE more pass (plan step 4). A re-check
-  /// exists to make a change, so it pulls first when not synced. Never
+  /// exists to make a change, so it pulls first when not synced. [depth]:
+  /// the re-check's place in a chain (0 for an outside trigger and a
+  /// re-check that waits on a clock; see [kMaxChainedRechecks]). Never
   /// throws.
   Future<void> _reconcileUnheld(
     String id,
     BudgetPriority priority, {
     required bool recheck,
+    int depth = 0,
   }) async {
     try {
       if (recheck && !_contexts.of(id).syncedSinceStart) {
@@ -22,19 +25,55 @@ extension _Reconcile on MembershipUpkeep {
       }
       final first = await _locks.run(
         id,
-        () => _reconcileOnce(id, priority, recheck: recheck),
+        () => _reconcileOnce(
+          id,
+          priority,
+          recheck: recheck,
+          depth: depth,
+          mayRunAgain: true,
+        ),
       );
       if (first != CommitOutcome.applied && first != CommitOutcome.superseded) {
         return;
       }
-      await _receiver.pullLive(id, priority: priority);
+      final pull = await _receiver.pullLive(id, priority: priority);
+      if (pull.kind != ReceiveOutcomeKind.complete) {
+        // Ruling C: the pull the next pass needs failed, so whatever it
+        // decides cannot be committed now. One re-check, which pulls
+        // first.
+        _armRetry(id, depth, _now().add(kPeerRemovalFetchGap));
+      }
       await _locks.run(
         id,
-        () => _reconcileOnce(id, priority, recheck: recheck),
+        () => _reconcileOnce(
+          id,
+          priority,
+          recheck: recheck,
+          depth: depth,
+          mayRunAgain: false,
+        ),
       );
     } on Object catch (e, s) {
       _reportIfBug(e, s, 'upkeep.reconcile');
     }
+  }
+
+  /// Ruling C: a change of [id] decided by a pass at [depth] did not land.
+  /// One re-check at [at] (the earliest due one is kept), one place
+  /// further in the chain, unless the chain is at [kMaxChainedRechecks].
+  void _armRetry(String id, int depth, DateTime at) {
+    if (depth >= kMaxChainedRechecks) return;
+    _scheduleRecheck(id, at, depth: depth + 1);
+  }
+
+  /// When the re-check of a change left `pending` is due: the runner's
+  /// not-before when it lies ahead, else [kRequestInFlightMargin] on.
+  DateTime _pendingDue(String id) {
+    final now = _now();
+    final notBefore = _commits.resendNotBefore(id);
+    return notBefore != null && notBefore.isAfter(now)
+        ? notBefore
+        : now.add(kRequestInFlightMargin);
   }
 
   /// The held entry (the acceptance steps, [MembershipUpkeep
@@ -50,7 +89,13 @@ extension _Reconcile on MembershipUpkeep {
     try {
       // Plan step 4: after `superseded`, once more on the caught-up group.
       for (var round = 0; round < 2; round++) {
-        if (await _reconcileOnce(id, priority, recheck: recheck) !=
+        if (await _reconcileOnce(
+              id,
+              priority,
+              recheck: recheck,
+              depth: 0,
+              mayRunAgain: round == 0,
+            ) !=
             CommitOutcome.superseded) {
           return;
         }
@@ -62,11 +107,16 @@ extension _Reconcile on MembershipUpkeep {
 
   /// One pass. Answers how this device's commit of the pass ended (its
   /// change, else the resume of a pending record when that settled it);
-  /// null when it made none.
+  /// null when it made none. [depth]: see [_reconcileUnheld]; a change of
+  /// this pass that does not land arms one re-check through [_armRetry].
+  /// [mayRunAgain]: this is the unheld entry's first pass, which pulls and
+  /// runs one more pass after an `applied` or `superseded` answer.
   Future<CommitOutcome?> _reconcileOnce(
     String id,
     BudgetPriority priority, {
     required bool recheck,
+    required int depth,
+    required bool mayRunAgain,
   }) async {
     final vault = _session.vault;
     if (vault == null || _removedElsewhere()) return null;
@@ -83,7 +133,12 @@ extension _Reconcile on MembershipUpkeep {
         id,
         priority: priority,
       );
-      if (settled == CommitOutcome.pending) return null;
+      if (settled == CommitOutcome.pending) {
+        // Review I-A: the record holds every send here, and nothing else
+        // settles it this session; one re-check, when a resend may go.
+        _armRetry(id, depth, _pendingDue(id));
+        return null;
+      }
       if (settled == CommitOutcome.applied ||
           settled == CommitOutcome.superseded) {
         resumed = settled;
@@ -274,7 +329,8 @@ extension _Reconcile on MembershipUpkeep {
     }
     if (recheckAt.isNotEmpty) {
       recheckAt.sort();
-      _scheduleRecheck(id, recheckAt.first);
+      // A clock's re-check keeps this pass's place in a chain.
+      _scheduleRecheck(id, recheckAt.first, depth: depth);
     }
 
     final staying = [
@@ -288,11 +344,9 @@ extension _Reconcile on MembershipUpkeep {
     if (!await _commits.mayCommit(id, PendingKind.change)) {
       // Review I1 c: a change decided while this run has not pulled the
       // current pair (after an own commit) waits for one re-check, which
-      // pulls first. Only a pass that is not itself a re-check arms it, so
-      // it cannot loop; other reasons (M5, the cap) make that re-check a
-      // no-op.
-      if (!recheck &&
-          !context.syncedSinceStart &&
+      // pulls first (ruling C's chain bounds it). Other reasons (M5, the
+      // cap) arm none: a re-check could not change them.
+      if (!context.syncedSinceStart &&
           (removes.isNotEmpty ||
               (mayAdd &&
                   (await _wanted(
@@ -302,7 +356,7 @@ extension _Reconcile on MembershipUpkeep {
                     thisDevice,
                     history,
                   )).isNotEmpty))) {
-        _scheduleRecheck(id, _now().add(kPeerRemovalFetchGap));
+        _armRetry(id, depth, _now().add(kPeerRemovalFetchGap));
       }
       if (removes.isEmpty && !recheck) {
         await _selfUpdateLocked(id, priority, caughtUp: true);
@@ -329,6 +383,7 @@ extension _Reconcile on MembershipUpkeep {
       if (!recheck) await _selfUpdateLocked(id, priority, caughtUp: true);
       return resumed;
     }
+    final limitBefore = _commits.lastRateLimit;
     var outcome = await _commits.changeLocked(
       id,
       adds: adds,
@@ -361,7 +416,33 @@ extension _Reconcile on MembershipUpkeep {
         priority: priority,
       );
     }
-    if (outcome == CommitOutcome.applied) _onChanged(id);
+    switch (outcome) {
+      case CommitOutcome.applied:
+        _onChanged(id);
+      case CommitOutcome.pending:
+        // Review I-A: nothing else settles it this session.
+        _armRetry(id, depth, _pendingDue(id));
+      case CommitOutcome.refused:
+        // Audit L1: a RATE_LIMITED answer names when to ask again.
+        final limit = _commits.lastRateLimit;
+        final wait = identical(limit, limitBefore) ? null : limit?.retryAfter;
+        _armRetry(
+          id,
+          depth,
+          _now().add(
+            wait != null && wait > Duration.zero ? wait : kPeerRemovalFetchGap,
+          ),
+        );
+      case CommitOutcome.superseded:
+        // Review m-1: the unheld entry runs one more pass after the first;
+        // a superseded change with no such pass coming waits for a
+        // re-check.
+        if (!mayRunAgain) {
+          _armRetry(id, depth, _now().add(kPeerRemovalFetchGap));
+        }
+      case CommitOutcome.notAllowed:
+        break;
+    }
     return outcome;
   }
 

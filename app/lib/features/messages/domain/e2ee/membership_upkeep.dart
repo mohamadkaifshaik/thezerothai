@@ -30,6 +30,13 @@ part 'membership_upkeep_reconcile.dart';
 
 const FormerPins _former = FormerPins();
 
+/// Review I-A, audit L1 (controller ruling C): a re-check armed because a
+/// change did not land may arm one more when it does not land either, up
+/// to this many chained re-checks per conversation. After that the
+/// outside triggers (Task 13: an open, a send, the app's resume) take
+/// over, each of which starts a new chain. Bounded, so no loop.
+const int kMaxChainedRechecks = 3;
+
 /// Membership commits of this device and the request rules (Task 9 step
 /// 9b; M1 to M4, R9, the R7 lost-send rule, R10, security read H2):
 /// [reconcile] keeps the group's members equal to the devices the key
@@ -63,11 +70,19 @@ const FormerPins _former = FormerPins();
 /// pair (`syncedSinceStart`). The pull takes the conversation lock itself,
 /// so only the unheld [reconcile] can make it: after its pass's commit (or
 /// resume) answered `applied` or `superseded`, it pulls between two holds
-/// and runs ONE more pass. A pass that is not itself a re-check and decides
-/// a change while not synced arms one re-check
-/// ([kPeerRemovalFetchGap] on, through the earliest-due timer); the
-/// re-check pulls first when not synced. A re-check arms no such re-check
-/// of its own, so this cannot loop.
+/// and runs ONE more pass. The re-check pulls first when not synced.
+///
+/// **A change that did not land (review I-A, audit L1, review m-1;
+/// controller ruling C).** A pass that decided a change (or found one
+/// pending) whose commit did not land arms one earliest-due re-check: the
+/// change is left `pending` (due at the runner's not-before, else
+/// [kRequestInFlightMargin] on), `superseded` with no further pass of its
+/// own coming, `refused` (RATE_LIMITED: due at the server's retry time),
+/// decided while not synced, or the live pull between the two passes
+/// failed (each due [kPeerRemovalFetchGap] on). Why: a removal must not
+/// wait for the user to reopen the conversation. A re-check that does not
+/// land either arms one more, up to [kMaxChainedRechecks] chained ones;
+/// then the outside triggers take over. Bounded, so it cannot loop.
 ///
 /// Locking (plan "Global Constraints"): the public entries take the
 /// conversation lock; the `...Locked` variants are for a caller that holds
@@ -458,8 +473,11 @@ class MembershipUpkeep {
   // -------------------------------------------------------------------------
   // The re-check timer
 
-  /// One re-check of [id] at [at], unless one is due no later.
-  void _scheduleRecheck(String id, DateTime at) {
+  /// One re-check of [id] at [at], unless one is due no later. [depth]:
+  /// how many re-checks chained for a change that did not land this one
+  /// is (0 for one that waits on a clock, `kUnattributedRecheck` or the
+  /// peer fetch gap; see [kMaxChainedRechecks]).
+  void _scheduleRecheck(String id, DateTime at, {int depth = 0}) {
     final existing = _rechecks[id];
     if (existing != null && !existing.at.isAfter(at)) return;
     existing?.cancel();
@@ -477,6 +495,7 @@ class MembershipUpkeep {
           id,
           BudgetPriority.background,
           recheck: true,
+          depth: depth,
         );
         _recheckRuns.add(run);
         unawaited(run.whenComplete(() => _recheckRuns.remove(run)));

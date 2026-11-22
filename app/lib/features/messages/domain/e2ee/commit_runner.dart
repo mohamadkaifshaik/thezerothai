@@ -174,6 +174,14 @@ class CommitRunner {
   /// [kRequestInFlightMargin] after that outcome (review I2).
   final Map<String, DateTime> _notBefore = {};
 
+  /// Read-only: the time before which no resume of [conversationId]'s
+  /// pending commit makes a call (the server's retry time of its last
+  /// unknown outcome, else [kRequestInFlightMargin] after it); null when
+  /// this run holds none. The upkeep's re-check of a change left `pending`
+  /// is due then (review I-A).
+  DateTime? resendNotBefore(String conversationId) =>
+      _notBefore[conversationId];
+
   /// The conversations a resume is scheduled for (one each), each with the
   /// handle that cancels it. An entry goes when its callback runs.
   final Map<String, void Function()> _resumeScheduled = {};

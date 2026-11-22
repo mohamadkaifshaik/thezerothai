@@ -11,6 +11,8 @@ import 'package:dzeroth/features/messages/domain/e2ee/daily_ledger.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/device_directory.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/e2ee_types.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/membership_rules.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/membership_upkeep.dart'
+    show kMaxChainedRechecks;
 import 'package:dzeroth/features/messages/domain/e2ee/sync_budget.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/keys/v1/keys.pb.dart' as kpb;
@@ -914,7 +916,8 @@ void main() {
     });
 
     test('a change decided while not synced arms one re-check, which pulls '
-        'and commits; a re-check arms none of its own (review I1 c)', () async {
+        'and commits; re-checks whose pull fails chain at most 3 (review I1 '
+        'c, ruling C)', () async {
       final sibling = await RigPeer.create('sibling');
       await setUpJoined(others: [sibling], ownListed: [sibling]);
       await synced();
@@ -935,8 +938,8 @@ void main() {
         rig.clock.now().add(kPeerRemovalFetchGap),
       );
 
-      // That re-check's pull fails: no commit, and it arms no other (no
-      // loop).
+      // Every re-check's pull fails: no commit. Each arms one more, and
+      // the third chained one arms none (no loop).
       rig.server.onCall = (call) async {
         if (call == 'listMlsMessages' ||
             call == 'listEpochMessages' ||
@@ -944,9 +947,12 @@ void main() {
           throw const NetworkException('rig: offline');
         }
       };
-      rig.clock.advance(kPeerRemovalFetchGap);
-      await runRecheck();
-      expect(requests(), isEmpty);
+      for (var chained = 1; chained <= kMaxChainedRechecks; chained++) {
+        expect(liveRechecks(), 1, reason: 're-check $chained is armed');
+        rig.clock.advance(kPeerRemovalFetchGap);
+        await runRecheck();
+        expect(requests(), isEmpty);
+      }
       expect(liveRechecks(), 0);
       expect((await pin(sibling))!.side, MemberSide.mine);
 
@@ -1039,6 +1045,133 @@ void main() {
       expect(rig.keys.claimCalls, isEmpty);
       expect((await groupRecord()).pending, isNotNull);
       expect((await pin(sibling))!.side, MemberSide.mine);
+    });
+  });
+
+  group('a change that did not land (review I-A, audit L1, review m-1)', () {
+    const offline = NetworkException('rig: no answer');
+
+    /// A lost own phone (sibling) for the next reconcile to remove.
+    Future<RigPeer> lostPhone() async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpJoined(others: [sibling], ownListed: [sibling]);
+      await synced();
+      rig.clock.advance(kDeviceListReuse);
+      ownList(const []);
+      return sibling;
+    }
+
+    test('a commit left pending by two unanswered calls is resent by one '
+        're-check after the margin, and the waiting reply then goes '
+        'out', () async {
+      final sibling = await lostPhone();
+      rig.server.commitScript
+        ..add((error: offline, stored: false))
+        ..add((error: offline, stored: false));
+
+      await rig.upkeep.reconcile(_c1);
+      expect(requests(), hasLength(2));
+      expect((await groupRecord()).pending, isNotNull);
+      // One re-check, at the runner's not-before (the margin).
+      expect(liveRechecks(), 1);
+      expect(rig.upkeepScheduled.last.delay, kRequestInFlightMargin);
+
+      // The user replies meanwhile: the reply waits behind the record.
+      await rig.sender.enqueue(
+        localId: 'r1',
+        conversationId: _c1,
+        text: 'hello',
+      );
+      await rig.sender.settled(_c1);
+      expect(rig.server.sends, isEmpty);
+
+      rig.clock.advance(kRequestInFlightMargin);
+      await runRecheck();
+      expect(requests(), hasLength(3));
+      expect(requests()[2].sameBytes(requests()[0]), isTrue);
+      expect((await groupRecord()).pending, isNull);
+      expect(await pin(sibling), isNull);
+
+      // The waiting reply goes out at the next drain.
+      await rig.sender.drain(_c1);
+      expect(rig.server.sends, hasLength(1));
+    });
+
+    test('a re-check that still does not land arms one more, at most 3 '
+        'chained re-checks, then none', () async {
+      final sibling = await lostPhone();
+      // No commit call ever gets an answer.
+      for (var i = 0; i < 10; i++) {
+        rig.server.commitScript.add((error: offline, stored: false));
+      }
+
+      await rig.upkeep.reconcile(_c1);
+      expect(requests(), hasLength(2));
+      for (var chained = 1; chained <= 3; chained++) {
+        expect(liveRechecks(), 1, reason: 're-check $chained is armed');
+        rig.clock.advance(kRequestInFlightMargin);
+        await runRecheck();
+        expect(requests(), hasLength(2 + chained));
+      }
+      // The third chained re-check arms none: the outside triggers (Task
+      // 13) take over.
+      expect(liveRechecks(), 0);
+      expect((await pin(sibling))!.side, MemberSide.mine);
+
+      // An outside trigger starts a new chain.
+      rig.clock.advance(kRequestInFlightMargin);
+      await rig.upkeep.reconcile(_c1);
+      expect(liveRechecks(), 1);
+    });
+
+    test('a RATE_LIMITED removal arms one re-check at the server\'s retry '
+        'time, which removes it', () async {
+      final sibling = await lostPhone();
+      rig.server.commitScript.add((
+        error: const RateLimitedException(
+          'slow down',
+          retryAfter: Duration(minutes: 3),
+        ),
+        stored: false,
+      ));
+
+      await rig.upkeep.reconcile(_c1);
+      expect(requests(), hasLength(1));
+      expect((await pin(sibling))!.side, MemberSide.mine);
+      expect(liveRechecks(), 1);
+      expect(rig.upkeepScheduled.last.delay, const Duration(minutes: 3));
+
+      rig.clock.advance(const Duration(minutes: 3));
+      await runRecheck();
+      expect(requests(), hasLength(2));
+      expect(await pin(sibling), isNull);
+      expect(liveRechecks(), 0);
+    });
+
+    test('a second pass whose commit is superseded again arms one re-check '
+        '(review m-1)', () async {
+      final sibling = await lostPhone();
+      final bob2 = await RigPeer.create('bob2');
+      final bob3 = await RigPeer.create('bob3');
+      peerList([bob, bob2, bob3]);
+      peerClaims([bob, bob2, bob3]);
+      // Bob's own commits win the pair twice: first he adds bob2, then
+      // bob3, each while this device's commit is on its way.
+      final racing = [bob2, bob3];
+      rig.server.onCall = (call) async {
+        if (call != 'commitConversation' || racing.isEmpty) return;
+        await bobCommits(add: [await racing.removeAt(0).keyPackage()]);
+      };
+
+      await rig.upkeep.reconcile(_c1);
+      expect(requests(), hasLength(2));
+      expect((await pin(sibling))!.side, MemberSide.mine);
+      expect(liveRechecks(), 1);
+      expect(rig.upkeepScheduled.last.delay, kPeerRemovalFetchGap);
+
+      rig.clock.advance(kPeerRemovalFetchGap);
+      await runRecheck();
+      expect(await pin(sibling), isNull);
     });
   });
 
