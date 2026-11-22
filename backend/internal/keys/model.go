@@ -38,7 +38,45 @@ var (
 	// ErrExcludeNotFound is a claim whose non-empty exclude device id names none of the target's devices (inactive ones
 	// included); nothing is consumed.
 	ErrExcludeNotFound = errors.New("keys: excluded device not found")
+	// ErrDeviceRemoved is a register or upload of a device id that carries a removed mark (a REMOTE removal), or whose
+	// device document carries removedAt (a REMOTE removal in progress). It never names the id.
+	ErrDeviceRemoved = errors.New("keys: device removed")
 )
+
+// RemoveReason says why a device is removed (keysv1.RemoveReason); it decides whether the id is remembered.
+type RemoveReason int
+
+const (
+	// RemoveSignOut is the device removing itself as it signs out (and REMOVE_REASON_UNSPECIFIED, which builds before the
+	// field send): no mark, the same id may register again.
+	RemoveSignOut RemoveReason = iota
+	// RemoveRemote is the user removing another device of theirs: the id is marked for RemovalMarkTTL, and an id not yet
+	// marked needs a recent sign-in.
+	RemoveRemote
+)
+
+// String is the request-line value of the reason.
+func (r RemoveReason) String() string {
+	switch r {
+	case RemoveSignOut:
+		return "sign_out"
+	case RemoveRemote:
+		return "remote"
+	}
+	return "unknown"
+}
+
+// RemovalMarkTTL is how long a removed mark refuses its id: expireAt = removedAt + 90 days (owner decision 2026-11-23). It
+// is the Firestore TTL field; the code never reads expireAt, so a mark refuses until Firestore deletes it (TTL deletion
+// can lag by a day or more, which only makes the mark last longer).
+const RemovalMarkTTL = 90 * 24 * time.Hour
+
+// RemovalMark is users/{uid}/keyDeviceRemovals/{deviceId} as the export reads it.
+type RemovalMark struct {
+	DeviceID  string
+	RemovedAt time.Time
+	ExpireAt  time.Time
+}
 
 // ValidDeviceID reports whether s matches [A-Za-z0-9_-]{16,64}.
 func ValidDeviceID(s string) bool {
@@ -85,14 +123,17 @@ func (d Device) Active(now time.Time) bool { return now.Sub(d.LastSeenAt) < Inac
 // passed in are copied, and byte slices returned never alias the caller's.
 type Service interface {
 	// Register publishes (or refreshes) the caller's device. ErrKeyMismatch is VALIDATION signature_public_key, a sixth
-	// device is LIMIT_REACHED key_devices.
+	// device is LIMIT_REACHED key_devices, a marked id (ErrDeviceRemoved, decided first) is DEVICE_REMOVED.
 	Register(ctx context.Context, uid, deviceID string, signatureKey []byte) (Device, error)
 	// ListMine returns the caller's devices, at most MaxDevicesPerUser, oldest first, inactive ones included (Inactive set).
 	ListMine(ctx context.Context, uid string) ([]Device, error)
-	// Remove deletes a device with its pool and last-resort package; a missing device is success.
-	Remove(ctx context.Context, uid, deviceID string) error
+	// Remove deletes a device with its pool and last-resort package; a missing device is success. RemoveRemote first
+	// marks the id (RemovalMarked; when not yet marked, a recent sign-in or REAUTH_REQUIRED with nothing written; then
+	// MarkRemoved), so Register and Upload refuse it with DEVICE_REMOVED. Any other reason value is VALIDATION "reason".
+	Remove(ctx context.Context, uid, deviceID string, reason RemoveReason) error
 	// Upload adds packages to a registered device's pool (duplicates stored once, excess over MaxPoolSize dropped) and
-	// optionally replaces its last-resort package (nil or empty = keep). It returns the resulting pool size.
+	// optionally replaces its last-resort package (nil or empty = keep). It returns the resulting pool size. A marked id
+	// is DEVICE_REMOVED, any other unknown device NOT_FOUND.
 	Upload(ctx context.Context, uid, deviceID string, packages [][]byte, lastResort []byte) (poolCount int, hasLastResort bool, err error)
 	// GetDevices answers the devices of 1 to 10 distinct users, keyed by every requested id. For every user other than
 	// the caller the caller must pass Permission.CanMessage first (in request order, before anything else); any refusal is
@@ -116,14 +157,17 @@ type Service interface {
 // Repo is the storage seam (repo_firestore.go).
 type Repo interface {
 	// Register creates the device (ErrDeviceLimit past the cap) or, for an existing id with the same key, refreshes
-	// LastSeenAt when older than seenRefreshInterval; a different key is ErrKeyMismatch.
+	// LastSeenAt when older than seenRefreshInterval; a different key is ErrKeyMismatch. ErrDeviceRemoved comes before
+	// both: a device document carrying removedAt, or a new id with a removed mark (read before the count).
 	Register(ctx context.Context, uid string, d Device, now time.Time) (Device, error)
-	// List returns at most MaxDevicesPerUser devices, oldest first.
+	// List returns at most MaxDevicesPerUser devices, oldest first. Every reader (List, ActiveDevices, Claim) skips a
+	// device document carrying removedAt.
 	List(ctx context.Context, uid string) ([]Device, error)
 	// Remove deletes the device, its pool and its last-resort package; a missing device is nil.
 	Remove(ctx context.Context, uid, deviceID string) error
 	// Upload stores packages (deduplicated by bytes, oldest stay when the pool is full), sets lastResort when non-nil and
-	// refreshes LastSeenAt on the same rule as Register. An unknown device is ErrNotFound.
+	// refreshes LastSeenAt on the same rule as Register. A device document carrying removedAt, or a missing one with a
+	// removed mark, is ErrDeviceRemoved; any other unknown device is ErrNotFound.
 	Upload(ctx context.Context, uid, deviceID string, packages [][]byte, lastResort []byte, now time.Time) (int, bool, error)
 	// ActiveDevices returns the user's devices active at now, oldest first (one query, Limit MaxDevicesPerUser). Nothing
 	// is written.
@@ -134,6 +178,12 @@ type Repo interface {
 	// else HasKeyPackage false; a device deleted meanwhile is left out. Contention on a device is never an error.
 	// LastSeenAt is not touched.
 	Claim(ctx context.Context, targetUID, excludeDeviceID string, now time.Time) ([]Claimed, error)
+	// RemovalMarked reports whether the id carries a removed mark (one direct get, no query, no index).
+	RemovalMarked(ctx context.Context, uid, deviceID string) (bool, error)
+	// MarkRemoved is the REMOTE removal's transaction: it reads the device document and the mark, creates the mark when
+	// absent (removedAt = now, expireAt = now + RemovalMarkTTL; an existing mark keeps its times) and sets removedAt on
+	// the device document when it exists and lacks it. 2 reads, at most 2 writes. Idempotent.
+	MarkRemoved(ctx context.Context, uid, deviceID string, now time.Time) error
 }
 
 // cloneBytes returns a copy of b (nil stays nil).

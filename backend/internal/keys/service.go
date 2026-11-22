@@ -17,6 +17,7 @@ import (
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ids"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/mw"
@@ -34,6 +35,7 @@ const (
 	fieldLastResort  = "has_last_resort"
 	fieldUsers       = "user_count"
 	fieldLRUsed      = "last_resort_count"
+	fieldReason      = "remove_reason"
 	outcomeDone      = "done"
 	outcomeNoop      = "noop"
 	outcomeRejected  = "rejected:"
@@ -66,6 +68,9 @@ type Deps struct {
 	ConversationID func(callerUID, targetUID string) string
 	// Log receives panics on the lookup's worker goroutines (default slog.Default()).
 	Log *slog.Logger
+	// ReauthMaxAge is ACCOUNT_DELETE_REAUTH_MAX_AGE (config.AccountDeleteReauthMaxAge): how recent the caller's sign-in
+	// must be for a REMOTE removal of an id not yet marked. Zero refuses every such removal (fail closed).
+	ReauthMaxAge time.Duration
 }
 
 type service struct {
@@ -77,6 +82,7 @@ type service struct {
 	chargeLookups func(context.Context, string, int) error
 	convID        func(callerUID, targetUID string) string
 	log           *slog.Logger
+	reauthMaxAge  time.Duration
 }
 
 // New builds the service.
@@ -89,7 +95,8 @@ func New(d Deps) Service {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &service{repo: d.Repo, now: now, perm: d.Permission, flags: d.Flags, claimCap: d.ClaimCap, chargeLookups: d.ChargeLookups, convID: d.ConversationID, log: log}
+	return &service{repo: d.Repo, now: now, perm: d.Permission, flags: d.Flags, claimCap: d.ClaimCap, chargeLookups: d.ChargeLookups,
+		convID: d.ConversationID, log: log, reauthMaxAge: d.ReauthMaxAge}
 }
 
 var _ Service = (*service)(nil)
@@ -150,11 +157,41 @@ func (s *service) ListMine(ctx context.Context, uid string) ([]Device, error) {
 	return out, nil
 }
 
-// Remove validates the id, then deletes the device; a missing device is success.
-func (s *service) Remove(ctx context.Context, uid, deviceID string) error {
+// Remove validates the id and the reason, then deletes the device; a missing device is success. RemoveRemote marks the id
+// first (removal-server design 2026-11-23, 2.3): (1) one get of the mark; (2) when the id is not yet marked, a recent
+// sign-in (authn.RequireRecentSignIn with ACCOUNT_DELETE_REAUTH_MAX_AGE), else REAUTH_REQUIRED with nothing written; an
+// already-marked id is a retry and needs none; (3) the mark transaction (MarkRemoved), which also stamps the device
+// document with removedAt, so every read skips it from here on; (4) the usual sweep and delete. A REMOTE removal of an id
+// that was never registered still writes a mark, so the answer tells nothing about whether the id existed.
+func (s *service) Remove(ctx context.Context, uid, deviceID string, reason RemoveReason) error {
 	begin(ctx, "remove")
 	if err := validDeviceID(ctx, deviceID); err != nil {
 		return err
+	}
+	if reason != RemoveSignOut && reason != RemoveRemote {
+		return invalid(ctx, "reason", "reason must be a known RemoveReason")
+	}
+	logger.SetRequestField(ctx, fieldReason, reason.String())
+	if reason == RemoveRemote {
+		marked, err := s.repo.RemovalMarked(ctx, uid, deviceID)
+		if err != nil {
+			return s.mapErr(ctx, "remove", uid, err)
+		}
+		now := s.now()
+		if !marked {
+			// A zero window is refused here too: authn.IsRecentSignIn with maxAge 0 still accepts an auth_time equal to now.
+			maxAge := s.reauthMaxAge
+			if maxAge <= 0 {
+				maxAge = -time.Hour
+			}
+			if err := authn.RequireRecentSignIn(ctx, maxAge, now); err != nil {
+				logger.SetRequestField(ctx, fieldOutcome, outcomeRejected+"reauth_required")
+				return err
+			}
+		}
+		if err := s.repo.MarkRemoved(ctx, uid, deviceID, now); err != nil {
+			return s.mapErr(ctx, "remove", uid, err)
+		}
 	}
 	if err := s.repo.Remove(ctx, uid, deviceID); err != nil {
 		return s.mapErr(ctx, "remove", uid, err)
@@ -465,6 +502,9 @@ func claimCapKey(callerUID, targetUID string) string {
 	return hex.EncodeToString(sum[:16])
 }
 
+// deviceRemovedText is the one text of DEVICE_REMOVED.
+const deviceRemovedText = "this device was removed from your account"
+
 // excludeMessage is the VALIDATION text for exclude_device_id (the value is never echoed).
 const excludeMessage = "exclude_device_id must be one of your devices"
 
@@ -496,6 +536,11 @@ func (s *service) mapErr(ctx context.Context, op, uid string, err error) error {
 		logger.SetRequestField(ctx, fieldOutcome, outcomeRejected+"limit_reached")
 		return apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED, "too many encryption devices").
 			WithMeta("limit", limitKeyDevices)
+	case errors.Is(err, ErrDeviceRemoved):
+		// No metadata and no retry hint: the id is refused for at least RemovalMarkTTL; the device sets up again under a
+		// new id. The id is never in the error or the log.
+		logger.SetRequestField(ctx, fieldOutcome, outcomeRejected+"device_removed")
+		return apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_DEVICE_REMOVED, deviceRemovedText)
 	case errors.Is(err, ErrKeyMismatch):
 		return invalid(ctx, "signature_public_key", "this device is already registered with a different key")
 	case errors.Is(err, ErrNotFound):

@@ -17,7 +17,8 @@
 // hex characters of the SHA-256 of the bytes); and the removed marks users/{uid}/keyDeviceRemovals/{deviceId} (removedAt,
 // expireAt = removedAt + 90 days, the Firestore TTL field; doc id = the device id), written by RemoveKeyDevice with
 // reason REMOTE. A device document that carries removedAt (a REMOTE removal in progress) is not a registered device:
-// every read skips it and it does not count toward the cap of 5. All three are erased with the account; the account
+// every read and claim skips it, but it keeps its place under the cap of 5 until the removal (or its retry) deletes it,
+// so a user never has more than 5 device documents. All three are erased with the account; the account
 // export lists device metadata and counts and the removed marks (device id and times), never key bytes.
 //
 // Key material is raw bytes: this is the first proto in the repo with `bytes` fields. Device ids, user ids and
@@ -60,8 +61,8 @@
 //
 // Errors:
 // - INVALID_ARGUMENT + VALIDATION, metadata["field"] in idempotency_key | device_id | signature_public_key | key_packages
-//   | last_resort_key_package | user_ids | user_id | exclude_device_id, before any lookup unless stated. The value is
-//   never echoed.
+//   | last_resort_key_package | user_ids | user_id | exclude_device_id | reason (a RemoveReason value this server does
+//   not know), before any lookup unless stated. The value is never echoed.
 // - FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "e2ee_dm" (see the flag classes above).
 // - FAILED_PRECONDITION + LIMIT_REACHED, metadata["limit"] = "key_devices": a sixth device (never evicts).
 // - FAILED_PRECONDITION + CANNOT_MESSAGE (GetKeyDevices, ClaimKeyPackages): the caller may not message a target. ONE

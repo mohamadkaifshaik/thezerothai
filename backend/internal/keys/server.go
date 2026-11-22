@@ -104,7 +104,9 @@ func (s *Server) ListMyKeyDevices(ctx context.Context, _ *connect.Request[keysv1
 	return connect.NewResponse(&keysv1.ListMyKeyDevicesResponse{Devices: toKeyDevices(ds)}), nil
 }
 
-// RemoveKeyDevice needs the flag only not globally off.
+// RemoveKeyDevice needs the flag only not globally off. The wire reason becomes the service's: UNSPECIFIED (builds before
+// the field) and SIGN_OUT are RemoveSignOut, REMOTE is RemoveRemote; a value this server does not know is VALIDATION
+// "reason" before the service (never silently a removal that remembers nothing).
 func (s *Server) RemoveKeyDevice(ctx context.Context, req *connect.Request[keysv1.RemoveKeyDeviceRequest]) (*connect.Response[keysv1.RemoveKeyDeviceResponse], error) {
 	m := req.Msg
 	key := m.GetIdempotencyKey()
@@ -113,7 +115,16 @@ func (s *Server) RemoveKeyDevice(ctx context.Context, req *connect.Request[keysv
 		return nil, err
 	}
 	defer cancel()
-	if err := s.svc.Remove(ctx, uid, m.GetDeviceId()); err != nil {
+	var reason RemoveReason
+	switch m.GetReason() {
+	case keysv1.RemoveReason_REMOVE_REASON_UNSPECIFIED, keysv1.RemoveReason_REMOVE_REASON_SIGN_OUT:
+		reason = RemoveSignOut
+	case keysv1.RemoveReason_REMOVE_REASON_REMOTE:
+		reason = RemoveRemote
+	default:
+		return nil, invalid(ctx, "reason", "reason must be a known RemoveReason")
+	}
+	if err := s.svc.Remove(ctx, uid, m.GetDeviceId(), reason); err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&keysv1.RemoveKeyDeviceResponse{}), nil

@@ -1,6 +1,7 @@
 // lifecycle_keys.go joins keys to the account-lifecycle registry: the `keys` Eraser step (users/{uid}/keyDevices and its
-// keyPackages pools are subcollections, which deleting users/{uid} does not remove) and the `keys` export section (device
-// id, times, pool size and whether a last-resort package exists; never key bytes). Both are registered whether or not
+// keyPackages pools and users/{uid}/keyDeviceRemovals are subcollections, which deleting users/{uid} does not remove) and
+// the `keys` export section (device id, times, pool size and whether a last-resort package exists; the removed marks' ids
+// and times; never key bytes). Both are registered whether or not
 // FEATURE_E2EE_DM is on, because documents outlive the flag. The step is appended last (after location): its name is
 // persisted in deletionJob.step, so it never joins another module's checkpoint.
 package apiserver
