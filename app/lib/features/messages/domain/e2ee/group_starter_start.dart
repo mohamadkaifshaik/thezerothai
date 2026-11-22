@@ -25,7 +25,8 @@ extension _Start on GroupStarter {
     }
 
     // 1. Both lists fresh. A deferred answer stands for the last readable
-    // list when there is one (H1); with none nothing can be checked.
+    // list only when that list is younger than `kDeviceListReuse` (H1,
+    // review 3b); with none, or an older one, it is `lookupFailed`.
     final ownAnswer = await _directory.own(
       fresh: true,
       priority: BudgetPriority.user,

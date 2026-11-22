@@ -669,7 +669,12 @@ class GroupStarter {
       case ListState.unreadable:
         return _lookupFailed(peer);
       case ListState.deferred:
-        // The last readable list, when there is one and it is non-empty.
+        // Review 3b, the brief as amended: deferred -> start only when the
+        // last readable list is younger than `kDeviceListReuse`, else
+        // `lookupFailed`. Here: no kept list, or an empty one, ends now;
+        // a non-empty one lets the start's own fresh lookup try, and
+        // [_lastReadable] refuses a kept list that is too old. Why: fail
+        // closed; the old clause trusted a list of any age.
         if (list.fetchedAt == null || list.devices.isEmpty) {
           return _out(StartResult.lookupFailed);
         }
