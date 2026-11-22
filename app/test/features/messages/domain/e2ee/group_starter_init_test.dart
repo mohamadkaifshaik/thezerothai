@@ -3714,6 +3714,38 @@ void main() {
       expect(rig.keys.claimCalls.single.userId, _bob);
     });
 
+    test('another device\'s commit first: the group goes, the winner\'s '
+        'welcome is joined and the row goes out in it, never failed '
+        '(pre-flag-on review m-E)', () async {
+      final row = await unanswered();
+      // Bob's own start reached the server first; his welcome lists this
+      // device.
+      await rig.offer(_c1, bob);
+      rig.clock.advance(kInitResendMargin);
+
+      expect(await starter.discardInit(_c1), InitDiscard.discarded);
+      await done();
+
+      final g = (await groupOf())!;
+      expect(g.provisional, isFalse);
+      expect(g.pending, isNull);
+      expect(rig.device.engine.calls, contains('joinFromWelcome'));
+      // The row was re-encrypted in the joined group under a new key and
+      // sent; it never failed.
+      expect(await rows(), isEmpty);
+      final last = rig.server.sends.last;
+      expect(last.mlsInit, isNull);
+      expect(last.key, isNot(row.idempotencyKey));
+      expect(
+        await rig.device.vault.hasMessage(
+          _c1,
+          expectedMessageId(_me, last.key),
+        ),
+        isTrue,
+      );
+      expect(await starter.pendingInit(conversationId: _c1), isNull);
+    });
+
     test('after a restart, a row whose attempts were all made by the earlier '
         'run is held until the margin after the restart; then the record '
         'decides (pre-flag-on fix round 2, ruling 3)', () async {

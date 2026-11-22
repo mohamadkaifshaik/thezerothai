@@ -96,11 +96,23 @@ extension _Expiry on GroupStarter {
     String id,
     PendingCommit pending,
     BudgetPriority priority,
+  ) async => (await _ownInitRecord(id, pending, priority)).own;
+
+  /// [_ownInitStored], and (pre-flag-on fix round 2, ruling 7) whether its
+  /// "not stored" was read from ANOTHER commit first (`otherFirst`): true
+  /// only with `own == false`, under the same margin rules. Why: that
+  /// group can never be stored (the server takes one commit at a pair),
+  /// and the winner's welcome is the way in, as the resume's STALE_EPOCH.
+  Future<({bool? own, bool otherFirst})> _ownInitRecord(
+    String id,
+    PendingCommit pending,
+    BudgetPriority priority,
   ) async {
-    if (!await _takeSyncUnit(priority)) return null;
+    const notDecided = (own: null, otherFirst: false);
+    if (!await _takeSyncUnit(priority)) return notDecided;
     final provedAt = _now();
-    final own = await _listOwnInit(id, pending);
-    if (own == false && _initMayStillLand(id, at: provedAt)) {
+    final read = await _listOwnInit(id, pending);
+    if (read.own == false && _initMayStillLand(id, at: provedAt)) {
       // Task 9 concern 1: held only by an unknown outcome's margin (no
       // abandoned call, whose end schedules its own resume): one resume
       // at the margin's end, so the record decides without another
@@ -109,14 +121,20 @@ extension _Expiry on GroupStarter {
           ? null
           : _unknownMarginLeft(id, provedAt);
       if (left != null) _armMarginResume(id, left);
-      return null;
+      return notDecided;
     }
-    return own;
+    return read;
   }
 
-  /// The one `ListConversationCommits` call of [_ownInitStored].
-  Future<bool?> _listOwnInit(String id, PendingCommit pending) async {
+  /// The one `ListConversationCommits` call of [_ownInitStored]:
+  /// `otherFirst` when the first stored commit is readable and not
+  /// [pending].
+  Future<({bool? own, bool otherFirst})> _listOwnInit(
+    String id,
+    PendingCommit pending,
+  ) async {
     bool? own;
+    var otherFirst = false;
     try {
       final page = await _messaging.listConversationCommits(
         conversationId: id,
@@ -136,15 +154,16 @@ extension _Expiry on GroupStarter {
           own =
               MlsPair(cg, ce) == pending.builtOn &&
               _same(c.commit, pending.commit);
+          otherFirst = !own;
         }
       }
     } on NotFoundException {
       own = false;
     } on Object catch (e, s) {
       _reportIfBug(e, s, 'start.listConversationCommits');
-      return null;
+      return (own: null, otherFirst: false);
     }
-    return own;
+    return (own: own, otherFirst: otherFirst);
   }
 
   /// The 24 h rebuild (review I3): fresh claims for the init row [localId]

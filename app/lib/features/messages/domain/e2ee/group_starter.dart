@@ -107,7 +107,10 @@ const String kStartErrorInitDiscarded = 'InitDiscarded';
 /// What [GroupStarter.discardInit] did.
 ///
 /// `discarded`: the provisional group is gone and its init row failed with
-/// [kStartErrorInitDiscarded]. `settled`: the server's first page held the
+/// [kStartErrorInitDiscarded]; or (fix round 2, ruling 7) another device's
+/// commit was first, so the row did NOT fail: the winner's welcome was
+/// joined and the row waits for the sender, which encrypts it again in
+/// that group under a new key. `settled`: the server's first page held the
 /// message, so the group settled with that answer instead (nothing to
 /// discard). `held`: the server holds the init as this device's and an
 /// answer may still come (the group is younger than [kProvisionalExpiry],
@@ -625,6 +628,9 @@ class GroupStarter {
   /// ends), only when:
   /// - the server's record says this init is NOT stored (the stored
   ///   commits, read with the margin rules: no call of it may still land);
+  ///   when that record shows another device's commit first (fix round 2,
+  ///   ruling 7) the row does not fail: the winner's welcome is joined, as
+  ///   the resume's STALE_EPOCH path does, and the row goes out in it;
   /// - or the server holds it as this device's, the group is
   ///   [kProvisionalExpiry] old with no answer for its message (the first
   ///   `ListMessages` page does not hold it), no call of it is out, the

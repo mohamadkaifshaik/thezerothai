@@ -8,9 +8,17 @@ extension _InitDiscard on GroupStarter {
   /// what a settle sets going (the drain) runs after it.
   Future<InitDiscard> _discardInit(String id) async {
     try {
-      final outcome = await _locks.run(id, () => _discardInitLocked(id));
-      if (outcome == InitDiscard.settled) {
-        await _afterNext(id, const _Next(_NextKind.drain), BudgetPriority.user);
+      var join = false;
+      final outcome = await _locks.run(
+        id,
+        () => _discardInitLocked(id, onJoin: () => join = true),
+      );
+      if (outcome == InitDiscard.settled || join) {
+        await _afterNext(
+          id,
+          _Next(join ? _NextKind.join : _NextKind.drain),
+          BudgetPriority.user,
+        );
       }
       return outcome;
     } on _BadRandom {
@@ -22,7 +30,13 @@ extension _InitDiscard on GroupStarter {
     }
   }
 
-  Future<InitDiscard> _discardInitLocked(String id) async {
+  /// [onJoin] is called when the group was discarded for another device's
+  /// commit (fix round 2, ruling 7): the caller then runs the join path
+  /// once the lock is released.
+  Future<InitDiscard> _discardInitLocked(
+    String id, {
+    required void Function() onJoin,
+  }) async {
     final op = await _op();
     if (op == null) return InitDiscard.notDecided;
     GroupRecord? group;
@@ -65,8 +79,27 @@ extension _InitDiscard on GroupStarter {
       // "Not stored" is read only with no call of this init able to land
       // and the margin past the last one ([_ownInitStored]); anything else
       // is "not decided".
-      final own = await _ownInitStored(id, pending, BudgetPriority.user);
+      final record = await _ownInitRecord(id, pending, BudgetPriority.user);
+      final own = record.own;
       if (own == null) return InitDiscard.notDecided;
+      if (record.otherFirst) {
+        // Pre-flag-on fix round 2, ruling 7 (code review m-E). Decision:
+        // another device's commit is first, so the group goes WITHOUT
+        // failing the row, and the winner's welcome is joined after the
+        // lock (the resume's STALE_EPOCH path); the row then waits, and
+        // the sender encrypts it again under a new key in the joined group.
+        // Why: this init can never be stored (the server takes one commit
+        // at a pair); failing the row made the user retry a start that the
+        // server answers STALE_EPOCH, when the way in is the welcome that
+        // is already there. The answer is `discarded`: the group is gone.
+        if (!await _crypto.discardProvisionalLocked(id, group.generation)) {
+          return InitDiscard.notDecided;
+        }
+        _forget(row.localId);
+        _onChanged(id);
+        onJoin();
+        return InitDiscard.discarded;
+      }
       if (own) {
         // The server holds it as this device's. Decision: held while an
         // answer may still come: the group is younger than 24 h (the
