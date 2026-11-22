@@ -56,11 +56,11 @@ func (d *DailyCap) WithClock(now func() time.Time) *DailyCap {
 // lock returns key's counter for the current IST day, locked and rolled over if its day is stale. The
 // caller must unlock it.
 func (d *DailyCap) lock(key string) *dailyCounter {
-	today := quota.TodayAt(d.now())
 	// GetOrSet (not Get-miss-then-Set): two concurrent first accesses must share one counter, or units
 	// counted on the counter the second Set replaced would be lost.
-	c := d.items.GetOrSet(key, func() *dailyCounter { return &dailyCounter{day: today} })
+	c := d.items.GetOrSet(key, func() *dailyCounter { return &dailyCounter{} })
 	c.mu.Lock()
+	today := quota.TodayAt(d.now())
 	if c.day != today {
 		c.day = today
 		c.count = 0
