@@ -55,10 +55,14 @@ extension _CommitSend on CommitRunner {
           if (sendOutcomeUnknown(e)) {
             isFirst = false;
             left--;
-            final wait = retryAfterOf(e);
-            if (wait != null) {
+            final named = retryAfterOf(e);
+            if (named != null) {
               // The server named a time: nothing is sent before it, and
-              // one resume is scheduled for it.
+              // one resume is scheduled for it. Never longer than
+              // [kCommitRetryWaitMax]: this record holds every send here.
+              final wait = named > kCommitRetryWaitMax
+                  ? kCommitRetryWaitMax
+                  : named;
               _notBefore[id] = _now().add(wait);
               if (left > 0) _scheduleResume(id, wait, priority);
               return CommitOutcome.pending;

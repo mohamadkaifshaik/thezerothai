@@ -40,6 +40,14 @@ const int kSelfUpdateMaxCommitCallsToday = 10;
 /// client stops one call short of the server's refusal.
 const int kCommitCallsPerConversationPerDay = 20;
 
+/// The longest a server-chosen retry time holds a pending commit (review
+/// m9, ruling R3). `retryAfterOf` allows a day (`kMaxServerRetryWait`),
+/// which is right for one outbox row; a pending commit holds every send of
+/// its conversation, so a hostile or broken retry time must not hold them
+/// for a day. After [kRequestInFlightMargin] the catch-up proof decides
+/// anyway. Cost: a few more counted calls, bounded by the daily cap.
+const Duration kCommitRetryWaitMax = Duration(minutes: 5);
+
 /// What became of one commit of this device.
 ///
 /// `applied`: the server stored this device's commit and the group is one

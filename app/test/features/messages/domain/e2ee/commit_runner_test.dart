@@ -834,6 +834,32 @@ void main() {
       expect(requests()[0].sameBytes(requests()[1]), isTrue);
       expect((await sync()).commitCallsToday, 2);
     });
+
+    test(
+      'a server retry time holds a commit for five minutes at most',
+      () async {
+        await setUpJoined();
+        await synced();
+        expect(kCommitRetryWaitMax, const Duration(minutes: 5));
+        rig.server.commitScript.add((
+          error: const ScreeningUnavailableException(
+            'busy',
+            retryAfter: Duration(hours: 23),
+          ),
+          stored: false,
+        ));
+
+        expect(await rig.commits.selfUpdate(_c1), CommitOutcome.pending);
+
+        expect(rig.commitScheduled.map((s) => s.delay), [kCommitRetryWaitMax]);
+        rig.clock.advance(kCommitRetryWaitMax - const Duration(seconds: 1));
+        expect(await rig.commits.resumePending(_c1), CommitOutcome.pending);
+        expect(requests(), hasLength(1));
+        rig.clock.advance(const Duration(seconds: 1));
+        expect(await rig.commits.resumePending(_c1), CommitOutcome.applied);
+        expect(requests(), hasLength(2));
+      },
+    );
   });
 
   group('the discard margin', () {
