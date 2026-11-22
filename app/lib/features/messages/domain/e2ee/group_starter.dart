@@ -427,7 +427,12 @@ class GroupStarter {
       // nothing for the row that now carries the init, and clears the
       // failure of [localId] when the start took an older row.
     } on Object catch (e, s) {
+      // Audit L3. Decision: a failed read says nothing about whose row
+      // this is, so nothing more is done with it. Why: falling through to
+      // the sender's `retry` would clear the failure of a row only a new
+      // start can send (review N1: "waiting" with no reason, for good).
       _reportIfBug(e, s, 'start.retry');
+      return;
     }
     await _sender.retry(localId);
   }

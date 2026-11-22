@@ -2126,6 +2126,32 @@ void main() {
       expect(await rows(), isEmpty);
     });
 
+    test('a retry whose read of the outbox fails leaves the row as it is: '
+        'the sender\'s retry does not clear its failure (audit L3)', () async {
+      await refusedOnce();
+      // The starter's read fails once (the vault's cipher, a lost lock).
+      var failed = false;
+      rig.device.onOutbox = () async {
+        if (!failed) {
+          failed = true;
+          throw StateError('the read failed');
+        }
+      };
+
+      await starter.retryStart('local-1');
+      await done();
+
+      expect(failed, isTrue);
+      expect(rig.keys.claimCalls, isEmpty);
+      final row = (await rows()).single;
+      expect(row.stage, OutboxStage.plain);
+      expect(row.lastError, 'RateLimitedException');
+      final shown = (await rig.sender.outgoing(_c1)).single;
+      expect(shown.status, OutgoingStatus5a.failed);
+      expect(shown.retryable, isTrue);
+      expect(shown.error, isA<RateLimitedException>());
+    });
+
     test('no new start while a first-saw generation is stored', () async {
       await refusedOnce();
       await rig.device.vault.transaction(
