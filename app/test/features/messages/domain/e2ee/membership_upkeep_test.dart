@@ -1213,6 +1213,38 @@ void main() {
       expect((await pin(bob2))!.side, MemberSide.theirs);
     });
 
+    test('an exempt M3 removal left pending under two undos is resent by its '
+        'resume, not dropped (Task 9 round P, review test gap 3)', () async {
+      const offline = NetworkException('rig: no answer');
+      final sibling = await RigPeer.create('sibling');
+      await setUpJoined(others: [sibling], ownListed: [sibling]);
+      await synced();
+      for (var i = 0; i < kAntiFlapUndosPerDay; i++) {
+        await rig.ledger.addUndone(_c1);
+      }
+      rig.clock.advance(kDeviceListReuse);
+      ownList(const []);
+      // Both calls of the exempt removal get no answer.
+      rig.server.commitScript
+        ..add((error: offline, stored: false))
+        ..add((error: offline, stored: false));
+
+      await rig.upkeep.reconcile(_c1);
+      expect(requests(), hasLength(2));
+      expect(requests().first.welcome, isNull);
+      expect((await groupRecord()).pending, isNotNull);
+
+      // The pause still holds (two undos today); the resume after the
+      // margin sends the same bytes again instead of dropping them.
+      rig.clock.advance(kRequestInFlightMargin);
+      expect(await rig.commits.resumePending(_c1), CommitOutcome.applied);
+      expect(requests(), hasLength(3));
+      expect(requests()[2].sameBytes(requests()[0]), isTrue);
+      expect((await groupRecord()).pending, isNull);
+      expect(await pin(sibling), isNull);
+      expect(rig.device.engine.calls, isNot(contains('discardCommit')));
+    });
+
     test('the M5 pause still holds a peer-side automatic removal (ruling '
         'H)', () async {
       final bob2 = await RigPeer.create('bob2');
