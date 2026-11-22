@@ -1,7 +1,12 @@
+import 'package:dzeroth/core/crypto/crypto_types.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
+import 'package:dzeroth/core/vault/secure_vault.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/commit_runner.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/conversation_crypto.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/device_directory.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/group_starter.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/removal_record.dart';
+import 'package:dzeroth/gen/dzeroth/keys/v1/keys.pb.dart' as kpb;
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../../support/e2ee_pipeline_rig.dart';
@@ -175,6 +180,93 @@ void main() {
       await runTimer();
       expect(await pin(sibling), isNull);
       expect(runner.pending.value, 0);
+    });
+  });
+
+  group('a reset in flight (fix round 4, CR2 M-5)', () {
+    Future<kpb.ClaimedKeyPackage> packageOf(RigPeer p) async =>
+        kpb.ClaimedKeyPackage(
+          deviceId: p.idString,
+          signaturePublicKey: p.key,
+          keyPackage: await p.keyPackage(),
+          hasKeyPackage_4: true,
+        );
+
+    test('a reset of g + 1 is in flight, then removeDevice, then the reset '
+        'is accepted: the device leaves g + 1', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await join(_c1, others: [sibling]);
+      await synced();
+      final starter = GroupStarter(
+        crypto: rig.crypto,
+        sender: rig.sender,
+        receiver: rig.receiver,
+        session: rig.device.session,
+        engine: rig.engineNow,
+        messaging: rig.messaging,
+        keys: rig.keys,
+        directory: rig.directory,
+        ledger: rig.ledger,
+        known: rig.known,
+        syncBudget: rig.syncBudget,
+        locks: rig.locks,
+        contexts: rig.contexts,
+        now: rig.clock.now,
+        onChanged: rig.changed.add,
+        removedElsewhere: () => rig.removedElsewhere,
+        ownUserId: () => 'user-a',
+        publicIdsOff: () => false,
+        schedule: (delay, run) => rig.scheduled.add((delay: delay, run: run)),
+        onUnexpectedError: (e, _) => rig.unexpected.add(e),
+      );
+      rig.keys.claims['ref-bob'] = () async => kpb.ClaimKeyPackagesResponse(
+        conversationId: _c1,
+        keyPackages: [await packageOf(bob)],
+      );
+      rig.keys.claims['user-a'] = () async =>
+          kpb.ClaimKeyPackagesResponse(keyPackages: [await packageOf(sibling)]);
+      // Bob's next commit cannot be processed here: a reset is offered.
+      final garbage = rigBytes('a commit no engine can process');
+      rig.device.engine.failWireAlways[RigEngine.key(garbage)] =
+          const MlsException(MlsErrorCode.badInput, 'rig');
+      rig.server.addCommit(
+        _c1,
+        rig.server.current(_c1),
+        garbage,
+        fromUser: 'user-b',
+      );
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.stuck);
+      // The user removes the sibling while the reset's commit is in flight.
+      var removed = false;
+      rig.server.onCall = (call) async {
+        if (call != 'commitConversation' || removed) return;
+        removed = true;
+        await runner.removeDevice(sibling.idString);
+      };
+
+      await starter.resetConversation(_c1);
+
+      expect(removed, isTrue);
+      final g2 = (await rig.device.vault.group(_c1, 2))!;
+      expect(g2.provisional, isFalse, reason: 'the reset was accepted');
+      final reset = rig.server.commitRequests.single;
+      expect(reset.reset, isTrue);
+      expect(reset.welcomeDeviceIds, contains(sibling.idString));
+      expect(rig.keys.removeCalls.single.deviceId, sibling.idString);
+      await runner.idle();
+      // At most one more trigger (fix round 3, F2).
+      await runner.runPass();
+      await runner.runPass();
+
+      expect(await pin(sibling), isNull, reason: 'left g + 1');
+      final removal = [
+        for (final r in rig.server.commitRequests)
+          if (!r.reset) r,
+      ];
+      expect(removal.single.builtOn.generation, 2);
+      expect(runner.pending.value, 0);
+      expect((await pin(bob))!.side, MemberSide.theirs);
     });
   });
 
