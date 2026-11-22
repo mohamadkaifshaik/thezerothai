@@ -445,8 +445,8 @@ extension _CommitSend on CommitRunner {
   /// Scheduled in the root zone: the callback must not read as holding the
   /// conversation lock this was called under.
   void _scheduleResume(String id, Duration wait, BudgetPriority priority) {
-    if (!_resumeScheduled.add(id)) return;
-    Zone.root.run(
+    if (_resumeScheduled.containsKey(id)) return;
+    _resumeScheduled[id] = Zone.root.run(
       () => _schedule(wait, () {
         _resumeScheduled.remove(id);
         unawaited(resumePending(id, priority: priority));

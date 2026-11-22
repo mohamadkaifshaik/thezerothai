@@ -1053,6 +1053,7 @@ void main() {
 
       // At its end the scheduled resume drops the commit, with no call.
       rig.clock.advance(second);
+      final ran = rig.commitScheduled.single;
       await runScheduled();
 
       expect(engineCalls('discardCommit'), 1);
@@ -1061,6 +1062,41 @@ void main() {
       expect(g.pending, isNull);
       expect(requests(), hasLength(2));
       expect(rig.commitScheduled, isEmpty);
+      // A resume that ran is no longer held: a reset has nothing to cancel.
+      rig.commits.reset();
+      expect(ran.cancelled, isFalse);
+    });
+
+    test('reset and cancelScheduled cancel a scheduled resume, and a later '
+        'one can be scheduled again', () async {
+      await setUpJoined();
+      await synced();
+      final carol = await RigPeer.create('carol');
+      rig.server.commitScript
+        ..add((error: offline, stored: false))
+        ..add((error: const FeatureDisabledException('off'), stored: false));
+      expect(
+        await rig.commits.change(
+          _c1,
+          adds: [await claim(carol, ClaimSide.theirs)],
+        ),
+        CommitOutcome.pending,
+      );
+      final first = rig.commitScheduled.single;
+      expect(first.cancelled, isFalse);
+
+      // The app is paused: the timer goes, the memory stays.
+      rig.commits.cancelScheduled();
+      expect(first.cancelled, isTrue);
+      rig.commitScheduled.clear();
+      // The next trigger inside the margin schedules the resume again.
+      expect(await rig.commits.resumePending(_c1), CommitOutcome.pending);
+      final again = rig.commitScheduled.single;
+      expect(again.cancelled, isFalse);
+
+      // Sign-out.
+      rig.commits.reset();
+      expect(again.cancelled, isTrue);
     });
 
     test('after a restart a refusal on a resend waits the margin too, then '

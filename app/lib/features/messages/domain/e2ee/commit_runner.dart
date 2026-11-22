@@ -102,10 +102,13 @@ class CommitRunner {
   /// [removedElsewhere] is Task 12's fact: this device was removed from the
   /// account on another device (it builds and sends nothing while true).
   ///
-  /// [schedule] runs a callback later (a timer in production): the one
-  /// resume after a server-chosen retry time, at most one per conversation.
-  /// It is harmless after [reset] (it only starts a resume, which reads
-  /// everything fresh).
+  /// [schedule] runs a callback later (a timer in production) and answers
+  /// a handle that cancels it: the one resume after a server-chosen retry
+  /// time or at the end of the discard margin, at most one per
+  /// conversation. [reset] (sign-out) and [cancelScheduled] (the app is
+  /// paused) call the handle, so no resume makes network calls then
+  /// (review m8; brief amendment 10). Step 9b's re-check timer uses the
+  /// same seam shape.
   CommitRunner({
     required ConversationCrypto crypto,
     required MessageReceiver receiver,
@@ -118,7 +121,7 @@ class CommitRunner {
     required DateTime Function() now,
     required void Function(String conversationId) onChanged,
     required bool Function() removedElsewhere,
-    void Function(Duration delay, void Function() run)? schedule,
+    void Function() Function(Duration delay, void Function() run)? schedule,
     void Function(Object error, StackTrace stack)? onUnexpectedError,
   }) : _crypto = crypto,
        _receiver = receiver,
@@ -131,7 +134,7 @@ class CommitRunner {
        _now = now,
        _onChanged = onChanged,
        _removedElsewhere = removedElsewhere,
-       _schedule = schedule ?? ((delay, run) => Timer(delay, run)),
+       _schedule = schedule ?? ((delay, run) => Timer(delay, run).cancel),
        _onUnexpectedError = onUnexpectedError;
 
   final ConversationCrypto _crypto;
@@ -145,7 +148,7 @@ class CommitRunner {
   final DateTime Function() _now;
   final void Function(String conversationId) _onChanged;
   final bool Function() _removedElsewhere;
-  final void Function(Duration delay, void Function() run) _schedule;
+  final void Function() Function(Duration delay, void Function() run) _schedule;
   final void Function(Object error, StackTrace stack)? _onUnexpectedError;
 
   /// The last RATE_LIMITED answer to a commit of this run (its retry time is
@@ -160,8 +163,9 @@ class CommitRunner {
   /// [kRequestInFlightMargin] after that outcome (review I2).
   final Map<String, DateTime> _notBefore = {};
 
-  /// The conversations a resume is scheduled for (one each).
-  final Set<String> _resumeScheduled = {};
+  /// The conversations a resume is scheduled for (one each), each with the
+  /// handle that cancels it. An entry goes when its callback runs.
+  final Map<String, void Function()> _resumeScheduled = {};
 
   /// The discard margin (review I1). Conversation -> the pending commit this
   /// run last dealt with there and the time its margin is counted from: the
@@ -181,11 +185,24 @@ class CommitRunner {
   /// the refused bytes again.
   final Map<String, Uint8List> _refusedResend = {};
 
-  /// Sign-out or a new vault: forgets this run's memory.
+  /// The app is paused: every scheduled resume is cancelled (no network
+  /// call while paused). Nothing else is forgotten; a paused app settles
+  /// its pending records at its next trigger, which schedules again when
+  /// it has to wait.
+  void cancelScheduled() {
+    final handles = _resumeScheduled.values.toList();
+    _resumeScheduled.clear();
+    for (final cancel in handles) {
+      cancel();
+    }
+  }
+
+  /// Sign-out or a new vault: cancels every scheduled resume and forgets
+  /// this run's memory.
   void reset() {
     lastRateLimit = null;
     _notBefore.clear();
-    _resumeScheduled.clear();
+    cancelScheduled();
     _marginStart.clear();
     _refusedResend.clear();
     _crypto.forgetOwnCommits();

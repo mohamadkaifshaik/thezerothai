@@ -1699,6 +1699,29 @@ class RigOffer {
   final MlsPair label;
 }
 
+/// One callback a pipeline part asked its `schedule` seam to run later, as
+/// a timer would hold it: bound to the zone the seam was called in (a
+/// `Timer` runs its callback there), with the cancel handle the seam
+/// answered. The rig never runs it; a test does.
+class RigScheduled {
+  RigScheduled(this.delay, void Function() run)
+    : zone = Zone.current,
+      run = Zone.current.bindCallback(run);
+
+  final Duration delay;
+
+  /// The zone the seam was called in.
+  final Zone zone;
+
+  /// The callback, run in [zone].
+  final void Function() run;
+
+  /// The handle the seam answered was called.
+  bool cancelled = false;
+
+  void cancel() => cancelled = true;
+}
+
 /// One device under test with a [ConversationCrypto] over the rig server, a
 /// scripted key directory and real budgets.
 class RigCrypto {
@@ -1745,7 +1768,7 @@ class RigCrypto {
 
   /// What the commit runner asked to run later (its `schedule` seam): never
   /// run by the rig; a test runs an entry itself.
-  final List<({Duration delay, void Function() run})> commitScheduled = [];
+  final List<RigScheduled> commitScheduled = [];
 
   /// Task 12's "removed elsewhere" fact, as the sender reads it.
   bool removedElsewhere = false;
@@ -1874,7 +1897,11 @@ class RigCrypto {
       now: clock.now,
       onChanged: changed.add,
       removedElsewhere: () => removedElsewhere,
-      schedule: (delay, run) => commitScheduled.add((delay: delay, run: run)),
+      schedule: (delay, run) {
+        final entry = RigScheduled(delay, run);
+        commitScheduled.add(entry);
+        return entry.cancel;
+      },
       onUnexpectedError: (e, _) => unexpected.add(e),
     );
   }
