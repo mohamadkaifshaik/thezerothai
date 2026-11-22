@@ -21,6 +21,9 @@ import 'message_receiver.dart';
 import 'pipeline_support.dart';
 import 'sync_budget.dart';
 
+// The margin a discard waits (below, "The discard margin").
+export 'pipeline_support.dart' show kRequestInFlightMargin;
+
 part 'commit_runner_send.dart';
 
 /// R9: a device renews its own leaf keys this long after the last renewal
@@ -151,11 +154,31 @@ class CommitRunner {
   /// The conversations a resume is scheduled for (one each).
   final Set<String> _resumeScheduled = {};
 
+  /// The discard margin (review I1). Conversation -> the pending commit this
+  /// run last dealt with there and the time its margin is counted from: the
+  /// last `CommitConversation` call of those bytes in this run, else the
+  /// moment this run first saw the record (when an earlier run last called
+  /// is not stored, and every call of an earlier run was made before that
+  /// moment). A discard that rests on "catch-up ended at the server's pair
+  /// and the record is still held" is made only [kRequestInFlightMargin]
+  /// after it: until then a call that got no answer may still be stored,
+  /// and a discarded commit the server stores later comes back as an
+  /// own-leaf answer and forces a reset (plan-own-leaf.md).
+  final Map<String, _MarginStart> _marginStart = {};
+
+  /// Conversation -> the bytes of a pending commit a call that was not the
+  /// first was refused for. The next resume drops it (once the margin has
+  /// passed and catch-up ended at the server's pair) instead of sending
+  /// the refused bytes again.
+  final Map<String, Uint8List> _refusedResend = {};
+
   /// Sign-out or a new vault: forgets this run's memory.
   void reset() {
     lastRateLimit = null;
     _notBefore.clear();
     _resumeScheduled.clear();
+    _marginStart.clear();
+    _refusedResend.clear();
   }
 
   // -------------------------------------------------------------------------
@@ -532,6 +555,15 @@ class CommitRunner {
       _onUnexpectedError?.call(E2eePipelineError(step), s);
     }
   }
+}
+
+/// A pending commit's bytes and the time its discard margin is counted from
+/// (`CommitRunner._marginStart`). No `toString`.
+class _MarginStart {
+  _MarginStart(this.commit, this.at);
+
+  final Uint8List commit;
+  final DateTime at;
 }
 
 /// Constant-time equality of two byte lists (the length is not secret).

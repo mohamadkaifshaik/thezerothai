@@ -146,6 +146,15 @@ void main() {
 
   const offline = NetworkException('rig: no answer');
 
+  /// Runs the one resume the runner scheduled, as its timer would, and
+  /// waits until that resume has left the conversation lock.
+  Future<void> runScheduled() async {
+    final entry = rig.commitScheduled.single;
+    rig.commitScheduled.clear();
+    entry.run();
+    await rig.locks.run(_c1, () async {});
+  }
+
   group('M5 in commit apply', () {
     test('a commit by another device that removes a device this device added '
         'today raises the undo count', () async {
@@ -693,10 +702,17 @@ void main() {
         }
       };
 
-      final outcome = await rig.commits.change(
-        _c1,
-        adds: [await claim(carol, ClaimSide.theirs)],
+      // Inside the margin the record stays (the first call may still be
+      // stored); after it, with one more listing, it is dropped.
+      expect(
+        await rig.commits.change(
+          _c1,
+          adds: [await claim(carol, ClaimSide.theirs)],
+        ),
+        CommitOutcome.pending,
       );
+      rig.clock.advance(kRequestInFlightMargin);
+      final outcome = await rig.commits.resumePending(_c1);
 
       expect(outcome, CommitOutcome.refused);
       expect(
@@ -709,6 +725,8 @@ void main() {
       );
       expect(discardedBeforeListing, isFalse);
       expect(engineCalls('discardCommit'), 1);
+      // The refused bytes were not sent a third time.
+      expect(requests(), hasLength(2));
       final g = await groupRecord();
       expect(g.epoch, 1);
       expect(g.pending, isNull);
@@ -815,6 +833,142 @@ void main() {
       expect(requests(), hasLength(2));
       expect(requests()[0].sameBytes(requests()[1]), isTrue);
       expect((await sync()).commitCallsToday, 2);
+    });
+  });
+
+  group('the discard margin', () {
+    const second = Duration(seconds: 1);
+
+    test('the margin is the server\'s request deadline plus the client\'s '
+        'own wait, the one the starter uses', () {
+      expect(kRequestInFlightMargin, const Duration(seconds: 60));
+    });
+
+    test('a refusal on a resend inside the margin leaves the record and '
+        'schedules one resume; after the margin it discards', () async {
+      await setUpJoined();
+      await synced();
+      final carol = await RigPeer.create('carol');
+      // The first call got no answer (it may still be stored); the resend
+      // is refused.
+      rig.server.commitScript
+        ..add((error: offline, stored: false))
+        ..add((error: const FeatureDisabledException('off'), stored: false));
+
+      expect(
+        await rig.commits.change(
+          _c1,
+          adds: [await claim(carol, ClaimSide.theirs)],
+        ),
+        CommitOutcome.pending,
+      );
+
+      expect(engineCalls('discardCommit'), 0);
+      expect((await groupRecord()).pending, isNotNull);
+      expect(rig.commitScheduled.map((s) => s.delay), [kRequestInFlightMargin]);
+      // A resume before the margin's end: no discard, no call, no second
+      // scheduled resume.
+      rig.clock.advance(kRequestInFlightMargin - second);
+      expect(await rig.commits.resumePending(_c1), CommitOutcome.pending);
+      expect(engineCalls('discardCommit'), 0);
+      expect((await groupRecord()).pending, isNotNull);
+      expect(requests(), hasLength(2));
+      expect(rig.commitScheduled, hasLength(1));
+
+      // At its end the scheduled resume drops the commit, with no call.
+      rig.clock.advance(second);
+      await runScheduled();
+
+      expect(engineCalls('discardCommit'), 1);
+      final g = await groupRecord();
+      expect(g.epoch, 1);
+      expect(g.pending, isNull);
+      expect(requests(), hasLength(2));
+      expect(rig.commitScheduled, isEmpty);
+    });
+
+    test('after a restart a refusal on a resend waits the margin too, then '
+        'discards', () async {
+      await setUpJoined();
+      await synced();
+      final carol = await RigPeer.create('carol');
+      rig.server.commitScript
+        ..add((error: offline, stored: false))
+        ..add((error: offline, stored: false));
+      expect(
+        await rig.commits.change(
+          _c1,
+          adds: [await claim(carol, ClaimSide.theirs)],
+        ),
+        CommitOutcome.pending,
+      );
+
+      await rig.restart();
+      rig.device.engine.calls.clear();
+      rig.commitScheduled.clear();
+      rig.server.commitScript.add((
+        error: const FeatureDisabledException('off'),
+        stored: false,
+      ));
+      expect(await rig.commits.resumePending(_c1), CommitOutcome.pending);
+
+      expect(requests(), hasLength(3));
+      expect(engineCalls('discardCommit'), 0);
+      expect((await groupRecord()).pending, isNotNull);
+      expect(rig.commitScheduled.map((s) => s.delay), [kRequestInFlightMargin]);
+
+      rig.clock.advance(kRequestInFlightMargin - second);
+      expect(await rig.commits.resumePending(_c1), CommitOutcome.pending);
+      expect(engineCalls('discardCommit'), 0);
+      rig.clock.advance(second);
+      expect(await rig.commits.resumePending(_c1), CommitOutcome.refused);
+
+      expect(engineCalls('discardCommit'), 1);
+      expect((await groupRecord()).pending, isNull);
+      expect(requests(), hasLength(3));
+    });
+
+    test('after a restart a record that can no longer be sent is kept for '
+        'the margin from its first sight in this run', () async {
+      await setUpJoined();
+      await synced();
+      final carol = await RigPeer.create('carol');
+      rig.server.commitScript
+        ..add((error: offline, stored: false))
+        ..add((error: offline, stored: false));
+      expect(
+        await rig.commits.change(
+          _c1,
+          adds: [await claim(carol, ClaimSide.theirs)],
+        ),
+        CommitOutcome.pending,
+      );
+
+      // A long time later, in a new run: when the earlier run last called
+      // is not stored, so this run's first sight of the record counts.
+      rig.clock.advance(const Duration(hours: 1));
+      await rig.restart();
+      rig.device.engine.calls.clear();
+      rig.commitScheduled.clear();
+      // The flag went off: the add may not be sent again.
+      await rig.device.session.onFlagChanged(E2eeFlag.off, uid: rig.device.uid);
+
+      expect(await rig.commits.resumePending(_c1), CommitOutcome.pending);
+
+      expect(requests(), hasLength(2));
+      expect(engineCalls('discardCommit'), 0);
+      expect((await groupRecord()).pending, isNotNull);
+      expect(rig.commitScheduled.map((s) => s.delay), [kRequestInFlightMargin]);
+
+      rig.clock.advance(kRequestInFlightMargin - second);
+      expect(await rig.commits.resumePending(_c1), CommitOutcome.pending);
+      expect(engineCalls('discardCommit'), 0);
+      rig.clock.advance(second);
+      expect(await rig.commits.resumePending(_c1), CommitOutcome.notAllowed);
+
+      expect(engineCalls('discardCommit'), 1);
+      expect((await groupRecord()).pending, isNull);
+      expect(requests(), hasLength(2));
     });
   });
 

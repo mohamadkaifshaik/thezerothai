@@ -34,6 +34,9 @@ extension _CommitSend on CommitRunner {
         // by the stored bytes, not by the key.
         final callKey = key ?? hexOf(await randomOf(_engine(), 16));
         key = null;
+        // The discard margin counts from this call: until it has passed,
+        // the call may still be stored whatever answer the client saw.
+        _marginStart[id] = _MarginStart(pending.commit, _now());
         final MlsPair answer;
         try {
           answer = await _messaging.commitConversation(
@@ -114,7 +117,9 @@ extension _CommitSend on CommitRunner {
   /// it. Still held: `pending`, unless [refused] (the server refused a call
   /// that was not the first) and the catch-up ended at the server's pair,
   /// which shows no commit is stored at the built-on pair: then it is
-  /// discarded (`refused`).
+  /// discarded (`refused`) once the discard margin has passed
+  /// ([_discardProven]). The refusal is remembered, so the resume that
+  /// follows the margin drops the commit instead of sending it again.
   Future<CommitOutcome> _afterCatchUp(
     PipelineOp op,
     String id,
@@ -129,12 +134,61 @@ extension _CommitSend on CommitRunner {
       _settledNow(id);
       return settled;
     }
-    if (refused && result == CatchUpResult.current) {
-      return await _discard(op, id, pending)
-          ? CommitOutcome.refused
-          : CommitOutcome.pending;
+    if (refused) {
+      _refusedResend[id] = pending.commit;
+      if (result == CatchUpResult.current) {
+        return _discardProven(
+          op,
+          id,
+          pending,
+          priority,
+          dropped: CommitOutcome.refused,
+        );
+      }
     }
     return CommitOutcome.pending;
+  }
+
+  /// A discard that rests on the catch-up proof (the caller's catch-up just
+  /// ended at the server's pair and the group still holds [pending], so no
+  /// commit is stored at its built-on pair NOW). Review I1: a call that got
+  /// no answer can still be stored after that listing, so nothing is
+  /// dropped before [kRequestInFlightMargin] has passed since the last call
+  /// of these bytes in this run, or since this run first saw the record
+  /// ([CommitRunner._marginStart]). Until then: `pending`, and one resume
+  /// is scheduled for the margin's end (it runs catch-up again, so the
+  /// proof is fresh when the discard is made). After it: the discard, and
+  /// [dropped].
+  Future<CommitOutcome> _discardProven(
+    PipelineOp op,
+    String id,
+    PendingCommit pending,
+    BudgetPriority priority, {
+    required CommitOutcome dropped,
+  }) async {
+    final left = _marginLeft(id, pending);
+    if (left != null) {
+      _scheduleResume(id, left, priority);
+      return CommitOutcome.pending;
+    }
+    return await _discard(op, id, pending) ? dropped : CommitOutcome.pending;
+  }
+
+  /// This run meets [pending]: the margin of a record it has no call time
+  /// for counts from now (a call of an earlier run was made before now).
+  void _noteSeen(String id, PendingCommit pending) {
+    final start = _marginStart[id];
+    if (start == null || !_same(start.commit, pending.commit)) {
+      _marginStart[id] = _MarginStart(pending.commit, _now());
+    }
+  }
+
+  /// What is left of [pending]'s discard margin; null once it has passed.
+  Duration? _marginLeft(String id, PendingCommit pending) {
+    _noteSeen(id, pending);
+    final end = _marginStart[id]!.at.add(kRequestInFlightMargin);
+    final now = _now();
+    return now.isBefore(end) ? end.difference(now) : null;
   }
 
   /// Null while the group still holds [pending] at its built-on pair.
@@ -174,15 +228,24 @@ extension _CommitSend on CommitRunner {
   /// live pull of the new pair is owed before the next send or commit, and
   /// no retry time is kept.
   void _settledNow(String id) {
-    _notBefore.remove(id);
+    _forgetRecord(id);
     _contexts.of(id).syncedSinceStart = false;
+  }
+
+  /// The pending record of [id] is gone (settled or discarded): what this
+  /// run remembered about it goes too.
+  void _forgetRecord(String id) {
+    _notBefore.remove(id);
+    _marginStart.remove(id);
+    _refusedResend.remove(id);
   }
 
   /// Drops [pending] in ONE `runWrite` body: the group read fresh, the
   /// engine's discard, and the group state without the pending record.
-  /// Only ever called when no call of these bytes can have been stored (the
-  /// first call was refused, or catch-up ended at the server's pair with
-  /// the record still held). False when nothing was written.
+  /// Only ever called when no call of these bytes can have been stored: the
+  /// first call was refused (no other call was made), or catch-up ended at
+  /// the server's pair with the record still held and the discard margin
+  /// has passed ([_discardProven]). False when nothing was written.
   Future<bool> _discard(PipelineOp op, String id, PendingCommit pending) async {
     try {
       final done = await _session.runWrite((v) async {
@@ -204,7 +267,7 @@ extension _CommitSend on CommitRunner {
         return true;
       });
       if (done) {
-        _notBefore.remove(id);
+        _forgetRecord(id);
         _onChanged(id);
       }
       return done;
@@ -260,6 +323,8 @@ extension _CommitSend on CommitRunner {
               pending.kind != PendingKind.selfUpdate)) {
         return CommitOutcome.notAllowed;
       }
+      // The first sight of a record an earlier run left starts its margin.
+      _noteSeen(id, pending);
       // A device removed elsewhere sends and decides nothing.
       if (_removedElsewhere()) return CommitOutcome.pending;
       final result = await _crypto.catchUpLocked(id, priority: priority);
@@ -272,6 +337,18 @@ extension _CommitSend on CommitRunner {
       // Only at the server's pair is "no commit is stored at the built-on
       // pair" known; anything else waits for the next resume.
       if (result != CatchUpResult.current) return CommitOutcome.pending;
+      // The server refused a resend of these bytes: they are not sent
+      // again; they are dropped once the margin has passed.
+      final refusedBytes = _refusedResend[id];
+      if (refusedBytes != null && _same(refusedBytes, pending.commit)) {
+        return await _discardProven(
+          op,
+          id,
+          pending,
+          priority,
+          dropped: CommitOutcome.refused,
+        );
+      }
       final notBefore = _notBefore[id];
       if (notBefore != null && _now().isBefore(notBefore)) {
         return CommitOutcome.pending;
@@ -279,11 +356,17 @@ extension _CommitSend on CommitRunner {
       if (!_usable(id)) return CommitOutcome.pending;
       // May these bytes still be sent? When not (and never again today),
       // they are dropped rather than left to hold the conversation's sends:
-      // the catch-up above showed the server does not hold them.
+      // the catch-up above showed the server does not hold them, and the
+      // margin makes sure no earlier call can still be stored.
       if (!await _maySendAgain(op.vault, id, pending) ||
           !await _countCall(op, id, pending.kind)) {
-        if (!await _discard(op, id, pending)) return CommitOutcome.pending;
-        return CommitOutcome.notAllowed;
+        return await _discardProven(
+          op,
+          id,
+          pending,
+          priority,
+          dropped: CommitOutcome.notAllowed,
+        );
       }
       return await _send(
         op,
@@ -324,9 +407,10 @@ extension _CommitSend on CommitRunner {
     return true;
   }
 
-  /// One resume of [id] at the server's retry time (at most one scheduled
-  /// per conversation). Scheduled in the root zone: the callback must not
-  /// read as holding the conversation lock this was called under.
+  /// One resume of [id] after [wait]: at the server's retry time, or at the
+  /// end of the discard margin (at most one scheduled per conversation).
+  /// Scheduled in the root zone: the callback must not read as holding the
+  /// conversation lock this was called under.
   void _scheduleResume(String id, Duration wait, BudgetPriority priority) {
     if (!_resumeScheduled.add(id)) return;
     Zone.root.run(

@@ -37,6 +37,10 @@ import 'message_receiver.dart';
 import 'pipeline_support.dart';
 import 'sync_budget.dart';
 
+// The server's request deadline moved to the shared helpers with the margin
+// built on it; it is still read through this file.
+export 'pipeline_support.dart' show kServerRequestDeadline;
+
 part 'group_starter_recovery.dart';
 part 'group_starter_restart.dart';
 part 'group_starter_start.dart';
@@ -46,23 +50,17 @@ part 'group_starter_start.dart';
 /// that.
 const Duration kProvisionalExpiry = Duration(hours: 24);
 
-/// The longest the server works on one request: the Cloud Run request
-/// timeout, `request_timeout_seconds` (30 s today) in
-/// `infra/terraform/modules/cloud-run-api/variables.tf`, the bound
-/// `backend/internal/messaging/service_sync.go` (`EpochResumeTrail`) names
-/// for a send's stamp-to-commit time. Whoever raises that timeout raises
-/// this too.
-const Duration kServerRequestDeadline = Duration(seconds: 30);
-
 /// Audit M3. How long before [kProvisionalExpiry] an init is sent no more:
-/// the server's request deadline plus the client's own wait for an answer
-/// ([kMlsRpcTimeout]). Why: at expiry the stored commits decide, and a
+/// the server's request deadline ([kServerRequestDeadline]) plus the
+/// client's own wait for an answer ([kMlsRpcTimeout]), the pipeline's one
+/// [kRequestInFlightMargin] (the commit runner waits the same time before
+/// a discard). Why: at expiry the stored commits decide, and a
 /// "not stored" there deletes the group; a request still in flight could
 /// be stored after that answer, and the server would then hold a group
 /// its creator deleted (no welcome exists for a creator). With this margin
 /// the last request left the client, and the server, before the commits
 /// are asked.
-final Duration kInitResendMargin = kServerRequestDeadline + kMlsRpcTimeout;
+final Duration kInitResendMargin = kRequestInFlightMargin;
 
 /// The `limit_name` of the two daily claim caps (KP): 20 claims per target,
 /// 300 claims in all.
