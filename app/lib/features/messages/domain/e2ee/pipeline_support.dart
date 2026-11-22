@@ -8,6 +8,7 @@ import '../../../../core/network/app_exception.dart';
 import '../../../../core/vault/secure_vault.dart';
 import '../../../../core/vault/vault_session.dart';
 import '../../../../gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
+import '../../data/messaging_repository.dart' show kMlsRpcTimeout;
 import 'sync_budget.dart' show kMaxServerRetryWait;
 
 // Stateless helpers the sender (Task 7) and the starter (Task 8) share:
@@ -17,6 +18,24 @@ import 'sync_budget.dart' show kMaxServerRetryWait;
 
 /// The longest ciphertext an outbox row holds (`VaultTx.putOutbox`).
 const int kMaxOutboxCiphertext = 8192;
+
+/// The longest the server works on one request: the Cloud Run request
+/// timeout, `request_timeout_seconds` (30 s today) in
+/// `infra/terraform/modules/cloud-run-api/variables.tf`, the bound
+/// `backend/internal/messaging/service_sync.go` (`EpochResumeTrail`) names
+/// for a send's stamp-to-commit time. Whoever raises that timeout raises
+/// this too.
+const Duration kServerRequestDeadline = Duration(seconds: 30);
+
+/// How long a request this device made may still be stored by the server:
+/// the server's request deadline plus the client's own wait for an answer
+/// ([kMlsRpcTimeout]). A decision that rests on "the server does not hold
+/// it" (the starter's "not stored" at expiry, Task 8 audit M3; the commit
+/// runner's discard after catch-up, Task 9 review I1) is made only this
+/// long after the last request that could still be in flight: a "not
+/// stored" read earlier can be followed by the store. One constant for
+/// both, so the two never drift apart.
+final Duration kRequestInFlightMargin = kServerRequestDeadline + kMlsRpcTimeout;
 
 /// The largest whole second whose microseconds stay exact on the web.
 final Int64 _maxSeconds = Int64(9007199254);

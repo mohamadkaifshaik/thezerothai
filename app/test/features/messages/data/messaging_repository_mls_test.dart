@@ -640,6 +640,139 @@ void main() {
     });
   });
 
+  group('a commit or encrypted send that outlives its client wait (Task 9 '
+      'audit M2)', () {
+    /// Whether [signal] was aborted (after the microtasks ran).
+    bool abortedIn(FakeAsync async, connect.AbortSignal signal) {
+      var aborted = false;
+      signal.future.then<void>((_) => aborted = true);
+      async.flushMicrotasks();
+      return aborted;
+    }
+
+    test('a commit call is cancelled at the timeout and tracked under its '
+        'key until it really ends, 20 s later', () {
+      fakeAsync((async) {
+        hang = Completer<Object>();
+        Object? error;
+        repo
+            .commitConversation(
+              idempotencyKey: _key,
+              conversationId: _conv,
+              builtOn: const MlsPair(1, 1),
+              commit: _b([7]),
+            )
+            .then<void>((_) {}, onError: (Object e) => error = e);
+        async.flushMicrotasks();
+        expect(repo.abandonedMlsCall(_key), isNull);
+
+        async.elapse(kMlsRpcTimeout + const Duration(seconds: 1));
+        expect(error, isA<NetworkException>());
+        final signal = transport.calledOptions.single!.signal!;
+        expect(abortedIn(async, signal), isTrue);
+        final abandoned = repo.abandonedMlsCall(_key);
+        expect(abandoned, isNotNull);
+        var ended = false;
+        abandoned!.then<void>((_) => ended = true);
+
+        async.elapse(const Duration(seconds: 19));
+        expect(ended, isFalse);
+        expect(repo.abandonedMlsCall(_key), isNotNull);
+        // The call ends 20 s after the client's timeout.
+        hang!.complete(
+          pb.CommitConversationResponse(
+            mlsGeneration: Int64(1),
+            mlsEpoch: Int64(2),
+          ),
+        );
+        async.flushMicrotasks();
+        expect(ended, isTrue);
+        expect(repo.abandonedMlsCall(_key), isNull);
+      });
+    });
+
+    test('an init send is cancelled and tracked the same way, also when it '
+        'ends with an error', () {
+      fakeAsync((async) {
+        hang = Completer<Object>();
+        Object? error;
+        repo
+            .sendEncrypted(
+              idempotencyKey: _key,
+              conversationId: _conv,
+              ciphertext: _b([1]),
+              pair: const MlsPair(1, 1),
+              reportCommitment: _b([3]),
+              mlsInit: pb.MlsInit(commit: [5]).writeToBuffer(),
+            )
+            .then<void>((_) {}, onError: (Object e) => error = e);
+        async.flushMicrotasks();
+        async.elapse(kMlsRpcTimeout + const Duration(seconds: 1));
+        expect(error, isA<NetworkException>());
+        expect(
+          abortedIn(async, transport.calledOptions.single!.signal!),
+          isTrue,
+        );
+        final abandoned = repo.abandonedMlsCall(_key);
+        expect(abandoned, isNotNull);
+        var ended = false;
+        abandoned!.then<void>((_) => ended = true);
+        hang!.completeError(
+          connect.ConnectException(connect.Code.canceled, 'canceled'),
+        );
+        async.flushMicrotasks();
+        expect(ended, isTrue);
+        expect(repo.abandonedMlsCall(_key), isNull);
+      });
+    });
+
+    test('two calls under one key that both time out are one tracked call '
+        'until the later one ends', () {
+      fakeAsync((async) {
+        final first = Completer<Object>();
+        hang = first;
+        void commit() => repo
+            .commitConversation(
+              idempotencyKey: _key,
+              conversationId: _conv,
+              builtOn: const MlsPair(1, 1),
+              commit: _b([7]),
+            )
+            .then<void>((_) {}, onError: (Object _) {});
+        commit();
+        async.flushMicrotasks();
+        async.elapse(kMlsRpcTimeout + const Duration(seconds: 1));
+        final second = Completer<Object>();
+        hang = second;
+        commit();
+        async.flushMicrotasks();
+        async.elapse(kMlsRpcTimeout + const Duration(seconds: 1));
+        var ended = false;
+        repo.abandonedMlsCall(_key)!.then<void>((_) => ended = true);
+
+        second.complete(pb.CommitConversationResponse());
+        async.flushMicrotasks();
+        expect(ended, isFalse);
+        expect(repo.abandonedMlsCall(_key), isNotNull);
+        first.complete(pb.CommitConversationResponse());
+        async.flushMicrotasks();
+        expect(ended, isTrue);
+        expect(repo.abandonedMlsCall(_key), isNull);
+      });
+    });
+
+    test('a call answered in time is never tracked', () async {
+      await repo.commitConversation(
+        idempotencyKey: _key,
+        conversationId: _conv,
+        builtOn: const MlsPair(1, 1),
+        commit: _b([7]),
+      );
+      expect(repo.abandonedMlsCall(_key), isNull);
+      expect(transport.calledOptions.single!.signal, isNotNull);
+    });
+  });
+
   test('a server error is mapped, not swallowed', () async {
     override = (p) =>
         throw connect.ConnectException(connect.Code.unavailable, 'down');

@@ -311,7 +311,8 @@ extension _Attribution on ConversationCrypto {
 
     if (known() != null) return known();
     final row = await _messaging.cachedConversation(id);
-    if (row != null) _contexts.note(row);
+    // A cached row gives the peer only: it is no sight (review m5).
+    if (row != null) _contexts.note(row, peerOnly: true);
     if (known() != null) return known();
     if (!await _takeSyncUnit(priority)) return null;
     final page = await _messaging.listMlsMessages(conversationId: id);

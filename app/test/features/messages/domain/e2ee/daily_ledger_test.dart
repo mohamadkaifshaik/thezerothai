@@ -77,6 +77,25 @@ void main() {
     onUnexpectedError: (e, _) => reported.add(e),
   );
 
+  /// This device's own change of [c], recorded as an own commit's
+  /// transaction records it: [DailyLedger.writeIn] with
+  /// [DailyRecord.withOwnChange].
+  Future<void> ownChange(
+    DailyLedger l,
+    String c, {
+    List<Uint8List> added = const [],
+    List<Uint8List> removed = const [],
+  }) => session.runWrite((v) async {
+    final current = await l.readLocked(v);
+    await v.transaction(
+      (tx) => l.writeIn(
+        tx,
+        current,
+        (r) => r.withOwnChange(c, added: added, removed: removed),
+      ),
+    );
+  });
+
   test('counts survive a new DailyLedger on the same vault', () async {
     final first = ledger();
     await first.addUndone(_conv);
@@ -428,5 +447,108 @@ void main() {
     final l = ledger();
     await session.close();
     expect(l.addUndone(_conv), throwsStateError);
+  });
+
+  group('own changes and their undos (M5)', () {
+    final a = Uint8List.fromList([1, 2, 3]);
+    final b = Uint8List.fromList([4, 5, 6]);
+
+    test('an own change records what this device added and removed '
+        'today', () async {
+      final l = ledger();
+      await ownChange(l, _conv, added: [a], removed: [b]);
+
+      final second = ledger();
+      expect(await second.isUndoOfOwnChange(_conv, a, removing: true), isTrue);
+      expect(await second.isUndoOfOwnChange(_conv, b, removing: false), isTrue);
+      // The same direction is no undo, and another conversation knows nothing.
+      expect(
+        await second.isUndoOfOwnChange(_conv, a, removing: false),
+        isFalse,
+      );
+      expect(await second.isUndoOfOwnChange(_conv, b, removing: true), isFalse);
+      expect(
+        await second.isUndoOfOwnChange('other', a, removing: true),
+        isFalse,
+      );
+    });
+
+    test('the last own change of a device is the one that counts', () async {
+      final l = ledger();
+      await ownChange(l, _conv, removed: [a]);
+      await ownChange(l, _conv, added: [a]);
+
+      expect(await l.isUndoOfOwnChange(_conv, a, removing: true), isTrue);
+      expect(await l.isUndoOfOwnChange(_conv, a, removing: false), isFalse);
+    });
+
+    test('an own change is forgotten on the next IST day', () async {
+      final l = ledger();
+      await ownChange(l, _conv, added: [a]);
+      clock = DateTime.utc(clock.year, 3, 10, 18, 31);
+      expect(await l.isUndoOfOwnChange(_conv, a, removing: true), isFalse);
+    });
+
+    test('undoesOwnChange is true when any device of the commit reverses an '
+        'own change', () async {
+      final l = ledger();
+      await ownChange(l, _conv, added: [a]);
+      final r = await l.read();
+
+      expect(r.undoesOwnChange(_conv, added: const [], removed: [a]), isTrue);
+      expect(r.undoesOwnChange(_conv, added: [b], removed: [b, a]), isTrue);
+      expect(r.undoesOwnChange(_conv, added: [a], removed: [b]), isFalse);
+      expect(
+        r.undoesOwnChange(_conv, added: const [], removed: const []),
+        isFalse,
+      );
+      expect(
+        r.undoesOwnChange('other', added: const [], removed: [a]),
+        isFalse,
+      );
+    });
+
+    test('withUndoCounted raises the count once and uses the own change '
+        'up', () async {
+      final l = ledger();
+      await ownChange(l, _conv, added: [a, b]);
+      final counted = (await l.read()).withUndoCounted(
+        _conv,
+        added: const [],
+        removed: [a],
+      );
+
+      expect(counted.undoneIn(_conv), 1);
+      // The reversed change is used up: the same removal is no second undo.
+      expect(counted.isUndoOfOwnChange(_conv, a, removing: true), isFalse);
+      // The other own change of the day still stands.
+      expect(counted.isUndoOfOwnChange(_conv, b, removing: true), isTrue);
+      // A commit that reverses nothing changes nothing.
+      final same = counted.withUndoCounted(
+        _conv,
+        added: const [],
+        removed: [a],
+      );
+      expect(same.undoneIn(_conv), 1);
+    });
+
+    test('an exhausted record: every reversal is an undo and the count reads '
+        'at its cap', () async {
+      final capped = DailyRecord.capped(istDay(clock));
+      expect(capped.undoneIn(_conv), kAntiFlapUndosPerDay);
+      expect(
+        capped.undoesOwnChange(_conv, added: [a], removed: const []),
+        isTrue,
+      );
+      expect(
+        capped.undoesOwnChange(_conv, added: const [], removed: const []),
+        isFalse,
+      );
+      // An own change noted on an exhausted record never lowers the count.
+      expect(
+        capped.withOwnChange(_conv, added: [a]).undoneIn(_conv),
+        kAntiFlapUndosPerDay,
+      );
+    });
   });
 }

@@ -166,8 +166,10 @@ void main() {
     await rig.sender.settled(_c1);
   }
 
-  /// One more trigger (a resume, a push, a poll).
-  Future<void> drain() => rig.sender.drain(_c1);
+  /// One more trigger, at user priority, as these tests were written (the
+  /// user's own send or retry). `drain`'s default is background since Task
+  /// 9 review m2; a test of an automatic trigger passes it.
+  Future<void> drain() => rig.sender.drain(_c1, priority: BudgetPriority.user);
 
   Future<ConversationSync> sync() async =>
       (await rig.device.vault.conversation(_c1))?.sync ??
@@ -778,7 +780,10 @@ void main() {
     test('success stores the message under the expected id and removes the '
         'row', () async {
       await setUpJoined();
-      // The answer's conversation row is taken (it says "cannot reply").
+      // The answer's conversation row says "cannot reply". Task 9 audit L6:
+      // a send answer is noted peer-only, so its can_reply is not taken
+      // (only a header or an inbox row of this run, or a CANNOT_MESSAGE
+      // answer, sets it).
       rig.server.beforeSend = (_) async =>
           rig.server.rows[_c1] = headerRow(canReply: false);
       rig.clock.advance(const Duration(seconds: 3));
@@ -797,7 +802,7 @@ void main() {
       expect(m.senderDeviceId, rig.device.deviceId);
       expect((m.generation, m.epoch), (1, 1));
       expect(m.createdAtMicros, rig.clock.now().microsecondsSinceEpoch);
-      expect(rig.contexts.of(_c1).canReply, isFalse);
+      expect(rig.contexts.of(_c1).canReply, isTrue);
       expect(rig.changed, contains(_c1));
     });
 
@@ -1687,7 +1692,7 @@ void main() {
       );
       await listing.future;
       // The user's send joins the running drain.
-      final user = rig.sender.drain(_c1);
+      final user = rig.sender.drain(_c1, priority: BudgetPriority.user);
       release.complete();
       await Future.wait([background, user]);
       expect(atListing, [BudgetPriority.background, BudgetPriority.user]);
@@ -1713,7 +1718,7 @@ void main() {
         await release.future;
         throw lost.error;
       };
-      final user = rig.sender.drain(_c1);
+      final user = rig.sender.drain(_c1, priority: BudgetPriority.user);
       await listing.future;
       // Two joiners: the strongest of them is what the rerun uses.
       final joined = [
@@ -1725,6 +1730,57 @@ void main() {
       await Future.wait([user, ...joined]);
       expect(atListing, [BudgetPriority.user, BudgetPriority.live]);
       expect(rig.server.sends, hasLength(1));
+    });
+  });
+
+  group('the scheduled resend\'s priority (Task 9 review m1)', () {
+    const busy = ScreeningUnavailableException(
+      'busy',
+      retryAfter: Duration(minutes: 1),
+    );
+
+    /// Runs the one scheduled resend, whose send answers STALE_EPOCH, and
+    /// answers the priority of the unit its catch-up listed commits with.
+    Future<BudgetPriority> resendPriority(_SpyBudget budget) async {
+      expect(rig.scheduled, hasLength(1));
+      final atListing = <BudgetPriority>[];
+      rig.server.onCall = (call) async {
+        if (call == 'listConversationCommits') atListing.add(budget.taken.last);
+      };
+      rig.server.sendScript.add((
+        error: const StaleEpochException('stale', generation: 1, epoch: 1),
+        stored: false,
+      ));
+      rig.clock.advance(busy.retryAfter!);
+      rig.scheduled.single.run();
+      await rig.sender.settled(_c1);
+      expect(rig.server.sends, hasLength(2));
+      expect(atListing, isNotEmpty);
+      return atListing.first;
+    }
+
+    test('a user drain\'s resend drains at live: never user (it does not '
+        'accept), never behind the background sweep', () async {
+      late _SpyBudget budget;
+      await setUpJoined(syncBudget: (clock) => budget = _SpyBudget(clock));
+      rig.server.sendScript.add((error: busy, stored: false));
+      await send('l1');
+      expect(rig.server.sends, hasLength(1));
+
+      expect(await resendPriority(budget), BudgetPriority.live);
+    });
+
+    test('a background drain\'s resend stays at background', () async {
+      late _SpyBudget budget;
+      await setUpJoined(syncBudget: (clock) => budget = _SpyBudget(clock));
+      rig.removedElsewhere = true;
+      await send('l1');
+      rig.removedElsewhere = false;
+      rig.server.sendScript.add((error: busy, stored: false));
+      await rig.sender.drain(_c1, priority: BudgetPriority.background);
+      expect(rig.server.sends, hasLength(1));
+
+      expect(await resendPriority(budget), BudgetPriority.background);
     });
   });
 

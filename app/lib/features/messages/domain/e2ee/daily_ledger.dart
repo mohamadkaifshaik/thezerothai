@@ -61,7 +61,10 @@ class DailyRecord {
   /// Conversations whose lost-send self-update ran today (R7).
   final Set<String> lostSendUpdate;
 
-  /// Device ids (hex) whose empty claim was retried today (R3).
+  /// Device ids (hex) tried today (R3): a claim that came back empty, or,
+  /// with the same daily rule (Task 9 audit M1), a claimed package the
+  /// checks dropped, or an add the engine could not build or the server
+  /// refused. None of them is claimed again before the next IST day.
   final Set<String> emptyClaim;
 
   /// True when the value stored for this day could not be read: the ledger
@@ -100,6 +103,84 @@ class DailyRecord {
     if (today == null) return false;
     final hex = vaultDeviceIdHex(deviceId);
     return removing ? today.added.contains(hex) : today.removed.contains(hex);
+  }
+
+  /// How many own changes of today were undone in [conversationId] (M5):
+  /// at least [kAntiFlapUndosPerDay] while the record is [exhausted].
+  int undoneIn(String conversationId) {
+    final n = undone[conversationId] ?? 0;
+    return exhausted && n < kAntiFlapUndosPerDay ? kAntiFlapUndosPerDay : n;
+  }
+
+  /// M5: whether a commit by ANOTHER device that added [added] and removed
+  /// [removed] in [conversationId] undoes a change this device made today,
+  /// decided per device through [isUndoOfOwnChange] (so every reversal is an
+  /// undo while the record is [exhausted]). A commit that adds and removes
+  /// nothing undoes nothing.
+  bool undoesOwnChange(
+    String conversationId, {
+    required List<Uint8List> added,
+    required List<Uint8List> removed,
+  }) =>
+      removed.any(
+        (d) => isUndoOfOwnChange(conversationId, d, removing: true),
+      ) ||
+      added.any((d) => isUndoOfOwnChange(conversationId, d, removing: false));
+
+  /// This record with the own change of [conversationId] noted: this device
+  /// added [added] and removed [removed] today. The LAST own change of a
+  /// device is the one a reversal is measured against: an id added is taken
+  /// out of the removed set, and the other way round.
+  DailyRecord withOwnChange(
+    String conversationId, {
+    List<Uint8List> added = const [],
+    List<Uint8List> removed = const [],
+  }) {
+    if (added.isEmpty && removed.isEmpty) return this;
+    final today = did[conversationId] ?? const DailyDevices();
+    final addedHex = {for (final d in added) vaultDeviceIdHex(d)};
+    final removedHex = {for (final d in removed) vaultDeviceIdHex(d)};
+    return copyWith(
+      did: {
+        ...did,
+        conversationId: DailyDevices(
+          added: {...today.added.difference(removedHex), ...addedHex},
+          removed: {...today.removed.difference(addedHex), ...removedHex},
+        ),
+      },
+    );
+  }
+
+  /// This record after a commit by ANOTHER device that added [added] and
+  /// removed [removed] in [conversationId]: when it [undoesOwnChange], the
+  /// undo count is one higher and the own changes it reversed are used up
+  /// (the same reversal seen again is no second undo; a second undo needs
+  /// this device to have made the change again). Otherwise this record.
+  DailyRecord withUndoCounted(
+    String conversationId, {
+    required List<Uint8List> added,
+    required List<Uint8List> removed,
+  }) {
+    if (!undoesOwnChange(conversationId, added: added, removed: removed)) {
+      return this;
+    }
+    final today = did[conversationId];
+    return copyWith(
+      undone: {...undone, conversationId: (undone[conversationId] ?? 0) + 1},
+      did: today == null
+          ? null
+          : {
+              ...did,
+              conversationId: DailyDevices(
+                added: today.added.difference({
+                  for (final d in removed) vaultDeviceIdHex(d),
+                }),
+                removed: today.removed.difference({
+                  for (final d in added) vaultDeviceIdHex(d),
+                }),
+              ),
+            },
+    );
   }
 
   /// The sealed JSON. [ArgumentError] for a counter outside
@@ -243,11 +324,13 @@ class DailyLedger {
   final void Function(Object error, StackTrace stack)? _onUnexpectedError;
   bool _reportedUnreadable = false;
 
-  Future<int> undone(String conversationId) async {
-    final r = await read();
-    final n = r.undone[conversationId] ?? 0;
-    return r.exhausted && n < kAntiFlapUndosPerDay ? kAntiFlapUndosPerDay : n;
-  }
+  Future<int> undone(String conversationId) async =>
+      (await read()).undoneIn(conversationId);
+
+  // M5: this device's own change is recorded only by its commit's own
+  // transaction, through [writeIn] with [DailyRecord.withOwnChange] (review
+  // m-5: no separate entry outside a commit, which a later caller could
+  // pick instead and leave the record apart from the commit).
 
   Future<void> addUndone(String conversationId) => _update(
     (r) => r.copyWith(

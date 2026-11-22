@@ -50,10 +50,17 @@ extension _Recovery on GroupStarter {
             : const _Next(_NextKind.none);
       }
       // Scheduled here, outside the lock's zone: the resend it starts must
-      // not read as holding the lock.
+      // not read as holding the lock. Review m-4 (the sender's m1 rule): a
+      // timer is no user intent, so the resend never runs at user priority
+      // (the drain after a settle could then accept a request, audit M3);
+      // a user start's resend runs at live, ahead of the background sweep,
+      // and any other keeps its priority.
       final wait = next.resendAfter;
       if (wait != null) {
-        _schedule(wait, () => unawaited(_resume(id, priority)));
+        final later = priority == BudgetPriority.user
+            ? BudgetPriority.live
+            : priority;
+        _schedule(wait, () => unawaited(_resume(id, later)));
       }
       // What follows runs after the lock was released, through the public
       // entries (each takes the conversation lock itself).
@@ -291,6 +298,9 @@ extension _Recovery on GroupStarter {
         return const _Next(_NextKind.join);
       } on AppException catch (e) {
         if (sendOutcomeUnknown(e)) {
+          // Audit M2: a call the client stopped waiting for may still
+          // leave it; the expiry waits for its end.
+          _trackInit(id, key);
           // The same request again; the group stays provisional.
           first = false;
           tries--;
@@ -356,6 +366,10 @@ extension _Recovery on GroupStarter {
   /// rate limit, a disabled feature) can follow a stored init all the
   /// same; deleting a group the server stored would lock its creator out
   /// of it, with no welcome.
+  ///
+  /// Task 9 ruling N: an earlier attempt that outlived the client's wait
+  /// and may still land makes the commits' answer "not decided"
+  /// ([_ownInitStored]): the group is kept and the row keeps its init.
   ///
   /// Null: the init is not stored (the caller goes on to discard). Else
   /// what to do instead: the group settled with the message's answer when
@@ -537,6 +551,12 @@ extension _Recovery on GroupStarter {
     bool mayRebuild,
   ) async {
     const none = _Next(_NextKind.none);
+    // Audit M2: [kInitResendMargin] assumed that the last request left the
+    // client when its call started. An init call whose client wait ran out
+    // may still leave it: while one runs nothing is asked (a "not stored"
+    // read now could be followed by the store), and after its end the
+    // margin counts from that end. The end schedules the resume.
+    if (_initMayStillLand(id)) return none;
     final own = await _ownInitStored(id, pending, priority);
     if (own == null) return none;
     if (own) {
@@ -587,12 +607,32 @@ extension _Recovery on GroupStarter {
   /// conversation has no commit, or another one first. Null: the answer
   /// does not say, or could not be had (nothing is decided on it). One
   /// `ListConversationCommits` call, with the lock held.
+  ///
+  /// Task 9 ruling N (the runner's audit M2 rule, here for every keep or
+  /// discard of the starter: a retry's refusal or STALE_EPOCH, the expiry,
+  /// the rebuild's discard and its replace). "Not stored" is answered only
+  /// when no init call of [id] that outlived the client's wait could still
+  /// land: none still runs, and [kInitResendMargin] had passed after the
+  /// last one's end when the listing STARTED (`provedAt`, review N1's rule).
+  /// Otherwise null: nothing is decided, and that call's end schedules the
+  /// resume that asks again ([_trackInit]). Why: a "not stored" read while
+  /// the request can still be stored deletes a group the server then holds,
+  /// which locks its creator out (no welcome exists for a creator). "Stored"
+  /// is kept as read: it cannot be undone by a later store.
   Future<bool?> _ownInitStored(
     String id,
     PendingCommit pending,
     BudgetPriority priority,
   ) async {
     if (!await _takeSyncUnit(priority)) return null;
+    final provedAt = _now();
+    final own = await _listOwnInit(id, pending);
+    if (own == false && _initMayStillLand(id, at: provedAt)) return null;
+    return own;
+  }
+
+  /// The one `ListConversationCommits` call of [_ownInitStored].
+  Future<bool?> _listOwnInit(String id, PendingCommit pending) async {
     bool? own;
     try {
       final page = await _messaging.listConversationCommits(
@@ -771,6 +811,52 @@ extension _Recovery on GroupStarter {
   void _forget(String localId) {
     _unknown.remove(localId);
     _notBefore.remove(localId);
+  }
+
+  /// Audit M2: the init call under [key] got no answer in the client's
+  /// wait. When it still runs (`MessagingRepository.abandonedMlsCall`), the
+  /// expiry of [id] waits for its end; once no such call runs, one resume
+  /// is scheduled for [kInitResendMargin] after the end (at background
+  /// priority: a timer is no user intent). An end after [reset] changes
+  /// nothing.
+  void _trackInit(String id, String key) {
+    final call = _messaging.abandonedMlsCall(key);
+    if (call == null) return;
+    final serial = _runSerial;
+    _initCallsOut[id] = (_initCallsOut[id] ?? 0) + 1;
+    unawaited(
+      call.then((_) {
+        if (serial != _runSerial) return;
+        final left = (_initCallsOut[id] ?? 1) - 1;
+        _initCallEndedAt[id] = _now();
+        if (left > 0) {
+          _initCallsOut[id] = left;
+          return;
+        }
+        _initCallsOut.remove(id);
+        // Outside any lock's zone: the resume takes the lock itself.
+        Zone.root.run(
+          () => _schedule(
+            kInitResendMargin,
+            () => unawaited(_resume(id, BudgetPriority.background)),
+          ),
+        );
+      }),
+    );
+  }
+
+  /// Whether an init request of [id] may still reach the server: a call
+  /// whose client wait ran out still runs, or ended less than
+  /// [kInitResendMargin] before [at] (now when not given; ruling N passes
+  /// the start of a commit listing).
+  bool _initMayStillLand(String id, {DateTime? at}) {
+    if ((_initCallsOut[id] ?? 0) > 0) return true;
+    final ended = _initCallEndedAt[id];
+    if (ended == null) return false;
+    if ((at ?? _now()).isBefore(ended.add(kInitResendMargin))) return true;
+    // [at] is never after now: the margin has passed by now as well.
+    _initCallEndedAt.remove(id);
+    return false;
   }
 }
 

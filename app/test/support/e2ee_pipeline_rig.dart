@@ -14,6 +14,7 @@ import 'package:dzeroth/core/vault/vault_session.dart';
 import 'package:dzeroth/core/vault/vault_status.dart';
 import 'package:dzeroth/features/keys/data/keys_repository.dart';
 import 'package:dzeroth/features/messages/data/messaging_repository.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/commit_runner.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_context.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_crypto.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_locks.dart';
@@ -23,6 +24,7 @@ import 'package:dzeroth/features/messages/domain/e2ee/device_directory.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/e2ee_types.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/encrypted_sender.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/known_conversations.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/membership_upkeep.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/sync_budget.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/keys/v1/keys.pb.dart' as kpb;
@@ -583,6 +585,50 @@ class RigServer {
   /// Runs while a `cachedConversationWith` read is in flight (a race).
   Future<void> Function()? onCacheRead;
 
+  /// Every `commitConversation` request, in order (a refused one too).
+  final List<RigCommitCall> commitRequests = [];
+
+  /// When not empty, the next `commitConversation` call takes its first
+  /// entry: the call throws `error`, after the commit was stored as usual
+  /// when `stored` (a lost answer), without storing anything otherwise.
+  final List<({Object error, bool stored})> commitScript = [];
+
+  /// Every `AcceptMessageRequest` call (the conversation id), a refused one
+  /// too.
+  final List<String> acceptRequests = [];
+
+  /// Thrown by every `AcceptMessageRequest` call while set. Otherwise the
+  /// call accepts: the header row of the conversation, when there is one,
+  /// moves to the inbox with state ACCEPTED (a fake that changes state on
+  /// success, brief amendment 4).
+  Object? acceptError;
+
+  /// The conversation row a `SendMessage` answer carries instead of the
+  /// header row (null: the header row).
+  pb.Conversation? sendAnswerRow;
+
+  final Map<String, Future<void>> _abandoned = {};
+
+  /// Task 9 audit M2: the call under [key] outlived the client's wait and
+  /// really ends when [ended] completes (`abandonedMlsCall` answers it until
+  /// then, as the real repository does).
+  void abandon(String key, Future<void> ended) {
+    _abandoned[key] = ended;
+    unawaited(
+      ended.then((_) {
+        if (identical(_abandoned[key], ended)) _abandoned.remove(key);
+      }),
+    );
+  }
+
+  /// The bytes of the commit stored at [pair], or null.
+  Uint8List? commitAt(String conversationId, MlsPair pair) {
+    for (final c in _commits[conversationId] ?? const <_Commit>[]) {
+      if (c.pair == pair) return c.bytes;
+    }
+    return null;
+  }
+
   /// A repository for the user [user] (its commits come back `from_self`).
   RigMessaging viewFor(String user) => RigMessaging(this, user);
 
@@ -649,6 +695,38 @@ class RigSend {
       rigEq(commitment, other.commitment) &&
       (mlsInit == null) == (other.mlsInit == null) &&
       rigEq(mlsInit ?? const [], other.mlsInit ?? const []);
+}
+
+/// One `commitConversation` request as the rig server received it.
+class RigCommitCall {
+  RigCommitCall({
+    required this.key,
+    required this.conversationId,
+    required this.builtOn,
+    required this.commit,
+    required this.welcome,
+    required this.welcomeDeviceIds,
+    required this.reset,
+  });
+
+  final String key;
+  final String conversationId;
+  final MlsPair builtOn;
+  final Uint8List commit;
+  final Uint8List? welcome;
+  final List<String> welcomeDeviceIds;
+  final bool reset;
+
+  /// The same commit, byte for byte (the key is not part of it: the server
+  /// recognises a retry by the stored bytes).
+  bool sameBytes(RigCommitCall other) =>
+      conversationId == other.conversationId &&
+      builtOn == other.builtOn &&
+      reset == other.reset &&
+      rigEq(commit, other.commit) &&
+      (welcome == null) == (other.welcome == null) &&
+      rigEq(welcome ?? const [], other.welcome ?? const []) &&
+      welcomeDeviceIds.join('|') == other.welcomeDeviceIds.join('|');
 }
 
 class _Stored {
@@ -976,13 +1054,113 @@ class RigMessaging implements MessagingRepository {
     if (scripted != null) throw scripted.error;
     return pb.SendMessageResponse(
       message: stored.deepCopy()..id = _server.sendResponseId ?? stored.id,
-      conversation: _server.rows[conversationId],
+      conversation: _server.sendAnswerRow ?? _server.rows[conversationId],
     );
+  }
+
+  /// `AcceptMessageRequest`: [RigServer.acceptError] refuses it; otherwise
+  /// the header row moves to the inbox, ACCEPTED.
+  @override
+  Future<void> acceptMessageRequest({
+    required String idempotencyKey,
+    required String conversationId,
+  }) async {
+    _server.acceptRequests.add(conversationId);
+    await _server._enter('acceptMessageRequest');
+    final error = _server.acceptError;
+    if (error != null) throw error;
+    final row = _server.rows[conversationId];
+    if (row != null) {
+      _server.rows[conversationId] = row.deepCopy()
+        ..folder = Folder.FOLDER_INBOX
+        ..state = ConversationState.CONVERSATION_STATE_ACCEPTED;
+    }
+  }
+
+  /// The contract for a commit (`backend/internal/messaging/mls.go`): a
+  /// record at [builtOn] from this user with identical bytes, on a
+  /// conversation that has left that pair, is a retry and answers the
+  /// current pair; otherwise a pair that is not the current one is
+  /// STALE_EPOCH with the current pair; otherwise the commit is stored, with
+  /// a welcome labelled [builtOn] per welcome device id, and the answer is
+  /// the pair after it. [RigServer.commitScript] replaces the answer of a
+  /// call. A reset is not implemented here.
+  @override
+  Future<MlsPair> commitConversation({
+    required String idempotencyKey,
+    required String conversationId,
+    required MlsPair builtOn,
+    required Uint8List commit,
+    Uint8List? welcome,
+    List<String> welcomeDeviceIds = const [],
+    bool reset = false,
+  }) async {
+    // Recorded first: an `onCall` hook of this call can read the request.
+    _server.commitRequests.add(
+      RigCommitCall(
+        key: idempotencyKey,
+        conversationId: conversationId,
+        builtOn: builtOn,
+        commit: Uint8List.fromList(commit),
+        welcome: welcome == null ? null : Uint8List.fromList(welcome),
+        welcomeDeviceIds: [...welcomeDeviceIds],
+        reset: reset,
+      ),
+    );
+    await _server._enter('commitConversation');
+    if (reset) throw UnimplementedError('rig: a reset commit');
+    final scripted = _server.commitScript.isEmpty
+        ? null
+        : _server.commitScript.removeAt(0);
+    if (scripted != null && !scripted.stored) throw scripted.error;
+    final current = _server.current(conversationId);
+    _Commit? record;
+    for (final c in _server._commits[conversationId] ?? const <_Commit>[]) {
+      if (c.pair == builtOn) record = c;
+    }
+    final MlsPair answer;
+    if (record != null &&
+        record.fromUser == user &&
+        rigEq(record.bytes, commit) &&
+        MlsPair.above(current, builtOn)) {
+      answer = current;
+    } else if (builtOn != current) {
+      throw StaleEpochException(
+        'stale',
+        generation: current.generation,
+        epoch: current.epoch,
+      );
+    } else {
+      _server.addCommit(
+        conversationId,
+        builtOn,
+        Uint8List.fromList(commit),
+        fromUser: user,
+      );
+      if (welcome != null) {
+        for (final device in welcomeDeviceIds) {
+          _server.addWelcome(
+            device,
+            conversationId,
+            builtOn,
+            Uint8List.fromList(welcome),
+          );
+        }
+      }
+      answer = builtOn.next;
+    }
+    if (scripted != null) throw scripted.error;
+    return answer;
   }
 
   /// RATE_LIMITED hold of the list reads (the rig's [RigServer.readHold]).
   @override
   RateLimitedException? rateLimitedFor() => _server.readHold;
+
+  /// [RigServer.abandon]'s calls.
+  @override
+  Future<void>? abandonedMlsCall(String idempotencyKey) =>
+      _server._abandoned[idempotencyKey];
 
   @override
   Future<pb.ListWelcomesResponse> listWelcomes({
@@ -1574,6 +1752,29 @@ class RigOffer {
   final MlsPair label;
 }
 
+/// One callback a pipeline part asked its `schedule` seam to run later, as
+/// a timer would hold it: bound to the zone the seam was called in (a
+/// `Timer` runs its callback there), with the cancel handle the seam
+/// answered. The rig never runs it; a test does.
+class RigScheduled {
+  RigScheduled(this.delay, void Function() run)
+    : zone = Zone.current,
+      run = Zone.current.bindCallback(run);
+
+  final Duration delay;
+
+  /// The zone the seam was called in.
+  final Zone zone;
+
+  /// The callback, run in [zone].
+  final void Function() run;
+
+  /// The handle the seam answered was called.
+  bool cancelled = false;
+
+  void cancel() => cancelled = true;
+}
+
 /// One device under test with a [ConversationCrypto] over the rig server, a
 /// scripted key directory and real budgets.
 class RigCrypto {
@@ -1611,9 +1812,47 @@ class RigCrypto {
   late EncryptedSender sender;
 
   /// Task 9's acceptance (the sender's `acceptForReplyLocked` seam): every
-  /// call is recorded in [acceptCalls]; with no script the call fails.
+  /// call is recorded in [acceptCalls] (its priority in
+  /// [acceptPriorities]); a script set here answers it; with none, the
+  /// real [upkeep] does when [realAcceptance] is set, and the call fails
+  /// otherwise.
   Future<void> Function(String conversationId)? onAcceptForReply;
   final List<String> acceptCalls = [];
+  final List<BudgetPriority> acceptPriorities = [];
+
+  /// The sender's seam calls the real `MembershipUpkeep.acceptForReplyLocked`
+  /// (Task 9) when no [onAcceptForReply] script is set.
+  bool realAcceptance = false;
+
+  /// Task 13's wiring of brief amendment 1: the contexts hand every
+  /// header's ACCEPTED to `upkeep.noteAcceptedSeen`. Off by default, so the
+  /// tests of Tasks 5-8 see no acceptance steps; read at [_wire] (set it
+  /// before a [restart], or call [watchAcceptanceNow]).
+  bool watchAcceptance = false;
+
+  /// The own user reference the upkeep claims own devices with.
+  String? ownUserId = 'user-a';
+
+  /// Membership upkeep (Task 9), over this rig's runner, crypto and
+  /// directory.
+  late MembershipUpkeep upkeep;
+
+  /// What the upkeep asked to run later (its re-check timer): never run by
+  /// the rig; a test runs an entry itself.
+  final List<RigScheduled> upkeepScheduled = [];
+
+  /// Wires [watchAcceptance] now, without a restart.
+  void watchAcceptanceNow() {
+    watchAcceptance = true;
+    contexts.onAcceptedSeen = upkeep.noteAcceptedSeen;
+  }
+
+  /// The commit runner (Task 9), over this rig's crypto, receiver and ledger.
+  late CommitRunner commits;
+
+  /// What the commit runner asked to run later (its `schedule` seam): never
+  /// run by the rig; a test runs an entry itself.
+  final List<RigScheduled> commitScheduled = [];
 
   /// Task 12's "removed elsewhere" fact, as the sender reads it.
   bool removedElsewhere = false;
@@ -1675,6 +1914,11 @@ class RigCrypto {
   Future<void> _wire() async {
     known = KnownConversations(session: device.session);
     await known.load(device.vault);
+    ledger = DailyLedger(
+      session: device.session,
+      now: clock.now,
+      onUnexpectedError: (e, _) => unexpected.add(e),
+    );
     crypto = ConversationCrypto(
       session: device.session,
       engine: () => device.engine,
@@ -1684,13 +1928,9 @@ class RigCrypto {
       locks: locks,
       contexts: contexts,
       known: known,
+      ledger: ledger,
       now: clock.now,
       onChanged: changed.add,
-      onUnexpectedError: (e, _) => unexpected.add(e),
-    );
-    ledger = DailyLedger(
-      session: device.session,
-      now: clock.now,
       onUnexpectedError: (e, _) => unexpected.add(e),
     );
     receiver = MessageReceiver(
@@ -1719,16 +1959,62 @@ class RigCrypto {
       contexts: contexts,
       now: clock.now,
       onChanged: changed.add,
-      acceptForReplyLocked: (id) async {
+      acceptForReplyLocked: (id, {required priority}) async {
         acceptCalls.add(id);
+        acceptPriorities.add(priority);
         final accept = onAcceptForReply;
-        if (accept == null) throw StateError('rig: no acceptance scripted');
-        await accept(id);
+        if (accept != null) return accept(id);
+        if (!realAcceptance) throw StateError('rig: no acceptance scripted');
+        await upkeep.acceptForReplyLocked(id, priority: priority);
       },
       removedElsewhere: () => removedElsewhere,
       schedule: (delay, run) => scheduled.add((delay: delay, run: run)),
       onUnexpectedError: (e, _) => unexpected.add(e),
     );
+    commits = CommitRunner(
+      crypto: crypto,
+      receiver: receiver,
+      session: device.session,
+      engine: () => device.engine,
+      messaging: messaging,
+      ledger: ledger,
+      locks: locks,
+      contexts: contexts,
+      now: clock.now,
+      onChanged: changed.add,
+      removedElsewhere: () => removedElsewhere,
+      schedule: (delay, run) {
+        final entry = RigScheduled(delay, run);
+        commitScheduled.add(entry);
+        return entry.cancel;
+      },
+      onUnexpectedError: (e, _) => unexpected.add(e),
+    );
+    upkeep = MembershipUpkeep(
+      commits: commits,
+      receiver: receiver,
+      ledger: ledger,
+      crypto: crypto,
+      session: device.session,
+      engine: () => device.engine,
+      messaging: messaging,
+      keys: keys,
+      directory: directory,
+      known: known,
+      locks: locks,
+      contexts: contexts,
+      now: clock.now,
+      onChanged: changed.add,
+      ownUserId: () => ownUserId,
+      removedElsewhere: () => removedElsewhere,
+      schedule: (delay, run) {
+        final entry = RigScheduled(delay, run);
+        upkeepScheduled.add(entry);
+        return entry.cancel;
+      },
+      onUnexpectedError: (e, _) => unexpected.add(e),
+    );
+    contexts.onAcceptedSeen = watchAcceptance ? upkeep.noteAcceptedSeen : null;
   }
 
   /// An app restart: the vault file is opened again; memory starts again.
