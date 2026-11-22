@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:dzeroth/core/crypto/crypto_types.dart';
@@ -566,7 +567,10 @@ void main() {
       expect(st.phase, ConversationPhase.ready);
       expect(st.canReset, isFalse);
       // The key history keeps bob, never shrinks.
-      expect((await rig.keyHistoryIds(_c1)).keys, contains(isNotEmpty));
+      expect(
+        (await rig.keyHistoryIds(_c1))[vaultDeviceIdHex(bob.id)],
+        base64Encode(bob.key),
+      );
     });
 
     test('an unchanged peer key set gives the reset line only; a new peer '
