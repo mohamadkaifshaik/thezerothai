@@ -228,7 +228,45 @@ extension _CommitApply on ConversationCrypto {
         if (event != null && event.selfRemoved) {
           // This device was removed: groups and pins go; the pins are kept
           // as former pins (H2) and the rejoin is compared with them.
+          //
+          // Task 10 review I-1: except this device's own provisional RESET
+          // of a higher generation (with its stage-encrypted rows, which
+          // this branch never touches). The server checks only a reset's
+          // generation, so it may hold that reset (or a call of it may
+          // still land) although this device was removed in g: deleting it
+          // here would leave the server at g + 1 with this device's leaf
+          // and this device without g + 1's state, every message of g + 1
+          // lost for 24 h. The reset's own settle or discard decides (the
+          // starter's record rules); a settle reads the former pins kept
+          // here, so a member kept from g gets no `deviceAdded` row.
+          //
+          // Review N-1: the kept reset is marked in the vault
+          // (`keptAfterSelfRemoval`), and no call of it is ever made again:
+          // a resend would put this device, removed in g, back into g + 1.
+          // Only the server's record decides it (ours settles; another
+          // record or nothing stored drops it after the margin).
           for (final group in groups) {
+            final pending = group.pending;
+            if (group.provisional &&
+                group.generation > at.generation &&
+                pending != null &&
+                pending.kind == PendingKind.reset) {
+              if (!pending.keptAfterSelfRemoval) {
+                await tx.putGroup(
+                  GroupRecord(
+                    conversationId: group.conversationId,
+                    generation: group.generation,
+                    epoch: group.epoch,
+                    state: group.state,
+                    pending: pending.keptBySelfRemoval(),
+                    provisional: true,
+                    provisionalCreatedAtMicros:
+                        group.provisionalCreatedAtMicros,
+                  ),
+                );
+              }
+              continue;
+            }
             await tx.deleteGroup(id, group.generation);
           }
           for (final p in pins) {

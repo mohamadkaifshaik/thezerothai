@@ -35,6 +35,7 @@ part 'conversation_catch_up.dart';
 part 'conversation_commit_apply.dart';
 part 'conversation_join.dart';
 part 'conversation_provisional.dart';
+part 'conversation_reset.dart';
 part 'conversation_welcomes.dart';
 
 /// Vault setting: welcome clock-skew retries (security read L1). Sealed
@@ -140,6 +141,11 @@ class ConversationCrypto {
   /// [ledger] is the pipeline's one [DailyLedger] (M5): commit apply counts
   /// an undo of an own change in it and records an own commit's change.
   /// Required, so that no wiring can leave the anti-flap rule out.
+  ///
+  /// [removedElsewhere] is Task 12's fact (this device was removed from the
+  /// conversation set elsewhere), read by `describeState`: no reset is
+  /// offered while it holds (Task 10 audit M2 / L5). Required for the same
+  /// reason as [ledger]; Task 12 wires it.
   ConversationCrypto({
     required VaultSession session,
     required CryptoEngine Function() engine,
@@ -152,6 +158,7 @@ class ConversationCrypto {
     required DailyLedger ledger,
     required DateTime Function() now,
     required void Function(String conversationId) onChanged,
+    required bool Function() removedElsewhere,
     void Function(Object error, StackTrace stack)? onUnexpectedError,
   }) : _session = session,
        _engine = engine,
@@ -166,6 +173,7 @@ class ConversationCrypto {
        _keyHistory = DeviceKeyHistory(onUnexpectedError: onUnexpectedError),
        _now = now,
        _onChanged = onChanged,
+       _removedElsewhere = removedElsewhere,
        _onUnexpectedError = onUnexpectedError;
 
   final VaultSession _session;
@@ -181,10 +189,19 @@ class ConversationCrypto {
   final DeviceKeyHistory _keyHistory;
   final DateTime Function() _now;
   final void Function(String conversationId) _onChanged;
+  final bool Function() _removedElsewhere;
   final void Function(Object error, StackTrace stack)? _onUnexpectedError;
 
   /// Set by Task 6.
   EpochMessageSink? sink;
+
+  /// Task 10 audit L6, set by the `GroupStarter`: called with a
+  /// conversation id once the join path ended this device's own
+  /// provisional RESET there (settled it, or discarded it), so the starter
+  /// forgets what it remembers for that reset (its lists, its call
+  /// memory). Memory only; called after the transaction, with the
+  /// conversation lock held.
+  void Function(String conversationId)? onOwnResetEnded;
 
   /// Conversation -> the pair of the last commit of THIS device that this
   /// run confirmed (by its bytes, in catch-up or in
@@ -212,6 +229,10 @@ class ConversationCrypto {
   /// resume, a catch-up of any caller that meets it by its bytes). After a
   /// restart it is not known and the adds are pinned unattributed.
   final Map<String, _OwnAdds> _ownAdds = {};
+
+  /// Conversation -> what the settle of this device's own reset decided
+  /// for memory, between its transaction and `_afterOwnInit` (Task 10).
+  final Map<String, _ResetSettled> _resetSettled = {};
 
   /// Task 9, for the commit runner: the pending commit it just built on
   /// [builtOn] adds the devices behind [adds] (claimed and checked, R3).
@@ -391,14 +412,29 @@ class ConversationCrypto {
   /// acceptance steps (review F4; see `_settleOwnInitIn`). A lower
   /// generation not walked to its end is walked by
   /// one locked catch-up first. Never throws (asserts the lock is held).
+  ///
+  /// Task 10: for a provisional RESET (its pending commit's kind) the same
+  /// entry is the reset's success function; [ownList] and [peerList] are
+  /// the reset's own fresh lists when this run made it (members of the new
+  /// generation not pinned at the end of the old one are attributed from
+  /// them, `attributeAfterReset`), null after a restart.
   Future<InitSettle> settleOwnInitLocked(
     String id,
     int generation, {
     InitDelivered? delivered,
     BudgetPriority priority = BudgetPriority.background,
+    DeviceList? ownList,
+    DeviceList? peerList,
   }) {
     assert(_locks.isHeld(id), 'The caller must hold the conversation lock.');
-    return _settleOwnInitLocked(id, generation, delivered, priority);
+    return _settleOwnInitLocked(
+      id,
+      generation,
+      delivered,
+      priority,
+      ownList: ownList,
+      peerList: peerList,
+    );
   }
 
   /// The ONE discard of a provisional group, for a caller that HOLDS [id]'s
@@ -569,6 +605,36 @@ class ConversationCrypto {
     } on Object catch (e, s) {
       _reportIfBug(e, s, 'describeState');
     }
+    // Task 10, R12, the plan's "who may reset, and when": the flag is on
+    // (a flag-off device never resets: it stays stuck and says so here),
+    // the conversation is accepted, and one of: catch-up answered `stuck`;
+    // waiting for a welcome for at least [kResetWaitWithoutWelcome] since
+    // the first sighting of that generation (never earlier; a device that
+    // recorded no sighting has no time to count from and waits); M5's
+    // pause (`committingPausedToday`, the anti-flap offer). Decision: never
+    // while a provisional group is stored (a reset or a start in progress:
+    // a second reset would race the first, whose call may still land),
+    // whatever the remembered stuck answer says. Audit M2 / L5: never while
+    // this device is removed elsewhere (Task 12's seam: a removed device
+    // must not reset itself back in) or the engine is unavailable (the
+    // reset could not be built, and an automatic one would count an
+    // attempt that cannot run).
+    final resetAt =
+        phase == ConversationPhase.waitingForWelcome && seenAt != null
+        ? DateTime.fromMicrosecondsSinceEpoch(
+            seenAt,
+            isUtc: true,
+          ).add(kResetWaitWithoutWelcome)
+        : null;
+    final canReset =
+        _session.mayStart &&
+        !_removedElsewhere() &&
+        !engineDown &&
+        accepted &&
+        !groups.any((x) => x.provisional) &&
+        (phase == ConversationPhase.stuck ||
+            (resetAt != null && !now.isBefore(resetAt)) ||
+            (committingPaused && phase != ConversationPhase.notEncrypted));
     return ConversationCryptoState(
       phase: phase,
       sendBlock: block,
@@ -580,15 +646,8 @@ class ConversationCrypto {
       unattributedPresent: unattributed,
       myDeviceCount: pins.where((p) => p.side == MemberSide.mine).length,
       theirDeviceCount: pins.where((p) => p.side == MemberSide.theirs).length,
-      // Task 10 owns this.
-      canReset: false,
-      resetAllowedAt:
-          phase == ConversationPhase.waitingForWelcome && seenAt != null
-          ? DateTime.fromMicrosecondsSinceEpoch(
-              seenAt,
-              isUtc: true,
-            ).add(kResetWaitWithoutWelcome)
-          : null,
+      canReset: canReset,
+      resetAllowedAt: resetAt,
       keyHistoryClosed: keyHistoryClosed,
       mayAllowMoreDevices: mayAllowMoreDevices,
     );

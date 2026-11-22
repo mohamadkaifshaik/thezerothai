@@ -46,13 +46,31 @@ import 'fake_vault_world.dart';
 // with FakeVaultCipher, a FakeCryptoEngine and a VaultSession built from
 // FakeVaultWorld's parts.
 
-/// A fixed, injectable clock.
+/// A fixed, injectable clock. With no [start] it begins at [rigMidIstDay],
+/// so no test can fail because its run started close before an IST midnight
+/// (the pipeline counts calls and claims by IST day, and many tests move the
+/// clock by minutes or hours). Nothing under lib/features/messages/domain/e2ee
+/// reads the real clock, so the shifted start moves no other time.
 class RigClock {
-  RigClock([DateTime? start]) : value = start ?? DateTime.now().toUtc();
+  RigClock([DateTime? start]) : value = start ?? rigMidIstDay();
 
   DateTime value;
   DateTime now() => value;
   void advance(Duration d) => value = value.add(d);
+}
+
+/// A start for a [RigClock] well inside one IST day: 06:00 UTC of the real
+/// clock's UTC day, which is 11:30 IST, eleven and a half hours after the IST
+/// day began (18:30 UTC the evening before) and twelve and a half before it
+/// ends. A test that moves the clock by up to a few hours and expects the
+/// same IST day (a daily ledger fact) starts here; from the real time it
+/// fails when a run starts that close before 18:30 UTC. Built from the real
+/// date, not a fixed one (test/guards/fixed_date_guard_test.dart): the start
+/// stays within a day of the real clock, so nothing that reads the real
+/// clock is moved.
+DateTime rigMidIstDay() {
+  final now = DateTime.now().toUtc();
+  return DateTime.utc(now.year, now.month, now.day, 6);
 }
 
 Uint8List rigBytes(String s) => Uint8List.fromList(utf8.encode(s));
@@ -148,10 +166,16 @@ class RigEngine implements CryptoEngine {
   }
 
   @override
-  Future<KeyPackageInfo> inspectKeyPackage(Uint8List keyPackage) {
+  Future<KeyPackageInfo> inspectKeyPackage(Uint8List keyPackage) async {
     _enter('inspectKeyPackage');
-    return inner.inspectKeyPackage(keyPackage);
+    final real = await inner.inspectKeyPackage(keyPackage);
+    return rewriteInspect?.call(keyPackage, real) ?? real;
   }
+
+  /// Rewrites what `inspectKeyPackage` reads from a package (a package
+  /// that names another device id or key than the engine built it for).
+  KeyPackageInfo? Function(Uint8List keyPackage, KeyPackageInfo real)?
+  rewriteInspect;
 
   @override
   Future<Uint8List> createGroup(Uint8List deviceState, Uint8List groupId) {
@@ -593,6 +617,20 @@ class RigServer {
   /// when `stored` (a lost answer), without storing anything otherwise.
   final List<({Object error, bool stored})> commitScript = [];
 
+  /// The server's two `CommitConversation` caps (`commitCaps` in
+  /// `backend/internal/messaging/service_sync.go`): calls per (user,
+  /// conversation) per day, and reset calls per user per day across every
+  /// conversation. Null: no cap (the draws are still counted).
+  int? commitCapPerConversation;
+  int? resetCapPerUser;
+
+  /// The units drawn from those caps: `'user|conversation'` -> calls, and
+  /// user -> reset calls. As the real server (`service_mls.go`: `commitCaps`
+  /// runs before `Repo.Commit`), every call that reaches the caps draws,
+  /// a recognised retry too, and a refused draw counts nothing.
+  final Map<String, int> commitDraws = {};
+  final Map<String, int> resetDraws = {};
+
   /// Every `AcceptMessageRequest` call (the conversation id), a refused one
   /// too.
   final List<String> acceptRequests = [];
@@ -635,6 +673,36 @@ class RigServer {
   Future<void> _enter(String call) async {
     calls.add(call);
     await onCall?.call(call);
+  }
+
+  /// `commitCaps`: the per-(user, conversation) cap first, then the reset
+  /// cap for a reset; each `DailyCap.Allow` counts only when it allows, so
+  /// a reset refused by its own cap has still drawn the first one.
+  void _drawCommitCaps(
+    String user,
+    String conversationId, {
+    required bool reset,
+  }) {
+    final key = '$user|$conversationId';
+    final calls = commitDraws[key] ?? 0;
+    final convCap = commitCapPerConversation;
+    if (convCap != null && calls >= convCap) {
+      throw const RateLimitedException(
+        'rig: commit cap',
+        limitName: 'messages_commits_per_conversation_daily',
+      );
+    }
+    commitDraws[key] = calls + 1;
+    if (!reset) return;
+    final resets = resetDraws[user] ?? 0;
+    final resetCap = resetCapPerUser;
+    if (resetCap != null && resets >= resetCap) {
+      throw const RateLimitedException(
+        'rig: reset cap',
+        limitName: 'messages_resets_daily',
+      );
+    }
+    resetDraws[user] = resets + 1;
   }
 }
 
@@ -1084,7 +1152,10 @@ class RigMessaging implements MessagingRepository {
   /// STALE_EPOCH with the current pair; otherwise the commit is stored, with
   /// a welcome labelled [builtOn] per welcome device id, and the answer is
   /// the pair after it. [RigServer.commitScript] replaces the answer of a
-  /// call. A reset is not implemented here.
+  /// call. Every call that is not a scripted unstored answer first draws the
+  /// server's caps ([RigServer.commitDraws], [RigServer.resetDraws]), a
+  /// recognised retry too. A reset names only the generation: its record (and its
+  /// welcomes) is at (g + 1, 0), its answer (g + 1, 1).
   @override
   Future<MlsPair> commitConversation({
     required String idempotencyKey,
@@ -1108,23 +1179,34 @@ class RigMessaging implements MessagingRepository {
       ),
     );
     await _server._enter('commitConversation');
-    if (reset) throw UnimplementedError('rig: a reset commit');
     final scripted = _server.commitScript.isEmpty
         ? null
         : _server.commitScript.removeAt(0);
     if (scripted != null && !scripted.stored) throw scripted.error;
+    // The caps, drawn before any read and so before retry recognition
+    // (`commitCaps`): a recognised retry spends them too. A scripted
+    // unstored answer above stands for a call that never got this far (or
+    // whose refusal the test names itself).
+    _server._drawCommitCaps(user, conversationId, reset: reset);
     final current = _server.current(conversationId);
+    // A reset of generation g (Task 10) names g with any epoch, stores its
+    // record at (g + 1, 0) with welcomes labelled so, and answers
+    // (g + 1, 1); the server's `commitRecordPair` / `commitNextPair`.
+    final at = reset ? MlsPair(builtOn.generation + 1, 0) : builtOn;
+    final stale = reset
+        ? builtOn.generation != current.generation
+        : builtOn != current;
     _Commit? record;
     for (final c in _server._commits[conversationId] ?? const <_Commit>[]) {
-      if (c.pair == builtOn) record = c;
+      if (c.pair == at) record = c;
     }
     final MlsPair answer;
     if (record != null &&
         record.fromUser == user &&
         rigEq(record.bytes, commit) &&
-        MlsPair.above(current, builtOn)) {
+        MlsPair.above(current, at)) {
       answer = current;
-    } else if (builtOn != current) {
+    } else if (stale) {
       throw StaleEpochException(
         'stale',
         generation: current.generation,
@@ -1133,7 +1215,7 @@ class RigMessaging implements MessagingRepository {
     } else {
       _server.addCommit(
         conversationId,
-        builtOn,
+        at,
         Uint8List.fromList(commit),
         fromUser: user,
       );
@@ -1142,12 +1224,12 @@ class RigMessaging implements MessagingRepository {
           _server.addWelcome(
             device,
             conversationId,
-            builtOn,
+            at,
             Uint8List.fromList(welcome),
           );
         }
       }
-      answer = builtOn.next;
+      answer = at.next;
     }
     if (scripted != null) throw scripted.error;
     return answer;
@@ -1857,6 +1939,14 @@ class RigCrypto {
   /// Task 12's "removed elsewhere" fact, as the sender reads it.
   bool removedElsewhere = false;
 
+  /// The engine every component of this rig is handed instead of the
+  /// device's (a guarded engine that answers `unavailable`, say); null: the
+  /// device's [RigDevice.engine].
+  CryptoEngine? engineOverride;
+
+  /// The engine the components ask for now.
+  CryptoEngine engineNow() => engineOverride ?? device.engine;
+
   /// What the sender asked to run later (its `schedule` seam): never run by
   /// the rig; a test runs an entry itself.
   final List<({Duration delay, void Function() run})> scheduled = [];
@@ -1864,15 +1954,19 @@ class RigCrypto {
   /// [messaging] replaces the repository view of user `user-a`; [locks]
   /// the first run's conversation locks (a test that watches them);
   /// [engine] the device's engine; [syncBudget] the sync budget (a test
-  /// that watches the units taken).
+  /// that watches the units taken); [start] the clock's first value (the
+  /// real time when null; a test that moves the clock within one IST day
+  /// and expects the same day pins a start well inside one, see
+  /// [rigMidIstDay]).
   static Future<RigCrypto> create({
     RigMessaging Function(RigServer server)? messaging,
     int epochPageSize = kEpochPageSize,
     ConversationLocks? locks,
     RigEngine? engine,
     SyncBudget Function(RigClock clock)? syncBudget,
+    DateTime? start,
   }) async {
-    final clock = RigClock();
+    final clock = RigClock(start);
     final rig = RigCrypto._(
       Directory.systemTemp.createTempSync('e2ee_crypto'),
       clock,
@@ -1921,7 +2015,7 @@ class RigCrypto {
     );
     crypto = ConversationCrypto(
       session: device.session,
-      engine: () => device.engine,
+      engine: engineNow,
       messaging: messaging,
       directory: directory,
       syncBudget: syncBudget,
@@ -1931,12 +2025,13 @@ class RigCrypto {
       ledger: ledger,
       now: clock.now,
       onChanged: changed.add,
+      removedElsewhere: () => removedElsewhere,
       onUnexpectedError: (e, _) => unexpected.add(e),
     );
     receiver = MessageReceiver(
       crypto: crypto,
       session: device.session,
-      engine: () => device.engine,
+      engine: engineNow,
       messaging: messaging,
       syncBudget: syncBudget,
       readBudget: readBudget,
@@ -1953,7 +2048,7 @@ class RigCrypto {
       crypto: crypto,
       receiver: receiver,
       session: device.session,
-      engine: () => device.engine,
+      engine: engineNow,
       messaging: messaging,
       locks: locks,
       contexts: contexts,
@@ -1975,7 +2070,7 @@ class RigCrypto {
       crypto: crypto,
       receiver: receiver,
       session: device.session,
-      engine: () => device.engine,
+      engine: engineNow,
       messaging: messaging,
       ledger: ledger,
       locks: locks,
@@ -1996,7 +2091,7 @@ class RigCrypto {
       ledger: ledger,
       crypto: crypto,
       session: device.session,
-      engine: () => device.engine,
+      engine: engineNow,
       messaging: messaging,
       keys: keys,
       directory: directory,

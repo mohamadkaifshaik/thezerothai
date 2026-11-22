@@ -3509,6 +3509,12 @@ void main() {
     test('an own-init settle deletes a lower generation that was walked and '
         'kept', () async {
       final v = rig.device.vault;
+      // Task 10: a reset's settle reads the new group's members, so the
+      // provisional state is a real one (this device alone).
+      final provisionalState = await rig.device.engine.inner.createGroup(
+        (await v.deviceState())!,
+        mlsGroupId(_c1, 2),
+      );
       Future<void> seed(String id, {required bool walked}) => v.transaction((
         tx,
       ) async {
@@ -3532,7 +3538,7 @@ void main() {
             conversationId: id,
             generation: 2,
             epoch: 1,
-            state: rigBytes('a provisional state'),
+            state: provisionalState,
             provisional: true,
             provisionalCreatedAtMicros: rig.clock.now().microsecondsSinceEpoch,
             pending: PendingCommit(
@@ -3544,6 +3550,9 @@ void main() {
         );
       });
       await seed(_c1, walked: true);
+      // As the reset's creating transaction leaves it (Task 10): the key
+      // history is written with the provisional group.
+      await rig.putKeyHistory(_c1);
 
       final settled = await rig.locks.run(
         _c1,
@@ -3565,13 +3574,18 @@ void main() {
         await joined(_c1, bob);
         final v = rig.device.vault;
         final reset = rigBytes('this device reset');
+        // Task 10: a reset's settle reads the new group's members.
+        final provisionalState = await rig.device.engine.inner.createGroup(
+          (await v.deviceState())!,
+          mlsGroupId(_c1, 2),
+        );
         await v.transaction(
           (tx) => tx.putGroup(
             GroupRecord(
               conversationId: _c1,
               generation: 2,
               epoch: 1,
-              state: rigBytes('a provisional state'),
+              state: provisionalState,
               provisional: true,
               provisionalCreatedAtMicros: rig.clock
                   .now()

@@ -10,6 +10,7 @@ import '../../../../core/network/app_exception.dart';
 import '../../../../core/vault/secure_vault.dart';
 import '../../../../core/vault/vault_session.dart';
 import '../../data/messaging_repository.dart';
+import 'commit_call_tracker.dart';
 import 'conversation_context.dart';
 import 'conversation_crypto.dart';
 import 'conversation_locks.dart';
@@ -23,6 +24,9 @@ import 'sync_budget.dart';
 
 // The margin a discard waits (below, "The discard margin").
 export 'pipeline_support.dart' show kRequestInFlightMargin;
+// The cap on a server retry time; it moved with the call rules the reset
+// shares (Task 10 amendment 1) and is still read through this file.
+export 'commit_call_tracker.dart' show kCommitRetryWaitMax;
 
 part 'commit_runner_send.dart';
 
@@ -39,14 +43,6 @@ const int kSelfUpdateMaxCommitCallsToday = 10;
 /// conversation per day (`messages_commits_per_conversation_daily`, MP): the
 /// client stops one call short of the server's refusal.
 const int kCommitCallsPerConversationPerDay = 20;
-
-/// The longest a server-chosen retry time holds a pending commit (review
-/// m9, ruling R3). `retryAfterOf` allows a day (`kMaxServerRetryWait`),
-/// which is right for one outbox row; a pending commit holds every send of
-/// its conversation, so a hostile or broken retry time must not hold them
-/// for a day. After [kRequestInFlightMargin] the catch-up proof decides
-/// anyway. Cost: a few more counted calls, bounded by the daily cap.
-const Duration kCommitRetryWaitMax = Duration(minutes: 5);
 
 /// What became of one commit of this device.
 ///
@@ -146,7 +142,8 @@ class CommitRunner {
        _onChanged = onChanged,
        _removedElsewhere = removedElsewhere,
        _schedule = schedule ?? ((delay, run) => Timer(delay, run).cancel),
-       _onUnexpectedError = onUnexpectedError;
+       _onUnexpectedError = onUnexpectedError,
+       _calls = CommitCallTracker(messaging: messaging, now: now);
 
   final ConversationCrypto _crypto;
   final MessageReceiver _receiver;
@@ -183,10 +180,27 @@ class CommitRunner {
   // Memory of this run. Nothing here is a fact a write relies on: after a
   // restart a pending commit is only resent sooner.
 
-  /// Conversation -> no resume makes a commit call before this time: the
-  /// server's retry time of an unknown outcome, or, when it named none,
-  /// [kRequestInFlightMargin] after that outcome (review I2).
-  final Map<String, DateTime> _notBefore = {};
+  /// The call rules of every pending record (Task 10 amendment 1: the
+  /// reset follows the same ones, [CommitCallTracker]):
+  ///
+  /// - no resume makes a commit call before the server's retry time of an
+  ///   unknown outcome, or, when it named none, [kRequestInFlightMargin]
+  ///   after that outcome (review I2);
+  /// - the discard margin (review I1): a discard that rests on "catch-up
+  ///   ended at the server's pair and the record is still held" is made
+  ///   only [kRequestInFlightMargin] after the last call of those bytes in
+  ///   this run, else after the moment this run first saw the record (when
+  ///   an earlier run last called is not stored, and every call of an
+  ///   earlier run was made before that moment): until then a call that got
+  ///   no answer may still be stored, and a discarded commit the server
+  ///   stores later comes back as an own-leaf answer and forces a reset
+  ///   (plan-own-leaf.md);
+  /// - audit M2: a call whose client wait ran out may not have left the
+  ///   client yet (`MessagingRepository.abandonedMlsCall`). While one runs,
+  ///   no discard is made and nothing is scheduled; when it ends, the
+  ///   margin counts from that end and one resume is scheduled for the
+  ///   margin's end.
+  final CommitCallTracker _calls;
 
   /// Read-only: the time before which no resume of [conversationId]'s
   /// pending commit makes a call (the server's retry time of its last
@@ -194,29 +208,11 @@ class CommitRunner {
   /// this run holds none. The upkeep's re-check of a change left `pending`
   /// is due then (review I-A).
   DateTime? resendNotBefore(String conversationId) =>
-      _notBefore[conversationId];
+      _calls.notBefore(conversationId);
 
   /// The conversations a resume is scheduled for (one each), each with the
   /// handle that cancels it. An entry goes when its callback runs.
   final Map<String, void Function()> _resumeScheduled = {};
-
-  /// The discard margin (review I1). Conversation -> the pending commit this
-  /// run last dealt with there and the time its margin is counted from: the
-  /// last `CommitConversation` call of those bytes in this run, else the
-  /// moment this run first saw the record (when an earlier run last called
-  /// is not stored, and every call of an earlier run was made before that
-  /// moment). A discard that rests on "catch-up ended at the server's pair
-  /// and the record is still held" is made only [kRequestInFlightMargin]
-  /// after it: until then a call that got no answer may still be stored,
-  /// and a discarded commit the server stores later comes back as an
-  /// own-leaf answer and forces a reset (plan-own-leaf.md).
-  ///
-  /// Audit M2: a call whose client wait ran out may not have left the
-  /// client yet (`MessagingRepository.abandonedMlsCall`). While one runs,
-  /// no discard is made and nothing is scheduled; when it ends, the margin
-  /// counts from that end and one resume is scheduled for the margin's
-  /// end.
-  final Map<String, _MarginStart> _marginStart = {};
 
   /// Conversation -> the bytes of a pending commit a call that was not the
   /// first was refused for. The next resume drops it (once the margin has
@@ -260,9 +256,8 @@ class CommitRunner {
   void reset() {
     lastRateLimit = null;
     _rateLimitIn.clear();
-    _notBefore.clear();
     cancelScheduled();
-    _marginStart.clear();
+    _calls.clear();
     _refusedResend.clear();
     _unbuildable.clear();
     _pauseExempt.clear();
@@ -368,8 +363,7 @@ class CommitRunner {
       : kCommitCallsPerConversationPerDay;
 
   /// The commit calls made today (the server's day, IST).
-  int _callsToday(ConversationSync sync) =>
-      sync.commitCallsDay == istDay(_now()) ? sync.commitCallsToday : 0;
+  int _callsToday(ConversationSync sync) => commitCallsToday(sync, _now());
 
   // -------------------------------------------------------------------------
   // The public entries
@@ -706,20 +700,6 @@ class CommitRunner {
 /// What counting one more commit call ended with
 /// (`_CommitSend._countCall`).
 enum _Count { counted, atCap, failed }
-
-/// A pending commit's bytes and the time its discard margin is counted from
-/// (`CommitRunner._marginStart`): the latest of its calls' starts and of
-/// the ends of its calls that outlived the client's wait. No `toString`.
-class _MarginStart {
-  _MarginStart(this.commit, this.at);
-
-  final Uint8List commit;
-  DateTime at;
-
-  /// Calls of these bytes that outlived the client's wait and have not
-  /// ended yet (audit M2): while one runs, no margin has started.
-  int running = 0;
-}
 
 /// Constant-time equality of two byte lists (the length is not secret).
 bool _same(List<int> a, List<int> b) {
