@@ -3714,6 +3714,30 @@ void main() {
       expect(rig.keys.claimCalls.single.userId, _bob);
     });
 
+    test('after a restart, a row whose attempts were all made by the earlier '
+        'run is held until the margin after the restart; then the record '
+        'decides (pre-flag-on fix round 2, ruling 3)', () async {
+      final row = await unanswered();
+      expect(row.attempts, 0);
+      expect((await rows()).single.attempts, greaterThan(0));
+      // A request of the earlier run may still be on its way: the new run
+      // never saw it end.
+      await rig.restart();
+      build();
+      final sends = rig.server.sends.length;
+      rig.server.calls.clear();
+
+      rig.clock.advance(kInitResendMargin - const Duration(seconds: 1));
+      expect(await starter.discardInit(_c1), InitDiscard.held);
+      await expectUnchanged(row, 'inside the margin after the restart');
+      expect(rig.server.calls, isEmpty, reason: 'nothing is asked');
+
+      rig.clock.advance(const Duration(seconds: 1));
+      expect(await starter.discardInit(_c1), InitDiscard.discarded);
+      await expectDiscarded('the margin after the restart has passed');
+      expect(rig.server.sends, hasLength(sends));
+    });
+
     test('the server holds the init as this device\'s and it is younger '
         'than 24 h: held, nothing changes', () async {
       final row = await unanswered(stored: true);

@@ -45,6 +45,23 @@ extension _InitDiscard on GroupStarter {
     final marks = (await op.vault.conversation(id))?.afterPair;
     final passed = !MlsPair.above(pending.builtOn, marks);
     if (!passed) {
+      // Pre-flag-on fix round 2, ruling 3 (code review m-A, audit L-a).
+      // Decision: a row with stored attempts of which this run sent no
+      // request is held until [kInitResendMargin] after this run began
+      // (the construction, or [reset]); nothing is asked meanwhile. Why:
+      // the margin rules of [_ownInitStored] are memory of this run, so a
+      // request the earlier process made just before it ended is not
+      // counted, and it may still be stored after a "not stored" read; the
+      // discard would then delete a group the server holds (no welcome
+      // exists for its creator). A clock moved back holds it until the
+      // clock catches up (the fail-safe direction). Not for the marks
+      // already past the init below: that group can never settle,
+      // whatever lands.
+      if (row.attempts > 0 &&
+          !_sentThisRun.contains(row.idempotencyKey) &&
+          _now().isBefore(_runStartedAt.add(kInitResendMargin))) {
+        return InitDiscard.held;
+      }
       // "Not stored" is read only with no call of this init able to land
       // and the margin past the last one ([_ownInitStored]); anything else
       // is "not decided".

@@ -112,7 +112,9 @@ const String kStartErrorInitDiscarded = 'InitDiscarded';
 /// discard). `held`: the server holds the init as this device's and an
 /// answer may still come (the group is younger than [kProvisionalExpiry],
 /// a call of it may still land, or no replay of it was refused in this
-/// run, pre-flag-on review I-1): nothing changed; the UI explains that
+/// run, pre-flag-on review I-1), or (fix round 2, ruling 3) an earlier run
+/// sent it and this run began less than [kInitResendMargin] ago: nothing
+/// changed; the UI explains that
 /// the message is being delivered. `notDecided`: what the server holds
 /// could not be read now (the commits, or the page): nothing changed, the
 /// user may try again. `none`: no pending init row for that conversation.
@@ -216,6 +218,7 @@ class GroupStarter {
     // Task 8 concern 4: the join path left this device's own stored init
     // unanswered (a row still carries it); the resume replays it.
     crypto.onOwnInitUnanswered = _resumeAfterJoin;
+    _runStartedAt = now();
   }
 
   /// Task 8 concern 4. Decision: one resume of [id], unawaited and started
@@ -308,6 +311,15 @@ class GroupStarter {
   /// row, by its settle or discard ([_forget]) and by [reset].
   final Set<String> _replayRefused = {};
 
+  /// Pre-flag-on fix round 2, ruling 3 (code review m-A, audit L-a): when
+  /// this run began (the construction, or the last [reset]), and the keys
+  /// of the init rows this run sent a request of. A row with stored
+  /// attempts and no request in this run was sent by an earlier run, whose
+  /// request may still land until [kInitResendMargin] after this time
+  /// ([discardInit] is held until then).
+  late DateTime _runStartedAt;
+  final Set<String> _sentThisRun = {};
+
   /// Bumped by [reset]: the end of a call tracked before it changes
   /// nothing.
   int _runSerial = 0;
@@ -346,6 +358,8 @@ class GroupStarter {
     _initUnknownStartedAt.clear();
     _marginArmed.clear();
     _replayRefused.clear();
+    _sentThisRun.clear();
+    _runStartedAt = _now();
     _resetCalls.clear();
     _resetLists.clear();
     _resetRefused.clear();
@@ -597,7 +611,9 @@ class GroupStarter {
   ///   it can never be settled, whatever the server holds.
   ///
   /// Never for a group the server holds as this device's while an answer
-  /// may still come ([InitDiscard.held]). A page that holds the message
+  /// may still come ([InitDiscard.held]), and (fix round 2, ruling 3) never
+  /// for a row an earlier run sent and this run did not, until
+  /// [kInitResendMargin] after this run began. A page that holds the message
   /// settles the group with it ([InitDiscard.settled]).
   ///
   /// Binding for Task 13b: offer this on a pending init row only; after

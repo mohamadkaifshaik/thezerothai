@@ -289,6 +289,8 @@ extension _Recovery on GroupStarter {
       // Pre-flag-on review I-1: only the answer to the LAST request counts
       // as a refused replay ([GroupStarter._replayRefused]).
       _replayRefused.remove(row.localId);
+      // Fix round 2, ruling 3: this run made a request of the row.
+      _sentThisRun.add(key);
       final pb.SendMessageResponse response;
       try {
         response = await _messaging.sendEncrypted(
