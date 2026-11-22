@@ -14,6 +14,7 @@ import '../../../core/vault/vault_session.dart';
 import '../../../core/vault/vault_status.dart' show VaultCorruptException;
 import '../../../gen/dzeroth/keys/v1/keys.pb.dart' as pb;
 import '../data/keys_repository.dart';
+import 'pending_upload.dart';
 
 /// One-time key packages uploaded at first registration, and the level a
 /// top-up restores.
@@ -79,71 +80,6 @@ const String kVaultSettingLastResortAt = 'keys.device.lastResortMicros';
 
 /// Sealed public packages whose private parts are already in the device state.
 const String kVaultSettingPendingUpload = 'keys.device.pendingUpload';
-
-class _PendingUpload {
-  const _PendingUpload(
-    this.oneTime,
-    this.lastResort,
-    this.countBefore, {
-    this.failed = false,
-  });
-
-  static const empty = _PendingUpload([], null, 0);
-  final List<Uint8List> oneTime;
-  final Uint8List? lastResort;
-  final int countBefore;
-  final bool failed;
-
-  bool get isEmpty => oneTime.isEmpty && lastResort == null;
-
-  Uint8List encode() => Uint8List.fromList(
-    utf8.encode(
-      jsonEncode({
-        'v': 1,
-        'oneTime': oneTime.map(base64Encode).toList(),
-        'lastResort': lastResort == null ? null : base64Encode(lastResort!),
-        'countBefore': countBefore,
-        'outcome': failed ? 'failed' : 'unknown',
-      }),
-    ),
-  );
-
-  static _PendingUpload decode(Uint8List bytes) {
-    // The directory accepts at most 4096 bytes per package.
-    if (bytes.length > (kKeyPackagePoolTarget + 1) * 5500 + 128) {
-      throw const FormatException();
-    }
-    final value = jsonDecode(utf8.decode(bytes));
-    if (value is! Map || value['v'] != 1) throw const FormatException();
-    final packages = value['oneTime'];
-    final count = value['countBefore'];
-    final outcome = value['outcome'];
-    if (packages is! List ||
-        packages.length > kKeyPackagePoolTarget ||
-        count is! int ||
-        count < 0 ||
-        !value.containsKey('lastResort') ||
-        (outcome != 'failed' && outcome != 'unknown')) {
-      throw const FormatException();
-    }
-    Uint8List package(Object? raw) {
-      if (raw is! String || raw.length > 5464) throw const FormatException();
-      final decoded = base64Decode(raw);
-      if (decoded.isEmpty || decoded.length > 4096) {
-        throw const FormatException();
-      }
-      return decoded;
-    }
-
-    final last = value['lastResort'];
-    return _PendingUpload(
-      packages.map(package).toList(),
-      last == null ? null : package(last),
-      count,
-      failed: outcome == 'failed',
-    );
-  }
-}
 
 /// Builds the periodic check (injected so tests drive it by hand).
 typedef DeviceKeysTimerFactory = Timer Function(
@@ -685,65 +621,13 @@ class DeviceKeysService {
         !hasLastResort ||
         _olderThan(local.lastResortMicros, nowMicros, kLastResortMaxAge);
     check();
-    var previousUnknown = false;
-    final batch = await _session.runWrite((v) async {
-      if (!identical(v, vault) || _currentUid() != uid) {
-        throw const _Cancelled();
-      }
-      var saved = _PendingUpload.empty;
-      var unreadable = false;
-      try {
-        final bytes = await v.setting(kVaultSettingPendingUpload);
-        if (bytes != null) saved = _PendingUpload.decode(bytes);
-      } on FormatException {
-        unreadable = true;
-      } on VaultCorruptException {
-        unreadable = true;
-      }
-      if (unreadable && _reportedPending[v] != true) {
-        _reportedPending[v] = true;
-        _report('pendingUpload', StackTrace.current);
-      }
-      Future<void> store(_PendingUpload pending) => v.transaction(
-        (tx) => tx.putSetting(kVaultSettingPendingUpload, pending.encode()),
-      );
-      if (!saved.isEmpty) {
-        previousUnknown = !saved.failed;
-        // A change in either direction can include claims after our upload.
-        // Replaying could publish consumed packages; retain their private keys.
-        if (previousUnknown && count != saved.countBefore) {
-          await store(_PendingUpload.empty);
-          return _PendingUpload.empty;
-        }
-        if (previousUnknown) return saved;
-        // Arm the next attempt before dispatch so a killed run is unknown.
-        final retry = _PendingUpload(saved.oneTime, saved.lastResort, count);
-        await store(retry);
-        return retry;
-      }
-      if (oneTime <= 0 && !lastResort) {
-        if (unreadable) await store(_PendingUpload.empty);
-        return _PendingUpload.empty;
-      }
-      final state = await v.deviceState();
-      if (state == null) throw StateError('No device state.');
-      final r = await _engine().generateKeyPackages(
-        state,
-        count: oneTime,
-        lastResort: lastResort,
-      );
-      final packages = r.keyPackages;
-      final pending = _PendingUpload(
-        lastResort ? packages.sublist(0, packages.length - 1) : packages,
-        lastResort ? packages.last : null,
-        count,
-      );
-      await v.transaction((tx) async {
-        await tx.putDeviceState(r.deviceState);
-        await tx.putSetting(kVaultSettingPendingUpload, pending.encode());
-      });
-      return pending;
-    });
+    final (batch, previousUnknown) = await _takeOrGenerateBatch(
+      vault,
+      uid,
+      count: count,
+      oneTime: oneTime,
+      lastResort: lastResort,
+    );
     if (batch.isEmpty) return;
     check();
     final key = _newKey();
@@ -763,7 +647,7 @@ class DeviceKeysService {
       check();
       if (!_unknownOutcome(e)) {
         if (!previousUnknown) {
-          final refused = _PendingUpload(
+          final refused = PendingUpload(
             batch.oneTime,
             batch.lastResort,
             batch.countBefore,
@@ -784,7 +668,7 @@ class DeviceKeysService {
     await _persist(vault, uid, (tx) async {
       await tx.putSetting(
         kVaultSettingPendingUpload,
-        _PendingUpload.empty.encode(),
+        PendingUpload.empty.encode(),
       );
       await tx.putSetting(kVaultSettingDeviceLastSeen, _micros(nowMicros));
       if (batch.lastResort != null) {
@@ -792,6 +676,75 @@ class DeviceKeysService {
       }
     });
   }
+
+  /// Step 3's vault part: the saved batch when one may be sent again, or a
+  /// fresh one (private parts and public packages in one transaction).
+  /// Returns the batch to upload (empty: nothing) and whether the saved
+  /// batch's last outcome was unknown.
+  Future<(PendingUpload, bool)> _takeOrGenerateBatch(
+    SecureVault vault,
+    String uid, {
+    required int count,
+    required int oneTime,
+    required bool lastResort,
+  }) => _session.runWrite((v) async {
+    if (!identical(v, vault) || _currentUid() != uid) {
+      throw const _Cancelled();
+    }
+    var saved = PendingUpload.empty;
+    var unreadable = false;
+    try {
+      final bytes = await v.setting(kVaultSettingPendingUpload);
+      if (bytes != null) saved = PendingUpload.decode(bytes);
+    } on FormatException {
+      unreadable = true;
+    } on VaultCorruptException {
+      unreadable = true;
+    }
+    if (unreadable && _reportedPending[v] != true) {
+      _reportedPending[v] = true;
+      _report('pendingUpload', StackTrace.current);
+    }
+    Future<void> store(PendingUpload pending) => v.transaction(
+      (tx) => tx.putSetting(kVaultSettingPendingUpload, pending.encode()),
+    );
+    if (!saved.isEmpty) {
+      final previousUnknown = !saved.failed;
+      // A change in either direction can include claims after our upload.
+      // Replaying could publish consumed packages; retain their private keys.
+      if (previousUnknown && count != saved.countBefore) {
+        await store(PendingUpload.empty);
+        return (PendingUpload.empty, previousUnknown);
+      }
+      if (previousUnknown) return (saved, previousUnknown);
+      // Arm the next attempt before dispatch so a killed run is unknown.
+      final retry = PendingUpload(saved.oneTime, saved.lastResort, count);
+      await store(retry);
+      return (retry, previousUnknown);
+    }
+    if (oneTime <= 0 && !lastResort) {
+      if (unreadable) await store(PendingUpload.empty);
+      return (PendingUpload.empty, false);
+    }
+    final state = await v.deviceState();
+    if (state == null) throw StateError('No device state.');
+    final r = await _engine().generateKeyPackages(
+      state,
+      count: oneTime,
+      lastResort: lastResort,
+    );
+    final packages = r.keyPackages;
+    final pending = PendingUpload(
+      lastResort ? packages.sublist(0, packages.length - 1) : packages,
+      lastResort ? packages.last : null,
+      count,
+    );
+    await v.transaction((tx) async {
+      await tx.putDeviceState(r.deviceState);
+      await tx.putSetting(kVaultSettingPendingUpload, pending.encode());
+    });
+    return (pending, false);
+  });
 
   /// [call] under the client deadline: past [_rpcTimeout] it is a
   /// [NetworkException] (an unknown outcome, as a lost connection). The
