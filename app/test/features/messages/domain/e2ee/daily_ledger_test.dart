@@ -245,6 +245,36 @@ void main() {
         expect(decoded.autoResetsIn(_conv), 2);
       },
     );
+
+    test('audit L1: takeAutoReset holds both caps, two per conversation and '
+        'five per user, and counts only what it allows', () async {
+      final l = ledger();
+      expect(kAutoResetsPerUserPerDay, 5);
+      expect(await l.takeAutoReset(_conv), isTrue);
+      expect(await l.takeAutoReset(_conv), isTrue);
+      expect(await l.takeAutoReset(_conv), isFalse, reason: 'per conversation');
+      expect(await l.autoResets(_conv), 2);
+      expect(await l.takeAutoReset('c2'), isTrue);
+      expect(await l.takeAutoReset('c3'), isTrue);
+      expect(await l.takeAutoReset('c4'), isTrue);
+      expect(await l.autoResetsToday(), 5);
+      expect(await l.takeAutoReset('c5'), isFalse, reason: 'per user');
+      expect(await l.autoResets('c5'), 0);
+      expect(await l.autoResetsToday(), 5);
+      // The next IST day starts both again.
+      clock = clock.add(const Duration(days: 1));
+      expect(await l.takeAutoReset('c5'), isTrue);
+      expect(await l.autoResetsToday(), 1);
+    });
+
+    test('audit L1: an exhausted record is at the per-user cap', () async {
+      await storeGarbage();
+      final l = ledger();
+      expect(await l.autoResetsToday(), kAutoResetsPerUserPerDay);
+      expect(await l.takeAutoReset(_conv), isFalse);
+      expect((await l.read()).exhausted, isTrue);
+      expect(reported, hasLength(1));
+    });
   });
 
   test('another version of the value is unreadable too', () async {

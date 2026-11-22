@@ -103,6 +103,19 @@ class DailyRecord {
     return exhausted && n < kAutoResetsPerDay ? kAutoResetsPerDay : n;
   }
 
+  /// Task 10 audit L1: the automatic resets of today across every
+  /// conversation of this vault's user: at least [kAutoResetsPerUserPerDay]
+  /// while the record is [exhausted].
+  int get autoResetsTotal {
+    var n = 0;
+    for (final v in autoResets.values) {
+      n += v;
+    }
+    return exhausted && n < kAutoResetsPerUserPerDay
+        ? kAutoResetsPerUserPerDay
+        : n;
+  }
+
   /// Security read (A3): whether reversing a change to [deviceId] in
   /// [conversationId] undoes a change this device made today: removing a
   /// device it added ([removing] true), or adding back one it removed. TRUE
@@ -320,6 +333,14 @@ const int kAntiFlapUndosPerDay = 2;
 /// conversation stays `stuck` with the manual offer.
 const int kAutoResetsPerDay = 2;
 
+/// Task 10 audit L1 (controller ruling): automatic resets allowed a day
+/// across every conversation of the user (one vault is one user). Why: the
+/// server allows 10 resets a user a day (`messages_resets_daily`), shared
+/// by automatic and manual ones; five hostile peers at [kAutoResetsPerDay]
+/// each could otherwise spend all ten. At most five automatic ones keeps
+/// at least half for the user's own resets.
+const int kAutoResetsPerUserPerDay = 5;
+
 /// The counters that limit what this device does in one IST day (R3, R7, M5),
 /// kept in one sealed vault setting. Everything goes through
 /// `session.runWrite` and one vault transaction.
@@ -389,6 +410,43 @@ class DailyLedger {
       },
     ),
   );
+
+  /// Audit L1: the automatic resets of today across every conversation (at
+  /// least [kAutoResetsPerUserPerDay] while the record is exhausted).
+  Future<int> autoResetsToday() async => (await read()).autoResetsTotal;
+
+  /// M9 and audit L1, for `GroupStarter.repairIfStuck`: one more automatic
+  /// reset of [conversationId], taken only while BOTH caps allow it
+  /// ([kAutoResetsPerDay] for the conversation, [kAutoResetsPerUserPerDay]
+  /// in all). Both are read and the count written in ONE `runWrite` body
+  /// and transaction, before the reset's first claim, so two conversations
+  /// repairing at once never pass the per-user cap together and a crash
+  /// never undercounts. False, with nothing written, at either cap (an
+  /// exhausted record is at both). Throws when the vault is not ready.
+  Future<bool> takeAutoReset(String conversationId) =>
+      _session.runWrite((vault) async {
+        _checkVault(vault);
+        final current = await _load(vault);
+        if (current.autoResetsIn(conversationId) >= kAutoResetsPerDay ||
+            current.autoResetsTotal >= kAutoResetsPerUserPerDay) {
+          return false;
+        }
+        await vault.transaction(
+          (tx) => tx.putSetting(
+            kVaultSettingE2eeDaily,
+            _applied(
+              current,
+              (r) => r.copyWith(
+                autoResets: {
+                  ...r.autoResets,
+                  conversationId: (r.autoResets[conversationId] ?? 0) + 1,
+                },
+              ),
+            ).encode(),
+          ),
+        );
+        return true;
+      });
 
   Future<bool> lostSendUpdateDone(String conversationId) async {
     final r = await read();

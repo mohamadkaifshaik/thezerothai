@@ -844,12 +844,13 @@ extension _Reset on GroupStarter {
       final state = await _crypto.describeState(id);
       if (state.phase != ConversationPhase.stuck || !state.canReset) return;
       // Security read M9: at most kAutoResetsPerDay automatic resets per
-      // conversation per IST day, read and counted BEFORE the first claim
-      // (so a crash or a failed reset never undercounts, and the bound
-      // never rests on the server). At the limit the conversation stays
+      // conversation per IST day, and (audit L1) kAutoResetsPerUserPerDay
+      // across the user's conversations, both read and the count written
+      // BEFORE the first claim, in one body (so a crash or a failed reset
+      // never undercounts, and the bound never rests on the server; an
+      // exhausted ledger is at both caps). At a limit the conversation stays
       // stuck with the manual offer.
-      if (await _ledger.autoResets(id) >= kAutoResetsPerDay) return;
-      await _ledger.addAutoReset(id);
+      if (!await _ledger.takeAutoReset(id)) return;
       // Decision: at `live` priority. Why: the repair is no user intent
       // (amendment 2) but follows the conversation's own catch-up, and a
       // deferred list would spend the day's automatic reset for nothing.

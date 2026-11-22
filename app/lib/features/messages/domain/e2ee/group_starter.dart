@@ -353,7 +353,7 @@ class GroupStarter {
   /// Allowed only with `describeState(...).canReset` (stuck, waiting past
   /// [kResetWaitWithoutWelcome], the M5 pause); a reset already in progress
   /// is resumed instead (never a second one). Manual resets are not counted
-  /// against `kAutoResetsPerDay`.
+  /// against `kAutoResetsPerDay` or `kAutoResetsPerUserPerDay`.
   ///
   /// Throws, as the port documents: [FeatureDisabledException] while the
   /// flag is not on (nothing is listed or claimed); [RateLimitedException]
@@ -374,9 +374,11 @@ class GroupStarter {
 
   /// The recovery table's stuck-member response (Task 10, Open question 3):
   /// when [conversationId] is `stuck` and `canReset`, one reset by itself,
-  /// at most `kAutoResetsPerDay` per conversation per IST day (security
-  /// read M9; counted before the first claim). Otherwise it stays `stuck`:
-  /// with the flag off (`canReset` false), at the limit (`canReset` true:
+  /// at most `kAutoResetsPerDay` per conversation and (audit L1)
+  /// `kAutoResetsPerUserPerDay` across conversations per IST day (security
+  /// read M9; both counted before the first claim). Otherwise it stays
+  /// `stuck`: with the flag off, removed elsewhere or a failed engine
+  /// (`canReset` false; nothing is counted), at a limit (`canReset` true:
   /// the user's tap), or while a reset is in progress. Never throws.
   Future<void> repairIfStuck(String conversationId) =>
       _repairIfStuck(conversationId);

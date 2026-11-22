@@ -1360,6 +1360,26 @@ void main() {
       expect(s.phase, ConversationPhase.ready);
     });
 
+    test('audit L1: five automatic resets of the user today, in other '
+        'conversations, leave this stuck one to the manual offer', () async {
+      await setUpJoined();
+      await makeStuck();
+      // Hostile peers in five other conversations used today's allowance.
+      for (var i = 0; i < kAutoResetsPerUserPerDay; i++) {
+        await rig.ledger.addAutoReset('${i}2222222222222222222222222222222');
+      }
+      await starter.repairIfStuck(_c1);
+      expect(rig.keys.claimCalls, isEmpty);
+      expect(resets(), isEmpty);
+      expect(await rig.ledger.autoResets(_c1), 0);
+      final s = await state();
+      expect(s.phase, ConversationPhase.stuck);
+      expect(s.canReset, isTrue, reason: 'the manual reset stays offered');
+      // The user's own reset is not held by that cap.
+      await reset();
+      expect(resets(), hasLength(1));
+    });
+
     test('audit M2 / L5: removed elsewhere, or a failed engine: canReset is '
         'false and repairIfStuck counts nothing', () async {
       await setUpJoined();
