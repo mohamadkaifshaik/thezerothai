@@ -67,7 +67,9 @@ void main() {
   /// in the group. The key directory lists, for bob, bob, the [others] that
   /// are not in [ownListed], and [alsoListed]; for the own user, this device
   /// and [ownListed]. [accepted]: the stored sync record says so. [folder]
-  /// and [state]: the server's header row.
+  /// and [state]: the server's header row. [start]: the rig clock's first
+  /// value (the real time when null); a test that moves the clock and
+  /// expects the same IST day passes [rigMidIstDay].
   Future<void> setUpJoined({
     bool accepted = true,
     List<RigPeer> others = const [],
@@ -75,8 +77,9 @@ void main() {
     List<RigPeer> ownListed = const [],
     Folder folder = Folder.FOLDER_INBOX,
     ConversationState state = ConversationState.CONVERSATION_STATE_ACCEPTED,
+    DateTime? start,
   }) async {
-    rig = await RigCrypto.create();
+    rig = await RigCrypto.create(start: start);
     bob = await RigPeer.create('bob');
     rig.keys.peers['ref-bob'] = [
       for (final p in [
@@ -434,7 +437,8 @@ void main() {
       'an empty claim for a listed device is tried once per IST day',
       () async {
         final bob2 = await RigPeer.create('bob2');
-        await setUpJoined(alsoListed: [bob2]);
+        // An hour on must stay the same IST day.
+        await setUpJoined(alsoListed: [bob2], start: rigMidIstDay());
         await synced();
         rig.keys.claims['ref-bob'] = () async => kpb.ClaimKeyPackagesResponse(
           conversationId: _c1,
@@ -809,10 +813,12 @@ void main() {
         'be built (audit M1)', () async {
       final sibling = await RigPeer.create('sibling');
       final bob2 = await RigPeer.create('bob2');
+      // The pass after the removal must be the same IST day.
       await setUpJoined(
         others: [sibling],
         ownListed: [sibling],
         alsoListed: [bob2],
+        start: rigMidIstDay(),
       );
       await synced();
       peerClaims([bob, bob2]);
@@ -1040,7 +1046,8 @@ void main() {
         '(audit M1)', () async {
       final bob2 = await RigPeer.create('bob2');
       final other = await RigPeer.create('other');
-      await setUpJoined(alsoListed: [bob2]);
+      // The second reconcile must be the same IST day.
+      await setUpJoined(alsoListed: [bob2], start: rigMidIstDay());
       await synced();
       // The claim answers bob2's package under another signature key: the
       // inspection names bob2's real key, so checkClaims drops it.
@@ -1185,10 +1192,12 @@ void main() {
         'removal still commits (audit L2, ruling H)', () async {
       final sibling = await RigPeer.create('sibling');
       final bob2 = await RigPeer.create('bob2');
+      // The undos must still count after the list reuse time.
       await setUpJoined(
         others: [sibling],
         ownListed: [sibling],
         alsoListed: [bob2],
+        start: rigMidIstDay(),
       );
       await synced();
       peerClaims([bob, bob2]);
@@ -1248,7 +1257,8 @@ void main() {
     test('the M5 pause still holds a peer-side automatic removal (ruling '
         'H)', () async {
       final bob2 = await RigPeer.create('bob2');
-      await setUpJoined(others: [bob2]);
+      // The undos must still count at the second counting fetch.
+      await setUpJoined(others: [bob2], start: rigMidIstDay());
       await synced();
       for (var i = 0; i < kAntiFlapUndosPerDay; i++) {
         await rig.ledger.addUndone(_c1);
