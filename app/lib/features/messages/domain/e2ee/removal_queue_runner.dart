@@ -233,6 +233,10 @@ class RemovalQueueRunner {
   /// Device ids [removeDevice] is sending now (a pass leaves them alone).
   final Set<String> _sending = {};
 
+  /// Fix round 4, CR2 Nit: the [removeDevice] call in progress per id; a
+  /// second call for the id joins it.
+  final Map<String, Future<void>> _removing = {};
+
   /// The vault whose stored queue could not be read (reported once).
   SecureVault? _unreadableFor;
 
@@ -375,7 +379,21 @@ class RemovalQueueRunner {
   /// the unreadable one is rebuilt once RemoveKeyDevice succeeded (a
   /// readable one is kept, fix round 4, ruling 12). Then a pass starts at
   /// [BudgetPriority.live]; this returns once the queue is stored.
-  Future<void> removeDevice(String deviceId) async {
+  ///
+  /// A call for an id whose removal is already being made joins it (fix
+  /// round 4, CR2 Nit): it answers that call's outcome and sends nothing.
+  Future<void> removeDevice(String deviceId) {
+    final joined = _removing[deviceId];
+    if (joined != null) return joined;
+    final run = _removeDevice(deviceId);
+    _removing[deviceId] = run;
+    run.whenComplete(() {
+      if (identical(_removing[deviceId], run)) _removing.remove(deviceId);
+    }).ignore();
+    return run;
+  }
+
+  Future<void> _removeDevice(String deviceId) async {
     if (deviceId.isEmpty) throw ArgumentError.value('', 'deviceId');
     final id = Uint8List.fromList(utf8.encode(deviceId));
     final vault = _session.vault;

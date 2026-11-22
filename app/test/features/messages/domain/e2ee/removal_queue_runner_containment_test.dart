@@ -417,6 +417,33 @@ void main() {
       expect(rig.keys.removeCalls, hasLength(1), reason: 'sent once');
       expect(queued(_c1, sibling), isTrue);
     });
+
+    test('a second removeDevice of the same id joins the one being sent '
+        '(fix round 4, CR2 Nit)', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await join(_c1, others: [sibling]);
+      await synced();
+      final answer = Completer<void>();
+      rig.keys.onRemoved = () async {
+        rig.keys.onRemoved = null;
+        await answer.future;
+      };
+
+      final first = runner.removeDevice(sibling.idString);
+      while (rig.keys.removeCalls.isEmpty) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      // The user taps again while the first call is in flight.
+      final second = runner.removeDevice(sibling.idString);
+      answer.complete();
+      await Future.wait([first, second]);
+      await runner.idle();
+
+      expect(rig.keys.removeCalls, hasLength(1), reason: 'sent once');
+      expect(await pin(sibling), isNull);
+      expect(requests(_c1), hasLength(1));
+    });
   });
 
   group('the record\'s caps (CR Minor 4, SA L1, SA L4)', () {
