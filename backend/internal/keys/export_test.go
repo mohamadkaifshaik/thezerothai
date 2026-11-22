@@ -154,6 +154,45 @@ func TestExporter_MarksArePagedBy100(t *testing.T) {
 	}
 }
 
+// TestExporter_MarkPageBoundFailsLoudly (code review Minor 6): past its page bound the export is an error with nothing
+// written, never a silently short section; within the bound it is complete. The bound is injected (maxMarkPages) so the
+// test needs a few hundred marks, not 100k.
+func TestExporter_MarkPageBoundFailsLoudly(t *testing.T) {
+	src := devicesOnly(nil)
+	n := 2*exportMarkPage + 5 // three reads: two full pages and a short one
+	for i := 0; i < n; i++ {
+		src.marks = append(src.marks, RemovalMark{DeviceID: fmt.Sprintf("device-%016d", i), RemovedAt: time.Unix(0, 0)})
+	}
+	x := NewExporter(src)
+	x.maxMarkPages = 2
+	var got bytes.Buffer
+	err := x.ExportUser(context.Background(), "u1", &got)
+	if err == nil {
+		t.Fatal("an export past its page bound succeeded")
+	}
+	if got.Len() != 0 {
+		t.Fatalf("a failed export wrote %d bytes", got.Len())
+	}
+	if len(src.pages) != 2 {
+		t.Fatalf("%d mark reads, want 2 (the bound)", len(src.pages))
+	}
+	if strings.Contains(err.Error(), "device-") {
+		t.Fatalf("the error names a device id: %v", err)
+	}
+	src.pages = nil
+	x.maxMarkPages = 3
+	got.Reset()
+	if err := x.ExportUser(context.Background(), "u1", &got); err != nil {
+		t.Fatalf("within the bound: %v", err)
+	}
+	if c := strings.Count(got.String(), `"removed_at"`); c != n {
+		t.Fatalf("exported %d marks, want %d", c, n)
+	}
+	if NewExporter(src).maxMarkPages != maxExportMarkPages {
+		t.Fatal("NewExporter does not default the bound")
+	}
+}
+
 func TestExporter_ListErrorIsReturned(t *testing.T) {
 	boom := errors.New("boom")
 	x := NewExporter(&fakeExportSource{list: func(context.Context, string) ([]Device, error) { return nil, boom }})

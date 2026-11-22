@@ -93,7 +93,8 @@ type Checkpoint struct {
 	Devices int `json:"devices,omitempty"`
 	// LastDevice is the id of the last device fully erased.
 	LastDevice string `json:"lastDevice,omitempty"`
-	// Marks is how many removed marks have been erased (the second phase, after the last device).
+	// Marks counts the removed marks erased (the second phase, after the last device). A statistic for the log only: it
+	// can undercount after a failed page (see purgeMarks), and nothing reads it to decide what to delete.
 	Marks int `json:"marks,omitempty"`
 }
 
@@ -158,8 +159,10 @@ func (e *Eraser) PurgeUser(ctx context.Context, uid string, cp Checkpoint) (Chec
 	return cp, false, nil // a long pool: the next call lists the same device again and continues
 }
 
-// purgeMarks is phase 2. A failed page keeps the checkpoint it was given (the pages already deleted are simply gone from
-// the next listing, so the step stays self-resuming).
+// purgeMarks is phase 2. Correctness never depends on the checkpoint: each call lists what is left, and deleted marks
+// are gone from the next listing, so the step is self-resuming. Checkpoint.Marks is a statistic for the log only, and
+// not exact: a failed page returns the checkpoint this call was given, so marks deleted earlier in the same call are not
+// counted (they are deleted all the same).
 func (e *Eraser) purgeMarks(ctx context.Context, uid string, cp Checkpoint) (Checkpoint, bool, error) {
 	next := cp
 	for range maxPagesPerRun {

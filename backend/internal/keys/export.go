@@ -38,10 +38,14 @@ type ExportedDevice struct {
 // Exporter writes the `keys` export section.
 type Exporter struct {
 	src ExportSource
+	// maxMarkPages is the hard stop on mark reads (maxExportMarkPages; tests inject a small one).
+	maxMarkPages int
 }
 
 // NewExporter builds the section on an ExportSource (FirestoreRepo in production).
-func NewExporter(src ExportSource) *Exporter { return &Exporter{src: src} }
+func NewExporter(src ExportSource) *Exporter {
+	return &Exporter{src: src, maxMarkPages: maxExportMarkPages}
+}
 
 // Name is the export section's name (identity.ExportSection).
 func (*Exporter) Name() string { return "keys" }
@@ -73,7 +77,8 @@ func exportedDevice(d Device) ExportedDevice {
 
 // maxExportMarkPages bounds the mark reads of one export (exportMarkPage each). Marks are bounded by their 90-day TTL and
 // the keys write bucket, and each new one needs a recent sign-in, so this is far above any real account; past it the
-// export fails loudly rather than silently leaving rows out.
+// export fails loudly (an error, nothing written) rather than silently leaving rows out. An account with exactly the
+// bound's worth of marks fails too: the loop cannot tell that no further page exists without reading it.
 const maxExportMarkPages = 1000
 
 // ExportUser streams {"devices":[...],"removed_devices":[...]} to w: devices oldest first; removed_devices by device id,
@@ -94,8 +99,8 @@ func (x *Exporter) ExportUser(ctx context.Context, uid string, w io.Writer) erro
 	}
 	after := ""
 	for page := 0; ; page++ {
-		if page == maxExportMarkPages {
-			return fmt.Errorf("keys: export: more than %d removed marks", maxExportMarkPages*exportMarkPage)
+		if page == x.maxMarkPages {
+			return fmt.Errorf("keys: export: removed marks reach the bound of %d pages of %d", x.maxMarkPages, exportMarkPage)
 		}
 		marks, err := x.src.ListRemovalMarks(ctx, uid, after, exportMarkPage)
 		if err != nil {
