@@ -19,6 +19,7 @@ import (
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
 // The removed marks on the emulator (security audit H1; removal-server design 2026-11-23, sections 2.1-2.5).
@@ -207,7 +208,7 @@ func TestRemoval_LiveDocumentUnderMark(t *testing.T) {
 	})
 }
 
-// TestRemoval_CrashAfterMark:a removal that stopped after the mark transaction leaves a device document carrying
+// TestRemoval_CrashAfterMark: a removal that stopped after the mark transaction leaves a device document carrying
 // removedAt. Every reader skips it (List, ActiveDevices, Claim, Claim's exclude), Register and Upload refuse the id, it
 // still holds its slot under the cap (so there are never more than MaxDevicesPerUser device documents for the Limit 5
 // readers), and a retry deletes it. The mark is created once: a second MarkRemoved keeps the first time.
@@ -330,54 +331,124 @@ func TestRemoval_RegisterAtCapFinishesStuckRemoval(t *testing.T) {
 	}
 }
 
-// TestRemoval_RaceWithRegister:a REMOTE Remove and a Register of the same id, run together 50 times. Whatever the
-// order, once both returned there is a mark and no device document (the register either landed first and was removed,
-// or saw the mark and was refused), and the register answers success or ErrDeviceRemoved only.
+// raceInFlight bounds how many race pairs run at once, and raceAttempts how often one side of a pair is tried when it
+// gets a transient answer. Measured on the emulator (fix round 2026-11-23): 50 pairs released at once made 12 of the 50
+// Registers exceed the 5 s transaction budget (txTimeout), and 10 in flight still gave 8 transient answers in 100 calls.
+// The emulator resolves each pair's read-then-write lock conflict slowly (about 2.5 s a pair when run one at a time).
+// Never an invariant failure. A client retries exactly these answers (UNAVAILABLE carries a retry hint, and a retried
+// REMOTE removal of a marked id needs no sign-in), so the test does the same and then asserts strictly.
+const (
+	raceInFlight = 10
+	raceAttempts = 4
+)
+
+// transientErr reports a contention or deadline answer, at the repository (gRPC status, context) or the service
+// (UNAVAILABLE, DEADLINE_EXCEEDED) level.
+func transientErr(err error) bool {
+	var ae *apierr.Error
+	if errors.As(err, &ae) {
+		return ae.Code == connect.CodeUnavailable || ae.Code == connect.CodeDeadlineExceeded
+	}
+	return store.IsContention(err) || errors.Is(err, context.DeadlineExceeded) || status.Code(err) == codes.DeadlineExceeded
+}
+
+// TestRemoval_RaceWithRegister: a REMOTE Remove and a Register of the same id, in 50 pairs (one uid each) run
+// concurrently, raceInFlight at a time, with both calls of a pair released together (code review Minor 4: concurrent,
+// not one pair after another). A transient answer is retried, as a client would, up to raceAttempts. Whatever the order
+// inside a pair, once both returned that uid has a mark and no device document (the register either landed first and
+// was removed, or saw the mark and was refused), and the register answered success or ErrDeviceRemoved only. Every
+// assertion is per uid.
 func TestRemoval_RaceWithRegister(t *testing.T) {
+	const pairs = 50
 	e := newRepoEnv(t)
 	ctx := context.Background()
 	now := it0.Add(time.Hour)
 	svc := e.removalSvc(now)
-	refused := 0
-	for i := 0; i < 50; i++ {
-		uid := uniqueUID()
-		var wg sync.WaitGroup
-		var regErr, rmErr error
-		start := make(chan struct{})
-		wg.Add(2)
-		go func() { defer wg.Done(); <-start; _, regErr = e.register(t, uid, dvc(1), skey(1), now) }()
+	type result struct {
+		uid           string
+		regErr, rmErr error
+		retries       int
+	}
+	results := make([]result, pairs)
+	for i := range results {
+		results[i].uid = uniqueUID()
+	}
+	retry := func(retries *int, call func() error) error {
+		var err error
+		for attempt := 0; attempt < raceAttempts; attempt++ {
+			if err = call(); !transientErr(err) {
+				return err
+			}
+			*retries++
+		}
+		return err
+	}
+	sem := make(chan struct{}, raceInFlight)
+	var all sync.WaitGroup
+	for i := range results {
+		r := &results[i]
+		all.Add(1)
 		go func() {
-			defer wg.Done()
-			<-start
-			rmErr = svc.Remove(signedInAt(uid, now), uid, dvc(1), RemoveRemote)
+			defer all.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			var regRetries, rmRetries int
+			var pair sync.WaitGroup
+			start := make(chan struct{})
+			pair.Add(2)
+			go func() {
+				defer pair.Done()
+				<-start
+				r.regErr = retry(&regRetries, func() error { _, err := e.register(t, r.uid, dvc(1), skey(1), now); return err })
+			}()
+			go func() {
+				defer pair.Done()
+				<-start
+				r.rmErr = retry(&rmRetries, func() error {
+					return svc.Remove(signedInAt(r.uid, now), r.uid, dvc(1), RemoveRemote)
+				})
+			}()
+			close(start)
+			pair.Wait()
+			r.retries = regRetries + rmRetries
 		}()
-		close(start)
-		wg.Wait()
-		if rmErr != nil {
-			t.Fatalf("run %d: remove: %v", i, rmErr)
+	}
+	all.Wait()
+	refused := 0
+	for i, r := range results {
+		if r.rmErr != nil {
+			t.Errorf("pair %d: remove: %v", i, r.rmErr)
+			continue
 		}
 		switch {
-		case regErr == nil:
-		case errors.Is(regErr, ErrDeviceRemoved):
+		case r.regErr == nil:
+		case errors.Is(r.regErr, ErrDeviceRemoved):
 			refused++
 		default:
-			t.Fatalf("run %d: register: %v", i, regErr)
+			t.Errorf("pair %d: register: %v", i, r.regErr)
+			continue
 		}
-		if _, ok := e.markData(t, uid, dvc(1)); !ok {
-			t.Fatalf("run %d: no mark", i)
+		if _, ok := e.markData(t, r.uid, dvc(1)); !ok {
+			t.Errorf("pair %d: no mark", i)
 		}
-		snap, err := e.repo.deviceRef(uid, dvc(1)).Get(ctx)
-		if status.Code(err) != codes.NotFound {
-			if err != nil {
-				t.Fatal(err)
-			}
+		snap, err := e.repo.deviceRef(r.uid, dvc(1)).Get(ctx)
+		switch {
+		case status.Code(err) == codes.NotFound:
+		case err != nil:
+			t.Errorf("pair %d: get device: %v", i, err)
+		default:
 			if _, has := snap.Data()["removedAt"]; !has {
-				t.Fatalf("run %d: a live device document without removedAt beside a mark", i)
+				t.Errorf("pair %d: a live device document without removedAt beside a mark", i)
+			} else {
+				t.Errorf("pair %d: the device document survived the removal", i)
 			}
-			t.Fatalf("run %d: the device document survived the removal", i)
 		}
 	}
-	t.Logf("register refused in %d of 50 runs", refused)
+	retried := 0
+	for _, r := range results {
+		retried += r.retries
+	}
+	t.Logf("register refused in %d of %d pairs; %d transient answers retried", refused, pairs, retried)
 }
 
 // TestRemoval_ExportListsPendingRemoval (security audit M2(a)): the export reads the device documents on the emulator; a
@@ -435,7 +506,7 @@ func TestRemoval_ExportListsPendingRemoval(t *testing.T) {
 	}
 }
 
-// TestRemoval_ListRemovalMarksPagesByID:the export read pages the marks by document id, afterID exclusive.
+// TestRemoval_ListRemovalMarksPagesByID: the export read pages the marks by document id, afterID exclusive.
 func TestRemoval_ListRemovalMarksPagesByID(t *testing.T) {
 	e := newRepoEnv(t)
 	ctx := context.Background()
