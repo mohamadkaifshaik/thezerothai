@@ -1,7 +1,9 @@
 part of 'device_keys_service.dart';
 
-/// Sealed JSON `{"v":1,"day":"YYYY-MM-DD","n":k,"reported":bool}`: the
-/// batches generated on that IST day and whether the cap was reported.
+/// Sealed JSON
+/// `{"v":1,"day":"YYYY-MM-DD","n":k,"reportedCap":bool,"reportedInvalid":bool}`:
+/// the batches generated on that IST day and whether the cap (`batchCap`)
+/// and an invalid counter (`batchDay`) were reported that day.
 const String kVaultSettingKeyBatchDay = 'keys.device.batchDay';
 
 /// The server reported a pool count outside [0, [kMaxKeyPackagePool]].
@@ -87,14 +89,22 @@ extension _KeyPackageBatches on DeviceKeysService {
       );
     }
 
-    // Marks [batches] as reported and reports it, once per IST day.
+    // Marks [batches] as reported and reports it, once per IST day for each
+    // kind: an invalid counter (`batchDay`) and a real cap (`batchCap`) have
+    // their own flags, so both can show on the same day.
     Future<void> reportCap(KeyBatchDay batches) async {
-      if (batches.reported) return;
-      final marked = KeyBatchDay(today, batches.count, reported: true);
+      final invalid = batches.invalid;
+      if (invalid ? batches.reportedInvalid : batches.reportedCap) return;
+      final marked = KeyBatchDay(
+        today,
+        batches.count,
+        reportedCap: batches.reportedCap || !invalid,
+        reportedInvalid: batches.reportedInvalid || invalid,
+      );
       await v.transaction(
         (tx) => tx.putSetting(kVaultSettingKeyBatchDay, marked.encode()),
       );
-      _report(batches.invalid ? 'batchDay' : 'batchCap', StackTrace.current);
+      _report(invalid ? 'batchDay' : 'batchCap', StackTrace.current);
     }
 
     // Ruling 1 (fix 3): a last-resort-only generation past the cap is
@@ -135,7 +145,8 @@ extension _KeyPackageBatches on DeviceKeysService {
         final counted = KeyBatchDay(
           today,
           current.count + 1,
-          reported: current.reported,
+          reportedCap: current.reportedCap,
+          reportedInvalid: current.reportedInvalid,
         );
         await tx.putDeviceState(r.deviceState);
         await tx.putSetting(kVaultSettingPendingUpload, pending.encode());

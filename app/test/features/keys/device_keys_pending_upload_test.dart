@@ -212,7 +212,8 @@ void main() {
           'v': 1,
           'day': istDay(rig.now),
           'n': kMaxKeyBatchesPerDay + kMaxLastResortOnlyPerDay,
-          'reported': false,
+          'reportedCap': false,
+          'reportedInvalid': false,
         });
 
     test('past the last-resort-only bound, a saved batch without a '
@@ -812,9 +813,16 @@ void main() {
         const DeviceKeysStatus.failed(retryable: true),
       );
       expect(reported(), ['DeviceKeysError(batchDay)']);
-      // The marked record replaced the corrupt row: not reported again.
+      // The marked record replaced the corrupt row: batchDay is not
+      // reported again, and the cap it now holds is reported apart, once
+      // (separate flags: both reports show on the same day).
       await nextRun();
-      expect(reported(), ['DeviceKeysError(batchDay)']);
+      expect(reported(), [
+        'DeviceKeysError(batchDay)',
+        'DeviceKeysError(batchCap)',
+      ]);
+      await nextRun();
+      expect(reported(), hasLength(2));
       toNextIstDay();
       await rig.service.onAppResumed();
       expect(rig.engine.generated, hasLength(2));
@@ -860,7 +868,8 @@ void main() {
         'v': 1,
         'day': istDay(rig.now.add(const Duration(days: 2))),
         'n': 0,
-        'reported': false,
+        'reportedCap': false,
+        'reportedInvalid': false,
       });
       rig.devices.values.single.pool.clear();
       final uploads = rig.server.uploads.length;
@@ -869,7 +878,12 @@ void main() {
       expect(rig.server.uploads, hasLength(uploads));
       expect(reported(), ['DeviceKeysError(batchDay)']);
       await nextRun();
-      expect(reported(), ['DeviceKeysError(batchDay)']);
+      expect(reported(), [
+        'DeviceKeysError(batchDay)',
+        'DeviceKeysError(batchCap)',
+      ]);
+      await nextRun();
+      expect(reported(), hasLength(2));
       toNextIstDay();
       await rig.service.onAppResumed();
       expect(rig.engine.generated, hasLength(2));

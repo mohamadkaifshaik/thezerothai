@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-/// The largest stored record read (a real one is under 70 bytes).
+/// The largest stored record read (a real one is under 100 bytes).
 const int kMaxKeyBatchDayBytes = 256;
 
 /// The key package batches generated on one IST day (see
@@ -10,7 +10,8 @@ class KeyBatchDay {
   const KeyBatchDay(
     this.day,
     this.count, {
-    this.reported = false,
+    this.reportedCap = false,
+    this.reportedInvalid = false,
     this.invalid = false,
   });
 
@@ -18,8 +19,13 @@ class KeyBatchDay {
   final String day;
   final int count;
 
-  /// The cap was reported on [day].
-  final bool reported;
+  /// A real cap (`batchCap`) was reported on [day].
+  final bool reportedCap;
+
+  /// An invalid counter (`batchDay`) was reported on [day]. Kept apart from
+  /// [reportedCap] so both reports can show on the same day: a corrupt
+  /// counter, then the real cap the marked record holds.
+  final bool reportedInvalid;
 
   /// Read only, never stored: the stored record did not open, did not
   /// decode or was dated more than one day ahead, so [count] is the cap.
@@ -31,7 +37,7 @@ class KeyBatchDay {
   /// - stored on a day EARLIER than [today]: a new day with no batches;
   /// - stored on [today] or [tomorrow] (a clock set back by up to a day):
   ///   its count is kept, so moving the clock back never resets the cap;
-  ///   its report is kept only when it is of [today];
+  ///   its reports are kept only when it is of [today];
   /// - stored on a later day (a clock once set far forward), or unreadable:
   ///   the cap already reached today ([cap], not reported, [invalid]). Fail
   ///   closed for today only; the caller stores a record of [today].
@@ -52,8 +58,8 @@ class KeyBatchDay {
     if (value.day.compareTo(today) < 0) return KeyBatchDay(today, 0);
     if (value.day.compareTo(tomorrow) > 0) return capped(today, cap);
     if (value.day == today) return value;
-    // A record of tomorrow keeps its count, not its report: that report was
-    // made on another day, so today reports again (once).
+    // A record of tomorrow keeps its count, not its reports: they were made
+    // on another day, so today reports again (once).
     return KeyBatchDay(value.day, value.count);
   }
 
@@ -63,7 +69,13 @@ class KeyBatchDay {
 
   Uint8List encode() => Uint8List.fromList(
     utf8.encode(
-      jsonEncode({'v': 1, 'day': day, 'n': count, 'reported': reported}),
+      jsonEncode({
+        'v': 1,
+        'day': day,
+        'n': count,
+        'reportedCap': reportedCap,
+        'reportedInvalid': reportedInvalid,
+      }),
     ),
   );
 
@@ -75,14 +87,21 @@ class KeyBatchDay {
     if (value is! Map || value['v'] != 1) throw const FormatException();
     final day = value['day'];
     final n = value['n'];
-    final reported = value['reported'];
+    final reportedCap = value['reportedCap'];
+    final reportedInvalid = value['reportedInvalid'];
     if (day is! String ||
         !_day.hasMatch(day) ||
         n is! int ||
         n < 0 ||
-        reported is! bool) {
+        reportedCap is! bool ||
+        reportedInvalid is! bool) {
       throw const FormatException();
     }
-    return KeyBatchDay(day, n, reported: reported);
+    return KeyBatchDay(
+      day,
+      n,
+      reportedCap: reportedCap,
+      reportedInvalid: reportedInvalid,
+    );
   }
 }

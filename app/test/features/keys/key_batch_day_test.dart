@@ -20,58 +20,80 @@ void main() {
   KeyBatchDay read(Uint8List? stored) =>
       KeyBatchDay.read(stored, today: today, tomorrow: tomorrow, cap: 4);
 
+  // (count, reportedCap, reportedInvalid, invalid)
+  (int, bool, bool, bool) facts(KeyBatchDay d) =>
+      (d.count, d.reportedCap, d.reportedInvalid, d.invalid);
+
   test('none stored: a new day with no batches', () {
     final d = read(null);
-    expect((d.day, d.count, d.reported, d.invalid), (today, 0, false, false));
+    expect((d.day, facts(d)), (today, (0, false, false, false)));
   });
 
   test('the same day is kept; an earlier day starts over', () {
-    final same = read(KeyBatchDay(today, 3, reported: true).encode());
-    expect((same.count, same.reported, same.invalid), (3, true, false));
-    final earlier = read(KeyBatchDay(yesterday, 3, reported: true).encode());
-    expect(
-      (earlier.day, earlier.count, earlier.reported, earlier.invalid),
-      (today, 0, false, false),
+    final same = read(
+      KeyBatchDay(today, 3, reportedCap: true, reportedInvalid: true).encode(),
     );
+    expect(facts(same), (3, true, true, false));
+    final earlier = read(
+      KeyBatchDay(
+        yesterday,
+        3,
+        reportedCap: true,
+        reportedInvalid: true,
+      ).encode(),
+    );
+    expect((earlier.day, facts(earlier)), (today, (0, false, false, false)));
+  });
+
+  test('the two report flags are stored apart', () {
+    final cap = read(KeyBatchDay(today, 4, reportedCap: true).encode());
+    expect(facts(cap), (4, true, false, false));
+    final invalid = read(KeyBatchDay(today, 4, reportedInvalid: true).encode());
+    expect(facts(invalid), (4, false, true, false));
   });
 
   test('a record of tomorrow (the clock set back a day) keeps its count: '
       'moving the clock back never resets the cap', () {
     final d = read(KeyBatchDay(tomorrow, 4).encode());
-    expect(
-      (d.day, d.count, d.reported, d.invalid),
-      (tomorrow, 4, false, false),
-    );
+    expect((d.day, facts(d)), (tomorrow, (4, false, false, false)));
   });
 
-  test('a record of tomorrow does not carry its report over: the report was '
+  test('a record of tomorrow does not carry its reports over: they were '
       'made on another day, so today reports again', () {
-    final d = read(KeyBatchDay(tomorrow, 4, reported: true).encode());
-    expect((d.count, d.reported, d.invalid), (4, false, false));
+    final d = read(
+      KeyBatchDay(
+        tomorrow,
+        4,
+        reportedCap: true,
+        reportedInvalid: true,
+      ).encode(),
+    );
+    expect(facts(d), (4, false, false, false));
   });
 
   test('a record dated more than one day ahead is the cap for today, '
       'invalid and unreported', () {
     final d = read(KeyBatchDay(later, 0).encode());
-    expect((d.day, d.count, d.reported, d.invalid), (today, 4, false, true));
+    expect((d.day, facts(d)), (today, (4, false, false, true)));
   });
 
   test('an unreadable record counts as the cap for today, unreported and '
       'invalid', () {
+    const flags = '"reportedCap":false,"reportedInvalid":false';
     for (final raw in [
       '{',
       '[]',
-      '{"v":2,"day":"$today","n":1,"reported":false}',
-      '{"v":1,"day":"today","n":1,"reported":false}',
-      '{"v":1,"day":"$today","n":-1,"reported":false}',
+      '{"v":2,"day":"$today","n":1,$flags}',
+      '{"v":1,"day":"today","n":1,$flags}',
+      '{"v":1,"day":"$today","n":-1,$flags}',
       '{"v":1,"day":"$today","n":1}',
+      '{"v":1,"day":"$today","n":1,"reportedCap":false}',
+      '{"v":1,"day":"$today","n":1,"reportedInvalid":false}',
+      // The single flag of fix round 2 (never shipped).
+      '{"v":1,"day":"$today","n":1,"reported":false}',
     ]) {
       final d = read(_bytes(raw));
-      expect(
-        (d.day, d.count, d.reported, d.invalid),
-        (today, 4, false, true),
-        reason: raw,
-      );
+      expect((d.day, facts(d)), (today, (4, false, false, true)), reason: raw);
     }
   });
 
