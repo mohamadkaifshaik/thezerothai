@@ -188,7 +188,15 @@ extension _Reset on GroupStarter {
     }
     switch (created.kind) {
       case _CreatedKind.created:
-        break;
+        // Review m-1: what this run remembered for an earlier reset of this
+        // conversation (its wait after an unknown outcome, its margin, a
+        // refusal, "the server holds it") is not this reset's: an earlier
+        // one ended on the crypto side (a join) leaves it behind, and its
+        // wait would hold this reset's first call although its count is
+        // spent. The new reset's own lists stay.
+        _resetCalls.forget(id);
+        _resetRefused.remove(id);
+        _resetHeld.remove(id);
       case _CreatedKind.noDevice:
         throw const E2eeActionException(E2eeRefusal.peerHasNoDevice);
       case _CreatedKind.existing:
@@ -198,20 +206,31 @@ extension _Reset on GroupStarter {
     _onChanged(id);
 
     // 5. The call, single flight with the resumes of this conversation.
-    _Next? first;
-    final running = _running[id];
-    if (running != null) {
-      // A resume took the new group first: it sends; nothing more here.
+    //
+    // Review m-2. A resume of this conversation may be running: one that
+    // took the new group first (it sends), or one still in the steps after
+    // its lock (a join, a catch-up, a drain) that never looked at the new
+    // group. Each is waited for; then, under the lock, the reset makes its
+    // first call unless a resume met its bytes (the tracker knows them:
+    // that resume sent them, or decided they wait). Why: else the second
+    // kind returned here with the reset's count spent and no call made.
+    while (true) {
+      final running = _running[id];
+      if (running == null) break;
       await running;
-      return;
     }
+    _Next? first;
     late final Future<void> run;
     run =
         (() async {
-          final next = await _locks.run(
-            id,
-            () => _resetSendLocked(op, id, priority, first: true),
-          );
+          final next = await _locks.run(id, () async {
+            final group = await _provisionalReset(op.vault, id);
+            final pending = group?.pending;
+            if (pending == null || _resetCalls.knows(id, pending.commit)) {
+              return const _Next(_NextKind.none);
+            }
+            return _resetSendLocked(op, id, priority, first: true);
+          });
           first = next;
           await _afterNext(id, next, priority);
         })().whenComplete(() {
@@ -714,13 +733,6 @@ extension _Reset on GroupStarter {
     _forgetReset(id);
     _onChanged(id);
     return _Next(join ? _NextKind.join : _NextKind.none, refusal: refusal);
-  }
-
-  void _forgetReset(String id) {
-    _resetCalls.forget(id);
-    _resetLists.remove(id);
-    _resetRefused.remove(id);
-    _resetHeld.remove(id);
   }
 
   /// Audit M1: whether this run knows the server holds [commit] as [id]'s

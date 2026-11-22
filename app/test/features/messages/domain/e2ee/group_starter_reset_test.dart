@@ -1567,4 +1567,80 @@ void main() {
       await pumpEventQueue();
     });
   });
+
+  group('a reset ended elsewhere, and a reset made during a resume (review '
+      'm-1, m-2)', () {
+    /// Stuck again in the current generation (a second unprocessable
+    /// commit of bob's).
+    Future<void> stuckAgain() async {
+      final garbage2 = rigBytes('a second commit no engine can process');
+      rig.device.engine.failWireAlways[RigEngine.key(garbage2)] =
+          const MlsException(MlsErrorCode.badInput, 'rig');
+      rig.server.addCommit(
+        _c1,
+        rig.server.current(_c1),
+        garbage2,
+        fromUser: 'user-b',
+      );
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.stuck);
+    }
+
+    test('review m-1: a reset the join path ended leaves no wait behind: a '
+        'new reset made inside that wait is sent at once', () async {
+      await setUpJoined();
+      await makeStuck();
+      // Reset A's outcome stays unknown: its resends wait one margin.
+      rig.server.commitScript.addAll([unknown, unknown]);
+      await reset();
+      expect(resets(), hasLength(2));
+      expect((await groupAt(2))!.provisional, isTrue);
+      // Bob's reset into 2 adds this device; the join path (no starter)
+      // discards reset A and joins his.
+      await bobResets(1);
+      await rig.crypto.processWelcomes();
+      final g2 = (await groupAt(2))!;
+      expect(g2.provisional, isFalse);
+      expect(g2.pending, isNull);
+
+      // Stuck again inside A's wait: reset B is made and sent.
+      await stuckAgain();
+      await reset();
+      expect(resets(), hasLength(3), reason: 'B is sent, not held by A');
+      expect(resets().last.builtOn.generation, 2);
+      expect((await groupAt(3))!.provisional, isFalse);
+    });
+
+    test('review m-2: a reset made while a resume of the same conversation '
+        'runs its after-lock steps still makes its call', () async {
+      await setUpJoined();
+      await makeStuck();
+      rig.server.commitScript.addAll([unknown, unknown]);
+      await reset();
+      expect(resets(), hasLength(2));
+      // Bob wins generation 2: the next resume drops reset A and joins his
+      // welcome after the lock is released.
+      await bobResets(1);
+      Future<void>? second;
+      var started = false;
+      rig.server.onCall = (call) async {
+        if (call != 'listWelcomes' || started) return;
+        started = true;
+        // The resume is in its after-lock join (it holds no lock): the
+        // user resets again now, and B's group is created meanwhile.
+        second = starter.resetConversation(_c1);
+        for (var i = 0; i < 200 && await groupAt(3) == null; i++) {
+          await pumpEventQueue();
+        }
+        expect((await groupAt(3))?.provisional, isTrue);
+      };
+      rig.clock.advance(kRequestInFlightMargin);
+      await starter.resumeProvisional();
+      expect(second, isNotNull);
+      await second;
+      await starter.settled(_c1);
+      expect(resets(), hasLength(3), reason: 'B made its call');
+      expect(resets().last.builtOn.generation, 2);
+      expect((await groupAt(3))!.provisional, isFalse);
+    });
+  });
 }

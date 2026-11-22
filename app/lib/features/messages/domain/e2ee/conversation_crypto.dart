@@ -187,6 +187,14 @@ class ConversationCrypto {
   /// Set by Task 6.
   EpochMessageSink? sink;
 
+  /// Task 10 audit L6, set by the `GroupStarter`: called with a
+  /// conversation id once the join path ended this device's own
+  /// provisional RESET there (settled it, or discarded it), so the starter
+  /// forgets what it remembers for that reset (its lists, its call
+  /// memory). Memory only; called after the transaction, with the
+  /// conversation lock held.
+  void Function(String conversationId)? onOwnResetEnded;
+
   /// Conversation -> the pair of the last commit of THIS device that this
   /// run confirmed (by its bytes, in catch-up or in
   /// [confirmOwnCommitLocked]). Memory only: the commit runner reads it

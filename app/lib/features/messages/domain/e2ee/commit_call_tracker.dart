@@ -185,6 +185,14 @@ class CommitCallTracker {
     return now.isBefore(end) ? end.difference(now) : Duration.zero;
   }
 
+  /// Whether this run met [commit] as [conversationId]'s pending record (it
+  /// was seen, or a call of it was made). Task 10 review m-2: a reset this
+  /// run built and nothing met yet still needs its first call.
+  bool knows(String conversationId, Uint8List commit) {
+    final start = _starts[conversationId];
+    return start != null && _same(start.commit, commit);
+  }
+
   /// The pending record of [conversationId] is gone (settled or
   /// discarded).
   void forget(String conversationId) {

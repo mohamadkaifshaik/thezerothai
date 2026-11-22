@@ -221,7 +221,16 @@ class GroupStarter {
        _publicIdsOff = publicIdsOff,
        _schedule = schedule ?? ((delay, run) => Timer(delay, run)),
        _onUnexpectedError = onUnexpectedError,
-       _resetCalls = CommitCallTracker(messaging: messaging, now: now);
+       _resetCalls = CommitCallTracker(messaging: messaging, now: now) {
+    // Audit L6: the join path ends this device's own reset without this
+    // class (it settles or discards it from the server's first commit of
+    // its generation); what this run remembers for it goes then. Decision:
+    // a callback, not a check at the next touch. Why: a check would keep
+    // the reset's device lists in memory until this conversation is
+    // touched again, and every later reader would have to remember to make
+    // it. One starter per session (Task 13), so one callback.
+    crypto.onOwnResetEnded = _forgetReset;
+  }
 
   final ConversationCrypto _crypto;
   final EncryptedSender _sender;
@@ -317,6 +326,15 @@ class GroupStarter {
     _resetRefused.clear();
     _resetHeld.clear();
     _runSerial++;
+  }
+
+  /// [id]'s provisional reset is gone (settled or discarded, here or by the
+  /// join path, audit L6): what this run remembered for it goes.
+  void _forgetReset(String id) {
+    _resetCalls.forget(id);
+    _resetLists.remove(id);
+    _resetRefused.remove(id);
+    _resetHeld.remove(id);
   }
 
   /// R6 step 5 (Task 10): this device resets [conversationId] into the next

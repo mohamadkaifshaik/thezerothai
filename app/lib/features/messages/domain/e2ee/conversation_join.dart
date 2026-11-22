@@ -381,7 +381,7 @@ extension _WelcomeJoin on ConversationCrypto {
             ) ==
             pending.builtOn &&
         _sameBytes(first.commit, pending.commit);
-    return _session.runWrite((v) async {
+    final settled = await _session.runWrite((v) async {
       poll.check(v);
       final group = await v.group(id, g);
       if (group == null || !group.provisional) {
@@ -426,6 +426,12 @@ extension _WelcomeJoin on ConversationCrypto {
       await _discardProvisionalIn(v, id, g);
       return _Settled.discarded;
     });
+    // Audit L6: a reset ended here is the starter's to forget.
+    if (pending?.kind == PendingKind.reset &&
+        (settled == _Settled.ownStored || settled == _Settled.discarded)) {
+      onOwnResetEnded?.call(id);
+    }
+    return settled;
   }
 }
 
