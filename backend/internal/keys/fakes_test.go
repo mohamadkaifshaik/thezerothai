@@ -11,7 +11,8 @@ import (
 // refresh, the pool cap with excess dropped (oldest stay), dedupe by package bytes, unknown device, remove of a missing
 // device succeeding, and the claim rules (one-time package consumed, last resort reused, exclusion, inactivity); and the
 // removed marks: a marked id is refused by Register (before the cap) and Upload (before NOT_FOUND), and a device whose
-// document carries removedAt (removing) is skipped by every read but still holds its slot under the cap.
+// document carries removedAt (removing) is skipped by every read but still holds its slot under the cap (at the cap,
+// Register names the removing ids in a StuckRemovalsError).
 type fakeRepo struct {
 	mu         sync.Mutex
 	devices    map[string][]Device // per uid, oldest first
@@ -21,9 +22,12 @@ type fakeRepo struct {
 	marks    map[string]RemovalMark
 	removing map[string]bool
 	err      error
-	// markErr fails MarkRemoved and RemovalMarked only.
-	markErr error
-	calls   int
+	// markErr fails MarkRemoved and RemovalMarked only; removeErr fails Remove only.
+	markErr   error
+	removeErr error
+	// afterRemove, when set, runs inside Remove (under the lock) after a successful delete.
+	afterRemove func()
+	calls       int
 	// listCalls and activeCalls count the device reads of GetDevices (List and ActiveDevices) separately from calls.
 	listCalls, activeCalls int
 	// ops is every repository call in order (by method name).
@@ -113,6 +117,15 @@ func (f *fakeRepo) Register(_ context.Context, uid string, d Device, now time.Ti
 		return Device{}, ErrDeviceRemoved // before the count: a marked id never learns about the cap
 	}
 	if len(f.devices[uid]) >= MaxDevicesPerUser { // a removing device still holds its slot
+		var stuck []string
+		for _, have := range f.devices[uid] {
+			if !f.live(uid, have.ID) {
+				stuck = append(stuck, have.ID)
+			}
+		}
+		if len(stuck) > 0 {
+			return Device{}, &StuckRemovalsError{DeviceIDs: stuck}
+		}
 		return Device{}, ErrDeviceLimit
 	}
 	d.CreatedAt, d.LastSeenAt = now, now
@@ -145,6 +158,9 @@ func (f *fakeRepo) Remove(_ context.Context, uid, deviceID string) error {
 	if f.err != nil {
 		return f.err
 	}
+	if f.removeErr != nil {
+		return f.removeErr
+	}
 	i := f.find(uid, deviceID)
 	if i < 0 {
 		return nil
@@ -153,6 +169,9 @@ func (f *fakeRepo) Remove(_ context.Context, uid, deviceID string) error {
 	delete(f.pool, devKey(uid, deviceID))
 	delete(f.lastResort, devKey(uid, deviceID))
 	delete(f.removing, devKey(uid, deviceID))
+	if f.afterRemove != nil {
+		f.afterRemove()
+	}
 	return nil
 }
 

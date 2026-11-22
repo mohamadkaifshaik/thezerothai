@@ -116,7 +116,14 @@ func validDeviceID(ctx context.Context, id string) error {
 	return nil
 }
 
-// Register validates, then publishes or refreshes the device.
+// fieldStuckRemovals is the request-line count of stuck REMOTE removals a Register finished (a count, never an id).
+const fieldStuckRemovals = "stuck_removals_finished"
+
+// Register validates, then publishes or refreshes the device. At the cap, when the repository reports device documents
+// carrying removedAt (StuckRemovalsError: REMOTE removals that stopped after their mark), it finishes each of them with
+// repo.Remove (the ids are already marked, so no sign-in is needed and the marks stay) and runs the repository's Register
+// once more; a second StuckRemovalsError is LIMIT_REACHED, never a loop. Without this, up to MaxDevicesPerUser
+// interrupted removals would hold every slot for good, with nothing in ListMyKeyDevices to remove.
 func (s *service) Register(ctx context.Context, uid, deviceID string, signatureKey []byte) (Device, error) {
 	begin(ctx, "register")
 	if err := validDeviceID(ctx, deviceID); err != nil {
@@ -126,7 +133,18 @@ func (s *service) Register(ctx context.Context, uid, deviceID string, signatureK
 		return Device{}, invalid(ctx, "signature_public_key", "signature_public_key must be exactly 32 bytes")
 	}
 	now := s.now()
-	d, err := s.repo.Register(ctx, uid, Device{ID: deviceID, SignatureKey: cloneBytes(signatureKey), CreatedAt: now, LastSeenAt: now}, now)
+	in := Device{ID: deviceID, SignatureKey: cloneBytes(signatureKey), CreatedAt: now, LastSeenAt: now}
+	d, err := s.repo.Register(ctx, uid, in, now)
+	var stuck *StuckRemovalsError
+	if errors.As(err, &stuck) {
+		for _, id := range stuck.DeviceIDs {
+			if rerr := s.repo.Remove(ctx, uid, id); rerr != nil {
+				return Device{}, s.mapErr(ctx, "register", uid, logger.RedactErr(rerr, id))
+			}
+		}
+		logger.SetRequestField(ctx, fieldStuckRemovals, len(stuck.DeviceIDs))
+		d, err = s.repo.Register(ctx, uid, in, now)
+	}
 	if err != nil {
 		return Device{}, s.mapErr(ctx, "register", uid, err)
 	}

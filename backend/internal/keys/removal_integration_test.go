@@ -230,7 +230,50 @@ func TestRemoval_CrashAfterMark(t *testing.T) {
 	e.mustRegister(t, peer, dvc(1), skey(1), now)
 }
 
-// TestRemoval_RaceWithRegister: a REMOTE Remove and a Register of the same id, run together 50 times. Whatever the
+// TestRemoval_RegisterAtCapFinishesStuckRemoval (code review I-1, security audit M2): a REMOTE removal that crashed right
+// after its mark, while the account is at the cap, must not leave a slot nobody can see or free. The next Register of a
+// new id finishes it (no sign-in: the id is marked) and then succeeds; the stuck document and its whole pool are gone and
+// the mark stays.
+func TestRemoval_RegisterAtCapFinishesStuckRemoval(t *testing.T) {
+	e := newRepoEnv(t)
+	ctx := context.Background()
+	uid := uniqueUID()
+	e.seed(t, uid, MaxDevicesPerUser, 3) // dvc(0)..dvc(4), each with a pool of 3 and a last resort
+	now := it0.Add(time.Hour)
+	if err := e.repo.MarkRemoved(ctx, uid, dvc(2), now); err != nil { // the crash: mark written, nothing deleted
+		t.Fatal(err)
+	}
+	if _, err := e.register(t, uid, dvc(9), skey(9), now); !errors.Is(err, ErrDeviceLimit) {
+		t.Fatalf("repository Register at the cap with a removing device: %v, want ErrDeviceLimit", err)
+	}
+	d, err := e.removalSvc(now).Register(ctx, uid, dvc(9), skey(9))
+	if err != nil {
+		t.Fatalf("Register past a stuck removal: %v", err)
+	}
+	if d.ID != dvc(9) {
+		t.Fatalf("registered %q", d.ID)
+	}
+	if _, err := e.repo.deviceRef(uid, dvc(2)).Get(ctx); status.Code(err) != codes.NotFound {
+		t.Fatalf("the stuck device document: %v, want deleted", err)
+	}
+	if left := e.poolDocs(t, uid, dvc(2)); len(left) != 0 {
+		t.Fatalf("%d pool documents of the stuck device left", len(left))
+	}
+	if _, ok := e.markData(t, uid, dvc(2)); !ok {
+		t.Fatal("finishing the removal dropped the mark")
+	}
+	if n := e.deviceDocs(t, uid); n != MaxDevicesPerUser {
+		t.Fatalf("%d device refs, want %d", n, MaxDevicesPerUser)
+	}
+	// Five live devices now: the next new id is a plain LIMIT_REACHED, and nothing live was removed.
+	_, err = e.removalSvc(now).Register(ctx, uid, dvc(8), skey(8))
+	wantReason(t, err, commonv1.ErrorReason_ERROR_REASON_LIMIT_REACHED)
+	if list, err := e.repo.List(ctx, uid); err != nil || len(list) != MaxDevicesPerUser {
+		t.Fatalf("List = %d devices, %v; want %d", len(list), err, MaxDevicesPerUser)
+	}
+}
+
+// TestRemoval_RaceWithRegister:a REMOTE Remove and a Register of the same id, run together 50 times. Whatever the
 // order, once both returned there is a mark and no device document (the register either landed first and was removed,
 // or saw the mark and was refused), and the register answers success or ErrDeviceRemoved only.
 func TestRemoval_RaceWithRegister(t *testing.T) {

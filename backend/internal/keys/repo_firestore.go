@@ -208,7 +208,8 @@ func refreshDue(lastSeen, now time.Time) bool { return now.Sub(lastSeen) > seenR
 // MaxDevicesPerUser+1 devices. Writes: one (create, or a last-seen update; nothing when the refresh is not due).
 // ErrDeviceRemoved comes first: an existing document carrying removedAt, or a marked new id (the mark is read before the
 // count, so a marked id never learns about the cap). The count includes documents carrying removedAt (see
-// deviceDoc.RemovedAt).
+// deviceDoc.RemovedAt); at the cap, when some of the counted documents carry it, the answer is a StuckRemovalsError
+// naming them (still ErrDeviceLimit to errors.Is), decided on the documents the count query already read.
 func (r *FirestoreRepo) Register(ctx context.Context, uid string, d Device, now time.Time) (Device, error) {
 	now = now.UTC()
 	var out Device
@@ -252,6 +253,21 @@ func (r *FirestoreRepo) Register(ctx context.Context, uid string, d Device, now 
 			return fmt.Errorf("keys: count devices: %w", err)
 		}
 		if len(existing) >= MaxDevicesPerUser {
+			// The documents are already read: name those carrying removedAt (stuck REMOTE removals) so the service can
+			// finish them. No extra read.
+			var stuck []string
+			for _, s := range existing {
+				var have deviceDoc
+				if err := s.DataTo(&have); err != nil {
+					return fmt.Errorf("keys: decode device: %w", err)
+				}
+				if have.removed() {
+					stuck = append(stuck, s.Ref.ID)
+				}
+			}
+			if len(stuck) > 0 {
+				return &StuckRemovalsError{DeviceIDs: stuck}
+			}
 			return ErrDeviceLimit
 		}
 		doc := deviceDoc{SignatureKey: cloneBytes(d.SignatureKey), CreatedAt: now, LastSeenAt: now}

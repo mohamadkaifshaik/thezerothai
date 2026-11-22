@@ -43,6 +43,23 @@ var (
 	ErrDeviceRemoved = errors.New("keys: device removed")
 )
 
+// StuckRemovalsError is Register's ErrDeviceLimit when some of the device documents it counted carry removedAt: REMOTE
+// removals that stopped after their mark transaction (code review I-1, security audit M2). Such a document holds a slot
+// that no list shows and no client can free, so the service finishes those removals (their ids are already marked, so
+// no sign-in is needed) and runs Register once more. errors.Is(err, ErrDeviceLimit) holds, so a caller that does not
+// look for it answers LIMIT_REACHED. DeviceIDs (in the count query's order) are for the service only: Error() never
+// names them.
+type StuckRemovalsError struct {
+	DeviceIDs []string
+}
+
+func (e *StuckRemovalsError) Error() string {
+	return ErrDeviceLimit.Error() + " (removals in progress)"
+}
+
+// Unwrap makes the error ErrDeviceLimit to errors.Is.
+func (e *StuckRemovalsError) Unwrap() error { return ErrDeviceLimit }
+
 // RemoveReason says why a device is removed (keysv1.RemoveReason); it decides whether the id is remembered.
 type RemoveReason int
 
@@ -123,7 +140,8 @@ func (d Device) Active(now time.Time) bool { return now.Sub(d.LastSeenAt) < Inac
 // passed in are copied, and byte slices returned never alias the caller's.
 type Service interface {
 	// Register publishes (or refreshes) the caller's device. ErrKeyMismatch is VALIDATION signature_public_key, a sixth
-	// device is LIMIT_REACHED key_devices, a marked id (ErrDeviceRemoved, decided first) is DEVICE_REMOVED.
+	// device is LIMIT_REACHED key_devices, a marked id (ErrDeviceRemoved, decided first) is DEVICE_REMOVED. At the cap it
+	// first finishes REMOTE removals that stopped after their mark (StuckRemovalsError) and tries once more.
 	Register(ctx context.Context, uid, deviceID string, signatureKey []byte) (Device, error)
 	// ListMine returns the caller's devices, at most MaxDevicesPerUser, oldest first, inactive ones included (Inactive set).
 	ListMine(ctx context.Context, uid string) ([]Device, error)
@@ -158,7 +176,8 @@ type Service interface {
 type Repo interface {
 	// Register creates the device (ErrDeviceLimit past the cap) or, for an existing id with the same key, refreshes
 	// LastSeenAt when older than seenRefreshInterval; a different key is ErrKeyMismatch. ErrDeviceRemoved comes before
-	// both: a device document carrying removedAt, or a new id with a removed mark (read before the count).
+	// both: a device document carrying removedAt, or a new id with a removed mark (read before the count). At the cap,
+	// when some counted documents carry removedAt, the error is a StuckRemovalsError naming them.
 	Register(ctx context.Context, uid string, d Device, now time.Time) (Device, error)
 	// List returns at most MaxDevicesPerUser devices, oldest first. Every reader (List, ActiveDevices, Claim) skips a
 	// device document carrying removedAt.
