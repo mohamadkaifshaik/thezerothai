@@ -101,7 +101,7 @@ func (f *fakeRepo) Register(_ context.Context, uid string, d Device, now time.Ti
 		}
 		if _, marked := f.marks[devKey(uid, d.ID)]; marked {
 			f.removing[devKey(uid, d.ID)] = true // a live document under a mark: stamped, then refused
-			return Device{}, ErrDeviceRemoved
+			return Device{}, ErrDeviceStamped
 		}
 		cur := f.devices[uid][i]
 		if !bytes.Equal(cur.SignatureKey, d.SignatureKey) {

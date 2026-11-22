@@ -3,6 +3,7 @@ package keys
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -41,6 +42,9 @@ var (
 	// ErrDeviceRemoved is a register or upload of a device id that carries a removed mark (a REMOTE removal), or whose
 	// device document carries removedAt (a REMOTE removal in progress). It never names the id.
 	ErrDeviceRemoved = errors.New("keys: device removed")
+	// ErrDeviceStamped is Register's ErrDeviceRemoved (errors.Is holds) for a live device document under a removed mark,
+	// after it stamped removedAt on it and committed: the service then finishes that removal (Minor 2).
+	ErrDeviceStamped = fmt.Errorf("keys: live device under a removed mark, stamped: %w", ErrDeviceRemoved)
 	// ErrReauthRequired is MarkRemoved without a recent sign-in for an id that is not a retry (no mark yet, or a mark
 	// over a live device document); nothing is written. The service answers REAUTH_REQUIRED.
 	ErrReauthRequired = errors.New("keys: recent sign-in required")
@@ -151,7 +155,8 @@ func (d Device) Active(now time.Time) bool { return now.Sub(d.LastSeenAt) < Inac
 type Service interface {
 	// Register publishes (or refreshes) the caller's device. ErrKeyMismatch is VALIDATION signature_public_key, a sixth
 	// device is LIMIT_REACHED key_devices, a marked id (ErrDeviceRemoved, decided first) is DEVICE_REMOVED. At the cap it
-	// first finishes REMOTE removals that stopped after their mark (StuckRemovalsError) and tries once more.
+	// first finishes REMOTE removals that stopped after their mark (StuckRemovalsError) and tries once more. A live
+	// document under a mark is stamped by the repository (ErrDeviceStamped) and then removed here before DEVICE_REMOVED.
 	Register(ctx context.Context, uid, deviceID string, signatureKey []byte) (Device, error)
 	// ListMine returns the caller's devices, at most MaxDevicesPerUser, oldest first, inactive ones included (Inactive set).
 	ListMine(ctx context.Context, uid string) ([]Device, error)
@@ -188,7 +193,7 @@ type Repo interface {
 	// Register creates the device (ErrDeviceLimit past the cap) or, for an existing id with the same key, refreshes
 	// LastSeenAt when older than seenRefreshInterval; a different key is ErrKeyMismatch. ErrDeviceRemoved comes before
 	// both: a device document carrying removedAt, a live device document under a removed mark (stamped removedAt in the
-	// same transaction), or a new id with a removed mark (read before the count). At the cap,
+	// same transaction, then ErrDeviceStamped), or a new id with a removed mark (read before the count). At the cap,
 	// when some counted documents carry removedAt, the error is a StuckRemovalsError naming them.
 	Register(ctx context.Context, uid string, d Device, now time.Time) (Device, error)
 	// List returns at most MaxDevicesPerUser devices, oldest first. Every reader (List, ActiveDevices, Claim) skips a

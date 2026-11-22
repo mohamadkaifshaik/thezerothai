@@ -138,7 +138,44 @@ func TestRegister_StuckRemovalFailureIsMapped(t *testing.T) {
 	}
 }
 
-// TestFakeRepo_RecordsOpBeforeError (code review nit): every recording method of the fake records its call before it
+// TestRegister_StampedLiveDocumentIsFinished (Minor 2): a live document under a mark that Register stamps is then
+// finished by the service (removing-only delete: device, pool and last resort), so no key material stays behind
+// without a deadline; the answer is DEVICE_REMOVED and the mark stays. A failed finish still answers DEVICE_REMOVED (the
+// id is refused either way; the document is then a stuck removal that a Register at the cap finishes).
+func TestRegister_StampedLiveDocumentIsFinished(t *testing.T) {
+	for _, failFinish := range []bool{false, true} {
+		t.Run(fmt.Sprintf("finish fails=%v", failFinish), func(t *testing.T) {
+			s, repo, _ := newRemovalService(t)
+			mustRegister(t, s, devID, sigKey(1))
+			if _, _, err := s.Upload(context.Background(), uidA, devID, pkgs(0, 3), []byte("last-resort")); err != nil {
+				t.Fatal(err)
+			}
+			k := devKey(uidA, devID)
+			repo.marks[k] = RemovalMark{DeviceID: devID, RemovedAt: t0}
+			if failFinish {
+				repo.removeErr = errUnavailableForTest()
+			}
+			repo.ops = nil
+			_, err := s.Register(context.Background(), uidA, devID, sigKey(1))
+			wantDeviceRemoved(t, err)
+			if !slices.Equal(repo.ops, []string{"Register", "RemoveRemoving"}) {
+				t.Fatalf("repository calls = %v, want Register, RemoveRemoving", repo.ops)
+			}
+			if _, ok := repo.marks[k]; !ok {
+				t.Fatal("the mark is gone")
+			}
+			gone := repo.find(uidA, devID) < 0 && len(repo.pool[k]) == 0 && len(repo.lastResort[k]) == 0
+			if gone == failFinish {
+				t.Fatalf("device gone = %v, want %v", gone, !failFinish)
+			}
+		})
+	}
+	if !errors.Is(fmt.Errorf("wrapped: %w", ErrDeviceStamped), ErrDeviceRemoved) {
+		t.Fatal("ErrDeviceStamped is not ErrDeviceRemoved to errors.Is")
+	}
+}
+
+// TestFakeRepo_RecordsOpBeforeError(code review nit): every recording method of the fake records its call before it
 // fails, so a test that injects an error still sees which calls were made.
 func TestFakeRepo_RecordsOpBeforeError(t *testing.T) {
 	ctx := context.Background()

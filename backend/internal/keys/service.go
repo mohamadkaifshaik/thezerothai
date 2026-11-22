@@ -146,6 +146,15 @@ func (s *service) Register(ctx context.Context, uid, deviceID string, signatureK
 		logger.SetRequestField(ctx, fieldStuckRemovals, len(stuck.DeviceIDs))
 		d, err = s.repo.Register(ctx, uid, in, now)
 	}
+	if errors.Is(err, ErrDeviceStamped) {
+		// The repository stamped a live document under a mark and committed. Finish that removal now, so its key material
+		// does not stay without a deadline. The answer is DEVICE_REMOVED either way: a failed finish leaves a stuck
+		// removal, which a Register at the cap finishes.
+		if rerr := s.repo.RemoveRemoving(ctx, uid, deviceID); rerr != nil {
+			slog.WarnContext(ctx, "keys_stamped_finish_failed", "uid_hash", logger.HashUID(uid),
+				"err", logger.RedactErr(rerr, uid, deviceID).Error())
+		}
+	}
 	if err != nil {
 		return Device{}, s.mapErr(ctx, "register", uid, err)
 	}

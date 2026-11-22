@@ -166,13 +166,15 @@ func TestRemoval_LiveDocumentUnderMark(t *testing.T) {
 	ctx := context.Background()
 	now := it0.Add(time.Hour)
 
-	t.Run("register is refused and stamps the document", func(t *testing.T) {
+	t.Run("the repository refuses and stamps the document", func(t *testing.T) {
 		e := newRepoEnv(t)
 		uid := uniqueUID()
 		e.seed(t, uid, 2, 3)
 		e.putMark(t, uid, dvc(1), it0)
-		_, err := e.removalSvc(now).Register(ctx, uid, dvc(1), skey(2))
-		wantReason(t, err, commonv1.ErrorReason_ERROR_REASON_DEVICE_REMOVED)
+		_, err := e.register(t, uid, dvc(1), skey(2), now)
+		if !errors.Is(err, ErrDeviceStamped) || !errors.Is(err, ErrDeviceRemoved) {
+			t.Fatalf("repository Register of a live document under a mark: %v, want ErrDeviceStamped (ErrDeviceRemoved)", err)
+		}
 		got := e.snap(t, uid, dvc(1)).Data()["removedAt"]
 		if got == nil || !got.(time.Time).Equal(now) {
 			t.Fatalf("device removedAt = %v, want %v (stamped by the refused Register)", got, now)
@@ -182,6 +184,28 @@ func TestRemoval_LiveDocumentUnderMark(t *testing.T) {
 		}
 		if _, _, err := e.repo.Upload(ctx, uid, dvc(1), [][]byte{pkgN(900)}, nil, now); !errors.Is(err, ErrDeviceRemoved) {
 			t.Fatalf("Upload after the stamp: %v, want ErrDeviceRemoved", err)
+		}
+	})
+
+	// Minor 2: the service then finishes the removal, so no key material stays behind without a deadline.
+	t.Run("register through the service also deletes the stamped document and its pool", func(t *testing.T) {
+		e := newRepoEnv(t)
+		uid := uniqueUID()
+		e.seed(t, uid, 2, 3)
+		e.putMark(t, uid, dvc(1), it0)
+		_, err := e.removalSvc(now).Register(ctx, uid, dvc(1), skey(2))
+		wantReason(t, err, commonv1.ErrorReason_ERROR_REASON_DEVICE_REMOVED)
+		if _, err := e.repo.deviceRef(uid, dvc(1)).Get(ctx); status.Code(err) != codes.NotFound {
+			t.Fatalf("the stamped document: %v, want deleted", err)
+		}
+		if left := e.poolDocs(t, uid, dvc(1)); len(left) != 0 {
+			t.Fatalf("%d pool documents left", len(left))
+		}
+		if _, ok := e.markData(t, uid, dvc(1)); !ok {
+			t.Fatal("the mark is gone")
+		}
+		if list, err := e.repo.List(ctx, uid); err != nil || len(list) != 1 || list[0].ID != dvc(0) {
+			t.Fatalf("List = %+v, %v; want only %s", list, err, dvc(0))
 		}
 	})
 

@@ -204,7 +204,7 @@ func refreshDue(lastSeen, now time.Time) bool { return now.Sub(lastSeen) > seenR
 // query of at most MaxDevicesPerUser+1 devices. Writes: one (create, a last-seen update or a removedAt stamp; nothing when
 // the refresh is not due). ErrDeviceRemoved comes first: an existing document carrying removedAt; an existing live
 // document under a mark (re-created by an image without the marks: it is stamped removedAt in this transaction, then
-// refused); or a marked new id (decided before the count, so a marked id never learns about the cap). The count includes documents carrying removedAt (see
+// refused with ErrDeviceStamped, which the service follows with RemoveRemoving); or a marked new id (decided before the count, so a marked id never learns about the cap). The count includes documents carrying removedAt (see
 // deviceDoc.RemovedAt); at the cap, when some of the counted documents carry it, the answer is a StuckRemovalsError
 // naming them (still ErrDeviceLimit to errors.Is), decided on the documents the count query already read.
 func (r *FirestoreRepo) Register(ctx context.Context, uid string, d Device, now time.Time) (Device, error) {
@@ -291,7 +291,7 @@ func (r *FirestoreRepo) Register(ctx context.Context, uid string, d Device, now 
 		return Device{}, err
 	}
 	if stamped {
-		return Device{}, ErrDeviceRemoved
+		return Device{}, ErrDeviceStamped
 	}
 	return out, nil
 }
