@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:dzeroth/core/crypto/mls_derivations.dart';
@@ -11,6 +12,8 @@ import 'package:dzeroth/features/messages/domain/e2ee/daily_ledger.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/e2ee_types.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/known_conversations.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/membership_rules.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/message_receiver.dart'
+    show kWalkBackoff;
 import 'package:dzeroth/features/messages/domain/e2ee/message_content_codec.dart';
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
@@ -655,15 +658,20 @@ void main() {
       expect((await pin(carol))!.side, MemberSide.unattributed);
     });
 
-    test('resumePending with nothing pending makes no call', () async {
-      await setUpJoined();
-      await synced();
-      rig.server.calls.clear();
+    // A negative (a runner that did nothing at all would pass it): it only
+    // pins down that a resume with no record stays silent.
+    test(
+      'negative: resumePending with nothing pending makes no call',
+      () async {
+        await setUpJoined();
+        await synced();
+        rig.server.calls.clear();
 
-      expect(await rig.commits.resumePending(_c1), CommitOutcome.notAllowed);
+        expect(await rig.commits.resumePending(_c1), CommitOutcome.notAllowed);
 
-      expect(rig.server.calls, isEmpty);
-    });
+        expect(rig.server.calls, isEmpty);
+      },
+    );
 
     test(
       'CANNOT_MESSAGE discards the commit and marks the thread read-only',
@@ -862,14 +870,30 @@ void main() {
       expect(rig.commitScheduled.map((s) => s.delay), [
         const Duration(seconds: 5),
       ]);
-      // Before that time nothing is sent.
+      // Scheduled outside the conversation lock's zone: the timer's
+      // callback does not read as holding the lock it was scheduled under.
+      final entry = rig.commitScheduled.single;
+      expect(identical(entry.zone, Zone.root), isTrue);
+      expect(entry.zone.run(() => rig.locks.isHeld(_c1)), isFalse);
+      // Before that time nothing is sent, and no second resume is
+      // scheduled for the conversation.
       expect(await rig.commits.resumePending(_c1), CommitOutcome.pending);
       expect(requests(), hasLength(1));
+      expect(rig.commitScheduled, hasLength(1));
+      // At that time the timer's callback itself resumes: it takes the
+      // lock, sends the same bytes once more and confirms.
       rig.clock.advance(const Duration(seconds: 5));
-      expect(await rig.commits.resumePending(_c1), CommitOutcome.applied);
+      await runScheduled();
       expect(requests(), hasLength(2));
       expect(requests()[0].sameBytes(requests()[1]), isTrue);
       expect((await sync()).commitCallsToday, 2);
+      final g = await groupRecord();
+      expect(g.epoch, 2);
+      expect(g.pending, isNull);
+      expect(rig.commitScheduled, isEmpty);
+      // The callback left the run's memory clean: nothing to cancel.
+      rig.commits.reset();
+      expect(entry.cancelled, isFalse);
     });
 
     test('an add whose leaf key is not the key it was checked with is '
@@ -1286,7 +1310,328 @@ void main() {
 
       expect(await rig.commits.resumePending(_c1), CommitOutcome.applied);
       expect(requests(), hasLength(3));
-      expect((await sync()).commitCallsToday, 3);
+    });
+  });
+
+  group('the paths that discard or keep a commit', () {
+    for (final cause in ['flag', 'cap', 'm5', 'readOnly', 'unaccepted']) {
+      test('a resume discards a record that can no longer be sent '
+          '($cause), with no call', () async {
+        final bob2 = await RigPeer.create('bob2');
+        await setUpJoined(others: [bob2]);
+        await synced();
+        final carol = await RigPeer.create('carol');
+        rig.server.commitScript
+          ..add((error: offline, stored: false))
+          ..add((error: offline, stored: false));
+        // The flag only matters for an add; the others are shown on a
+        // removal.
+        expect(
+          cause == 'flag'
+              ? await rig.commits.change(
+                  _c1,
+                  adds: [await claim(carol, ClaimSide.theirs)],
+                )
+              : await rig.commits.change(_c1, removeDeviceIds: [bob2.id]),
+          CommitOutcome.pending,
+        );
+        rig.clock.advance(kRequestInFlightMargin);
+        rig.device.engine.calls.clear();
+        // Control: as it stands the record would be sent again.
+        expect((await groupRecord()).pending, isNotNull);
+        switch (cause) {
+          case 'flag':
+            await rig.device.session.onFlagChanged(
+              E2eeFlag.off,
+              uid: rig.device.uid,
+            );
+          case 'cap':
+            await setCalls(kCommitCallsPerConversationPerDay);
+          case 'm5':
+            for (var i = 0; i < kAntiFlapUndosPerDay; i++) {
+              await rig.ledger.addUndone(_c1);
+            }
+          case 'readOnly':
+            rig.contexts.of(_c1).canReply = false;
+          case 'unaccepted':
+            // R10 for a record built while accepted (or left by an earlier
+            // run): the stored record no longer says accepted.
+            final next = (await sync()).copyWith(requestAccepted: false);
+            await rig.device.vault.transaction(
+              (tx) => tx.putConversationSync(_c1, next),
+            );
+        }
+
+        expect(await rig.commits.resumePending(_c1), CommitOutcome.notAllowed);
+
+        expect(requests(), hasLength(2));
+        expect(engineCalls('discardCommit'), 1);
+        final g = await groupRecord();
+        expect(g.epoch, 1);
+        expect(g.pending, isNull);
+        expect(
+          (await rig.device.engine.inner.describe(g.state)).hasPendingCommit,
+          isFalse,
+        );
+        // Nothing of the dropped change is kept.
+        expect(await pin(carol), isNull);
+        expect(await pin(bob2), isNotNull);
+        // The conversation is free again: no record holds its sends.
+        expect(await rig.commits.resumePending(_c1), CommitOutcome.notAllowed);
+        expect(engineCalls('discardCommit'), 1);
+      });
+    }
+
+    test('a record that can still be sent is not discarded by a resume '
+        '(the control of the four cases above)', () async {
+      final bob2 = await RigPeer.create('bob2');
+      await setUpJoined(others: [bob2]);
+      await synced();
+      rig.server.commitScript
+        ..add((error: offline, stored: false))
+        ..add((error: offline, stored: false));
+      expect(
+        await rig.commits.change(_c1, removeDeviceIds: [bob2.id]),
+        CommitOutcome.pending,
+      );
+      rig.clock.advance(kRequestInFlightMargin);
+
+      expect(await rig.commits.resumePending(_c1), CommitOutcome.applied);
+
+      expect(requests(), hasLength(3));
+      expect(engineCalls('discardCommit'), 0);
+      expect(await pin(bob2), isNull);
+    });
+
+    test('a refusal on a resend keeps the record while catch-up does not '
+        'reach the server\'s pair, however long that takes', () async {
+      await setUpJoined();
+      await synced();
+      final carol = await RigPeer.create('carol');
+      rig.server.commitScript
+        ..add((error: offline, stored: false))
+        ..add((error: const FeatureDisabledException('off'), stored: false));
+      // From the refused resend on, the commit listing fails: nothing
+      // shows that the server does not hold the first call's commit.
+      var listingFails = true;
+      rig.server.onCall = (call) async {
+        if (call == 'listConversationCommits' &&
+            requests().length == 2 &&
+            listingFails) {
+          throw offline;
+        }
+      };
+
+      expect(
+        await rig.commits.change(
+          _c1,
+          adds: [await claim(carol, ClaimSide.theirs)],
+        ),
+        CommitOutcome.pending,
+      );
+      expect(engineCalls('discardCommit'), 0);
+      // No proof, so not even a resume is scheduled for a discard.
+      expect(rig.commitScheduled, isEmpty);
+
+      // Long after the margin, still without a listing: the record stays.
+      rig.clock.advance(kRequestInFlightMargin * 10);
+      expect(await rig.commits.resumePending(_c1), CommitOutcome.pending);
+      expect(engineCalls('discardCommit'), 0);
+      expect((await groupRecord()).pending, isNotNull);
+      expect(requests(), hasLength(2));
+
+      // The listing answers again and shows no commit at the pair: now the
+      // refused commit is dropped, and not sent a third time.
+      listingFails = false;
+      expect(await rig.commits.resumePending(_c1), CommitOutcome.refused);
+      expect(engineCalls('discardCommit'), 1);
+      expect((await groupRecord()).pending, isNull);
+      expect(requests(), hasLength(2));
+    });
+
+    test('a refusal on a resend whose first call the server stored in the '
+        'meantime is confirmed by the resume after the margin', () async {
+      await setUpJoined();
+      await synced();
+      final carol = await RigPeer.create('carol');
+      rig.server.commitScript
+        ..add((error: offline, stored: false))
+        ..add((error: const FeatureDisabledException('off'), stored: false));
+      expect(
+        await rig.commits.change(
+          _c1,
+          adds: [await claim(carol, ClaimSide.theirs)],
+        ),
+        CommitOutcome.pending,
+      );
+      expect(engineCalls('discardCommit'), 0);
+      // The race the margin exists for: the first call, which the client
+      // gave up on, is stored by the server after the listing above.
+      rig.server.addCommit(
+        _c1,
+        const MlsPair(1, 1),
+        requests().first.commit,
+        fromUser: 'user-a',
+      );
+
+      rig.clock.advance(kRequestInFlightMargin);
+      await runScheduled();
+
+      expect(engineCalls('discardCommit'), 0);
+      expect(engineCalls('confirmCommit'), 1);
+      final g = await groupRecord();
+      expect(g.epoch, 2);
+      expect(g.pending, isNull);
+      expect((await pin(carol))!.side, MemberSide.theirs);
+    });
+
+    test('CANNOT_MESSAGE on a resend still marks the thread read-only, and '
+        'RATE_LIMITED on a resend still exposes the retry time', () async {
+      await setUpJoined();
+      await synced();
+      rig.server.commitScript
+        ..add((error: offline, stored: false))
+        ..add((error: const CannotMessageException(), stored: false));
+      expect(await rig.commits.selfUpdate(_c1), CommitOutcome.pending);
+      expect(rig.contexts.of(_c1).canReply, isFalse);
+      // Not discarded at once (it was not the first call).
+      expect(engineCalls('discardCommit'), 0);
+      rig.clock.advance(kRequestInFlightMargin);
+      expect(await rig.commits.resumePending(_c1), CommitOutcome.refused);
+      expect((await groupRecord()).pending, isNull);
+
+      rig.contexts.of(_c1).canReply = true;
+      await synced();
+      expect(rig.commits.lastRateLimit, isNull);
+      rig.server.commitScript
+        ..add((error: offline, stored: false))
+        ..add((
+          error: const RateLimitedException(
+            'slow down',
+            retryAfter: Duration(seconds: 90),
+          ),
+          stored: false,
+        ));
+      expect(await rig.commits.selfUpdate(_c1), CommitOutcome.pending);
+      expect(
+        rig.commits.lastRateLimit?.retryAfter,
+        const Duration(seconds: 90),
+      );
+      expect(rig.contexts.of(_c1).canReply, isTrue);
+      expect((await groupRecord()).pending, isNotNull);
+    });
+
+    test('a confirm interrupted after the server accepted leaves the record '
+        'pending, and the next resume confirms it without a call', () async {
+      await setUpJoined();
+      await synced();
+      final carol = await RigPeer.create('carol');
+      // The walk of the closed epoch fails once, after the commit call.
+      var failed = false;
+      rig.server.onCall = (call) async {
+        if (call == 'listEpochMessages' && requests().isNotEmpty && !failed) {
+          failed = true;
+          throw offline;
+        }
+      };
+
+      expect(
+        await rig.commits.change(
+          _c1,
+          adds: [await claim(carol, ClaimSide.theirs)],
+        ),
+        CommitOutcome.pending,
+      );
+
+      expect(failed, isTrue);
+      expect(requests(), hasLength(1));
+      expect(rig.server.current(_c1), const MlsPair(1, 2));
+      expect(engineCalls('confirmCommit'), 0);
+      final held = await groupRecord();
+      expect(held.epoch, 1);
+      expect(held.pending, isNotNull);
+
+      // While the receiver's walk backoff from that failed listing lasts,
+      // the walk cannot end: a resume keeps the record and sends nothing.
+      expect(await rig.commits.resumePending(_c1), CommitOutcome.pending);
+      expect(requests(), hasLength(1));
+      expect(engineCalls('confirmCommit'), 0);
+      expect(engineCalls('discardCommit'), 0);
+      expect((await groupRecord()).pending, isNotNull);
+
+      // After it, the next resume's catch-up meets the commit by its bytes
+      // and confirms it: no commit call.
+      rig.clock.advance(kWalkBackoff);
+      expect(await rig.commits.resumePending(_c1), CommitOutcome.applied);
+
+      expect(requests(), hasLength(1));
+      expect(engineCalls('confirmCommit'), 1);
+      expect(engineCalls('discardCommit'), 0);
+      final g = await groupRecord();
+      expect(g.epoch, 2);
+      expect(g.pending, isNull);
+      // The same run still knows the checked side.
+      expect((await pin(carol))!.side, MemberSide.theirs);
+    });
+
+    test('a reused idempotency key on the first call is never a first '
+        'refusal: catch-up decides', () async {
+      await setUpJoined();
+      await synced();
+      rig.server.commitScript.add((
+        error: const IdempotencyKeyReusedException('reused'),
+        stored: false,
+      ));
+      rig.server.calls.clear();
+
+      expect(await rig.commits.selfUpdate(_c1), CommitOutcome.pending);
+
+      // Not discarded like a first refusal: the listing was asked, and the
+      // record waits for the margin.
+      expect(
+        rig.server.calls.skipWhile((c) => c != 'commitConversation'),
+        containsAllInOrder(['commitConversation', 'listConversationCommits']),
+      );
+      expect(requests(), hasLength(1));
+      expect(engineCalls('discardCommit'), 0);
+      expect((await groupRecord()).pending, isNotNull);
+
+      // When the server does hold the commit under that key, it is
+      // confirmed.
+      rig.server.addCommit(
+        _c1,
+        const MlsPair(1, 1),
+        requests().single.commit,
+        fromUser: 'user-a',
+      );
+      expect(await rig.commits.resumePending(_c1), CommitOutcome.applied);
+      expect(engineCalls('discardCommit'), 0);
+      expect((await groupRecord()).epoch, 2);
+    });
+
+    test('resumePending on a device removed elsewhere answers pending: no '
+        'call of any kind, nothing discarded', () async {
+      await setUpJoined();
+      await synced();
+      rig.server.commitScript
+        ..add((error: offline, stored: false))
+        ..add((error: offline, stored: false));
+      expect(await rig.commits.selfUpdate(_c1), CommitOutcome.pending);
+      rig.clock.advance(kRequestInFlightMargin);
+      rig.server.calls.clear();
+      rig.device.engine.calls.clear();
+
+      rig.removedElsewhere = true;
+      expect(await rig.commits.resumePending(_c1), CommitOutcome.pending);
+
+      expect(rig.server.calls, isEmpty);
+      expect(rig.device.engine.calls, isEmpty);
+      expect((await groupRecord()).pending, isNotNull);
+      expect(rig.commitScheduled, isEmpty);
+
+      // The same record, once the fact is gone, is settled as usual.
+      rig.removedElsewhere = false;
+      expect(await rig.commits.resumePending(_c1), CommitOutcome.applied);
     });
   });
 
@@ -1298,6 +1643,9 @@ void main() {
       await rig.crypto.catchUp(_c1);
       await rig.receiver.pullLive(_c1);
       final carol = await RigPeer.create('carol');
+      // The runner reads only the stored acceptance, never the request's
+      // direction; both directions are run so that a runner which took
+      // "sent by me" (or "received") as leave to commit fails here.
       for (final incoming in [true, false]) {
         // Every other condition holds: only the acceptance is missing.
         rig.contexts.of(_c1)
@@ -1322,7 +1670,9 @@ void main() {
           CommitOutcome.notAllowed,
         );
         expect(await rig.commits.selfUpdate(_c1), CommitOutcome.notAllowed);
-        expect(await rig.commits.resumePending(_c1), CommitOutcome.notAllowed);
+        // A resume of a pending record in an unaccepted conversation is the
+        // `unaccepted` case of "a resume discards a record that can no
+        // longer be sent": here nothing was built, so nothing is pending.
       }
       expect(requests(), isEmpty);
       expect(engineCalls('commitChange'), 0);
