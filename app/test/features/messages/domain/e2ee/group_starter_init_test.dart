@@ -3754,9 +3754,18 @@ void main() {
       },
     );
 
+    // Pre-flag-on fix round 2, ruling 2: the lasting refusals, the only
+    // evidence (a STALE_EPOCH counts only when it names this conversation).
     for (final error in const <AppException>[
       FeatureDisabledException('off'),
       CannotMessageException(),
+      NotFoundException('gone'),
+      StaleEpochException(
+        'stale',
+        generation: 1,
+        epoch: 2,
+        conversationId: _c1,
+      ),
     ]) {
       test('a replay refused with ${error.runtimeType} after 24 h, and a page '
           'without the message: discarded (pre-flag-on review I-1)', () async {
@@ -3856,6 +3865,30 @@ void main() {
         },
         replays: 1,
       ),
+      // Pre-flag-on fix round 2, ruling 2 (code review I-A, audit M-B): a
+      // refusal the server makes BEFORE its replay lookup says nothing of
+      // the group. It is an unknown outcome, never the evidence; one with a
+      // retry time holds the next replay until then (the test's later
+      // trigger sends nothing).
+      for (final (refusal, retry) in const <(AppException, bool)>[
+        (RateLimitedException('slow', retryAfter: Duration(hours: 1)), true),
+        (DegradedModeException('ro', retryAfter: Duration(hours: 1)), true),
+        (QuotaExceededException('quota', retryAfter: Duration(hours: 1)), true),
+        (LimitReachedException('limit', retryAfter: Duration(hours: 1)), true),
+        (AccountRestrictedException('restricted'), false),
+        (EmailNotVerifiedException('verify'), false),
+        (ValidationException('bad'), false),
+      ])
+        (
+          name: 'the replay was refused with ${refusal.runtimeType}',
+          close: () async {
+            rig.server.sendScript.add((error: refusal, stored: false));
+            if (!retry) return;
+            await starter.resumeProvisional();
+            await done();
+          },
+          replays: 1,
+        ),
     ];
     for (final closed in gates) {
       test('at 24 h with ours and a hidden page, while ${closed.name}: held, '

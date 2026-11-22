@@ -360,10 +360,27 @@ extension _Recovery on GroupStarter {
         // one, so the stored message is this row's, whatever the request
         // it was stored from. The same for any refusal of the replay.
         if (replay || e is IdempotencyKeyReusedException) {
-          // Pre-flag-on review I-1: the server refused the replay itself
-          // (CANNOT_MESSAGE included): the evidence [GroupStarter
-          // .discardInit] needs to discard a group the server holds.
-          if (replay) _replayRefused.add(row.localId);
+          if (replay) {
+            // Pre-flag-on fix round 2, ruling 2 (code review I-A, audit
+            // M-B). Decision: only a lasting refusal of the replay is the
+            // evidence [GroupStarter.discardInit] needs to discard a group
+            // the server holds ([_lastingRefusal]). Every other refusal (a
+            // rate limit, a quota, degraded mode, a limit reached, an
+            // unverified email, a restricted account, a validation error)
+            // is an unknown outcome: nothing is recorded, and its retry
+            // time, when it names one, holds the next replay until then.
+            // Why: the server runs those checks BEFORE its replay lookup,
+            // so they say nothing about the group, and a discard on them
+            // deletes a conversation the server still holds as ours. The
+            // first page is still asked: it can only settle, never
+            // discard.
+            if (_lastingRefusal(e)) {
+              _replayRefused.add(row.localId);
+            } else {
+              final wait = _refusalRetryAfter(e);
+              if (wait != null) _notBefore[row.localId] = _now().add(wait);
+            }
+          }
           return _answerFromPage(id, group, row, priority);
         }
         // A refusal. The brief names FEATURE_DISABLED and CANNOT_MESSAGE on
@@ -758,6 +775,33 @@ OutboxItem _withAttempt(OutboxItem r, int attempts, {String? lastError}) =>
       attempts: attempts,
       lastError: lastError ?? r.lastError,
     );
+
+/// Pre-flag-on fix round 2, ruling 2: whether the server's refusal [e] of a
+/// replay is a lasting answer about the conversation, made AFTER the
+/// server's replay lookup found nothing to replay: CANNOT_MESSAGE,
+/// FEATURE_DISABLED, or NOT_FOUND for the conversation (a STALE_EPOCH
+/// naming this conversation is the other one, read in [_sendLocked]). A
+/// refusal that names a retry time never counts.
+bool _lastingRefusal(AppException e) =>
+    _refusalRetryAfter(e) == null &&
+    (e is CannotMessageException ||
+        e is FeatureDisabledException ||
+        e is NotFoundException);
+
+/// The retry time a refusal [e] names (a rate limit, a quota, degraded
+/// mode, a limit reached), capped at [kMaxServerRetryWait]; null when it
+/// names none.
+Duration? _refusalRetryAfter(AppException e) {
+  final wait = switch (e) {
+    RateLimitedException(:final retryAfter) => retryAfter,
+    QuotaExceededException(:final retryAfter) => retryAfter,
+    DegradedModeException(:final retryAfter) => retryAfter,
+    LimitReachedException(:final retryAfter) => retryAfter,
+    _ => null,
+  };
+  if (wait == null || wait <= Duration.zero) return null;
+  return wait > kMaxServerRetryWait ? kMaxServerRetryWait : wait;
+}
 
 /// What a locked step asks to run once the lock is released.
 /// `settledReset` (Task 10): an own reset settled; catch up, then drain.

@@ -299,8 +299,11 @@ class GroupStarter {
 
   /// Pre-flag-on review I-1. Local ids whose LAST request in this run was
   /// the replay of a stored init (review W1) and was refused by the server
-  /// (a STALE_EPOCH or any other definitive refusal, CANNOT_MESSAGE
-  /// included). The only evidence on which [discardInit] discards a group
+  /// with a lasting answer (fix round 2, ruling 2: a STALE_EPOCH naming this
+  /// conversation, CANNOT_MESSAGE, FEATURE_DISABLED or NOT_FOUND, never one
+  /// with a retry time; a rate limit, a quota, degraded mode and the other
+  /// checks made before the replay lookup are unknown outcomes). The only
+  /// evidence on which [discardInit] discards a group
   /// the server holds as this device's. Cleared before each request of the
   /// row, by its settle or discard ([_forget]) and by [reset].
   final Set<String> _replayRefused = {};
@@ -585,7 +588,10 @@ class GroupStarter {
   ///   `ListMessages` page does not hold it), no call of it is out, the
   ///   margin after the last one has passed, and (pre-flag-on review I-1)
   ///   this run's last request of the row was its replay and the server
-  ///   refused it (CANNOT_MESSAGE included); without that refusal it is
+  ///   refused it with a lasting answer (fix round 2, ruling 2: STALE_EPOCH
+  ///   naming this conversation, CANNOT_MESSAGE, FEATURE_DISABLED or
+  ///   NOT_FOUND; a rate limit, a quota or another check the server makes
+  ///   before its replay lookup is no such answer); without it it is
   ///   [InitDiscard.held];
   /// - or the marks are already at or past the init (`InitSettle.replay`):
   ///   it can never be settled, whatever the server holds.

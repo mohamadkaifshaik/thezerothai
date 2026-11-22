@@ -76,7 +76,9 @@ extension _InitDiscard on GroupStarter {
         if (found.unknown) return InitDiscard.notDecided;
         // Pre-flag-on review I-1. Decision: discarded only when this run's
         // last request of the row was its replay and the server refused it
-        // ([GroupStarter._replayRefused]; CANNOT_MESSAGE included).
+        // with a lasting answer ([GroupStarter._replayRefused]; fix round
+        // 2, ruling 2: STALE_EPOCH for this conversation, CANNOT_MESSAGE,
+        // FEATURE_DISABLED, NOT_FOUND).
         // Otherwise held. Why: the group's age and a page without the
         // message do not show that no answer will come. A replay gate may
         // have been closed all along (the flag off, removed elsewhere, a
