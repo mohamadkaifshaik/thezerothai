@@ -255,10 +255,11 @@ extension _Reconcile on MembershipUpkeep {
     // Ruling H (audit L2): the removals the M5 pause and the fail-closed
     // ledger do not hold: the user's queued ones and M3's own devices.
     final pauseExempt = <Uint8List>[];
-    // Task 11's queue: the members it names (never this device).
-    // Task 9 audit L5 (Task 11 amendment 1): never the peer's last
-    // peer-side member; that entry stays queued (the runner reports it),
-    // so the user's choice is still shown and block or reset remain.
+    // Task 11's queue: the members it names (never this device), and only
+    // `mine` pins (Task 11 review I1: the queue removes this user's own
+    // devices; the runner drops an entry pinned on the peer's side).
+    // Task 9 audit L5 (Task 11 amendment 1) stays as a backstop: never the
+    // peer's last peer-side member.
     final queued = queuedRemovals?.call(id) ?? const <Uint8List>{};
     var queuedTheirs = members.where((m) => m.side == MemberSide.theirs).length;
     for (final m in members) {
@@ -268,6 +269,7 @@ extension _Reconcile on MembershipUpkeep {
           if (queuedTheirs <= 1) continue;
           queuedTheirs--;
         }
+        if (m.side != MemberSide.mine) continue;
         remove(m.deviceId);
         pauseExempt.add(m.deviceId);
       }

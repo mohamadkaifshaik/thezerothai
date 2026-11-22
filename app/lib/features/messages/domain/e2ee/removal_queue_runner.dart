@@ -45,13 +45,18 @@ import 'sync_budget.dart';
 /// until [onAccepted]. RATE_LIMITED stops the pass and stores
 /// `notBeforeMicros` (below).
 ///
-/// **The last peer-side device (Task 9 audit L5, brief amendment 1).** A
-/// queued device pinned on the peer's side is never removed when it is the
-/// peer's last peer-side member: the entry stays queued and
-/// [lastPeerDeviceKept] reports it, so the user's choice is still shown
-/// (the 5b copy: the device can still read; block or reset are the
-/// remaining choices, M11). The upkeep's reconcile, fed from this queue,
-/// applies the same guard.
+/// **Own devices only (review I1).** [removeDevice] takes only an id that a
+/// fresh `ListMyKeyDevices` lists (the server answers success for any id,
+/// so the call alone proves nothing), and a pass removes only `mine` pins:
+/// an entry whose device is pinned on the peer's side leaves the queue and
+/// is reported (`removalQueue.notOwn`); an `unattributed` one waits for its
+/// attribution. The upkeep's reconcile, fed from this queue, takes only
+/// `mine` pins too.
+///
+/// **The last peer-side device (Task 9 audit L5, brief amendment 1)** stays
+/// as a backstop: a peer-side member is never removed as the peer's last
+/// one ([lastPeerDeviceKept] would report it). With own devices only it
+/// is not reached.
 ///
 /// **Rate limits (audit L1, round P; amendment 2).** A RATE_LIMITED answer
 /// to THIS pass's change is read from [CommitRunner.lastRateLimitIn] of the
@@ -216,9 +221,11 @@ class RemovalQueueRunner {
 
   /// R17: RemoveKeyDevice first; only on success the device is queued for
   /// every conversation this device has group state for, most recently
-  /// active first. Throws [ArgumentError] for an empty id and for this
-  /// device's own id (use sign-out), [StateError] with no call when there
-  /// is no vault or the stored queue cannot be read, and rethrows a failed
+  /// active first. Throws [ArgumentError] for an empty id, for this
+  /// device's own id (use sign-out) and for an id a fresh own list does not
+  /// name (review I1: callers pass an id from the own list), [StateError]
+  /// with no call when there is no vault or the stored queue cannot be
+  /// read, and rethrows a failed own-list read (nothing sent) or a failed
   /// RemoveKeyDevice (nothing queued). Then a pass starts at
   /// [BudgetPriority.live]; this returns once the queue is stored.
   Future<void> removeDevice(String deviceId) async {
@@ -233,6 +240,17 @@ class RemovalQueueRunner {
     }
     if (!await _ensureLoaded(vault)) {
       throw StateError('The removal queue cannot be read.');
+    }
+    // Review I1: only this user's own devices. RemoveKeyDevice of an id
+    // the caller does not own answers success too (the server deletes under
+    // the caller's uid only), so the call proves nothing: a fresh own list
+    // decides, before anything is sent. A failed read rethrows.
+    final mine = await _keys.listMine().timeout(
+      kMlsRpcTimeout,
+      onTimeout: () => throw const NetworkException('timed out'),
+    );
+    if (!mine.devices.any((d) => d.deviceId == deviceId)) {
+      throw ArgumentError('Not one of this user\'s devices.');
     }
     final key = hexOf(await randomOf(_engine(), 16));
     await _keys
@@ -487,9 +505,11 @@ class RemovalQueueRunner {
     return false;
   }
 
-  /// The queued members of [id] this pass may remove: never this device
-  /// (pruned already), and never the peer's last peer-side member
-  /// (amendment 1; [_lastKept] records it).
+  /// The queued members of [id] this pass may remove: only `mine` pins
+  /// (review I1; a `theirs` one was pruned already, an `unattributed` one
+  /// waits for its attribution), never this device (pruned already). The
+  /// last-device guard stays as a backstop (amendment 1; [_lastKept]
+  /// records it): a peer-side member never passes it as the last one.
   List<Uint8List> _removable(String id, List<MemberRecord> members) {
     final queued = queuedFor(id);
     final out = <Uint8List>[];
@@ -504,6 +524,7 @@ class RemovalQueueRunner {
         }
         theirs--;
       }
+      if (m.side != MemberSide.mine) continue;
       out.add(m.deviceId);
     }
     if (kept) {
@@ -517,8 +538,11 @@ class RemovalQueueRunner {
   // -------------------------------------------------------------------------
   // The queue
 
-  /// Drops [id]'s entries whose device is no longer pinned there (and any
-  /// naming this device). True when the queue changed.
+  /// Drops [id]'s entries whose device is no longer pinned there, any
+  /// naming this device, and (review I1) any whose device is pinned on the
+  /// peer's side: it is not this user's device to remove. That last case is
+  /// reported (`removalQueue.notOwn`): an own id was attributed to the peer.
+  /// True when the queue changed.
   Future<bool> _prune(
     SecureVault vault,
     String id,
@@ -531,12 +555,19 @@ class RemovalQueueRunner {
     Uint8List thisDevice,
   ) {
     final before = _entries.length;
-    _entries.removeWhere(
-      (e) =>
-          e.conversationId == id &&
-          (_same(e.deviceId, thisDevice) ||
-              !members.any((m) => _same(m.deviceId, e.deviceId))),
-    );
+    var notOwn = false;
+    _entries.removeWhere((e) {
+      if (e.conversationId != id) return false;
+      if (_same(e.deviceId, thisDevice)) return true;
+      final pinned = members.where((m) => _same(m.deviceId, e.deviceId));
+      if (pinned.isEmpty) return true;
+      if (pinned.any((m) => m.side == MemberSide.theirs)) {
+        notOwn = true;
+        return true;
+      }
+      return false;
+    });
+    if (notOwn) _reportBug('removalQueue.notOwn');
     if (!_entries.any((e) => e.conversationId == id)) _lastKept.remove(id);
     final changed = _entries.length != before;
     if (changed) _publish();

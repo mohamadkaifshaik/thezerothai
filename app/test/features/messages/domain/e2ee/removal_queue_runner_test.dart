@@ -426,80 +426,75 @@ void main() {
     );
   });
 
-  group('the last peer-side device (Task 9 audit L5, amendment 1)', () {
-    test('a queued removal never removes the peer\'s last peer-side member; '
-        'the entry stays and is reported', () async {
-      await setUpRig();
-      await join(_c1);
+  group('own devices only (review I1; amendment 1 stays as a backstop)', () {
+    test('an id that is not in a fresh own list is refused and nothing is '
+        'sent', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await join(_c1, others: [sibling]);
       await synced();
+      final listsBefore = rig.keys.listCalls;
 
-      await removeAndSettle(bob);
+      // The peer's device: never this user's to remove.
+      await expectLater(
+        runner.removeDevice(bob.idString),
+        throwsA(isA<ArgumentError>()),
+      );
+      expect(rig.keys.listCalls, listsBefore + 1, reason: 'a fresh list');
+      expect(rig.keys.removeCalls, isEmpty);
 
+      // An own list that cannot be read: nothing is sent either.
+      rig.keys.ownFails = true;
+      await expectLater(
+        runner.removeDevice(sibling.idString),
+        throwsA(isA<NetworkException>()),
+      );
+      await runner.idle();
+
+      expect(rig.keys.removeCalls, isEmpty);
+      expect(await stored(), isNull);
       expect(requests(), isEmpty);
       expect((await pin(bob))!.side, MemberSide.theirs);
-      expect(queued(_c1, bob), isTrue);
-      expect(runner.lastPeerDeviceKept(_c1), isTrue);
-      expect(runner.pending.value, 1);
+      expect((await pin(sibling))!.side, MemberSide.mine);
     });
 
-    test('the upkeep\'s reconcile, fed from the queue, keeps the peer\'s last '
-        'peer-side member too', () async {
-      await setUpRig();
-      await join(_c1);
+    test('a queued id pinned on the peer\'s side is never removed; the entry '
+        'is dropped and reported', () async {
+      final twin = await RigPeer.create('twin');
+      await setUpRig(ownListed: [twin], peerListed: [twin]);
+      await join(_c1, others: [twin]);
       await synced();
-      await removeAndSettle(bob);
-      expect(queued(_c1, bob), isTrue);
+      await _pinAs(twin, MemberSide.theirs);
+      expectedErrors = ['removalQueue.notOwn'];
+
+      await removeAndSettle(twin);
+
+      expect(rig.keys.removeCalls.single.deviceId, twin.idString);
+      expect(requests(), isEmpty);
+      expect((await pin(twin))!.side, MemberSide.theirs);
+      expect((await pin(bob))!.side, MemberSide.theirs);
+      expect(queued(_c1, twin), isFalse);
+      expect(runner.pending.value, 0);
+      expect((await stored())!.entries, isEmpty);
+    });
+
+    test('the upkeep\'s reconcile never removes a queued id pinned on the '
+        'peer\'s side', () async {
+      final twin = await RigPeer.create('twin');
+      await setUpRig(ownListed: [twin], peerListed: [twin]);
+      await join(_c1, others: [twin]);
+      await synced();
+      await _pinAs(twin, MemberSide.theirs);
+      // As if the queue still named it (two peer-side members, so the last
+      // device guard alone would let one go).
+      rig.upkeep.queuedRemovals = (_) => {twin.id};
 
       await rig.upkeep.reconcile(_c1);
 
       expect(requests(), isEmpty);
+      expect((await pin(twin))!.side, MemberSide.theirs);
       expect((await pin(bob))!.side, MemberSide.theirs);
     });
-
-    test('the upkeep\'s reconcile removes a queued peer-side member that is '
-        'not the last', () async {
-      final bob2 = await RigPeer.create('bob2');
-      await setUpRig(peerListed: [bob2]);
-      await join(_c1, others: [bob2]);
-      await synced();
-      // Parked, so only the upkeep commits.
-      rig.contexts.of(_c1).canReply = false;
-      await removeAndSettle(bob2);
-      rig.contexts.note(headerRow(_c1));
-
-      await rig.upkeep.reconcile(_c1);
-
-      expect(requests(_c1), hasLength(1));
-      expect(await pin(bob2), isNull);
-      expect((await pin(bob))!.side, MemberSide.theirs);
-    });
-
-    test(
-      'of two queued peer-side members one goes and the last stays',
-      () async {
-        final bob2 = await RigPeer.create('bob2');
-        await setUpRig(peerListed: [bob2]);
-        await join(_c1, others: [bob2]);
-        await synced();
-        expect((await pin(bob2))!.side, MemberSide.theirs);
-        // Both queued before any attempt: the conversation is parked first.
-        rig.contexts.of(_c1).canReply = false;
-        await removeAndSettle(bob);
-        await removeAndSettle(bob2);
-        rig.contexts.note(headerRow(_c1));
-        await runner.noteConversation(_c1);
-        await runner.idle();
-
-        expect(requests(_c1), hasLength(1));
-        final left = [
-          for (final p in [bob, bob2])
-            if (await pin(p) != null) p,
-        ];
-        expect(left, hasLength(1));
-        expect(queued(_c1, left.single), isTrue);
-        expect(runner.lastPeerDeviceKept(_c1), isTrue);
-      },
-    );
   });
 
   group('the pause exemption (Task 9 ruling H, amendment 3)', () {
@@ -711,4 +706,20 @@ void main() {
       },
     );
   });
+}
+
+/// Rewrites [p]'s pin in [c] to [side] (an attribution the test sets).
+Future<void> _pinAs(RigPeer p, String side, [String c = _c1]) async {
+  final m = (await pin(p, c))!;
+  await rig.device.vault.transaction(
+    (tx) => tx.putMember(
+      MemberRecord(
+        conversationId: c,
+        deviceId: m.deviceId,
+        signatureKey: m.signatureKey,
+        side: side,
+        since: m.since,
+      ),
+    ),
+  );
 }
