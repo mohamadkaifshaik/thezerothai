@@ -131,9 +131,10 @@ class CommitCallTracker {
   void noteCall(String conversationId, Uint8List commit) {
     final start = _starts[conversationId];
     if (start == null || !_same(start.commit, commit)) {
-      _starts[conversationId] = _MarginStart(commit, _now());
-    } else if (_now().isAfter(start.at)) {
-      start.at = _now();
+      _starts[conversationId] = _MarginStart(commit, _now())..called = true;
+    } else {
+      start.called = true;
+      if (_now().isAfter(start.at)) start.at = _now();
     }
   }
 
@@ -185,12 +186,15 @@ class CommitCallTracker {
     return now.isBefore(end) ? end.difference(now) : Duration.zero;
   }
 
-  /// Whether this run met [commit] as [conversationId]'s pending record (it
-  /// was seen, or a call of it was made). Task 10 review m-2: a reset this
-  /// run built and nothing met yet still needs its first call.
-  bool knows(String conversationId, Uint8List commit) {
+  /// Whether this run made a call of [commit] as [conversationId]'s pending
+  /// record ([noteCall]). Task 10 review m-2: a reset this run built and no
+  /// call of which was made yet still needs its first call. Review N-3: a
+  /// record only seen ([noteSeen]: a resume that was not asked, or whose
+  /// listing failed inside the margin its sight opened) made no call, so it
+  /// does not count.
+  bool called(String conversationId, Uint8List commit) {
     final start = _starts[conversationId];
-    return start != null && _same(start.commit, commit);
+    return start != null && start.called && _same(start.commit, commit);
   }
 
   /// The pending record of [conversationId] is gone (settled or
@@ -214,6 +218,9 @@ class _MarginStart {
 
   final Uint8List commit;
   DateTime at;
+
+  /// A call of these bytes was made in this run ([CommitCallTracker.called]).
+  bool called = false;
 
   /// Calls of these bytes that outlived the client's wait and have not
   /// ended yet (audit M2): while one runs, no margin has started.

@@ -1159,6 +1159,36 @@ void main() {
       expect((await groupAt(2))!.provisional, isTrue);
     });
 
+    test('review N-3: a resume that only saw the new reset (its listing '
+        'failed inside the margin) made no call: the reset still makes its '
+        'first call', () async {
+      final bob2 = await RigPeer.create('bob2');
+      await setUpJoined();
+      peers([bob, bob2]);
+      rig.keys.claims[_bob] = () async => kpb.ClaimKeyPackagesResponse(
+        conversationId: _c1,
+        keyPackages: [await packageOf(bob)],
+      );
+      final ledger = HookedLedger();
+      build(ledger: ledger);
+      await pauseCommitting();
+      var ran = false;
+      ledger.beforeEmptyClaim = () async {
+        if (ran || await groupAt(2) == null) return;
+        ran = true;
+        // A resume meets the reset first; its listing fails, and the
+        // margin it just opened holds its resend: no call.
+        listingsFail = true;
+        await starter.resumeProvisional();
+        listingsFail = false;
+        expect(resets(), isEmpty);
+      };
+      await reset();
+      expect(ran, isTrue);
+      expect(resets(), hasLength(1), reason: 'the first call is still made');
+      expect((await groupAt(2))!.provisional, isFalse);
+    });
+
     test('review m-2: a reset made while a resume of the same conversation '
         'runs its after-lock steps still makes its call', () async {
       await setUpJoined();

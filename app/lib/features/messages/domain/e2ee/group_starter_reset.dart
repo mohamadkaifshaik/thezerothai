@@ -236,9 +236,13 @@ extension _Reset on GroupStarter {
     // took the new group first (it sends), or one still in the steps after
     // its lock (a join, a catch-up, a drain) that never looked at the new
     // group. Each is waited for; then, under the lock, the reset makes its
-    // first call unless a resume met its bytes (the tracker knows them:
-    // that resume sent them, or decided they wait). Why: else the second
-    // kind returned here with the reset's count spent and no call made.
+    // first call unless a resume already made a call of its bytes
+    // ([CommitCallTracker.called]). Why: else the second kind returned here
+    // with the reset's count spent and no call made. Review N-3: a resume
+    // that only SAW the bytes (not asked, or a failed listing inside the
+    // margin its sight opened) made no call, so the first call is still
+    // made here. A reset kept across a removal of this device is never
+    // sent: `_resetSendLocked` hands it to its record (review N-1).
     while (true) {
       final running = _running[id];
       if (running == null) break;
@@ -251,7 +255,7 @@ extension _Reset on GroupStarter {
           final next = await _locks.run(id, () async {
             final group = await _provisionalReset(op.vault, id);
             final pending = group?.pending;
-            if (pending == null || _resetCalls.knows(id, pending.commit)) {
+            if (pending == null || _resetCalls.called(id, pending.commit)) {
               return const _Next(_NextKind.none);
             }
             return _resetSendLocked(op, id, priority, first: true);
