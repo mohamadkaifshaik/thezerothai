@@ -20,8 +20,12 @@ class _ResetLists {
   final DeviceList theirs;
 }
 
-/// What the server holds at a reset's record pair (g + 1, 0).
-enum _Record { ours, other, notStored, unknown }
+/// What the server holds at a reset's record pair (g + 1, 0). `unknown`:
+/// the server was asked and its answer does not say (a failed call, an
+/// answer the client cannot read). `notAsked` (audit M1): the local sync
+/// budget refused the listing, so nothing was asked; it decides nothing
+/// and never leads to a call.
+enum _Record { ours, other, notStored, unknown, notAsked }
 
 /// Task 10 (R6 step 5, R7, R12, the recovery table): a reset of an
 /// encrypted conversation into generation g + 1, its answers, its resume
@@ -420,6 +424,11 @@ extension _Reset on GroupStarter {
     final group = await _provisionalReset(op.vault, id);
     final pending = group?.pending;
     if (group == null || pending == null) return none;
+    // Audit M1: the server holds these bytes; another call would only draw
+    // its caps again. The settle is all that is left.
+    if (_serverHolds(id, pending.commit)) {
+      return _resetSettleLocked(id, group, priority);
+    }
     // A device whose flag is off or that was removed elsewhere sends
     // nothing (it may not reset).
     if (!_session.mayStart || _removedElsewhere()) return none;
@@ -507,7 +516,12 @@ extension _Reset on GroupStarter {
             refusal: e,
           );
         }
-        if (answer == MlsPair(g + 1, 1)) {
+        // Audit M1: (g + 1, e >= 1) is the server's answer for a stored
+        // reset of these bytes (a first store answers (g + 1, 1), a
+        // recognised retry the current pair; another device's record is
+        // STALE_EPOCH). The server holds them: remembered, then settled.
+        if (answer.generation == g + 1 && answer.epoch >= 1) {
+          _resetHeld[id] = pending.commit;
           return await _resetSettleLocked(id, group, priority);
         }
         // A later pair (or any other answer): as STALE_EPOCH.
@@ -576,6 +590,8 @@ extension _Reset on GroupStarter {
     const none = _Next(_NextKind.none);
     switch (record) {
       case _Record.ours:
+        // Audit M1: from now on no call of these bytes is made again.
+        _resetHeld[id] = pending.commit;
         return _resetSettleLocked(id, group, priority);
       case _Record.other:
         if (_resetCalls.callStillOut(id, pending.commit)) return none;
@@ -590,12 +606,14 @@ extension _Reset on GroupStarter {
         }
         return _resetDropLocked(id, group, refusal: refusal);
       case _Record.unknown:
+      case _Record.notAsked:
         return none;
     }
   }
 
   /// The listing behind [_resetDecideLocked]: pages from the stored
-  /// after-pair (when it is below g + 1), each one sync-budget unit.
+  /// after-pair (when it is below g + 1), each one sync-budget unit. A unit
+  /// the budget refuses is `notAsked` (audit M1), never `unknown`.
   Future<_Record> _resetRecord(
     SecureVault vault,
     String id,
@@ -609,7 +627,7 @@ extension _Reset on GroupStarter {
         : null;
     try {
       for (var i = 0; i < _kResetPagesMax; i++) {
-        if (!await _takeSyncUnit(priority)) return _Record.unknown;
+        if (!await _takeSyncUnit(priority)) return _Record.notAsked;
         final page = await _messaging.listConversationCommits(
           conversationId: id,
           after: after,
@@ -702,6 +720,14 @@ extension _Reset on GroupStarter {
     _resetCalls.forget(id);
     _resetLists.remove(id);
     _resetRefused.remove(id);
+    _resetHeld.remove(id);
+  }
+
+  /// Audit M1: whether this run knows the server holds [commit] as [id]'s
+  /// reset ([GroupStarter._resetHeld]).
+  bool _serverHolds(String id, Uint8List commit) {
+    final held = _resetHeld[id];
+    return held != null && _same(held, commit);
   }
 
   /// Amendment 4: [resumeProvisional] for a provisional RESET, with the
@@ -709,6 +735,11 @@ extension _Reset on GroupStarter {
   /// stored reset and settles it; another winner is joined).
   /// [kProvisionalExpiry] old and not stored: the group goes, only on a
   /// listing that started after the margin with no call still out.
+  ///
+  /// Audit M1, first, at any age: when this run knows the server holds
+  /// these bytes ([GroupStarter._resetHeld]: a call answered (g + 1,
+  /// e >= 1), or a listing showed them), nothing is listed or sent; only
+  /// the settle is retried.
   ///
   /// Young (review I1: the server draws both of its caps BEFORE it
   /// recognises a retry, `service_mls.go` `commitCaps`, so every needless
@@ -723,10 +754,13 @@ extension _Reset on GroupStarter {
   /// - NOT stored: the identical bytes are sent once more (spaced, counted,
   ///   never inside the margin before the expiry, never again after a
   ///   refusal of them);
-  /// - the record could not be read: sent once more only when no call of
-  ///   these bytes was made (nor the record first seen) in this run within
-  ///   [kRequestInFlightMargin] ([CommitCallTracker.marginLeft] at now), so
-  ///   at most one resend per margin however many triggers come.
+  /// - the server failed the listing (or answered what the client cannot
+  ///   read): sent once more only when no call of these bytes was made (nor
+  ///   the record first seen) in this run within [kRequestInFlightMargin]
+  ///   ([CommitCallTracker.marginLeft] at now), so at most one resend per
+  ///   margin however many triggers come;
+  /// - the local sync budget refused the listing (audit M1, `notAsked`):
+  ///   nothing was asked, so nothing is decided and nothing is sent.
   Future<_Next> _resetResumeLocked(
     _Op op,
     String id,
@@ -737,6 +771,11 @@ extension _Reset on GroupStarter {
     const none = _Next(_NextKind.none);
     // The first sight of a record an earlier run left starts its margin.
     _resetCalls.noteSeen(id, pending.commit);
+    // Audit M1: the server holds these bytes. No listing and no call: the
+    // settle is retried (at any age; a stored reset is never expired).
+    if (_serverHolds(id, pending.commit)) {
+      return _resetSettleLocked(id, group, priority);
+    }
     if (_resetCalls.callStillOut(id, pending.commit)) return none;
     final refused = _resetRefused[id];
     final wasRefused = refused != null && _same(refused, pending.commit);
@@ -758,9 +797,13 @@ extension _Reset on GroupStarter {
     switch (record) {
       case _Record.ours:
       case _Record.other:
+      // Audit M1: nothing was asked (the local budget refused): no
+      // decision and no call.
+      case _Record.notAsked:
         return decided;
       case _Record.notStored:
         break;
+      // A listing the server failed: resent at most once per margin.
       case _Record.unknown:
         if (_resetCalls.marginLeft(id, pending.commit, _now()) != null) {
           return decided;

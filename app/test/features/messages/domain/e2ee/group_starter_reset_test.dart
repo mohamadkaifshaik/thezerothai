@@ -1131,15 +1131,21 @@ void main() {
       rig.server.commitScript.addAll([lostAnswer, lostAnswer]);
       var listings = 0;
       var walkFails = false;
+      // Only the first listing after the restore works (the record is
+      // found as ours); every walk of g that a settle starts is
+      // interrupted. Audit M1: once the record was read as ours, no resume
+      // lists it again, so each later resume lists only for the walk.
+      var recordRead = false;
       rig.server.onCall = (call) async {
         if (call == 'commitConversation') listingsFail = true;
         if (call != 'listConversationCommits') return;
         listings++;
         if (listingsFail) throw const NetworkException('rig: no listing');
-        // Only the first listing of a resume works (the record is found
-        // as ours); the walk of g that the settle starts is interrupted.
-        if (walkFails && listings > 1) {
-          throw const NetworkException('rig: the walk of g is interrupted');
+        if (walkFails) {
+          if (recordRead) {
+            throw const NetworkException('rig: the walk of g is interrupted');
+          }
+          recordRead = true;
         }
       };
       await reset();
@@ -1155,7 +1161,11 @@ void main() {
         listings = 0;
         await starter.resumeProvisional();
         await starter.settled(_c1);
-        expect(listings, greaterThan(0), reason: 'resume $i read the record');
+        expect(
+          listings,
+          greaterThan(0),
+          reason: 'resume $i listed (the record, or the walk of g)',
+        );
       }
       expect(resets(), hasLength(2), reason: 'an accepted reset needs no call');
       expect(rig.server.resetDraws[_me], 2);
@@ -1176,7 +1186,14 @@ void main() {
         'once per margin, and not listed while held back', () async {
       await setUpJoined();
       await makeStuck();
-      rig.server.commitScript.addAll([lostAnswer, lostAnswer]);
+      // Every answer is lost (audit M1: an answer would tell the server
+      // holds the bytes, and nothing would be resent).
+      rig.server.commitScript.addAll([
+        lostAnswer,
+        lostAnswer,
+        lostAnswer,
+        lostAnswer,
+      ]);
       var listings = 0;
       rig.server.onCall = (call) async {
         if (call == 'commitConversation') listingsFail = true;
@@ -1214,6 +1231,58 @@ void main() {
       expect(resets(), hasLength(4));
       expect(resets()[0].sameBytes(resets()[3]), isTrue);
       expect((await sync()).commitCallsToday, 4);
+      expect((await groupAt(2))!.provisional, isTrue);
+    });
+
+    test('audit M1: a reset the server answered is never resent while the '
+        'listings fail; only its settle is retried', () async {
+      await setUpJoined();
+      await makeStuck();
+      // The call answers (g + 1, 1); every listing after it fails, so the
+      // settle's walk of g cannot run and the reset stays provisional.
+      rig.server.onCall = (call) async {
+        if (call == 'commitConversation') listingsFail = true;
+        if (call == 'listConversationCommits' && listingsFail) {
+          throw const NetworkException('rig: no listing');
+        }
+      };
+      await reset();
+      expect(resets(), hasLength(1));
+      expect((await groupAt(2))!.provisional, isTrue);
+      for (var i = 0; i < 3; i++) {
+        rig.clock.advance(kRequestInFlightMargin);
+        await starter.resumeProvisional();
+        await starter.settled(_c1);
+      }
+      expect(resets(), hasLength(1), reason: 'the server holds these bytes');
+      expect(rig.server.resetDraws[_me], 1);
+      expect((await sync()).commitCallsToday, 1);
+      expect((await groupAt(2))!.provisional, isTrue);
+
+      // The next trigger whose walk runs settles it, with no call.
+      listingsFail = false;
+      await starter.resumeProvisional();
+      await starter.settled(_c1);
+      expect((await groupAt(2))!.provisional, isFalse);
+      expect(resets(), hasLength(1));
+    });
+
+    test('audit M1: a listing the local sync budget refuses is not asked: '
+        'no decision and no call', () async {
+      await setUpJoined();
+      await makeStuck();
+      rig.server.commitScript.addAll([unknown, unknown]);
+      await reset();
+      expect(resets(), hasLength(2));
+      expect((await groupAt(2))!.provisional, isTrue);
+
+      rig.clock.advance(kRequestInFlightMargin);
+      rig.syncBudget.pauseUntil(rig.clock.now().add(const Duration(hours: 1)));
+      rig.server.calls.clear();
+      await starter.resumeProvisional();
+      await starter.settled(_c1);
+      expect(rig.server.calls, isNot(contains('listConversationCommits')));
+      expect(resets(), hasLength(2), reason: 'not asked is no answer');
       expect((await groupAt(2))!.provisional, isTrue);
     });
   });

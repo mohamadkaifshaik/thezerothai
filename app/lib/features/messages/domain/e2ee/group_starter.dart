@@ -293,6 +293,15 @@ class GroupStarter {
   /// refused for: never sent again; dropped once the margin has passed.
   final Map<String, Uint8List> _resetRefused = {};
 
+  /// Audit M1. Conversation -> the bytes of a reset the server HOLDS: a
+  /// call of them answered (g + 1, e >= 1), or a listing showed them at
+  /// (g + 1, 0). While set, no call of them is made again; a resume only
+  /// retries the settle. Why: the server draws both of its caps before it
+  /// recognises a retry, and the reset cap (10 a day) is shared by every
+  /// conversation of the user. Memory of this run: after a restart the
+  /// record is listed again (once per margin at most, review I1).
+  final Map<String, Uint8List> _resetHeld = {};
+
   /// The conversations a [repairIfStuck] runs for (single flight).
   final Set<String> _repairing = {};
 
@@ -306,6 +315,7 @@ class GroupStarter {
     _resetCalls.clear();
     _resetLists.clear();
     _resetRefused.clear();
+    _resetHeld.clear();
     _runSerial++;
   }
 
