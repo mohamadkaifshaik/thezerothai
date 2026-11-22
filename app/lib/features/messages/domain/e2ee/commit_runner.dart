@@ -166,6 +166,20 @@ class CommitRunner {
   /// for the removal queue, Task 11); null when there was none.
   RateLimitedException? lastRateLimit;
 
+  /// Conversation -> the last RATE_LIMITED answer to a commit of it in this
+  /// run (Task 9 round P, review Minor 3).
+  final Map<String, RateLimitedException> _rateLimitIn = {};
+
+  /// The last RATE_LIMITED answer to a commit of [conversationId] in this
+  /// run; null when there was none. A caller that holds the conversation
+  /// lock compares it by identity before and after its own change to learn
+  /// whether THAT change was rate-limited (ruling O). Why not
+  /// [lastRateLimit]: it is shared by every conversation, so another
+  /// conversation's rate limit, answered under its own lock meanwhile,
+  /// would read as this change's.
+  RateLimitedException? lastRateLimitIn(String conversationId) =>
+      _rateLimitIn[conversationId];
+
   // Memory of this run. Nothing here is a fact a write relies on: after a
   // restart a pending commit is only resent sooner.
 
@@ -245,6 +259,7 @@ class CommitRunner {
   /// this run's memory.
   void reset() {
     lastRateLimit = null;
+    _rateLimitIn.clear();
     _notBefore.clear();
     cancelScheduled();
     _marginStart.clear();

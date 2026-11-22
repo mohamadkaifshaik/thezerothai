@@ -370,7 +370,7 @@ extension _Reconcile on MembershipUpkeep {
       // still checks everything else.
       if (pauseExempt.isNotEmpty &&
           await _commits.mayCommit(id, PendingKind.change, pauseExempt: true)) {
-        final limitBefore = _commits.lastRateLimit;
+        final limitBefore = _commits.lastRateLimitIn(id);
         final outcome = await _commits.changeLocked(
           id,
           removeDeviceIds: pauseExempt,
@@ -428,7 +428,7 @@ extension _Reconcile on MembershipUpkeep {
       if (!recheck) await _selfUpdateLocked(id, priority, caughtUp: true);
       return resumed;
     }
-    final limitBefore = _commits.lastRateLimit;
+    final limitBefore = _commits.lastRateLimitIn(id);
     var outcome = await _commits.changeLocked(
       id,
       adds: adds,
@@ -436,8 +436,11 @@ extension _Reconcile on MembershipUpkeep {
       priority: priority,
     );
     // Task 9 ruling O: a RATE_LIMITED answer to THIS change (the runner
-    // records each one; compared by identity with the one before it).
-    final rateLimited = !identical(_commits.lastRateLimit, limitBefore);
+    // records each one per conversation; compared by identity with the one
+    // before it). Round P (review Minor 3): the record of this
+    // conversation, which only commits under this lock change, never the
+    // runner-wide one another conversation may have changed meanwhile.
+    final rateLimited = !identical(_commits.lastRateLimitIn(id), limitBefore);
     final unbuildable =
         outcome == CommitOutcome.notAllowed &&
         _commits.lastChangeUnbuildable(id);
@@ -460,7 +463,7 @@ extension _Reconcile on MembershipUpkeep {
       // the pass that follows (the unheld entry's second, or the removal
       // follow-up's) claims none before it, and one re-check is armed for
       // it (ruling C), whatever the follow-up answers.
-      final wait = _commits.lastRateLimit?.retryAfter;
+      final wait = _commits.lastRateLimitIn(id)?.retryAfter;
       final at = _now().add(
         wait != null && wait > Duration.zero ? wait : kPeerRemovalFetchGap,
       );
@@ -505,8 +508,9 @@ extension _Reconcile on MembershipUpkeep {
   /// What a pass does after its change answered [outcome] (ruling C):
   /// `applied` tells the app; `pending`, `refused` and a `superseded` with
   /// no further pass coming ([mayRunAgain] false) arm one re-check.
-  /// [limitBefore]: [CommitRunner.lastRateLimit] before the change, so
-  /// only a RATE_LIMITED answer to THIS change names the retry time.
+  /// [limitBefore]: [CommitRunner.lastRateLimitIn] of [id] before the
+  /// change, so only a RATE_LIMITED answer to THIS change names the retry
+  /// time (round P, review Minor 3: never another conversation's).
   void _afterChange(
     String id,
     CommitOutcome outcome, {
@@ -522,7 +526,7 @@ extension _Reconcile on MembershipUpkeep {
         _armRetry(id, depth, _pendingDue(id));
       case CommitOutcome.refused:
         // Audit L1: a RATE_LIMITED answer names when to ask again.
-        final limit = _commits.lastRateLimit;
+        final limit = _commits.lastRateLimitIn(id);
         final wait = identical(limit, limitBefore) ? null : limit?.retryAfter;
         _armRetry(
           id,

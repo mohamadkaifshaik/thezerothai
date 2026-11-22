@@ -987,6 +987,55 @@ void main() {
       expect((await pin(bob2))!.side, MemberSide.theirs);
     });
 
+    test(
+      'a RATE_LIMITED answer in another conversation does not stop the '
+      'VALIDATION mark of this one (Task 9 round P, review Minor 3)',
+      () async {
+        final bob2 = await RigPeer.create('bob2');
+        await setUpJoined(alsoListed: [bob2]);
+        await synced();
+        // A second conversation with bob, joined and synced.
+        await rig.accept(_c2);
+        rig.server.rows[_c2] = headerRow(id: _c2);
+        await rig.offer(_c2, bob);
+        expect(await rig.crypto.processWelcomes(), [_c2]);
+        expect(await rig.crypto.catchUp(_c2), CatchUpResult.current);
+        await rig.receiver.pullLive(_c2);
+        peerClaims([bob, bob2]);
+        // This conversation's change that adds bob2 is refused with
+        // VALIDATION. While its call is out, a self-update of _c2 (under its
+        // own lock) is answered RATE_LIMITED.
+        rig.server.commitScript.add((
+          error: const ValidationException('commit', field: 'commit'),
+          stored: false,
+        ));
+        CommitOutcome? other;
+        rig.server.onCall = (call) async {
+          if (call != 'commitConversation' || other != null) return;
+          if (requests().last.conversationId != _c1) return;
+          rig.server.commitScript.insert(0, (
+            error: const RateLimitedException(
+              'slow down',
+              retryAfter: Duration(minutes: 7),
+            ),
+            stored: false,
+          ));
+          other = await rig.commits.selfUpdate(_c2);
+        };
+
+        await rig.upkeep.reconcile(_c1);
+        rig.server.onCall = null;
+
+        expect(other, CommitOutcome.refused);
+        expect(requests().map((r) => r.conversationId), [_c1, _c2]);
+        // The refusal of this change was not a rate limit: bob2 is tried
+        // for the day, and the re-check is not at _c2's retry time.
+        expect(await rig.ledger.emptyClaimTried(bob2.id), isTrue);
+        expect(liveRechecks(), 1);
+        expect(rig.upkeepScheduled.last.delay, kPeerRemovalFetchGap);
+      },
+    );
+
     test('an add that fails its check is claimed at most once per IST day '
         '(audit M1)', () async {
       final bob2 = await RigPeer.create('bob2');

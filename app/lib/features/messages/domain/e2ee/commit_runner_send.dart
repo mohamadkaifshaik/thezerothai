@@ -90,7 +90,10 @@ extension _CommitSend on CommitRunner {
           }
           // A refusal. Remembered whatever becomes of the commit.
           if (e is CannotMessageException) context.canReply = false;
-          if (e is RateLimitedException) lastRateLimit = e;
+          if (e is RateLimitedException) {
+            lastRateLimit = e;
+            _rateLimitIn[id] = e;
+          }
           // VALIDATION idempotency_key says the server holds something
           // under the key: never treated as a first call's refusal.
           if (isFirst && e is! IdempotencyKeyReusedException) {

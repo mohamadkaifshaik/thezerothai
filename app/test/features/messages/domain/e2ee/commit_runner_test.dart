@@ -882,6 +882,13 @@ void main() {
         rig.commits.lastRateLimit?.retryAfter,
         const Duration(seconds: 90),
       );
+      // Round P (review Minor 3): recorded for this conversation too, and
+      // for no other.
+      expect(rig.commits.lastRateLimitIn(_c1), same(rig.commits.lastRateLimit));
+      expect(
+        rig.commits.lastRateLimitIn('22222222222222222222222222222222'),
+        isNull,
+      );
       expect(engineCalls('discardCommit'), 1);
       expect((await groupRecord()).pending, isNull);
       expect(rig.contexts.of(_c1).canReply, isTrue);
