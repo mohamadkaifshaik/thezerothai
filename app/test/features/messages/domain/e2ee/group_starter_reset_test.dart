@@ -1023,6 +1023,42 @@ void main() {
       expect(resets(), hasLength(2));
     });
 
+    test('review m-5: a refused reset is not even listed while the wait '
+        'after its unknown outcome runs', () async {
+      await setUpJoined();
+      await makeStuck();
+      rig.server.commitScript.addAll([
+        unknown,
+        (
+          error: const FeatureDisabledException('off', feature: 'e2ee_dm'),
+          stored: false,
+        ),
+      ]);
+      await reset();
+      expect(resets(), hasLength(2));
+      expect((await groupAt(2))!.provisional, isTrue);
+
+      // Held back by the first call's unknown outcome: no listing, and one
+      // resume is scheduled for the wait's end (the decision is still due).
+      rig.server.calls.clear();
+      rig.scheduled.clear();
+      await starter.resumeProvisional();
+      await starter.settled(_c1);
+      expect(rig.server.calls, isNot(contains('listConversationCommits')));
+      expect((await groupAt(2))!.provisional, isTrue);
+      expect(
+        [for (final e in rig.scheduled) e.delay],
+        [kRequestInFlightMargin],
+      );
+
+      // That resume, after the wait: the record decides (not stored, so the
+      // group goes).
+      rig.clock.advance(kRequestInFlightMargin);
+      await runScheduled();
+      expect(await groupAt(2), isNull);
+      expect(resets(), hasLength(2), reason: 'refused bytes are not resent');
+    });
+
     test('a server retry time holds the resend, at most 5 minutes, and the '
         'timer-driven resend runs at live, never at user', () async {
       await setUpJoined(spyBudget: true);

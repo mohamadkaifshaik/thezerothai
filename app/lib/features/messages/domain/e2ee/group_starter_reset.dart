@@ -795,12 +795,16 @@ extension _Reset on GroupStarter {
   /// e >= 1), or a listing showed them), nothing is listed or sent; only
   /// the settle is retried.
   ///
+  /// Then, at any age (review m-5): while a call of these bytes may still
+  /// land, or while held back after an unknown outcome
+  /// ([CommitCallTracker.heldBack]), nothing, not even the listing (one
+  /// sync unit spared per trigger); an expired or refused reset is decided
+  /// at the next trigger after the wait.
+  ///
   /// Young (review I1: the server draws both of its caps BEFORE it
   /// recognises a retry, `service_mls.go` `commitCaps`, so every needless
   /// resend spends one of this conversation's 20 calls and one of the
   /// user's 10 resets a day, shared by every conversation):
-  /// - held back after an unknown outcome ([CommitCallTracker.heldBack]):
-  ///   nothing, not even the listing (one sync unit spared per trigger);
   /// - the record is OURS: never a call. The server holds the reset; the
   ///   settle (which may wait, for example while g's walk is interrupted)
   ///   is retried at the next trigger;
@@ -834,10 +838,22 @@ extension _Reset on GroupStarter {
     final refused = _resetRefused[id];
     final wasRefused = refused != null && _same(refused, pending.commit);
     final expired = _ageOf(group) >= kProvisionalExpiry;
+    // Review m-5: inside the wait after an unknown outcome nothing is
+    // listed, the expired or refused reset included (one sync unit spared
+    // per trigger). Decision: such a reset still needs its decision, so one
+    // resume is scheduled for the wait's end. Why: the resume an abandoned
+    // call's end schedules can fall inside this wait, and without this the
+    // decision would wait for an unrelated trigger. A young reset needs
+    // none: its next trigger resends, and a server retry time is scheduled
+    // by the send itself.
+    if (_resetCalls.heldBack(id)) {
+      final until = _resetCalls.notBefore(id);
+      if (!(expired || wasRefused) || until == null) return none;
+      return _Next(_NextKind.none, resendAfter: until.difference(_now()));
+    }
     if (expired || wasRefused) {
       return _resetDecideLocked(op, id, group, pending, priority, expire: true);
     }
-    if (_resetCalls.heldBack(id)) return none;
     final provedAt = _now();
     final record = await _resetRecord(op.vault, id, pending, priority);
     final decided = await _resetDecideOnLocked(

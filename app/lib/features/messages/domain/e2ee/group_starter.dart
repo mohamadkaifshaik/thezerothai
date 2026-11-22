@@ -413,7 +413,8 @@ class GroupStarter {
   /// only on a listing that started after [kRequestInFlightMargin] with no
   /// call of it still out. A record the server could not answer: resent at
   /// most once per margin; one the local budget kept from being asked:
-  /// nothing. Nothing is done while a call of it may still land.
+  /// nothing. Nothing is done while a call of it may still land, or while
+  /// its wait after an unknown outcome runs (review m-5).
   Future<void> resumeProvisional({
     BudgetPriority priority = BudgetPriority.background,
   }) => _resumeAll(priority);
