@@ -1333,5 +1333,76 @@ void main() {
       expect(st.phase, isNot(ConversationPhase.provisional));
       expect(st.sendBlock, isNot(SendBlock.provisional));
     });
+
+    /// Review M1: this device's reset into 2 is STORED (both calls landed,
+    /// every listing failed, so it is still provisional), and the marks are
+    /// already past it, at (3, 0). The join change keeps this state from
+    /// arising; it is seeded here so the two defensive ends are pinned. g's
+    /// last epoch is marked walked, so neither path walks first.
+    Future<void> seedPassedStoredReset() async {
+      rig.server.commitScript.addAll([lostAnswer, lostAnswer]);
+      rig.server.onCall = (call) async {
+        if (call == 'commitConversation') listingsFail = true;
+        if (call == 'listConversationCommits' && listingsFail) {
+          throw const NetworkException('rig: no listing');
+        }
+      };
+      await reset();
+      expect(resets(), hasLength(2));
+      expect((await groupAt(2))!.provisional, isTrue);
+      expect(rig.server.commitAt(_c1, const MlsPair(2, 0)), isNotNull);
+      final g1 = (await groupAt(1))!;
+      final s = await sync();
+      await rig.device.vault.transaction((tx) async {
+        await tx.putConversationSync(
+          _c1,
+          s.copyWith(completedEpochs: [MlsPair(1, g1.epoch)]),
+        );
+        await tx.setAfterPair(_c1, const MlsPair(3, 0));
+      });
+      listingsFail = false;
+      rig.clock.advance(kRequestInFlightMargin);
+    }
+
+    test('review M1: the starter ends a stored reset the marks already '
+        'passed (InitSettle.replay), with no call', () async {
+      await setUpJoined();
+      await makeStuck();
+      await seedPassedStoredReset();
+      await starter.resumeProvisional();
+      await starter.settled(_c1);
+      expect(await groupAt(2), isNull, reason: 'never provisional for good');
+      expect(resets(), hasLength(2));
+      expect(
+        (await rig.device.vault.conversation(_c1))!.afterPair,
+        const MlsPair(3, 0),
+      );
+      expect(
+        [for (final l in await lines()) l.line],
+        isNot(contains(SystemLine.encryptionReset)),
+        reason: 'a replay writes nothing',
+      );
+    });
+
+    test('review M1: a join discards an own STORED reset of a lower '
+        'generation that the marks already passed', () async {
+      await setUpJoined();
+      await makeStuck();
+      await seedPassedStoredReset();
+      // A welcome above both marks, of a later generation (its bytes do not
+      // matter here: the lower reset is ended before any join).
+      rig.server.addWelcome(
+        rig.device.deviceIdString,
+        _c1,
+        const MlsPair(3, 1),
+        rigBytes('a welcome of generation 3'),
+      );
+      await rig.crypto.processWelcomes();
+      expect(await groupAt(2), isNull, reason: 'never provisional for good');
+      expect(resets(), hasLength(2));
+      expect([
+        for (final l in await lines()) l.line,
+      ], isNot(contains(SystemLine.encryptionReset)));
+    });
   });
 }
