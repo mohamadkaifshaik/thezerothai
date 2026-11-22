@@ -332,14 +332,17 @@ class RemovalQueueRunner {
   /// A conversation header or inbox row was taken
   /// (`ConversationContexts.note`; Task 13 wires it): when [conversationId]
   /// is usable again (accepted, and its thread can be answered), its parked
-  /// entries are un-parked and a pass starts. Never throws.
+  /// entries are un-parked and a pass starts. Never throws. Completes once
+  /// the un-park is stored, never waiting for the pass (review I3): it may
+  /// be called while holding a conversation lock.
   Future<void> noteConversation(String conversationId) =>
       _unparkIfUsable(conversationId);
 
   /// R10: [conversationId] became accepted (after the upkeep's acceptance,
   /// whose reconcile already carried the queued removals): its parked
   /// entries are un-parked when it can be answered, and a pass starts (it
-  /// lets go of the removed ones). Never throws.
+  /// lets go of the removed ones). Never throws. Like [noteConversation]
+  /// it never waits for the pass, so it may be called under a lock.
   Future<void> onAccepted(String conversationId) =>
       _unparkIfUsable(conversationId);
 
@@ -641,7 +644,10 @@ class RemovalQueueRunner {
       if (!accepted || !_contexts.of(id).canReply) return;
       if (_setParked(id, parked: false)) await _save(vault);
       if (_entries.any((e) => e.conversationId == id)) {
-        await _startPass(BudgetPriority.background);
+        // Review I3: never awaited. A caller may hold a conversation lock
+        // (a header noted inside attribution or catch-up); the pass takes
+        // that lock, so awaiting it here would deadlock.
+        unawaited(_startPass(BudgetPriority.background));
       }
     } on Object catch (e, s) {
       _reportIfBug(e, s, 'removalQueue.unpark');
