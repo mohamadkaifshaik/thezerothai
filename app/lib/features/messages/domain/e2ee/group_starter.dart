@@ -476,6 +476,13 @@ class GroupStarter {
       if (_known.contains(conversationId) ||
           await _messaging.cachedEverEncrypted(conversationId)) {
         known = conversationId;
+      } else if (vault != null &&
+          await _known.conversationForPeer(vault, peer) != null) {
+        // Review M2. Decision: the id is not known, but the vault stores
+        // this peer for ANOTHER conversation. An honest server cannot
+        // produce that (the id is deterministic): nothing is started and
+        // nothing is plaintext.
+        return _out(StartResult.unavailable);
       }
     } else if (vault != null) {
       known = await _known.conversationForPeer(vault, peer);
@@ -510,7 +517,7 @@ class GroupStarter {
     }
 
     // 2. A device whose flag is off or unknown never claims or inits.
-    if (!_session.mayStart) return _out(StartResult.plaintext);
+    if (!_session.mayStart) return _plaintextUnlessKnown(conversationId, peer);
     // The flag is on but nothing can be started here now (no usable vault
     // or engine, or this device was removed elsewhere). Decision: never
     // plaintext in doubt; the caller may try again.
@@ -523,7 +530,9 @@ class GroupStarter {
     final list = await _directory.peer(peer, priority: BudgetPriority.user);
     switch (list.state) {
       case ListState.readable:
-        if (list.devices.isEmpty) return _out(StartResult.plaintext);
+        if (list.devices.isEmpty) {
+          return _plaintextUnlessKnown(conversationId, peer);
+        }
       case ListState.unreadable:
         return _lookupFailed(peer);
       case ListState.deferred:
@@ -592,6 +601,18 @@ class GroupStarter {
     null,
     _directory.isParked(peer) ? const CannotMessageException() : null,
   );
+
+  /// Review M1. `plaintext`, unless the conversation is known NOW. The
+  /// known check of step 1 and this answer are separated by awaits (a
+  /// lookup of up to 30 s) in which a welcome can be joined: the
+  /// synchronous part of step 1 is asked again right before answering,
+  /// so the server's ENCRYPTION_REQUIRED is not what stops it.
+  StartOutcome _plaintextUnlessKnown(String? conversationId, String peer) {
+    final known =
+        (conversationId != null && _known.contains(conversationId)) ||
+        _known.ids.any((id) => _known.peerOf(id) == peer);
+    return _out(known ? StartResult.unavailable : StartResult.plaintext);
+  }
 
   StartOutcome _out(
     StartResult result, [

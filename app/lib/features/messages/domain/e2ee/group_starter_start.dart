@@ -194,11 +194,20 @@ extension _Start on GroupStarter {
       _known.peerOf(id) == peer;
 
   /// A readable list as it is; a deferred one as the last readable list it
-  /// carries; null when there is none (unreadable, or never read).
+  /// carries, when that list was read within [kDeviceListReuse]; null when
+  /// there is none (unreadable, never read, or too old).
+  ///
+  /// Review M4. Decision: R3 checks claimed packages against these lists
+  /// (and the own list decides "this id is not ours"). A deferred answer
+  /// of any age could add a device its owner removed days ago, so an old
+  /// one is `lookupFailed`: nothing is sent, and the caller may try again.
   DeviceList? _lastReadable(DeviceList list) {
     if (list.readable) return list;
-    if (list.state == ListState.deferred && list.fetchedAt != null) {
-      return DeviceList(ListState.readable, list.devices, list.fetchedAt);
+    final at = list.fetchedAt;
+    if (list.state == ListState.deferred &&
+        at != null &&
+        _now().difference(at) < kDeviceListReuse) {
+      return DeviceList(ListState.readable, list.devices, at);
     }
     return null;
   }

@@ -574,6 +574,9 @@ class RigServer {
   /// (`cachedEverEncrypted`).
   final Set<String> everEncrypted = {};
 
+  /// Runs while a `cachedConversationWith` read is in flight (a race).
+  Future<void> Function()? onCacheRead;
+
   /// A repository for the user [user] (its commits come back `from_self`).
   RigMessaging viewFor(String user) => RigMessaging(this, user);
 
@@ -669,6 +672,7 @@ class RigMessaging implements MessagingRepository {
   /// The cached row whose header names [peerUserId] (the first one).
   @override
   Future<pb.Conversation?> cachedConversationWith(String peerUserId) async {
+    await _server.onCacheRead?.call();
     for (final row in _server.rows.values) {
       if (row.peer.userId == peerUserId) return row;
     }
@@ -1475,6 +1479,9 @@ class RigKeys implements KeysRepository {
   /// RATE_LIMITED...).
   Object? peerError;
 
+  /// Runs while a `GetKeyDevices` call is in flight (a race).
+  Future<void> Function()? onGet;
+
   /// `ClaimKeyPackages`: user reference -> the answer of each claim for it
   /// (built per call: a claim hands out fresh packages). An unlisted
   /// reference answers an empty claim.
@@ -1515,6 +1522,7 @@ class RigKeys implements KeysRepository {
   @override
   Future<kpb.GetKeyDevicesResponse> getDevices(List<String> userIds) async {
     getCalls.add([...userIds]);
+    await onGet?.call();
     final error = peerError;
     if (error != null) throw error;
     if (peerFails) throw const NetworkException('rig');

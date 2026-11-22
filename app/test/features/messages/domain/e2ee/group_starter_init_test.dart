@@ -299,21 +299,107 @@ void main() {
         retryAfter: Duration(minutes: 1),
       );
 
+      rig.device.engine.calls.clear();
+
       // No readable list at all.
       var r = await start(peer: 'ref-carol');
       expect(r.result, StartResult.lookupFailed);
       // The last readable list was empty: never plaintext on a deferral.
       r = await start(peer: 'ref-dave');
       expect(r.result, StartResult.lookupFailed);
+      // Refused by the routing itself: the start (whose first step draws
+      // the report key) was never entered.
+      expect(rig.device.engine.calls, isNot(contains('randomBytes')));
       expect(rig.keys.claimCalls, isEmpty);
       expect(await rows(), isEmpty);
       expect(rig.server.sends, isEmpty);
 
+      // Review M4: a deferred list older than the reuse window is not used
+      // to check claimed packages (a device removed since could be added).
+      r = await start();
+      expect(r.result, StartResult.lookupFailed);
+      expect(rig.keys.claimCalls, isEmpty);
+      expect(await rows(), isEmpty);
+
+      // Lists read within the reuse window, then a deferral: the start
+      // goes on from them.
+      rig.keys.peerError = null;
+      rig.clock.advance(const Duration(minutes: 2));
+      await rig.directory.own(fresh: true);
+      await rig.directory.peer(_bob, fresh: true);
+      rig.clock.advance(const Duration(minutes: 10));
+      rig.keys.peerError = const RateLimitedException(
+        'slow down',
+        retryAfter: Duration(minutes: 1),
+      );
+      expect((await start(peer: 'ref-carol')).result, StartResult.lookupFailed);
+      final lists = rig.keys.listCalls;
+      final gets = rig.keys.getCalls.length;
       r = await start();
       expect(r.result, StartResult.started);
+      // Both fresh lookups were deferred (no call was made for them).
+      expect(rig.keys.listCalls, lists);
+      expect(rig.keys.getCalls, hasLength(gets));
       expect(rig.keys.claimCalls.single.userId, _bob);
       await done();
       expect((await groupOf())!.provisional, isFalse);
+    });
+
+    test('a conversation that becomes known while routing waits is not '
+        'routed to plaintext', () async {
+      // During the device lookup (a readable, empty list).
+      rig.keys.peers[_bob] = [];
+      rig.keys.onGet = () => rig.known.add(_c1, peerUserId: _bob);
+      var r = await start();
+      expect(r.result, StartResult.unavailable);
+      rig.keys.onGet = () => rig.known.add(_c2);
+      rig.keys.peers['ref-carol'] = [];
+      r = await start(peer: 'ref-carol', conversationId: _c2);
+      expect(r.result, StartResult.unavailable);
+      rig.keys.onGet = null;
+
+      // With the flag off, during the cache read before the flag branch.
+      await rig.device.session.onFlagChanged(E2eeFlag.off, uid: _me);
+      rig.server.onCacheRead = () => rig.known.add(_c3, peerUserId: 'ref-dave');
+      r = await start(peer: 'ref-dave');
+      expect(r.result, StartResult.unavailable);
+      expect(await rows(), isEmpty);
+      expect(rig.server.sends, isEmpty);
+    });
+
+    test('a draft addressed by an unknown id for a peer whose stored ref '
+        'names another conversation is refused', () async {
+      await rig.known.add(_c2, peerUserId: _bob);
+      for (final flag in [E2eeFlag.on, E2eeFlag.off]) {
+        await rig.device.session.onFlagChanged(flag, uid: _me);
+        final r = await start(conversationId: _c1);
+        expect(r.result, StartResult.unavailable, reason: '$flag');
+      }
+      expect(await rows(), isEmpty);
+      expect(rig.keys.getCalls, isEmpty);
+      expect(rig.keys.claimCalls, isEmpty);
+    });
+
+    test('R1 refuses a recipient whose cached row is of a known '
+        'conversation, and a known conversation is unavailable while this '
+        'device is removed elsewhere', () async {
+      // The cached row for carol is _c3, which the vault knows (no stored
+      // ref of this id kind, no cache marker).
+      rig.server.rows[_c3] = header(_c3, 'ref-carol');
+      await rig.known.add(_c3);
+      await rig.device.session.onFlagChanged(E2eeFlag.off, uid: _me);
+      var r = await start(peer: 'ref-carol');
+      expect(r.result, StartResult.unavailable);
+
+      await rig.known.add(_c1, peerUserId: _bob);
+      rig.removedElsewhere = true;
+      r = await start();
+      expect(r.result, StartResult.unavailable);
+      expect(r.conversationId, _c1);
+      r = await start(conversationId: _c3);
+      expect(r.result, StartResult.unavailable);
+      expect(await rows(), isEmpty);
+      expect(rig.keys.getCalls, isEmpty);
     });
 
     test(
