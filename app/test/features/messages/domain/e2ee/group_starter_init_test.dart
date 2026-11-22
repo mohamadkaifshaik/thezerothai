@@ -4620,6 +4620,81 @@ void main() {
       expect((await groupOf())!.provisional, isTrue);
     });
 
+    test('a hand-over from the join code, then reset() before the running '
+        'resume ends: nothing more is started (pre-flag-on fix round 3, '
+        'ruling 4)', () async {
+      rig.server.sendScript.addAll([unknown, unknown]);
+      await start();
+      await done();
+      expect(rig.server.sends, hasLength(2));
+      rig.scheduled.clear();
+
+      gate = Completer<void>();
+      rig.server.sendScript.addAll([unknown, unknown]);
+      final running = starter.resumeProvisional();
+      await pumpEventQueue();
+      expect(rig.server.sends, hasLength(3));
+
+      rig.crypto.onOwnInitUnanswered!(_c1);
+      // Sign-out or a new vault while the resume runs.
+      starter.reset();
+      gate!.complete();
+      await running;
+      await pumpEventQueue();
+      await done();
+
+      // Only the running resume's request: the hand-over of the earlier run
+      // started nothing.
+      expect(rig.server.sends, hasLength(3));
+    });
+
+    test('a discard known only by its conversation forgets the row\'s '
+        'memory: a retry time kept for the discarded group does not hold the '
+        'init of a new group of the conversation (pre-flag-on fix round 3, '
+        'ruling 4)', () async {
+      // The init's outcome is unknown and the server names a retry time an
+      // hour away: this run remembers "not before" for the row.
+      rig.server.sendScript.add((
+        error: const ScreeningUnavailableException(
+          'busy',
+          retryAfter: Duration(hours: 1),
+        ),
+        stored: false,
+      ));
+      await start();
+      await done();
+      final old = (await rows()).single;
+      expect((await groupOf())!.provisional, isTrue);
+      expect(rig.server.sends, hasLength(1));
+
+      // The group goes where only the conversation is known (the join
+      // code's discard, which tells the starter after its transaction).
+      expect(
+        await rig.locks.run(
+          _c1,
+          () => rig.crypto.discardProvisionalLocked(
+            _c1,
+            1,
+            lastError: kStartErrorInitDiscarded,
+          ),
+        ),
+        isTrue,
+      );
+      rig.crypto.onOwnInitDiscarded!(_c1);
+      // The conversation's own margins have passed; the retry time has not.
+      rig.clock.advance(kInitResendMargin);
+
+      // The user's retry: a new group of the same conversation for the same
+      // row, whose init goes out at once.
+      await starter.retryStart('local-1');
+      await done();
+
+      expect(rig.server.sends.length, greaterThan(1));
+      final sent = rig.server.sends[1];
+      expect(sent.mlsInit, isNotNull);
+      expect(sent.key, isNot(old.idempotencyKey));
+    });
+
     test(
       'the join code hands an own unanswered init to the starter once per '
       'group per run, not once per welcome poll (pre-flag-on review m-2)',
