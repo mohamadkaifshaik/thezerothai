@@ -119,7 +119,30 @@ func TestRegister_StuckRemovalFailureIsMapped(t *testing.T) {
 	}
 }
 
-// TestStuckRemovalsError: the error is ErrDeviceLimit to errors.Is, carries the ids for the service only, and its text
+// TestFakeRepo_RecordsOpBeforeError (code review nit): every recording method of the fake records its call before it
+// fails, so a test that injects an error still sees which calls were made.
+func TestFakeRepo_RecordsOpBeforeError(t *testing.T) {
+	ctx := context.Background()
+	calls := map[string]func(*fakeRepo) error{
+		"Register": func(f *fakeRepo) error { _, err := f.Register(ctx, uidA, Device{ID: devID}, t0); return err },
+		"Remove":   func(f *fakeRepo) error { return f.Remove(ctx, uidA, devID) },
+		"Upload":   func(f *fakeRepo) error { _, _, err := f.Upload(ctx, uidA, devID, pkgs(0, 1), nil, t0); return err },
+	}
+	for name, call := range calls {
+		t.Run(name, func(t *testing.T) {
+			f := newFakeRepo()
+			f.err = errUnavailableForTest()
+			if err := call(f); err == nil {
+				t.Fatal("no error")
+			}
+			if !slices.Equal(f.ops, []string{name}) {
+				t.Fatalf("ops = %v, want [%s]", f.ops, name)
+			}
+		})
+	}
+}
+
+// TestStuckRemovalsError:the error is ErrDeviceLimit to errors.Is, carries the ids for the service only, and its text
 // never names them.
 func TestStuckRemovalsError(t *testing.T) {
 	err := fmt.Errorf("wrapped: %w", &StuckRemovalsError{DeviceIDs: []string{devID, devID2}})

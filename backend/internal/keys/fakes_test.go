@@ -177,10 +177,10 @@ func (f *fakeRepo) Upload(_ context.Context, uid, deviceID string, packages [][]
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
+	f.ops = append(f.ops, "Upload")
 	if f.err != nil {
 		return 0, false, f.err
 	}
-	f.ops = append(f.ops, "Upload")
 	i := f.find(uid, deviceID)
 	k := devKey(uid, deviceID)
 	if i >= 0 && !f.live(uid, deviceID) {
