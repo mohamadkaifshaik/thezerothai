@@ -27,6 +27,31 @@ extension _Start on GroupStarter {
       throw ArgumentError('An unsent row already has this local id.');
     }
 
+    // Task 8 audit L1. Decision: what the creating body would refuse
+    // without the server's help is read here, before any lookup or claim,
+    // and refused as it would be there (`unavailable`). Why: a claim spends
+    // the peer's one-time packages and one of the 20 claims per target a
+    // day; one made for a start the local state refuses anyway is wasted,
+    // and a rebuild would repeat it at every resume. The body reads it all
+    // again under the lock (the state can change in between).
+    if (!await _locallyStartable(op, draft, mode)) {
+      return _out(StartResult.unavailable);
+    }
+    // Audit L1: one 24 h rebuild per conversation per [kRebuildSpacing],
+    // taken (and stored) before its first lookup.
+    if (mode == _Mode.replace) {
+      final id = draft.expectId;
+      if (id == null) return _out(StartResult.unavailable);
+      bool taken;
+      try {
+        taken = await _ledger.takeRebuild(id, spacing: kRebuildSpacing);
+      } on Object catch (e, s) {
+        _reportIfBug(e, s, 'start.rebuildSlot');
+        taken = false;
+      }
+      if (!taken) return _out(StartResult.unavailable);
+    }
+
     // 1. Both lists fresh. A deferred answer stands for the last readable
     // list only when that list is younger than `kDeviceListReuse` (H1,
     // review 3b); with none, or an older one, it is `lookupFailed`.
@@ -213,6 +238,58 @@ extension _Start on GroupStarter {
     }
   }
 
+  /// Audit L1: the creating body's local refusals, read before any lookup
+  /// or claim (from the vault, with no lock: [_create] reads them all
+  /// again in its body). False when the device state is gone; for a start
+  /// whose conversation is known before the claim (a restart, the 24 h
+  /// replace) when its key history does not open; and for the replace,
+  /// when the replace guard ([_replaceable]) or the old init row already
+  /// refuses.
+  Future<bool> _locallyStartable(_Op op, _Draft draft, _Mode mode) async {
+    final vault = op.vault;
+    if (await vault.deviceState() == null) return false;
+    if (mode == _Mode.fresh) return true;
+    final id = draft.expectId ?? draft.conversationId;
+    if (id == null) return false;
+    if (mode == _Mode.replace) {
+      if (!_replaceable(await vault.groups(id), draft)) return false;
+      OutboxItem? old;
+      for (final r in (await vault.outbox()).items) {
+        if (r.idempotencyKey == draft.replaces) old = r;
+      }
+      if (old == null ||
+          old.stage != OutboxStage.encrypted ||
+          old.init == null) {
+        return false;
+      }
+    }
+    final pins = await vault.members(id);
+    final former = await GroupStarter._former.of(vault, id);
+    final history = await _crypto.keyHistory.of(
+      vault,
+      id,
+      currentPins: pins,
+      formerPins: former,
+    );
+    return !history.unreadable;
+  }
+
+  /// Review I3 / N6, the replace guard: [groups] (all of the conversation's)
+  /// are exactly the one provisional group of generation 1 whose pending
+  /// init is still the commit [draft] replaces.
+  bool _replaceable(List<GroupRecord> groups, _Draft draft) {
+    final only = groups.length == 1 ? groups.single : null;
+    final pending = only?.pending;
+    final commit = draft.replacesCommit;
+    return only != null &&
+        only.provisional &&
+        only.generation == 1 &&
+        pending != null &&
+        pending.kind == PendingKind.init &&
+        commit != null &&
+        _same(pending.commit, commit);
+  }
+
   /// Task 8 audit M2. Whether the drift cache agrees that the conversation
   /// [id] a claim named is the one with [peer]: (i) the cached header of
   /// [id], when there is one, names [peer]; (ii) the cached conversation
@@ -387,16 +464,7 @@ extension _Start on GroupStarter {
             // group goes only here, in the transaction that stores the new
             // one, and only while it is still the same init. A failed
             // claim never reaches this point and leaves it untouched.
-            final only = groups.length == 1 ? groups.single : null;
-            final pending = only?.pending;
-            final commit = draft.replacesCommit;
-            if (only == null ||
-                !only.provisional ||
-                only.generation != 1 ||
-                pending == null ||
-                pending.kind != PendingKind.init ||
-                commit == null ||
-                !_same(pending.commit, commit)) {
+            if (!_replaceable(groups, draft)) {
               return const _Created(_CreatedKind.unavailable);
             }
             replacing = true;

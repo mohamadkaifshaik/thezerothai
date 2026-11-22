@@ -30,6 +30,7 @@ class DailyRecord {
     this.lostSendUpdate = const {},
     this.emptyClaim = const {},
     this.autoResets = const {},
+    this.rebuiltAt = const {},
     this.exhausted = false,
   });
 
@@ -40,6 +41,7 @@ class DailyRecord {
       lostSendUpdate = const {},
       emptyClaim = const {},
       autoResets = const {},
+      rebuiltAt = const {},
       exhausted = false;
 
   /// The record that stands for a stored value that could not be read: every
@@ -50,6 +52,7 @@ class DailyRecord {
       lostSendUpdate = const {},
       emptyClaim = const {},
       autoResets = const {},
+      rebuiltAt = const {},
       exhausted = true;
 
   /// The IST day this record counts.
@@ -75,6 +78,12 @@ class DailyRecord {
   /// first claim. Manual resets are not counted.
   final Map<String, int> autoResets;
 
+  /// Task 8 audit L1. Per conversation: when this device last began the
+  /// 24 h rebuild of its expired provisional group today (microseconds
+  /// since the epoch, UTC), taken before the rebuild's first lookup
+  /// ([DailyLedger.takeRebuild]).
+  final Map<String, int> rebuiltAt;
+
   /// True when the value stored for this day could not be read: the ledger
   /// then answers as if every counter were at its cap until the next IST day.
   final bool exhausted;
@@ -85,6 +94,7 @@ class DailyRecord {
     Set<String>? lostSendUpdate,
     Set<String>? emptyClaim,
     Map<String, int>? autoResets,
+    Map<String, int>? rebuiltAt,
   }) => DailyRecord(
     day: day,
     undone: undone ?? this.undone,
@@ -92,6 +102,7 @@ class DailyRecord {
     lostSendUpdate: lostSendUpdate ?? this.lostSendUpdate,
     emptyClaim: emptyClaim ?? this.emptyClaim,
     autoResets: autoResets ?? this.autoResets,
+    rebuiltAt: rebuiltAt ?? this.rebuiltAt,
     exhausted: exhausted,
   );
 
@@ -222,6 +233,9 @@ class DailyRecord {
         throw ArgumentError('A daily counter is out of range.');
       }
     }
+    for (final t in rebuiltAt.values) {
+      if (t < 0) throw ArgumentError('A daily time is out of range.');
+    }
     return _encode();
   }
 
@@ -242,6 +256,7 @@ class DailyRecord {
         'lostSendUpdate': lostSendUpdate.toList(),
         'emptyClaim': emptyClaim.toList(),
         if (autoResets.isNotEmpty) 'autoResets': autoResets,
+        if (rebuiltAt.isNotEmpty) 'rebuiltAt': rebuiltAt,
       }),
     ),
   );
@@ -273,6 +288,13 @@ class DailyRecord {
             : {
                 for (final e in _map(m['autoResets']).entries)
                   e.key: _int(e.value),
+              },
+        // Absent in a record written before the pre-flag-on PR: none today.
+        rebuiltAt: m['rebuiltAt'] == null
+            ? const {}
+            : {
+                for (final e in _map(m['rebuiltAt']).entries)
+                  e.key: _micros(e.value),
               },
         exhausted: m['exhausted'] == null ? false : _bool(m['exhausted']),
       );
@@ -316,6 +338,11 @@ class DailyRecord {
   static int _int(Object? v) {
     if (v is int && v >= 0 && v <= kMaxPairComponent) return v;
     throw const FormatException('int');
+  }
+
+  static int _micros(Object? v) {
+    if (v is int && v >= 0) return v;
+    throw const FormatException('micros');
   }
 
   static Set<String> _strings(Object? v) {
@@ -448,6 +475,43 @@ class DailyLedger {
         return true;
       });
 
+  /// Task 8 audit L1, for the starter's 24 h rebuild: the rebuild of
+  /// [conversationId] may begin now, taken only when none began within
+  /// [spacing] before now today. Read and written in ONE `runWrite` body
+  /// and transaction, before the rebuild's first lookup and claim, so a
+  /// crash or a failed rebuild never lets the next one start sooner.
+  /// False, with nothing written, inside [spacing], for a time stored AFTER
+  /// now (the clock moved back: its age cannot be told, review N8's rule),
+  /// and while the record is exhausted (fails closed for the day). Throws
+  /// when the vault is not ready.
+  ///
+  /// Kept in this day's record (cheap: one time per conversation rebuilt
+  /// today). Cost: the first rebuild after the IST day boundary is not
+  /// spaced from one made just before it (at most one more a day).
+  Future<bool> takeRebuild(
+    String conversationId, {
+    required Duration spacing,
+  }) => _session.runWrite((vault) async {
+    _checkVault(vault);
+    final current = await _load(vault);
+    if (current.exhausted) return false;
+    final now = _now().microsecondsSinceEpoch;
+    final last = current.rebuiltAt[conversationId];
+    if (last != null && (last > now || now - last < spacing.inMicroseconds)) {
+      return false;
+    }
+    await vault.transaction(
+      (tx) => tx.putSetting(
+        kVaultSettingE2eeDaily,
+        _applied(
+          current,
+          (r) => r.copyWith(rebuiltAt: {...r.rebuiltAt, conversationId: now}),
+        ).encode(),
+      ),
+    );
+    return true;
+  });
+
   Future<bool> lostSendUpdateDone(String conversationId) async {
     final r = await read();
     return r.exhausted || r.lostSendUpdate.contains(conversationId);
@@ -540,6 +604,7 @@ class DailyLedger {
       lostSendUpdate: result.lostSendUpdate,
       emptyClaim: result.emptyClaim,
       autoResets: result.autoResets,
+      rebuiltAt: result.rebuiltAt,
       exhausted: true,
     );
   }

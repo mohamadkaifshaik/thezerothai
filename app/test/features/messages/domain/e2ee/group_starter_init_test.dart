@@ -2650,10 +2650,12 @@ void main() {
       await expectUntouched('an unreadable own list');
       rig.keys.ownFails = false;
 
-      // (c) The app restarts in between; the next resume starts again.
+      // (c) The app restarts in between; the next resume starts again,
+      // once [kRebuildSpacing] has passed since the rebuild in (a) (audit
+      // L1, a behaviour change: it used to start two minutes later).
       await rig.restart();
       build();
-      rig.clock.advance(const Duration(minutes: 2));
+      rig.clock.advance(kRebuildSpacing);
       rig.server.sendScript.addAll([unknown, unknown]);
       await starter.resumeProvisional();
       await done();
@@ -2671,6 +2673,117 @@ void main() {
       expect(row.recipientUserId, _bob);
       expect(await rig.device.vault.members(_c1), hasLength(2));
       expect(rig.server.sends.last.key, row.idempotencyKey);
+    });
+
+    /// An expired provisional group whose server's first commit is another
+    /// device's init: the next resume rebuilds it. The clock is pinned to
+    /// 06:00 UTC (11:30 IST), so no test crosses an IST day.
+    Future<({GroupRecord group, OutboxItem row})> expiredLost() async {
+      rig.clock.value = DateTime.utc(2026, 11, 20, 6);
+      rig.server.sendScript.addAll([unknown, unknown]);
+      await start();
+      await done();
+      final state = (group: (await groupOf())!, row: (await rows()).single);
+      rig.server.addCommit(
+        _c1,
+        const MlsPair(1, 0),
+        rigBytes('the init of another device'),
+        fromUser: 'user-b',
+      );
+      rig.clock.advance(kProvisionalExpiry + const Duration(minutes: 1));
+      rig.keys.claimCalls.clear();
+      return state;
+    }
+
+    Future<void> expectOld(
+      ({GroupRecord group, OutboxItem row}) old,
+      String why,
+    ) async {
+      final g = (await groupOf())!;
+      expect(g.provisional, isTrue, reason: why);
+      expect(
+        rigEq(g.pending!.commit, old.group.pending!.commit),
+        isTrue,
+        reason: why,
+      );
+      final row = (await rows()).single;
+      expect(row.idempotencyKey, old.row.idempotencyKey, reason: why);
+      expect(row.init, isNotNull, reason: why);
+      expect(row.lastError, isNull, reason: why);
+    }
+
+    test('a rebuild the key history would refuse makes no claim and no '
+        'lookup (audit L1)', () async {
+      final old = await expiredLost();
+      // The key history no longer opens: the creating body would refuse.
+      await rig.device.vault.transaction(
+        (tx) => tx.putSetting(
+          'messages.e2ee.keys.$_c1',
+          Uint8List.fromList([1, 2, 3]),
+        ),
+      );
+      final gets = rig.keys.getCalls.length;
+      final lists = rig.keys.listCalls;
+
+      await starter.resumeProvisional();
+      await done();
+
+      expect(rig.keys.claimCalls, isEmpty);
+      expect(rig.keys.getCalls, hasLength(gets));
+      expect(rig.keys.listCalls, lists);
+      await expectOld(old, 'an unreadable history');
+      expect(rig.keyHistoryErrors, ['keyHistory.read']);
+      rig.unexpected.clear();
+    });
+
+    test('one rebuild per group per hour, kept across a restart (audit '
+        'L1)', () async {
+      final old = await expiredLost();
+      // The first rebuild claims; its replace is refused (the commits
+      // cannot be listed again under the lock), so the group stays.
+      var listings = 0;
+      rig.server.onCall = (call) async {
+        if (call == 'listConversationCommits' && ++listings == 2) {
+          throw const NetworkException('no network');
+        }
+      };
+      await starter.resumeProvisional();
+      await done();
+      rig.server.onCall = null;
+      expect(listings, 2);
+      expect(rig.keys.claimCalls, hasLength(1));
+      await expectOld(old, 'the replace was refused');
+
+      // Within the hour: the expiry asks the commits, and nothing is
+      // claimed. A restart does not reopen it.
+      rig.clock.advance(const Duration(minutes: 30));
+      await starter.resumeProvisional();
+      await done();
+      expect(rig.keys.claimCalls, hasLength(1));
+      await rig.restart();
+      build();
+      rig.clock.advance(const Duration(minutes: 29));
+      await starter.resumeProvisional();
+      await done();
+      expect(rig.keys.claimCalls, hasLength(1));
+      await expectOld(old, 'within the hour');
+
+      // An hour after the first rebuild: the next one is made.
+      rig.clock.advance(const Duration(minutes: 1));
+      rig.server.sendScript.addAll([unknown, unknown]);
+      await starter.resumeProvisional();
+      await done();
+      expect(rig.keys.claimCalls, hasLength(2));
+      final rebuilt = (await groupOf())!;
+      expect(rebuilt.provisional, isTrue);
+      expect(
+        rebuilt.provisionalCreatedAtMicros,
+        rig.clock.now().microsecondsSinceEpoch,
+      );
+      expect(
+        (await rows()).single.idempotencyKey,
+        isNot(old.row.idempotencyKey),
+      );
     });
   });
 
@@ -2738,7 +2851,9 @@ void main() {
       await expectRowUntouched('replaced meanwhile');
 
       // (2) While the next rebuild's claim is in flight the group is
-      // settled (made final).
+      // settled (made final). That rebuild is made once [kRebuildSpacing]
+      // has passed (audit L1).
+      rig.clock.advance(kRebuildSpacing);
       during = () => rig.device.vault.transaction(
         (tx) => tx.clearProvisional(_c1, 1, afterPair: const MlsPair(1, 0)),
       );

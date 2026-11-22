@@ -68,6 +68,13 @@ const Duration kProvisionalExpiry = Duration(hours: 24);
 /// it really ended (`MessagingRepository.abandonedMlsCall`).
 final Duration kInitResendMargin = kRequestInFlightMargin;
 
+/// Task 8 audit L1: the least time between two 24 h rebuilds of one
+/// conversation's provisional group ([DailyLedger.takeRebuild]). Why: a
+/// rebuild that fails after its claim (a replace refused under the lock, a
+/// state in doubt) would otherwise claim again at every resume, spending
+/// the peer's one-time packages and the claim caps.
+const Duration kRebuildSpacing = Duration(hours: 1);
+
 /// The `limit_name` of the two daily claim caps (KP): 20 claims per target,
 /// 300 claims in all.
 const String kLimitClaimsPerTargetDaily = 'keys_claims_per_target_daily';
