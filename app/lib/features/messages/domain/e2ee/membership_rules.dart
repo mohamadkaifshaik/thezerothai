@@ -7,6 +7,7 @@ import '../../../../core/crypto/mls_pair.dart';
 import '../../../../core/vault/vault_records.dart';
 import '../../../../gen/dzeroth/keys/v1/keys.pb.dart' as pb;
 import 'device_directory.dart';
+import 'device_key_history.dart' show KeyRefusal;
 
 // Pure rules of the encrypted-message pipeline: claimed key packages (R3),
 // welcomes (R5), attribution of devices to a side (M2), removals (M3, M4) and
@@ -359,14 +360,32 @@ bool mayRemoveOwnDevice({
 /// at least [kUnattributedRecheck] before the EARLIER of the two fetches: both
 /// lists must come from the re-check, so a device registered in the gap and
 /// missing from a list read at first sight is never removed as a ghost.
+///
+/// [refusal] is the conversation's device key history's answer for the
+/// member's pair (`KeyHistory.refusal`; device-key-history-design.md,
+/// "Removal rule (Task 9)"): only a `none` member, or a `tainted` member
+/// whose current (id, key) pair no readable list shows, may go. An
+/// `unrecorded` or `unreadable` member never does (that would remove honest
+/// devices because of this device's own storage state, and flap daily
+/// under M5), and neither does a `tainted` member whose pair a list shows
+/// (a hostile member can taint an honest device's id before it joins).
 bool mayRemoveUnattributed({
   required MemberRecord member,
   required DeviceList ownList,
   required DeviceList peerList,
   required DateTime firstSeenUnattributedAt,
   required DateTime? acceptedSeenAt,
+  required KeyRefusal refusal,
 }) {
   if (member.side != MemberSide.unattributed) return false;
+  if (refusal == KeyRefusal.unrecorded || refusal == KeyRefusal.unreadable) {
+    return false;
+  }
+  if (refusal == KeyRefusal.tainted &&
+      (_listsPair(ownList, member.deviceId, member.signatureKey) ||
+          _listsPair(peerList, member.deviceId, member.signatureKey))) {
+    return false;
+  }
   if (!ownList.readableNonEmpty || !peerList.readableNonEmpty) return false;
   final own = ownList.fetchedAt;
   final peer = peerList.fetchedAt;
@@ -394,12 +413,17 @@ bool mayRemoveUnattributed({
 /// not this device, not listed twice (own side wins: every id of the own list,
 /// inactive ones too, is withheld from the peer side); own side first; no peer
 /// device at all unless the own list is readable; never more than
-/// [kMaxGroupMembers] minus the current members.
+/// [kMaxGroupMembers] minus the current members. When [admissible] is given
+/// (the conversation's device key history, `KeyHistory.admissible`, with the
+/// id as [deviceIdHex] and the key the list shows), a device it answers
+/// false for is left out: claiming it would burn a one-time key package and
+/// a claim of the per-target daily cap on a device [checkClaims] drops.
 List<DeviceToAdd> devicesToAdd({
   required DeviceList ownList,
   required DeviceList peerList,
   required List<MemberRecord> members,
   required Uint8List thisDeviceId,
+  bool Function(String deviceIdHex, Uint8List signatureKey)? admissible,
 }) {
   final room = kMaxGroupMembers - members.length;
   final out = <DeviceToAdd>[];
@@ -415,6 +439,10 @@ List<DeviceToAdd> devicesToAdd({
       if (d.inactive) continue;
       if (_bytesEqual(d.deviceId, thisDeviceId)) continue;
       if (members.any((m) => _bytesEqual(m.deviceId, d.deviceId))) continue;
+      if (admissible != null &&
+          !admissible(deviceIdHex(d.deviceId), d.signatureKey)) {
+        continue;
+      }
       if (side == ClaimSide.mine) {
         if (out.any((e) => _bytesEqual(e.deviceId, d.deviceId))) continue;
       } else if (!taken.add(deviceIdHex(d.deviceId))) {
