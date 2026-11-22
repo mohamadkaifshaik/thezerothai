@@ -203,6 +203,17 @@ void main() {
   }
 
   const unknown = (error: NetworkException('timed out'), stored: false);
+  const lostAnswer = (error: NetworkException('timed out'), stored: true);
+  const keyReused = IdempotencyKeyReusedException('idempotency_key');
+
+  /// Every `ListMessages` call fails from here on: neither the first page
+  /// nor a live pull can answer for a message.
+  void failListMessages() => rig.server.onCall = (call) async {
+    if (call == 'listMlsMessages') throw const NetworkException('no network');
+  };
+
+  Future<bool> acceptedIn([String id = _c1]) async =>
+      (await rig.device.vault.conversation(id))?.sync.requestAccepted ?? false;
 
   group('routing', () {
     test('a claim answering a known conversation id of another peer is '
@@ -1331,11 +1342,12 @@ void main() {
       );
 
       // A refusal on a retry, with the stored message not on the first
-      // ListMessages page (50 newer messages): the commit check decides.
+      // ListMessages page (50 newer messages): the commit check keeps the
+      // group, and nothing is settled without the message's answer.
       final carol = await RigPeer.create('carol');
       person('ref-carol', _c2, [carol]);
       rig.server.sendScript.addAll([
-        (error: const NetworkException('timed out'), stored: true),
+        lostAnswer,
         (error: const FeatureDisabledException('off'), stored: false),
       ]);
       var hidden = false;
@@ -1348,9 +1360,112 @@ void main() {
       await done(_c2);
 
       expect(hidden, isTrue);
-      expect((await groupOf(_c2))!.provisional, isFalse);
+      expect((await groupOf(_c2))!.provisional, isTrue);
       expect(await rig.device.vault.members(_c2), hasLength(2));
+      final kept = (await rows()).single;
+      expect(kept.init, isNotNull);
+      expect(kept.lastError, isNull);
+
+      // The next trigger sends the identical request and the server replays
+      // the stored message.
+      final sent = rig.server.sends.length;
+      await starter.resumeProvisional();
+      await done(_c2);
+      expect(rig.server.sends, hasLength(sent + 1));
+      expect(rig.server.sends.last.mlsInit, isNotNull);
+      expect(rig.server.sends.last.key, kept.idempotencyKey);
+      expect((await groupOf(_c2))!.provisional, isFalse);
       expect(await rows(), isEmpty);
+      expect(
+        await rig.device.vault.hasMessage(_c2, kept.expectedMessageId),
+        isTrue,
+      );
+    });
+
+    test('an init the commits show stored, with its answer lost and no '
+        'readable page, keeps its init and is replayed: never sent without '
+        'it, never failed (review W1)', () async {
+      // The first attempt was stored and its answer lost; the retry is
+      // refused before the server's replay lookup. ListMessages fails, so
+      // neither the first page nor a live pull answers for the message.
+      rig.server.sendScript.addAll([
+        lostAnswer,
+        (error: const FeatureDisabledException('off'), stored: false),
+      ]);
+      failListMessages();
+      await start();
+      await done();
+
+      final row = (await rows()).single;
+      expect((await groupOf())!.provisional, isTrue);
+      expect(row.init, isNotNull);
+      expect(row.stage, OutboxStage.encrypted);
+      expect(row.recipientUserId, _bob);
+      expect(row.lastError, isNull);
+      // The sender sends nothing of it: its key never goes out without the
+      // init (the server would answer VALIDATION idempotency_key).
+      await rig.sender.drain(_c1);
+      await done();
+      expect(rig.server.sends, hasLength(2));
+      expect(inits(), hasLength(2));
+
+      // A later trigger sends the identical request; the server replays the
+      // stored message and the group settles WITH its answer.
+      await starter.resumeProvisional();
+      await done();
+
+      expect(rig.server.sends, hasLength(3));
+      expect(inits(), hasLength(3));
+      expect(rig.server.sends[0].same(rig.server.sends[2]), isTrue);
+      expect((await groupOf())!.provisional, isFalse);
+      expect(await rows(), isEmpty);
+      expect(
+        await rig.device.vault.hasMessage(_c1, row.expectedMessageId),
+        isTrue,
+      );
+      expect(await acceptedIn(), isTrue);
+    });
+
+    test('VALIDATION idempotency_key for an init row means "stored": the row '
+        'never fails and the group is never discarded (review W1)', () async {
+      // (1) The first page holds the message with the row's bytes: the
+      // group settles with that answer.
+      rig.server.sendScript.add((error: keyReused, stored: true));
+      gate = Completer<void>();
+      await start();
+      final row = (await rows()).single;
+      gate!.complete();
+      await done();
+
+      expect((await groupOf())!.provisional, isFalse);
+      expect(await rows(), isEmpty);
+      expect(
+        await rig.device.vault.hasMessage(_c1, row.expectedMessageId),
+        isTrue,
+      );
+      expect(await acceptedIn(), isTrue);
+
+      // (2) The page does not hold it: nothing is decided, a live pull
+      // runs, and the row keeps its init for the next trigger.
+      final carol = await RigPeer.create('carol');
+      person('ref-carol', _c2, [carol]);
+      rig.server.sendScript.add((error: keyReused, stored: false));
+      rig.server.calls.clear();
+      await start(localId: 'local-2', peer: 'ref-carol');
+      await done(_c2);
+
+      expect((await groupOf(_c2))!.provisional, isTrue);
+      expect(await rig.device.vault.members(_c2), hasLength(2));
+      final kept = (await rows()).single;
+      expect(kept.init, isNotNull);
+      expect(kept.stage, OutboxStage.encrypted);
+      expect(kept.lastError, isNull);
+      expect(
+        rig.server.calls.where((c) => c == 'listMlsMessages').length,
+        greaterThan(1),
+        reason: 'the first page, then the live pull',
+      );
+      expect(await rig.sender.outgoing(_c2), isEmpty);
     });
 
     test('FEATURE_DISABLED on a retry without it is a refusal', () async {
@@ -2304,10 +2419,7 @@ void main() {
   group('resumeProvisional', () {
     test('a provisional group older than 24 h whose init is the first stored '
         'commit is cleared, not rebuilt', () async {
-      rig.server.sendScript.addAll([
-        (error: const NetworkException('timed out'), stored: true),
-        unknown,
-      ]);
+      rig.server.sendScript.addAll([lostAnswer, unknown]);
       gate = Completer<void>();
       await start();
       final row = (await rows()).single;
@@ -2316,6 +2428,8 @@ void main() {
       expect((await groupOf())!.provisional, isTrue);
       rig.keys.claimCalls.clear();
       rig.clock.advance(kProvisionalExpiry + const Duration(minutes: 1));
+      // No page and no live pull can answer for the message (review W1).
+      failListMessages();
 
       await starter.resumeProvisional();
       await done();
@@ -2328,13 +2442,73 @@ void main() {
         const MlsPair(1, 0),
       );
       expect(rig.keys.claimCalls, isEmpty);
-      // The message itself came back as an echo of the live pull.
-      expect(rig.server.sends, hasLength(2));
+      // The answer for the message is the server's replay of the identical
+      // request, init included: sent once more, never without the init.
+      expect(rig.server.sends, hasLength(3));
+      expect(inits(), hasLength(3));
+      expect(rig.server.sends[0].same(rig.server.sends[2]), isTrue);
       expect(await rows(), isEmpty);
       expect(
         await rig.device.vault.hasMessage(_c1, row.expectedMessageId),
         isTrue,
       );
+      // Settled with the answer: accepted, as after any answered init.
+      expect(await acceptedIn(), isTrue);
+    });
+
+    test('an expired group whose init is stored and whose replay is not '
+        'answered keeps its init: the sender never sends the row, and a '
+        'later trigger replays again (review W1)', () async {
+      rig.server.sendScript.addAll([lostAnswer, unknown]);
+      gate = Completer<void>();
+      await start();
+      final row = (await rows()).single;
+      gate!.complete();
+      await done();
+      rig.keys.claimCalls.clear();
+      rig.clock.advance(kProvisionalExpiry + const Duration(minutes: 1));
+      failListMessages();
+      // The replay's answer is lost too.
+      rig.server.sendScript.add(unknown);
+
+      await starter.resumeProvisional();
+      await done();
+
+      expect((await groupOf())!.provisional, isTrue);
+      final kept = (await rows()).single;
+      expect(kept.idempotencyKey, row.idempotencyKey);
+      expect(kept.init, isNotNull);
+      expect(kept.stage, OutboxStage.encrypted);
+      expect(kept.recipientUserId, _bob);
+      expect(kept.conversationId, isNull);
+      expect(kept.lastError, isNull);
+      // One replay, under the lock; no rebuild.
+      expect(rig.server.sends, hasLength(3));
+      expect(inits(), hasLength(3));
+      expect(rig.keys.claimCalls, isEmpty);
+      // The row is not the sender's.
+      await rig.sender.drain(_c1);
+      await done();
+      expect(await rig.sender.outgoing(_c1), isEmpty);
+      expect(rig.server.sends, hasLength(3));
+      final shown = (await starter.pendingInit(conversationId: _c1))!;
+      expect(shown.status, OutgoingStatus5a.waiting);
+      expect(shown.waitingOn, SendBlock.provisional);
+
+      // The next trigger asks the commits again and replays again.
+      await starter.resumeProvisional();
+      await done();
+
+      expect(rig.server.sends, hasLength(4));
+      expect(inits(), hasLength(4));
+      expect(rig.server.sends[0].same(rig.server.sends[3]), isTrue);
+      expect((await groupOf())!.provisional, isFalse);
+      expect(await rows(), isEmpty);
+      expect(
+        await rig.device.vault.hasMessage(_c1, row.expectedMessageId),
+        isTrue,
+      );
+      expect(await acceptedIn(), isTrue);
     });
 
     test('a provisional group older than 24 h with another first commit is '
@@ -2405,7 +2579,8 @@ void main() {
     );
 
     test(
-      'settling ownStored leaves the key history readable and unchanged',
+      'the join code never settles an own init whose row still carries the '
+      'init, and leaves the key history readable and unchanged (review W1)',
       () async {
         await rig.seedProvisional(_c1, [bob]);
         final pending = (await groupOf())!.pending!;
@@ -2446,10 +2621,14 @@ void main() {
 
         expect(await rig.crypto.processWelcomes(), isEmpty);
 
+        // The welcome is a replay of this device's own generation: gone.
         expect(rig.server.acks.expand((a) => a.ids), [w]);
+        // No answer for the message here: the group stays provisional for
+        // the starter, which replays the init and settles with the answer.
         final g = (await groupOf())!;
-        expect(g.provisional, isFalse);
-        expect(g.pending, isNull);
+        expect(g.provisional, isTrue);
+        expect(rigEq(g.pending!.commit, pending.commit), isTrue);
+        expect(await rig.device.vault.members(_c1), hasLength(2));
         expect(
           rigEq(
             (await rig.sealedSetting('messages.e2ee.keys.$_c1'))!,
@@ -2459,20 +2638,21 @@ void main() {
         );
         expect(rig.keyHistoryErrors, isEmpty);
         expect((await rig.keyHistoryIds(_c1)).keys, [vaultDeviceIdHex(bob.id)]);
-        // The shared success steps ran here too: the row is the sender's now
-        // (the same key and bytes, under the conversation id, without init).
+        // The row is as it was: the same key and bytes, addressed as stored,
+        // WITH its init (its key never goes out without it), and not the
+        // sender's.
         final row = (await rows()).single;
         expect(row.idempotencyKey, key);
-        expect(row.conversationId, _c1);
-        expect(row.recipientUserId, isNull);
-        expect(row.init, isNull);
+        expect(row.conversationId, isNull);
+        expect(row.recipientUserId, _bob);
+        expect(row.init, [9, 9]);
         expect(row.stage, OutboxStage.encrypted);
         expect(row.ciphertext, [1, 2, 3]);
-        // No answer said ACCEPTED: nothing is inferred.
-        expect(
-          (await rig.device.vault.conversation(_c1))!.sync.requestAccepted,
-          isFalse,
-        );
+        expect(await rig.sender.outgoing(_c1), isEmpty);
+        expect(await starter.pendingInit(conversationId: _c1), isNotNull);
+        // No mark is written while the group is provisional.
+        expect(await rig.device.vault.conversation(_c1), isNull);
+        expect(rig.server.sends, isEmpty);
       },
     );
 

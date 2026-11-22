@@ -20,14 +20,16 @@ class InitDelivered {
 /// `settled`: the group is final. `notProvisional`: there was nothing to
 /// settle (settled or discarded meanwhile). `replay`: the marks are already
 /// at or past the init, so they cannot be written; nothing changed.
-/// `waiting`: a lower generation is not walked to its end yet, or the vault
-/// is not usable; nothing changed, try again later.
+/// `waiting`: a lower generation is not walked to its end yet, the vault is
+/// not usable, or no answer was given while a row still carries the init
+/// (review W1); nothing changed, try again later.
 enum InitSettle { settled, notProvisional, replay, waiting }
 
 /// The two ends of a provisional group (R6): the ONE success function and
 /// the ONE discard, each used by every path that settles one: Task 8's send
 /// success, its recovery, and the join code's "own init already stored"
-/// step. Both run in the caller's `runWrite` body as ONE transaction.
+/// step (which settles only a group with no init row, review W1). Both run
+/// in the caller's `runWrite` body as ONE transaction.
 extension _Provisional on ConversationCrypto {
   /// This device's own init (or reset) of [group]'s generation was stored by
   /// the server: the group becomes final and the after-pair is written, in
@@ -35,11 +37,15 @@ extension _Provisional on ConversationCrypto {
   ///
   /// - A lower generation that was walked to its end and kept goes (L6).
   /// - With [delivered] (an answer for the message itself): the message is
-  ///   stored under the row's expected id and the row deleted. Without it
-  ///   (the init was found among the stored commits): the row loses its
-  ///   `init` and is addressed by the conversation id, with the same key
-  ///   and bytes, so the live pull completes it as an echo, or the sender
-  ///   resends it as an ordinary message.
+  ///   stored under the row's expected id and the row deleted.
+  /// - Without [delivered] there must be NO row that carries the init (a
+  ///   reset, or an init whose row is gone): [_hasInitRow] is asked first by
+  ///   every caller, and such a group is not settled here. Review W1: a
+  ///   row's key that once carried an init is never sent without it (the
+  ///   server binds the init into the request hash: VALIDATION
+  ///   idempotency_key), so no path takes the init off a row and hands the
+  ///   row to the sender. Task 8's starter gets the answer instead, by
+  ///   sending the identical request again (the server replays it).
   /// - `requestAccepted` is set only from [delivered] (never cleared).
   /// - Security read H2: when the conversation is accepted, a
   ///   `deviceAdded` / mine row for each own-side member whose (device id,
@@ -47,14 +53,14 @@ extension _Provisional on ConversationCrypto {
   ///   none on a brand-new vault. In an unaccepted conversation nothing is
   ///   written (Task 9's acceptance steps write it).
   ///
-  /// Review F4 (binding for Task 9): a settle WITHOUT [delivered] (the 24 h
-  /// expiry, a retry settled from the stored commits, the join code's
-  /// own-init-already-stored step) has no server answer, so it sets no
-  /// `requestAccepted` and writes no own-device alert. Both are left to
-  /// Task 9's acceptance steps, which must run on the FIRST sight of
-  /// ACCEPTED for a conversation whose stored `requestAccepted` is false,
-  /// not only on a transition seen in this run. Until then the sender
-  /// holds every row of the conversation (fail closed).
+  /// Review F4 (binding for Task 9): a settle WITHOUT [delivered] (a group
+  /// with no init row: a reset, or an init whose row is gone) has no server
+  /// answer, so it sets no `requestAccepted` and writes no own-device
+  /// alert. Both are left to Task 9's acceptance steps, which must run on
+  /// the FIRST sight of ACCEPTED for a conversation whose stored
+  /// `requestAccepted` is false, not only on a transition seen in this
+  /// run. Until then the sender holds every row of the conversation (fail
+  /// closed).
   ///
   /// The key history is neither read nor written: no pin changes here.
   /// False, with nothing written, when the marks are already at or past the
@@ -153,7 +159,10 @@ extension _Provisional on ConversationCrypto {
         ),
       );
       for (final item in rows) {
-        if (delivered == null || item.init == null) {
+        // A row without an init keeps its key and bytes under the
+        // conversation id (the sender's). A row WITH one is here only with
+        // [delivered] ([_hasInitRow]): it is answered below.
+        if (item.init == null) {
           await tx.putOutbox(
             OutboxItem(
               idempotencyKey: item.idempotencyKey,
@@ -261,6 +270,12 @@ extension _Provisional on ConversationCrypto {
     ];
   }
 
+  /// Whether a stage-encrypted row of generation [g] of [id] carries an
+  /// init (review W1: such a group is settled only with the message's
+  /// answer).
+  Future<bool> _hasInitRow(SecureVault v, String id, int g) async =>
+      (await _provisionalRows(v, id, g)).any((r) => r.init != null);
+
   Future<InitSettle> _settleOwnInitLocked(
     String id,
     int generation,
@@ -286,6 +301,11 @@ extension _Provisional on ConversationCrypto {
         final group = await v.group(id, generation);
         if (group == null || !group.provisional || group.pending == null) {
           return InitSettle.notProvisional;
+        }
+        // Review W1: never without the message's answer while a row
+        // carries the init. Nothing changes; the starter's replay answers.
+        if (delivered == null && await _hasInitRow(v, id, generation)) {
+          return InitSettle.waiting;
         }
         return await _settleOwnInitIn(
               v,

@@ -76,8 +76,9 @@ extension _Recovery on GroupStarter {
           await _crypto.catchUp(id, priority: priority);
           await _sender.drain(id, priority: priority);
         case _NextKind.pull:
-          // The init was found among the stored commits: its message comes
-          // back as an echo of the live pull, or the sender resends it.
+          // The server holds the init and no answer for its message could
+          // be had ([_answerFromPage]): one live pull. The group is still
+          // provisional and the row still carries its init.
           await _receiver.pullLive(id, priority: priority);
           await _sender.drain(id, priority: priority);
       }
@@ -143,13 +144,27 @@ extension _Recovery on GroupStarter {
 
   /// Sends [row] with its init, with the lock held: the same request, byte
   /// for byte under the same key, addressed exactly as stored.
+  ///
+  /// [replay] (review W1): the stored commits say the server holds this
+  /// init, and this send is the REPLAY that asks for the message's answer.
+  /// The server answers a stored message of this key and this request with
+  /// that message for good, ahead of STALE_EPOCH and of the device check
+  /// (`backend/internal/messaging/repo_firestore.go`, `Send` and
+  /// `replayOrRefuse`; `service_init_test.go`, TestSendInit_Replay). One
+  /// request, and no answer to it deletes the group or fails the row: a
+  /// refusal made before the server's replay lookup (the recipient checks,
+  /// a rate limit) is asked of the first `ListMessages` page instead, and
+  /// an outcome that stays unknown leaves the group provisional and the row
+  /// with its init, for the next trigger. The gates below hold a replay as
+  /// they hold any init send (nothing is decided while one does).
   Future<_Next> _sendLocked(
     _Op op,
     String id,
     GroupRecord group,
     OutboxItem row,
-    BudgetPriority priority,
-  ) async {
+    BudgetPriority priority, {
+    bool replay = false,
+  }) async {
     const none = _Next(_NextKind.none);
     final g = group.generation;
     // An init is never sent with the flag off or unknown (R1), nor by a
@@ -203,7 +218,7 @@ extension _Recovery on GroupStarter {
     }
     if (!stored) return none;
 
-    var tries = _unknown.contains(row.localId) ? 1 : 2;
+    var tries = replay || _unknown.contains(row.localId) ? 1 : 2;
     while (true) {
       if (!op.live) return none;
       final pb.SendMessageResponse response;
@@ -233,6 +248,9 @@ extension _Recovery on GroupStarter {
           _unknown.add(row.localId);
           return none;
         }
+        // The commits say this init is stored: the page answers, or nothing
+        // is decided. Never a discard.
+        if (replay) return _answerFromPage(id, group, row, priority);
         if (!first) {
           final kept = await _keptIfStored(id, group, row, priority);
           if (kept != null) return kept;
@@ -259,6 +277,15 @@ extension _Recovery on GroupStarter {
           }
           _unknown.add(row.localId);
           return none;
+        }
+        // Review W1. Decision: VALIDATION idempotency_key says the server
+        // holds a message under this row's key, so it is "stored", on a
+        // first attempt too: the row never fails on it and the group is
+        // never discarded on it. Why: the key is this device's own random
+        // one, so the stored message is this row's, whatever the request
+        // it was stored from. The same for any refusal of the replay.
+        if (replay || e is IdempotencyKeyReusedException) {
+          return _answerFromPage(id, group, row, priority);
         }
         // A refusal. The brief names FEATURE_DISABLED and CANNOT_MESSAGE on
         // a retry; decision: every refusal of a retry is checked (never a
@@ -299,9 +326,9 @@ extension _Recovery on GroupStarter {
   /// the server stored would lock its creator out of it, with no welcome.
   ///
   /// Null: the init is not stored (the caller goes on to discard). Else
-  /// what to do instead: the group settled (with the message's answer when
-  /// the first page holds it, else without), or nothing when the commits
-  /// do not say.
+  /// what to do instead: the group settled with the message's answer when
+  /// the first page holds it; otherwise nothing is decided and the group
+  /// stays provisional ([_answerFromPage]), as when the commits do not say.
   Future<_Next?> _keptIfStored(
     String id,
     GroupRecord group,
@@ -318,25 +345,48 @@ extension _Recovery on GroupStarter {
       _unknown.add(row.localId);
       return none;
     }
+    // The identical request was refused a moment ago (that is why this is
+    // asked): the page is the answer that is left.
+    return _answerFromPage(id, group, row, priority);
+  }
+
+  /// Review W1. The server holds this init (the stored commits say so, or
+  /// it answered VALIDATION idempotency_key for the row's key) and the
+  /// identical request got no answer for the message: the first
+  /// `ListMessages` page is asked for it.
+  ///
+  /// The page holds the message: the group settles WITH that answer. Else
+  /// NOTHING is settled. Decision: there is no settle without the message's
+  /// answer while a row carries the init. Why: a settle without it took the
+  /// init off the row and handed the row to the sender, which sent the
+  /// row's key without `mls_init`; the server binds the init into the
+  /// request hash, so that was VALIDATION idempotency_key (a false "not
+  /// sent"), or, once the epoch moved, a second copy of the first message
+  /// under a new key. A key that once carried an init is never sent without
+  /// it: the group stays provisional, the row keeps its init and is not the
+  /// sender's, and the next trigger sends the identical request again
+  /// (the server's replay of it is permanent). Cost: the conversation
+  /// waits until one answer comes.
+  ///
+  /// [_storedAnyway]'s `unknown` (the page could not be had, or held the id
+  /// with other bytes) is "nothing decided, try again". A readable page
+  /// without the message (it can hide behind 50 newer ones) asks for one
+  /// live pull, as ruled for the idempotency_key answer; a pull processes
+  /// no message while the only group is provisional, so the row is still
+  /// answered by the next replay.
+  Future<_Next> _answerFromPage(
+    String id,
+    GroupRecord group,
+    OutboxItem row,
+    BudgetPriority priority,
+  ) async {
     final found = await _storedAnyway(id, row);
     final delivered = found.delivered;
     if (delivered != null) {
       return _settle(id, group.generation, row, delivered, priority);
     }
-    // Stored, and the page does not show the message: settled without its
-    // answer; the live pull brings the echo, or the sender resends it.
-    final settled = await _crypto.settleOwnInitLocked(
-      id,
-      group.generation,
-      priority: priority,
-    );
-    if (settled != InitSettle.settled) {
-      _unknown.add(row.localId);
-      return none;
-    }
-    _forget(row.localId);
-    _onChanged(id);
-    return const _Next(_NextKind.pull);
+    _unknown.add(row.localId);
+    return _Next(found.unknown ? _NextKind.none : _NextKind.pull);
   }
 
   /// `requestAccepted` comes from the answer's conversation state, for this
@@ -397,10 +447,12 @@ extension _Recovery on GroupStarter {
     return none;
   }
 
-  /// After a refusal of a retry: whether the first `ListMessages` page
-  /// holds a message with the row's expected id (and its bytes, or none
-  /// when the ciphertext was removed). NOT_FOUND, or a page without it: not
-  /// stored. Any other failure: unknown (nothing is deleted on it).
+  /// For an init the server holds ([_answerFromPage]): whether the first
+  /// `ListMessages` page holds a message with the row's expected id (and
+  /// its bytes, or none when the ciphertext was removed). NOT_FOUND, or a
+  /// page without it: not shown. Any other failure, or the id with other
+  /// bytes: `unknown`, nothing decided, try again. Neither settles
+  /// anything.
   Future<({InitDelivered? delivered, bool unknown})> _storedAnyway(
     String id,
     OutboxItem row,
@@ -453,17 +505,24 @@ extension _Recovery on GroupStarter {
     final own = await _ownInitStored(id, pending, priority);
     if (own == null) return none;
     if (own) {
-      // The init was accepted: the same success steps, without an answer
-      // for the message itself.
+      if (row != null) {
+        // Review W1: the init was accepted. The identical request is sent
+        // once more, here under the lock; the server replays the stored
+        // message and the group settles WITH its answer (`requestAccepted`
+        // and the own-device alert come from it). Unanswered: nothing is
+        // settled and the next trigger asks again.
+        return _sendLocked(op, id, group, row, priority, replay: true);
+      }
+      // No row carries the init (it is gone): the same success steps,
+      // with no message to answer for.
       final settled = await _crypto.settleOwnInitLocked(
         id,
         group.generation,
         priority: priority,
       );
       if (settled != InitSettle.settled) return none;
-      if (row != null) _forget(row.localId);
       _onChanged(id);
-      return const _Next(_NextKind.pull);
+      return const _Next(_NextKind.drain);
     }
     // Decision: while this device may not start again (the flag is not on,
     // or it was removed elsewhere) the group is kept as it is: nothing is

@@ -238,9 +238,12 @@ class ConversationCrypto {
   /// that HOLDS [id]'s conversation lock: this device's own init of
   /// [generation] was stored by the server. See [InitSettle] and
   /// [InitDelivered]; the join code's "own init already stored" step runs
-  /// the same steps. Without [delivered], `requestAccepted` and the own-device
-  /// alert are left to Task 9's acceptance steps (review F4; see
-  /// `_settleOwnInitIn`). A lower generation not walked to its end is walked by
+  /// the same steps. Without [delivered] a group whose row still carries
+  /// the init is NOT settled (`InitSettle.waiting`, review W1: the starter
+  /// replays the init for the answer); for one with no init row,
+  /// `requestAccepted` and the own-device alert are left to Task 9's
+  /// acceptance steps (review F4; see `_settleOwnInitIn`). A lower
+  /// generation not walked to its end is walked by
   /// one locked catch-up first. Never throws (asserts the lock is held).
   Future<InitSettle> settleOwnInitLocked(
     String id,

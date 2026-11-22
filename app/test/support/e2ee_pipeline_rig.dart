@@ -560,6 +560,12 @@ class RigServer {
   /// (an error answered for a message the server kept, or a lost answer).
   final List<({Object error, bool stored})> sendScript = [];
 
+  /// Message id -> the request `sendEncrypted` stored it from (the real
+  /// server's request hash: the conversation, the pair, the ciphertext, the
+  /// commitment and the init). A message put there with [addMessage] has
+  /// none, and any request of its key replays it.
+  final Map<String, RigSend> _requests = {};
+
   /// Runs at the start of every `sendEncrypted` call, after it is recorded
   /// (a race: something happens while the request is in flight).
   Future<void> Function(RigSend send)? beforeSend;
@@ -628,6 +634,16 @@ class RigSend {
       key == other.key &&
       conversationId == other.conversationId &&
       recipientUserId == other.recipientUserId &&
+      pair == other.pair &&
+      rigEq(ciphertext, other.ciphertext) &&
+      rigEq(commitment, other.commitment) &&
+      (mlsInit == null) == (other.mlsInit == null) &&
+      rigEq(mlsInit ?? const [], other.mlsInit ?? const []);
+
+  /// The same request as the real server hashes it: the conversation is the
+  /// resolved one (not compared here), so the addressing does not count;
+  /// the pair, the bytes and the init (its presence and its bytes) do.
+  bool sameRequest(RigSend other) =>
       pair == other.pair &&
       rigEq(ciphertext, other.ciphertext) &&
       rigEq(commitment, other.commitment) &&
@@ -908,6 +924,15 @@ class RigMessaging implements MessagingRepository {
     for (final s in _server._messages[conversationId] ?? const <_Stored>[]) {
       if (s.message.id == id) stored = s.message.deepCopy();
     }
+    // The real server (`repo_firestore.go`, `Send` and `replayOrRefuse`): a
+    // stored message of this key replays only for the same request hash;
+    // another request under the key (other bytes, or the init left out) is
+    // VALIDATION idempotency_key. The replay is permanent and wins over
+    // STALE_EPOCH (`service_init_test.go`, TestSendInit_Replay).
+    final earlier = _server._requests[id];
+    if (stored != null && earlier != null && !earlier.sameRequest(send)) {
+      throw const IdempotencyKeyReusedException('idempotency_key');
+    }
     if (stored == null) {
       final current = _server.current(conversationId);
       if (mlsInit != null && current == const MlsPair(0, 0)) {
@@ -946,6 +971,7 @@ class RigMessaging implements MessagingRepository {
         reportCommitment: reportCommitment,
       );
       _server.addMessage(stored);
+      _server._requests[id] = send;
     }
     if (scripted != null) throw scripted.error;
     return pb.SendMessageResponse(

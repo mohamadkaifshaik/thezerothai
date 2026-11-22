@@ -54,6 +54,7 @@ extension _WelcomeJoin on ConversationCrypto {
     if (provisional != null && provisional.provisional) {
       switch (await _settleProvisional(poll, id, provisional)) {
         case _Settled.ownStored:
+        case _Settled.ownUnanswered:
         case _Settled.replay:
           return const _Join(_Outcome.permanent);
         case _Settled.unknown:
@@ -363,8 +364,19 @@ extension _WelcomeJoin on ConversationCrypto {
         return _Settled.unknown;
       }
       if (own) {
-        // The same success steps as Task 8's send path (no answer for the
-        // message here: its row goes to the sender, without its init).
+        // Review W1. Decision: while a row still carries this init, nothing
+        // is settled here. Why: this path has no answer for the message,
+        // and settling without one took the init off the row and gave it
+        // to the sender, whose send of that key without `mls_init` the
+        // server refuses (VALIDATION idempotency_key: a false "not sent").
+        // The group stays provisional and the row keeps its init; Task 8's
+        // starter sends the identical request at its next trigger (vault
+        // ready, before a send, the user's retry), the server replays the
+        // stored message, and the group settles with that answer. The
+        // welcome is this device's own generation's either way: a replay.
+        if (await _hasInitRow(v, id, g)) return _Settled.ownUnanswered;
+        // No init row (a reset, or the row is gone): the same success
+        // steps as Task 8's send path, with no message to answer for.
         final settled = await _settleOwnInitIn(
           v,
           id,
@@ -386,8 +398,9 @@ extension _WelcomeJoin on ConversationCrypto {
 }
 
 /// `replay`: this device's own init was stored and the marks are already at
-/// or above it.
-enum _Settled { ownStored, discarded, unknown, replay }
+/// or above it. `ownUnanswered` (review W1): it was stored and a row still
+/// carries the init, so the group was left provisional for Task 8's starter.
+enum _Settled { ownStored, ownUnanswered, discarded, unknown, replay }
 
 class _Join {
   const _Join(this.kind, {this.label});
