@@ -1,4 +1,5 @@
 import 'package:dzeroth/core/network/app_exception.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/device_directory.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/removal_record.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -37,6 +38,26 @@ void main() {
 
       expect(await pin(sibling), isNull);
       expect(runner.pending.value, 0);
+    });
+  });
+
+  group('the own-device list (review M2)', () {
+    test('a removal refreshes the cached own-device list', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await stateOnly(_c1, accepted: false, mine: [sibling]);
+      bool lists(DeviceList l) =>
+          l.devices.any((d) => rigEq(d.deviceId, sibling.id));
+      expect(lists(await rig.directory.own()), isTrue);
+
+      await removeAndSettle(sibling);
+
+      // Reused, not fetched again: the reused list no longer names it.
+      final calls = rig.keys.listCalls;
+      final after = await rig.directory.own();
+      expect(rig.keys.listCalls, calls);
+      expect(after.readable, isTrue);
+      expect(lists(after), isFalse);
     });
   });
 

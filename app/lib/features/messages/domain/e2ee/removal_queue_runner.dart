@@ -16,6 +16,7 @@ import 'commit_runner.dart';
 import 'conversation_context.dart';
 import 'conversation_crypto.dart';
 import 'conversation_locks.dart';
+import 'device_directory.dart';
 import 'e2ee_types.dart';
 import 'membership_upkeep.dart';
 import 'message_receiver.dart';
@@ -124,9 +125,11 @@ class RemovalQueueRunner {
   /// [upkeep]: its `queuedRemovals` seam is set to [queuedFor] here, so
   /// the wiring cannot leave it unset (amendment 4). [schedule] runs a
   /// callback later (a [Timer] in production) and answers a handle that
-  /// cancels it: the one pass at `notBeforeMicros`.
+  /// cancels it: the one pass at `notBeforeMicros`. [directory]: its own
+  /// list is read fresh after a removal (review M2).
   RemovalQueueRunner({
     required KeysRepository keys,
+    required DeviceDirectory directory,
     required CommitRunner commits,
     required MembershipUpkeep upkeep,
     required MessageReceiver receiver,
@@ -140,6 +143,7 @@ class RemovalQueueRunner {
     void Function() Function(Duration delay, void Function() run)? schedule,
     void Function(Object error, StackTrace stack)? onUnexpectedError,
   }) : _keys = keys,
+       _directory = directory,
        _commits = commits,
        _receiver = receiver,
        _crypto = crypto,
@@ -155,6 +159,7 @@ class RemovalQueueRunner {
   }
 
   final KeysRepository _keys;
+  final DeviceDirectory _directory;
   final CommitRunner _commits;
   final MessageReceiver _receiver;
   final ConversationCrypto _crypto;
@@ -325,7 +330,7 @@ class RemovalQueueRunner {
     if (!identical(_session.vault, vault) || !_loaded) {
       throw StateError('The vault changed.');
     }
-    await _queueRemoved(vault, deviceId);
+    await _queueRemoved(vault, deviceId, BudgetPriority.live);
     _startPass(BudgetPriority.live);
   }
 
@@ -349,7 +354,11 @@ class RemovalQueueRunner {
   /// [deviceId] was removed from the directory: it is queued for every
   /// conversation with group state, most recently active first, and its
   /// intent goes, in one write.
-  Future<void> _queueRemoved(SecureVault vault, String deviceId) async {
+  Future<void> _queueRemoved(
+    SecureVault vault,
+    String deviceId,
+    BudgetPriority priority,
+  ) async {
     final id = Uint8List.fromList(utf8.encode(deviceId));
     final ranked = await _byRecentActivity(vault);
     if (!identical(_session.vault, vault) || !_loaded) {
@@ -364,6 +373,11 @@ class RemovalQueueRunner {
     }
     _intents.removeWhere((i) => i.deviceId == deviceId);
     await _save(vault);
+    // Review M2: the reused own list (up to 30 minutes) still names the
+    // device; read it fresh, so reconcile does not try to add it back. A
+    // paused budget keeps the old list (stated limit: the add then fails
+    // at its claim, which finds no key package).
+    await _directory.own(fresh: true, priority: priority);
   }
 
   /// Review M1: every intent left from a call whose outcome is unknown is
@@ -371,7 +385,7 @@ class RemovalQueueRunner {
   /// queued. A failure keeps it for the next pass; one older than
   /// [kRemovalIntentLimit] is dropped. An intent [removeDevice] is sending
   /// is left to it.
-  Future<void> _runIntents(SecureVault vault) async {
+  Future<void> _runIntents(SecureVault vault, BudgetPriority priority) async {
     final now = _now();
     final before = _intents.length;
     _intents.removeWhere(
@@ -397,7 +411,7 @@ class RemovalQueueRunner {
       _removedThisRun.add(
         vaultDeviceIdHex(Uint8List.fromList(utf8.encode(intent.deviceId))),
       );
-      await _queueRemoved(vault, intent.deviceId);
+      await _queueRemoved(vault, intent.deviceId, priority);
     }
   }
 
@@ -509,7 +523,7 @@ class RemovalQueueRunner {
     if (thisDevice == null) return;
     // Review M1: a leftover intent first (a keys call, not a commit: the
     // queue's hold does not apply to it).
-    await _runIntents(vault);
+    await _runIntents(vault, priority);
     if (!identical(_session.vault, vault) || !_loaded) return;
     final notBefore = _notBeforeMicros;
     if (notBefore != null) {

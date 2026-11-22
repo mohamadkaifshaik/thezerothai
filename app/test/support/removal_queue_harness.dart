@@ -32,6 +32,7 @@ var expectedErrors = <String>[];
 
 RemovalQueueRunner build() => RemovalQueueRunner(
   keys: rig.keys,
+  directory: rig.directory,
   commits: rig.commits,
   upkeep: rig.upkeep,
   receiver: rig.receiver,
