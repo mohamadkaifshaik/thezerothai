@@ -188,6 +188,7 @@ class CommitRunner {
     _resumeScheduled.clear();
     _marginStart.clear();
     _refusedResend.clear();
+    _crypto.forgetOwnCommits();
   }
 
   // -------------------------------------------------------------------------
@@ -441,6 +442,10 @@ class CommitRunner {
       _reportIfBug(e, s, 'commit.build');
       return CommitOutcome.notAllowed;
     }
+    // The checked sides of the adds, for whichever step confirms this
+    // commit in this run (review m2): the direct confirm, a resume, or a
+    // catch-up of any caller that meets it by its bytes.
+    _crypto.rememberOwnAdds(id, pending.builtOn, sides);
     _onChanged(id);
     return _send(
       op,
@@ -449,7 +454,6 @@ class CommitRunner {
       firstKey: key,
       first: true,
       tries: 2,
-      sides: sides,
       priority: priority,
     );
   }

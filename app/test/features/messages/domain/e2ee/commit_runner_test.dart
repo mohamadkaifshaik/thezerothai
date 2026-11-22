@@ -490,9 +490,45 @@ void main() {
         expect(g.pending, isNull);
         expect(engineCalls('confirmCommit'), 1);
         expect(engineCalls('discardCommit'), 0);
-        expect(await pin(carol), isNotNull);
+        // The same run still knows the side the add was checked for.
+        expect((await pin(carol))!.side, MemberSide.theirs);
       },
     );
+
+    test('an own commit confirmed by any catch-up of the same run pins the '
+        'adds with their checked side', () async {
+      await setUpJoined();
+      await synced();
+      final carol = await RigPeer.create('carol');
+      final sibling = await RigPeer.create('sibling');
+      rig.server.commitScript
+        ..add((error: offline, stored: true))
+        ..add((error: offline, stored: false));
+      expect(
+        await rig.commits.change(
+          _c1,
+          adds: [
+            await claim(carol, ClaimSide.theirs),
+            await claim(sibling, ClaimSide.mine),
+          ],
+        ),
+        CommitOutcome.pending,
+      );
+
+      // Not the runner's resume: a catch-up of another caller (the sender,
+      // the receiver) meets the commit first.
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+
+      expect((await groupRecord()).pending, isNull);
+      expect((await pin(carol))!.side, MemberSide.theirs);
+      expect((await pin(sibling))!.side, MemberSide.mine);
+      expect([
+        for (final l in await rig.lines(_c1))
+          if (l.line == SystemLine.deviceAdded) l.side,
+      ], unorderedEquals([MemberSide.theirs, MemberSide.mine]));
+      // Nothing is left for the runner to settle.
+      expect(await rig.commits.resumePending(_c1), CommitOutcome.notAllowed);
+    });
 
     test('STALE_EPOCH: the winner is applied, the pending record is gone and '
         'the outcome is superseded', () async {
@@ -683,7 +719,7 @@ void main() {
       final g = await groupRecord();
       expect(g.epoch, 2);
       expect(g.pending, isNull);
-      expect(await pin(carol), isNotNull);
+      expect((await pin(carol))!.side, MemberSide.theirs);
     });
 
     test('a refusal on a resend whose first attempt was not stored discards '

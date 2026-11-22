@@ -197,6 +197,41 @@ class ConversationCrypto {
   MlsPair? ownCommitConfirmedAt(String conversationId) =>
       _ownConfirmed[conversationId];
 
+  /// Conversation -> the sides the devices added by this device's pending
+  /// commit were claimed and checked for (R3), with the pair the commit was
+  /// built on. Memory only (the pending record has no field for it): told
+  /// by the commit runner when it built the commit, and read by WHICHEVER
+  /// step confirms that commit in this run (the runner's direct confirm, a
+  /// resume, a catch-up of any caller that meets it by its bytes). After a
+  /// restart it is not known and the adds are pinned unattributed.
+  final Map<String, _OwnAdds> _ownAdds = {};
+
+  /// Task 9, for the commit runner: the pending commit it just built on
+  /// [builtOn] adds the devices of [sides] (device id hex -> the side each
+  /// was claimed and checked for). Replaces what was remembered for the
+  /// conversation (one pending commit at a time).
+  void rememberOwnAdds(
+    String conversationId,
+    MlsPair builtOn,
+    Map<String, ClaimSide> sides,
+  ) {
+    if (sides.isEmpty) {
+      _ownAdds.remove(conversationId);
+    } else {
+      _ownAdds[conversationId] = _OwnAdds(builtOn, Map.of(sides));
+    }
+  }
+
+  /// The pending commit of [conversationId] is gone without being applied
+  /// (the runner discarded it): its remembered sides go too.
+  void forgetOwnAdds(String conversationId) => _ownAdds.remove(conversationId);
+
+  /// Sign-out or a new vault: forgets what this run remembered about this
+  /// device's own commits (called by `CommitRunner.reset`).
+  void forgetOwnCommits() {
+    _ownAdds.clear();
+  }
+
   /// Task 9, for the commit runner, which HOLDS [id]'s conversation lock:
   /// the server accepted this device's pending commit built on [at]. Runs
   /// the same step catch-up runs when it meets that commit by its bytes:
@@ -204,10 +239,10 @@ class ConversationCrypto {
   /// epoch still answers `own_leaf`, plan-own-leaf.md), then `confirmCommit`
   /// and the commit's ONE transaction in one `runWrite` body.
   ///
-  /// [ownAdds]: device id hex -> the side each added device was claimed and
-  /// checked for (R3). An added member with an entry is pinned to that side
-  /// when the key history admits it; every other one is pinned unattributed,
-  /// as after a restart, when the sides are no longer known.
+  /// An added member whose checked side this run remembers
+  /// ([rememberOwnAdds]) is pinned to that side when the key history admits
+  /// it; every other one is pinned unattributed, as after a restart, when
+  /// the sides are no longer known.
   ///
   /// False, with nothing written, when the group is not at [at] with a
   /// pending commit built on it, the epoch's walk has not ended, or the
@@ -216,7 +251,6 @@ class ConversationCrypto {
   Future<bool> confirmOwnCommitLocked(
     String id,
     MlsPair at, {
-    Map<String, ClaimSide> ownAdds = const {},
     BudgetPriority priority = BudgetPriority.background,
   }) async {
     assert(_locks.isHeld(id), 'The caller must hold the conversation lock.');
@@ -242,7 +276,6 @@ class ConversationCrypto {
           commit: pending.commit,
           fromSelf: true,
         ),
-        ownAdds: ownAdds,
       );
       return applied == _Applied.ok && _ownConfirmed[id] == at;
     } on Object catch (e, s) {
@@ -687,6 +720,17 @@ bool _sameBytes(List<int> a, List<int> b) {
 /// The vault the poll started with is no longer the session's.
 class _Stopped implements Exception {
   const _Stopped();
+}
+
+/// The sides the adds of this device's pending commit built on [builtOn]
+/// were checked for (`ConversationCrypto._ownAdds`). No `toString`.
+class _OwnAdds {
+  _OwnAdds(this.builtOn, this.sides);
+
+  final MlsPair builtOn;
+
+  /// Device id hex -> the checked side.
+  final Map<String, ClaimSide> sides;
 }
 
 /// One operation's fixed facts (a welcome poll, a catch-up pass, an

@@ -19,7 +19,6 @@ extension _CommitSend on CommitRunner {
     required String firstKey,
     required bool first,
     required int tries,
-    required Map<String, ClaimSide> sides,
     required BudgetPriority priority,
   }) async {
     final at = pending.builtOn;
@@ -93,11 +92,11 @@ extension _CommitSend on CommitRunner {
         }
         if (answer == at.next) {
           // The epoch is closed now: its messages are completed, then the
-          // commit is confirmed and its transaction written.
+          // commit is confirmed and its transaction written (the adds with
+          // the sides this run remembers for them).
           final confirmed = await _crypto.confirmOwnCommitLocked(
             id,
             at,
-            ownAdds: sides,
             priority: priority,
           );
           if (!confirmed) {
@@ -248,6 +247,7 @@ extension _CommitSend on CommitRunner {
     _notBefore.remove(id);
     _marginStart.remove(id);
     _refusedResend.remove(id);
+    _crypto.forgetOwnAdds(id);
   }
 
   /// Drops [pending] in ONE `runWrite` body: the group read fresh, the
@@ -385,7 +385,6 @@ extension _CommitSend on CommitRunner {
         firstKey: hexOf(await randomOf(_engine(), 16)),
         first: false,
         tries: 1,
-        sides: const {},
         priority: priority,
       );
     } on BadRandom {

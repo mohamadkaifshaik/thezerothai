@@ -8,16 +8,21 @@ extension _CommitApply on ConversationCrypto {
   /// Step 4 for the commit at [at]: confirm (own, by bytes) or process, then
   /// ONE transaction with the result, in one runWrite body.
   ///
-  /// [ownAdds] (Task 9, the commit runner's confirm only): device id hex ->
-  /// the side an added device was checked for; used only when the commit is
-  /// this device's own.
+  /// When the commit is this device's own pending one, its adds are pinned
+  /// with the sides this run remembers for it (Task 9,
+  /// [ConversationCrypto.rememberOwnAdds]): on every path that confirms it,
+  /// the runner's direct confirm and any caller's catch-up alike.
   Future<_Applied> _applyLocked(
     _Operation pass,
     String id,
     MlsPair at,
-    pb.ConversationCommit commit, {
-    Map<String, ClaimSide> ownAdds = const {},
-  }) async {
+    pb.ConversationCommit commit,
+  ) async {
+    // Read before the body: only the sides remembered for THIS pair.
+    final remembered = _ownAdds[id];
+    final ownAdds = remembered != null && remembered.builtOn == at
+        ? remembered.sides
+        : const <String, ClaimSide>{};
     try {
       final sink = this.sink;
       if (sink != null) {
@@ -111,6 +116,9 @@ extension _CommitApply on ConversationCrypto {
     }
     if (ownConfirmed) _ownConfirmed[id] = at;
     if (applied == _Applied.ok || applied == _Applied.selfRemoved) {
+      // The pair is settled (this device's commit or a winner): the sides
+      // remembered for a commit built on it have been used or are void.
+      if (remembered != null && remembered.builtOn == at) _ownAdds.remove(id);
       _onChanged(id);
     }
     if (knownGrew) {
