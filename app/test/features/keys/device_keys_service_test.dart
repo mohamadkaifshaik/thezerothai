@@ -774,6 +774,50 @@ void main() {
       });
     }
 
+    test('after a timeout, a changed pool count resends only the saved '
+        'last-resort package and generates nothing in that run', () async {
+      // The sign-in batch (50 + a last-resort package) lands twice, both
+      // answers are lost: the count went from 0 to 50.
+      rig.server.failAfterApply['upload'] = [timeout(), timeout()];
+      await rig.signIn(_a);
+      final first = rig.server.uploads.first;
+      expect(saved()['lastResort'], base64Encode(first.lastResortKeyPackage));
+      final state = rig.file()!.deviceState!;
+      rig.devices.values.single.pool.removeRange(0, 40); // 10 left
+
+      await nextRun();
+      expect(rig.server.uploads, hasLength(3));
+      final resent = rig.server.uploads.last;
+      expect(resent.keyPackages, isEmpty);
+      expect(resent.lastResortKeyPackage, first.lastResortKeyPackage);
+      expect(rig.engine.generated, hasLength(1), reason: 'no fresh batch');
+      expect(rig.file()!.deviceState, state);
+      expect(saved()['oneTime'], isEmpty);
+      expect(saved()['lastResort'], isNull);
+      expect(rig.service.status.value, DeviceKeysStatus.ready);
+    });
+
+    test('a resent last-resort package whose answer is lost stays saved and '
+        'is sent again', () async {
+      rig.server.failAfterApply['upload'] = List.generate(4, (_) => timeout());
+      await rig.signIn(_a);
+      final first = rig.server.uploads.first;
+      rig.devices.values.single.pool.removeRange(0, 5);
+      await nextRun();
+      expect(saved()['oneTime'], isEmpty);
+      expect(saved()['lastResort'], base64Encode(first.lastResortKeyPackage));
+      expect(saved()['outcome'], 'unknown');
+      await nextRun();
+      expect(rig.server.uploads, hasLength(5));
+      expect(
+        rig.server.uploads.last.lastResortKeyPackage,
+        first.lastResortKeyPackage,
+      );
+      expect(rig.server.uploads.last.keyPackages, isEmpty);
+      expect(saved()['lastResort'], isNull);
+      expect(rig.engine.generated, hasLength(1));
+    });
+
     test('a refusal on the retry does not resolve the first timeout', () async {
       await rig.signIn(_a);
       final pool = rig.devices.values.single.pool;
@@ -888,20 +932,26 @@ void main() {
       final id = rig.storedId()!;
       expect(rig.devices[id]!.pool, hasLength(50));
 
-      // Others claim 40 packages. The changed count clears the batch;
-      // the following run tops up with fresh packages under a new key.
+      // Others claim 40 packages. The changed count clears the batch's
+      // one-time packages (only its last-resort one is sent again); the
+      // following run tops up with fresh packages under a new key.
       rig.devices[id]!.pool.removeRange(0, 40);
       rig.advance(_hour);
       await rig.service.onAppResumed();
       expect(
         rig.server.uploads,
-        hasLength(2),
+        hasLength(3),
         reason: 'changed pool clears first',
+      );
+      expect(rig.server.uploads.last.keyPackages, isEmpty);
+      expect(
+        rig.server.uploads.last.lastResortKeyPackage,
+        first[0].lastResortKeyPackage,
       );
       rig.advance(_hour);
       await rig.service.onAppResumed();
       final fresh = rig.server.uploads.last;
-      expect(rig.server.uploads, hasLength(3));
+      expect(rig.server.uploads, hasLength(4));
       expect(fresh.idempotencyKey, isNot(first[0].idempotencyKey));
       expect(fresh.keyPackages, hasLength(40));
       for (final p in fresh.keyPackages) {

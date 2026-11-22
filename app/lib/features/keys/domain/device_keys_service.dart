@@ -718,8 +718,16 @@ class DeviceKeysService {
       // any claim, and its private parts stay in the device state (the core
       // prune, Open question 9).
       if (previousUnknown && count != saved.countBefore) {
-        await store(PendingUpload.empty);
-        return (PendingUpload.empty, previousUnknown);
+        // Ruling C: the last-resort package is replaced whole and never
+        // consumed, so it alone is sent again (armed as a new attempt
+        // before dispatch). No fresh batch in this run: generating on every
+        // count change would double the growth a hostile server can cause.
+        final last = saved.lastResort;
+        final lastOnly = last == null
+            ? PendingUpload.empty
+            : PendingUpload(const [], last, count);
+        await store(lastOnly);
+        return (lastOnly, false);
       }
       if (previousUnknown) return (saved, previousUnknown);
       // Arm the next attempt before dispatch so a killed run is unknown.
