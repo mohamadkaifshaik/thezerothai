@@ -333,7 +333,8 @@ func TestRemoval_RegisterAtCapFinishesStuckRemoval(t *testing.T) {
 
 // raceInFlight bounds how many race pairs run at once, and raceAttempts how often one side of a pair is tried when it
 // gets a transient answer. Measured on the emulator (fix round 2026-11-23): 50 pairs released at once made 12 of the 50
-// Registers exceed the 5 s transaction budget (txTimeout), and 10 in flight still gave 8 transient answers in 100 calls.
+// Registers exceed the 5 s transaction budget (txTimeout); 10 in flight still gave 11 transient answers in 100 calls,
+// and 5 in flight gave 5.
 // The emulator resolves each pair's read-then-write lock conflict slowly (about 2.5 s a pair when run one at a time).
 // Never an invariant failure. A client retries exactly these answers (UNAVAILABLE carries a retry hint, and a retried
 // REMOTE removal of a marked id needs no sign-in), so the test does the same and then asserts strictly.
