@@ -3773,6 +3773,22 @@ void main() {
       expect(rig.server.sends, hasLength(sends));
     });
 
+    test('a row this run sent with an unknown outcome, tapped inside the '
+        'margin after this run began: not decided, never held by the '
+        'restart rule (pre-flag-on fix round 3, ruling 3, code review Minor '
+        '2)', () async {
+      final row = await unanswered();
+      expect((await rows()).single.attempts, greaterThan(0));
+      rig.server.calls.clear();
+
+      // Still inside the margin after the construction: the restart rule
+      // does not apply, the record is asked, and this run's own unknown
+      // outcome makes its "not stored" decide nothing.
+      expect(await starter.discardInit(_c1), InitDiscard.notDecided);
+      await expectUnchanged(row, 'this run\'s request may still land');
+      expect(rig.server.calls, contains('listConversationCommits'));
+    });
+
     /// Fix round 3, ruling 1: the earlier run's last request may still land.
     /// After a restart, the resume sends the row once more (its first
     /// request in this run) and the server refuses it for good.
