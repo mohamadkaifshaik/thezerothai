@@ -447,6 +447,68 @@ void main() {
       expect(queued(_c1, sibling), isTrue);
       expect(rig.server.calls.where((c) => c == 'commitConversation'), isEmpty);
     });
+
+    test('caught up, then parked, then a peer add lands: the prune drops the '
+        'entry, a later pass queues the marked pin again, and the device '
+        'leaves after the un-park', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await join(_c1);
+      await synced();
+      // The thread cannot be answered; bob's add lands after the last
+      // listing, so the stored pins are at the last listed pair.
+      rig.contexts.of(_c1).canReply = false;
+      rig.server.rows[_c1] = headerRow(_c1, canReply: false);
+      await bobAdds(_c1, [sibling]);
+
+      await removeAndSettle(sibling);
+
+      expect(queued(_c1, sibling), isFalse, reason: 'dropped by the prune');
+      expect(requests(), isEmpty);
+
+      // The thread can be answered again; a sync applies bob's add (the
+      // sibling is pinned unattributed: the own list no longer names it).
+      rig.server.rows[_c1] = headerRow(_c1);
+      rig.contexts.of(_c1).canReply = true;
+      await runner.noteConversation(_c1);
+      await runner.idle();
+      await synced();
+      expect((await pin(sibling))!.side, MemberSide.unattributed);
+
+      // Ruling 1 gap (option B): the pass queues the marked pin again.
+      await runner.runPass();
+      await runner.runPass();
+
+      expect(await pin(sibling), isNull, reason: 'left the group');
+      expect(requests(_c1), hasLength(1));
+      expect(runner.pending.value, 0);
+    });
+
+    test('an unattributed pin whose key is not its mark\'s is not queued again '
+        'and is reported', () async {
+      final sibling = await RigPeer.create('sibling');
+      final other = await RigPeer.create('other');
+      // The own list names the sibling's id with another key.
+      await setUpRig();
+      rig.keys.own.add(rigKeyDevice(sibling.idString, other.key));
+      await join(_c1);
+      await synced();
+      rig.contexts.of(_c1).canReply = false;
+      rig.server.rows[_c1] = headerRow(_c1, canReply: false);
+      await bobAdds(_c1, [sibling]);
+      await removeAndSettle(sibling);
+      expect(queued(_c1, sibling), isFalse);
+      rig.server.rows[_c1] = headerRow(_c1);
+      rig.contexts.of(_c1).canReply = true;
+      await synced();
+      expect((await pin(sibling))!.side, MemberSide.unattributed);
+      expectedErrors = ['removalQueue.keyMismatch'];
+
+      await runner.runPass();
+
+      expect(queued(_c1, sibling), isFalse);
+      expect(requests(), isEmpty);
+    });
   });
 
   group('an own device removed on another own device (SA M2)', () {

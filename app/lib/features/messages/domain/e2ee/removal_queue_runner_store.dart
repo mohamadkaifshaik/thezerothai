@@ -139,6 +139,14 @@ extension _RemovalStore on RemovalQueueRunner {
   /// entry is not user-queued: it has no removed mark, so it has no pause
   /// exemption and [wasRemovedByUser] does not answer from it. The own list
   /// is read only when such a pin exists.
+  ///
+  /// Fix round 3 (the ruling 1 gap, option B): each `unattributed` pin
+  /// whose unexpired removed mark carries the pin's key (the match rule of
+  /// round 2's ruling 1) is queued too, with no list read. A prune on pins
+  /// at the last listed pair may have dropped its entry before a peer's add
+  /// of the device landed; this queues it again once the add is applied.
+  /// A mark whose key differs is not queued and is reported
+  /// (`removalQueue.keyMismatch`, once per conversation and run).
   Future<void> _queueLostOwn(
     SecureVault vault,
     Uint8List thisDevice,
@@ -146,20 +154,48 @@ extension _RemovalStore on RemovalQueueRunner {
     int resets,
   ) async {
     final pins = <String, List<MemberRecord>>{};
+    final marked = <String, List<MemberRecord>>{};
     for (final c in await vault.groupConversationIds()) {
-      final mine = [
-        for (final m in await vault.members(c))
-          if (m.side == MemberSide.mine && !_same(m.deviceId, thisDevice)) m,
-      ];
+      final mine = <MemberRecord>[];
+      final ours = <MemberRecord>[];
+      for (final m in await vault.members(c)) {
+        if (_same(m.deviceId, thisDevice)) continue;
+        if (m.side == MemberSide.mine) {
+          mine.add(m);
+        } else if (m.side == MemberSide.unattributed) {
+          final key = _removedKeyOf(m.deviceId);
+          if (key == null) continue;
+          if (!_same(key, m.signatureKey)) {
+            if (_mismatchReported.add(c)) {
+              _reportBug('removalQueue.keyMismatch');
+            }
+            continue;
+          }
+          ours.add(m);
+        }
+      }
       if (mine.isNotEmpty) pins[c] = mine;
+      if (ours.isNotEmpty) marked[c] = ours;
     }
-    if (pins.isEmpty || !_current(vault, resets)) return;
-    final own = await _directory.own(fresh: true, priority: priority);
-    if (!own.readableNonEmpty) return;
+    if ((pins.isEmpty && marked.isEmpty) || !_current(vault, resets)) return;
+    final own = pins.isEmpty
+        ? null
+        : await _directory.own(fresh: true, priority: priority);
     final ranked = await _byRecentActivity(vault);
     if (!_current(vault, resets)) return;
     var changed = false;
     for (final c in ranked) {
+      for (final m in marked[c] ?? const <MemberRecord>[]) {
+        final already = _entries.any(
+          (e) => e.conversationId == c && _same(e.deviceId, m.deviceId),
+        );
+        if (already) continue;
+        _entries.add(
+          RemovalQueueEntry(deviceId: m.deviceId, conversationId: c),
+        );
+        changed = true;
+      }
+      if (own == null || !own.readableNonEmpty) continue;
       for (final m in pins[c] ?? const <MemberRecord>[]) {
         if (!mayRemoveOwnDevice(
           member: m,
