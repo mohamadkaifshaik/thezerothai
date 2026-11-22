@@ -414,7 +414,16 @@ class GroupStarter {
         if (r.localId == localId) row = r;
       }
       if (row == null) return;
-      if (row.init != null) return await _resumeAll(BudgetPriority.user);
+      if (row.init != null) {
+        // Code review M3. Decision: only the conversation whose provisional
+        // group this row belongs to is resumed, found as [pendingInit]
+        // finds it. Why: one retry is one user action in one conversation;
+        // resuming every provisional group sent every pending init and
+        // could rebuild (and claim for) other conversations.
+        final own = await _conversationOfInit(vault, row);
+        if (own != null) await _resume(own, BudgetPriority.user);
+        return;
+      }
       final id = row.conversationId;
       final peer = id == null ? null : _known.peerOf(id);
       if (id != null &&
@@ -435,6 +444,29 @@ class GroupStarter {
       return;
     }
     await _sender.retry(localId);
+  }
+
+  /// The conversation whose provisional group the init row [row] belongs
+  /// to, or null: the row's own conversation id, or (a row addressed by
+  /// recipient) each known conversation stored for that reference, kept
+  /// only when [_initRow] of its provisional group is this row (review N7:
+  /// never by resolving the recipient, which can name another id).
+  Future<String?> _conversationOfInit(SecureVault vault, OutboxItem row) async {
+    final direct = row.conversationId;
+    final ids = direct != null
+        ? [direct]
+        : [
+            for (final id in _known.ids)
+              if (_known.peerOf(id) == row.recipientUserId) id,
+          ];
+    for (final id in ids) {
+      for (final g in await vault.groups(id)) {
+        if (!g.provisional) continue;
+        final init = await _initRow(vault, id, g.generation);
+        if (init?.idempotencyKey == row.idempotencyKey) return id;
+      }
+    }
+    return null;
   }
 
   /// Review F1, ruling (c): whether a NEW start from fresh claims may be

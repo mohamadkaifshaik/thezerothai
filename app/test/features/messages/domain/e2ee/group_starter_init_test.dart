@@ -2277,6 +2277,42 @@ void main() {
       expect(await starter.pendingInit(recipientUserId: _bob), isNull);
     });
 
+    test(
+      'the retry of an init row resumes its own conversation only, for a '
+      'recipient-addressed and an id-addressed row (code review M3)',
+      () async {
+        final carol = await RigPeer.create('carol');
+        person('ref-carol', _c2, [carol]);
+        rig.server.sendScript.addAll([unknown, unknown, unknown, unknown]);
+        await start();
+        await done();
+        await start(localId: 'local-2', peer: 'ref-carol', conversationId: _c2);
+        await done(_c2);
+        final first = (await rows()).firstWhere((r) => r.localId == 'local-1');
+        final second = (await rows()).firstWhere((r) => r.localId == 'local-2');
+        expect(first.recipientUserId, _bob);
+        expect(second.conversationId, _c2);
+        expect(rig.server.sends, hasLength(4));
+
+        // The retry of bob's row: carol's init is not sent.
+        await starter.retryStart('local-1');
+        await done();
+        await done(_c2);
+        expect(rig.server.sends, hasLength(5));
+        expect(rig.server.sends.last.key, first.idempotencyKey);
+        expect((await groupOf())!.provisional, isFalse);
+        expect((await groupOf(_c2))!.provisional, isTrue);
+
+        // The retry of carol's row.
+        await starter.retryStart('local-2');
+        await done(_c2);
+        expect(rig.server.sends, hasLength(6));
+        expect(rig.server.sends.last.key, second.idempotencyKey);
+        expect((await groupOf(_c2))!.provisional, isFalse);
+        expect(await rows(), isEmpty);
+      },
+    );
+
     test('pendingInit says waiting while the init is held', () async {
       rig.server.sendScript.addAll([unknown, unknown]);
       await start();
