@@ -61,7 +61,10 @@ class DailyRecord {
   /// Conversations whose lost-send self-update ran today (R7).
   final Set<String> lostSendUpdate;
 
-  /// Device ids (hex) whose empty claim was retried today (R3).
+  /// Device ids (hex) tried today (R3): a claim that came back empty, or,
+  /// with the same daily rule (Task 9 audit M1), a claimed package the
+  /// checks dropped, or an add the engine could not build or the server
+  /// refused. None of them is claimed again before the next IST day.
   final Set<String> emptyClaim;
 
   /// True when the value stored for this day could not be read: the ledger

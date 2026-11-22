@@ -194,6 +194,20 @@ class CommitRunner {
   /// the refused bytes again.
   final Map<String, Uint8List> _refusedResend = {};
 
+  /// The conversations whose last [change] in this run the engine could
+  /// not build ([lastChangeUnbuildable]).
+  final Set<String> _unbuildable = {};
+
+  /// Audit M1: whether the last [change] / [changeLocked] of
+  /// [conversationId] in this run answered `notAllowed` because the engine
+  /// could not build it (an [MlsException] from `commitChange`, or a result
+  /// that does not fit its group or its adds), with nothing stored. Set
+  /// for that one call only: every later change starts it again. The
+  /// caller marks the adds of such a change tried for the IST day, so one
+  /// broken peer package is not claimed again on every pass.
+  bool lastChangeUnbuildable(String conversationId) =>
+      _unbuildable.contains(conversationId);
+
   /// The app is paused: every scheduled resume is cancelled (no network
   /// call while paused). Nothing else is forgotten; a paused app settles
   /// its pending records at its next trigger, which schedules again when
@@ -214,6 +228,7 @@ class CommitRunner {
     cancelScheduled();
     _marginStart.clear();
     _refusedResend.clear();
+    _unbuildable.clear();
     _crypto.forgetOwnCommits();
   }
 
@@ -427,6 +442,7 @@ class CommitRunner {
     final PipelineOp op;
     final PendingCommit pending;
     final String key;
+    if (kind == PendingKind.change) _unbuildable.remove(id);
     try {
       final started = await _op();
       if (started == null) return CommitOutcome.notAllowed;
@@ -534,6 +550,7 @@ class CommitRunner {
             );
     } on MlsException {
       // Nothing was stored; the group state is as it was.
+      if (kind == PendingKind.change) _unbuildable.add(id);
       return null;
     }
     // Not an answer for this group's pair, or a welcome that does not go
@@ -541,6 +558,7 @@ class CommitRunner {
     if (result.epoch != group.epoch ||
         result.commit.isEmpty ||
         (result.welcome != null) != adds.isNotEmpty) {
+      if (kind == PendingKind.change) _unbuildable.add(id);
       return null;
     }
     final pending = PendingCommit(

@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:dzeroth/core/crypto/crypto_types.dart';
 import 'package:dzeroth/core/crypto/mls_pair.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/vault/secure_vault.dart';
@@ -745,6 +746,108 @@ void main() {
       expect(await pin(sib2), isNull);
       expect((await pin(bob2))!.side, MemberSide.theirs);
       expect((await groupRecord()).epoch, 3);
+    });
+
+    test('a removal is committed alone when the add in the same pass cannot '
+        'be built (audit M1)', () async {
+      final sibling = await RigPeer.create('sibling');
+      final bob2 = await RigPeer.create('bob2');
+      await setUpJoined(
+        others: [sibling],
+        ownListed: [sibling],
+        alsoListed: [bob2],
+      );
+      await synced();
+      peerClaims([bob, bob2]);
+      // The lost phone is deregistered; bob2's package passes every check,
+      // but the engine refuses to build a commit that adds it.
+      rig.clock.advance(kDeviceListReuse);
+      ownList(const []);
+      rig.device.engine.failNext['commitChange'] = const MlsException(
+        MlsErrorCode.badInput,
+        'rig: a package the core refuses',
+      );
+
+      await rig.upkeep.reconcile(_c1);
+
+      // The removal went alone, in this same pass.
+      expect(requests().single.welcome, isNull);
+      expect(await pin(sibling), isNull);
+      expect(await pin(bob2), isNull);
+      // bob2 is tried for the IST day: the pass after the removal does not
+      // claim it again.
+      expect(rig.keys.claimCalls, hasLength(1));
+      expect(await rig.ledger.emptyClaimTried(bob2.id), isTrue);
+      rig.clock.advance(kDeviceListReuse);
+      await synced();
+      await rig.upkeep.reconcile(_c1);
+      expect(rig.keys.claimCalls, hasLength(1));
+      expect(requests(), hasLength(1));
+    });
+
+    test(
+      'a removal is committed alone when the server refuses the change '
+      'that also adds, and the add is tried for the day (audit M1)',
+      () async {
+        final sibling = await RigPeer.create('sibling');
+        final bob2 = await RigPeer.create('bob2');
+        await setUpJoined(
+          others: [sibling],
+          ownListed: [sibling],
+          alsoListed: [bob2],
+        );
+        await synced();
+        peerClaims([bob, bob2]);
+        rig.clock.advance(kDeviceListReuse);
+        ownList(const []);
+        rig.server.commitScript.add((
+          error: const ValidationException('commit', field: 'commit'),
+          stored: false,
+        ));
+
+        await rig.upkeep.reconcile(_c1);
+
+        expect(requests(), hasLength(2));
+        expect(requests().first.welcome, isNotNull);
+        expect(requests().last.welcome, isNull);
+        expect(await pin(sibling), isNull);
+        expect(await pin(bob2), isNull);
+        expect(await rig.ledger.emptyClaimTried(bob2.id), isTrue);
+        expect(rig.keys.claimCalls, hasLength(1));
+      },
+    );
+
+    test('an add that fails its check is claimed at most once per IST day '
+        '(audit M1)', () async {
+      final bob2 = await RigPeer.create('bob2');
+      final other = await RigPeer.create('other');
+      await setUpJoined(alsoListed: [bob2]);
+      await synced();
+      // The claim answers bob2's package under another signature key: the
+      // inspection names bob2's real key, so checkClaims drops it.
+      rig.keys.claims['ref-bob'] = () async => kpb.ClaimKeyPackagesResponse(
+        conversationId: _c1,
+        keyPackages: [
+          kpb.ClaimedKeyPackage(
+            deviceId: bob2.idString,
+            signaturePublicKey: other.key,
+            keyPackage: await bob2.keyPackage(),
+            hasKeyPackage_4: true,
+          ),
+        ],
+      );
+
+      await rig.upkeep.reconcile(_c1);
+      rig.clock.advance(kDeviceListReuse);
+      await rig.upkeep.reconcile(_c1);
+      expect(rig.keys.claimCalls, hasLength(1));
+      expect(requests(), isEmpty);
+
+      // The next IST day it is claimed once more.
+      rig.clock.advance(const Duration(days: 1));
+      await rig.upkeep.reconcile(_c1);
+      expect(rig.keys.claimCalls, hasLength(2));
+      expect(requests(), isEmpty);
     });
 
     test('after superseded the reconciliation runs again on the new group and '

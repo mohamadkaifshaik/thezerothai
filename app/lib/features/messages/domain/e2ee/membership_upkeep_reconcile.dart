@@ -335,11 +335,26 @@ extension _Reconcile on MembershipUpkeep {
       removeDeviceIds: removes,
       priority: priority,
     );
-    // Removals are never held back for adds: the flag went off meanwhile.
-    if (outcome == CommitOutcome.notAllowed &&
+    if (adds.isNotEmpty &&
+        (outcome == CommitOutcome.refused ||
+            (outcome == CommitOutcome.notAllowed &&
+                _commits.lastChangeUnbuildable(id)))) {
+      // Audit M1: the engine could not build a commit with these adds, or
+      // the server refused the commit that carried them. Each is tried for
+      // the IST day, so one broken or poisoned package is not claimed
+      // again on every pass (a key package and a claim of the cap each
+      // time, and a commit call on the refused path).
+      await _markTried([for (final a in adds) a.deviceId]);
+    }
+    // Audit M1: removals are never held back for adds. A change with adds
+    // that ends `notAllowed` (the flag went off meanwhile, the engine
+    // refused a package) or `refused`, for any reason, is followed by the
+    // removals alone, in this same pass: a lost phone must not keep
+    // reading because a peer's package is broken.
+    if ((outcome == CommitOutcome.notAllowed ||
+            outcome == CommitOutcome.refused) &&
         adds.isNotEmpty &&
-        removes.isNotEmpty &&
-        !_session.mayStart) {
+        removes.isNotEmpty) {
       outcome = await _commits.changeLocked(
         id,
         removeDeviceIds: removes,
@@ -351,7 +366,9 @@ extension _Reconcile on MembershipUpkeep {
   }
 
   /// `devicesToAdd`, without the ids the key history would refuse and the
-  /// devices whose claim came back empty today. Reads only.
+  /// devices tried today (a claim that came back empty, a package the
+  /// checks dropped, an add the engine or the server refused; audit M1).
+  /// Reads only.
   Future<List<DeviceToAdd>> _wanted(
     DeviceList own,
     DeviceList peer,
@@ -374,10 +391,11 @@ extension _Reconcile on MembershipUpkeep {
   }
 
   /// Plan step 3: `devicesToAdd` (skipping ids the key history would
-  /// refuse and devices whose claim came back empty today), one claim per
-  /// side that has a device to add, `inspectKeyPackage` and `checkClaims`
-  /// (R3) against the lists of step 1. An empty claim is recorded for the
-  /// IST day after the claims, outside any write body.
+  /// refuse and devices tried today), one claim per side that has a device
+  /// to add, `inspectKeyPackage` and `checkClaims` (R3) against the lists
+  /// of step 1. An empty claim, and a claimed package the checks dropped
+  /// (audit M1), is recorded for the IST day after the claims, outside any
+  /// write body.
   Future<List<UsableClaim>> _claimAdds(
     String id,
     String? ref,
@@ -432,30 +450,57 @@ extension _Reconcile on MembershipUpkeep {
         admissible: history.admissible,
       );
       empty.addAll(checked.emptyFor);
+      // Audit M1: a listed device (every one asked for here is in step 1's
+      // lists) whose claimed package the checks dropped is tried for the
+      // IST day as an empty claim is: claiming it again on every pass would
+      // spend a key package and a claim of the cap each time, for a
+      // package that fails the same way.
+      for (final c in claimed) {
+        final cid = utf8.encode(c.deviceId);
+        if (!checked.usable.any((u) => _same(u.deviceId, cid))) {
+          empty.add(Uint8List.fromList(cid));
+        }
+      }
       return checked.usable;
     }
 
     final mine = await side(ClaimSide.mine);
     final theirs = await side(ClaimSide.theirs);
-    for (final d in empty) {
+    // A key or a device id claimed on both sides is on neither (and is
+    // tried for the day, as a package the checks dropped).
+    bool onBoth(UsableClaim a, List<UsableClaim> other) => other.any(
+      (b) =>
+          _same(a.signatureKey, b.signatureKey) ||
+          _same(a.deviceId, b.deviceId),
+    );
+    final usable = <UsableClaim>[];
+    for (final (c, other) in [
+      for (final c in mine) (c, theirs),
+      for (final c in theirs) (c, mine),
+    ]) {
+      if (onBoth(c, other)) {
+        empty.add(c.deviceId);
+      } else {
+        usable.add(c);
+      }
+    }
+    await _markTried(empty);
+    return usable;
+  }
+
+  /// Marks [deviceIds] tried for the IST day (`DailyLedger.markEmptyClaim`,
+  /// the one daily set `_wanted` skips): an empty claim, a package the
+  /// checks dropped, or an add the engine or the server refused (audit M1).
+  /// Outside any write body. A failed write is reported if it is a bug and
+  /// otherwise only means the device is claimed again later.
+  Future<void> _markTried(List<Uint8List> deviceIds) async {
+    for (final d in deviceIds) {
       try {
         await _ledger.markEmptyClaim(d);
       } on Object catch (e, s) {
         _reportIfBug(e, s, 'upkeep.emptyClaim');
       }
     }
-    // A key or a device id claimed on both sides is on neither.
-    bool onBoth(UsableClaim a, List<UsableClaim> other) => other.any(
-      (b) =>
-          _same(a.signatureKey, b.signatureKey) ||
-          _same(a.deviceId, b.deviceId),
-    );
-    return [
-      for (final c in mine)
-        if (!onBoth(c, theirs)) c,
-      for (final c in theirs)
-        if (!onBoth(c, mine)) c,
-    ];
   }
 
   /// One `ClaimKeyPackages` call under its own random key (a claim is not
