@@ -14,9 +14,10 @@ const int _maxPackageBase64 = (kMaxKeyPackageBytes + 2) ~/ 3 * 4;
 
 /// The largest record: [kKeyPackagePoolTarget] one-time packages and a
 /// last-resort one at their largest, each quoted and comma-separated, and
-/// the fixed keys and count.
+/// the fixed keys, the count and `lastResortAt` (about 140 bytes with both
+/// integers at 19 digits).
 const int _maxRecordBytes =
-    (kKeyPackagePoolTarget + 1) * (_maxPackageBase64 + 3) + 128;
+    (kKeyPackagePoolTarget + 1) * (_maxPackageBase64 + 3) + 192;
 
 /// A generated batch whose upload is not confirmed (see
 /// `kVaultSettingPendingUpload`).
@@ -26,6 +27,7 @@ class PendingUpload {
     this.lastResort,
     this.countBefore, {
     this.failed = false,
+    this.lastResortMicros = 0,
   });
 
   static const empty = PendingUpload([], null, 0);
@@ -33,6 +35,11 @@ class PendingUpload {
   final Uint8List? lastResort;
   final int countBefore;
   final bool failed;
+
+  /// When [lastResort] was generated (microseconds since the epoch; 0 with
+  /// none). Written to `kVaultSettingLastResortAt` once it uploads, so a
+  /// resend does not restart its 30 days (SA L2).
+  final int lastResortMicros;
 
   bool get isEmpty => oneTime.isEmpty && lastResort == null;
 
@@ -42,13 +49,18 @@ class PendingUpload {
         'v': 1,
         'oneTime': oneTime.map(base64Encode).toList(),
         'lastResort': lastResort == null ? null : base64Encode(lastResort!),
+        'lastResortAt': lastResort == null ? null : lastResortMicros,
         'countBefore': countBefore,
         'outcome': failed ? 'failed' : 'unknown',
       }),
     ),
   );
 
-  static PendingUpload decode(Uint8List bytes) {
+  /// A record without `lastResortAt` (written before it existed) reads its
+  /// last-resort package as generated at [nowMicros], the time the resend
+  /// then records: what every upload wrote before. Safe: no such record has
+  /// shipped.
+  static PendingUpload decode(Uint8List bytes, {required int nowMicros}) {
     if (bytes.length > _maxRecordBytes) {
       throw const FormatException();
     }
@@ -57,11 +69,13 @@ class PendingUpload {
     final packages = value['oneTime'];
     final count = value['countBefore'];
     final outcome = value['outcome'];
+    final at = value['lastResortAt'];
     if (packages is! List ||
         packages.length > kKeyPackagePoolTarget ||
         count is! int ||
         count < 0 ||
         !value.containsKey('lastResort') ||
+        (at != null && (at is! int || at <= 0)) ||
         (outcome != 'failed' && outcome != 'unknown')) {
       throw const FormatException();
     }
@@ -82,6 +96,7 @@ class PendingUpload {
       last == null ? null : package(last),
       count,
       failed: outcome == 'failed',
+      lastResortMicros: last == null ? 0 : (at as int?) ?? nowMicros,
     );
   }
 }

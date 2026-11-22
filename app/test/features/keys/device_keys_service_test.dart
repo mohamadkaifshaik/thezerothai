@@ -814,6 +814,24 @@ void main() {
       },
     );
 
+    test('a resent last-resort package keeps its generation time: the resend '
+        'does not restart its 30 days', () async {
+      rig.server.failNext['upload'] = [refused()];
+      await rig.signIn(_a);
+      final generatedAt = rig.now.microsecondsSinceEpoch;
+      expect(saved()['outcome'], 'failed');
+      expect(saved()['lastResortAt'], generatedAt);
+      await nextRun();
+      expect(rig.server.uploads.last.lastResortKeyPackage, isNotEmpty);
+      expect(saved()['lastResort'], isNull);
+      expect(rig.setting(kVaultSettingLastResortAt), '$generatedAt');
+
+      // 30 days after it was generated (not after the resend): rotated.
+      rig.advance(const Duration(days: 30) - _hour);
+      await rig.service.ensureReady();
+      expect(rig.engine.generated.last, (0, true));
+    });
+
     test('after a timeout an unchanged count reuses the saved bytes', () async {
       rig.server.failNext['upload'] = [timeout(), timeout()];
       await rig.signIn(_a);
@@ -891,6 +909,7 @@ void main() {
       // answers are lost: the count went from 0 to 50.
       rig.server.failAfterApply['upload'] = [timeout(), timeout()];
       await rig.signIn(_a);
+      final generatedAt = rig.now.microsecondsSinceEpoch;
       final first = rig.server.uploads.first;
       expect(saved()['lastResort'], base64Encode(first.lastResortKeyPackage));
       final state = rig.file()!.deviceState!;
@@ -906,6 +925,11 @@ void main() {
       expect(saved()['oneTime'], isEmpty);
       expect(saved()['lastResort'], isNull);
       expect(rig.service.status.value, DeviceKeysStatus.ready);
+      expect(
+        rig.setting(kVaultSettingLastResortAt),
+        '$generatedAt',
+        reason: 'the time it was generated, not the resend time',
+      );
     });
 
     test('a resent last-resort package whose answer is lost stays saved and '

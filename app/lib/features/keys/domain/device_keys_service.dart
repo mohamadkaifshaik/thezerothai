@@ -699,6 +699,7 @@ class DeviceKeysService {
             batch.lastResort,
             batch.countBefore,
             failed: true,
+            lastResortMicros: batch.lastResortMicros,
           );
           // Best effort: the typed refusal (back-off, forced register,
           // latch) must survive a failed write; the saved record then stays
@@ -732,7 +733,12 @@ class DeviceKeysService {
       );
       await tx.putSetting(kVaultSettingDeviceLastSeen, _micros(nowMicros));
       if (batch.lastResort != null) {
-        await tx.putSetting(kVaultSettingLastResortAt, _micros(nowMicros));
+        // When it was generated, not now: a resend must not extend the
+        // package's 30 days (SA L2).
+        await tx.putSetting(
+          kVaultSettingLastResortAt,
+          _micros(batch.lastResortMicros),
+        );
       }
     });
     // A last-resort-only batch sent at the cap: the pool is still capped.
@@ -759,7 +765,12 @@ class DeviceKeysService {
     var unreadable = false;
     try {
       final bytes = await v.setting(kVaultSettingPendingUpload);
-      if (bytes != null) saved = PendingUpload.decode(bytes);
+      if (bytes != null) {
+        saved = PendingUpload.decode(
+          bytes,
+          nowMicros: _now().microsecondsSinceEpoch,
+        );
+      }
     } on FormatException {
       unreadable = true;
     } on VaultCorruptException {
@@ -789,13 +800,23 @@ class DeviceKeysService {
         final last = saved.lastResort;
         final lastOnly = last == null
             ? PendingUpload.empty
-            : PendingUpload(const [], last, count);
+            : PendingUpload(
+                const [],
+                last,
+                count,
+                lastResortMicros: saved.lastResortMicros,
+              );
         await store(lastOnly);
         return (lastOnly, false, null);
       }
       if (previousUnknown) return (saved, previousUnknown, null);
       // Arm the next attempt before dispatch so a killed run is unknown.
-      final retry = PendingUpload(saved.oneTime, saved.lastResort, count);
+      final retry = PendingUpload(
+        saved.oneTime,
+        saved.lastResort,
+        count,
+        lastResortMicros: saved.lastResortMicros,
+      );
       await store(retry);
       return (retry, previousUnknown, null);
     }
@@ -863,6 +884,7 @@ class DeviceKeysService {
       generateLastResort ? packages.sublist(0, packages.length - 1) : packages,
       generateLastResort ? packages.last : null,
       count,
+      lastResortMicros: generateLastResort ? now.microsecondsSinceEpoch : 0,
     );
     await v.transaction((tx) async {
       final current = await batchDay();
