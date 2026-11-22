@@ -529,8 +529,9 @@ extension _Recovery on GroupStarter {
   /// of [id]'s expired provisional group, then ONE transaction that
   /// replaces the old group, its pins and its row by the new ones under a
   /// NEW key. True when the new group was stored. A failed claim changes
-  /// nothing. At a daily claim cap the group is discarded and the row
-  /// fails (`tryAgainTomorrow`); the user's retry starts again then.
+  /// nothing. At a daily claim cap (`tryAgainTomorrow`), and when the peer
+  /// lists no usable device (review N5), the group is discarded and the row
+  /// fails with that reason; the user's retry starts again then.
   Future<bool> _rebuild(String id, String localId) async {
     final vault = _session.vault;
     final peer = _known.peerOf(id);
@@ -570,20 +571,41 @@ extension _Recovery on GroupStarter {
       return true;
     }
     final cause = outcome.cause;
+    // The stored reason of a rebuild that cannot be made, or null for an
+    // outcome that may pass (the group then stays as it is).
+    final String? reason;
     if (outcome.result == StartResult.tryAgainTomorrow && cause != null) {
       // The daily cap: no claim can succeed today, so the row fails now
       // (the group cannot be rebuilt, and its init was not stored).
+      reason = sendErrorName(cause);
+    } else if (outcome.result == StartResult.peerHasNoDevice) {
+      // Review N5. Decision: the peer lists no usable device (it removed
+      // them, or R3 refuses every package). The old init is never sent
+      // again after 24 h, so keeping the group would leave the first
+      // message "sending" for good, with a commit call and two lookups at
+      // every resume and no way for the user to discard it. The group goes
+      // and the row fails; the user's retry starts again (F1, option c).
+      reason = kStartErrorPeerHasNoDevice;
+    } else {
+      // `lookupFailed` and `unavailable` are kept: a passing failure (no
+      // network, a rate limit, a vault that closed), or a state in doubt
+      // (the group changed under the claim, a claim that names another
+      // conversation). Nothing is deleted on those; [pendingInit] says
+      // `waiting`, never `sending`, for such a group.
+      reason = null;
+    }
+    if (reason != null) {
       final discarded = await _locks.run(
         id,
         () => _crypto.discardProvisionalLocked(
           id,
           group!.generation,
-          lastError: sendErrorName(cause),
+          lastError: reason,
         ),
       );
       if (discarded) {
         _forget(localId);
-        _sender.rememberRefusal(localId, cause);
+        if (cause != null) _sender.rememberRefusal(localId, cause);
         _onChanged(id);
       }
     }

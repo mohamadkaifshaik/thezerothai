@@ -1996,6 +1996,83 @@ void main() {
     });
   });
 
+  group('an expired provisional group that cannot be rebuilt (review N5)', () {
+    test('a rebuild that finds no device discards the group and fails the '
+        'row; the user\'s retry starts again', () async {
+      rig.server.sendScript.addAll([unknown, unknown]);
+      await start();
+      await done();
+      expect((await groupOf())!.provisional, isTrue);
+      rig.clock.advance(kProvisionalExpiry + const Duration(minutes: 1));
+      // The peer removed its devices: no rebuild can be made.
+      rig.keys.peers[_bob] = [];
+      rig.keys.claimCalls.clear();
+
+      await starter.resumeProvisional();
+      await done();
+
+      expect(rig.keys.claimCalls, isEmpty);
+      expect(await groupOf(), isNull);
+      expect(await rig.device.vault.members(_c1), isEmpty);
+      final row = (await rows()).single;
+      expect(row.stage, OutboxStage.plain);
+      expect(row.init, isNull);
+      expect(row.conversationId, _c1);
+      expect(row.lastError, kStartErrorPeerHasNoDevice);
+      expect(await starter.pendingInit(conversationId: _c1), isNull);
+      final shown = (await rig.sender.outgoing(_c1)).single;
+      expect(shown.status, OutgoingStatus5a.failed);
+      expect(shown.retryable, isTrue);
+      expect(rig.known.contains(_c1), isTrue);
+
+      // Nothing repeats in the background: the row waits for the user.
+      final calls = rig.server.calls.length;
+      await starter.resumeProvisional();
+      await done();
+      expect(rig.server.calls, hasLength(calls));
+
+      // The retry while the peer still has no device keeps the failure.
+      await starter.retryStart('local-1');
+      await done();
+      expect((await rows()).single.lastError, kStartErrorPeerHasNoDevice);
+
+      // The peer has a device again: the user's retry starts (F1 c).
+      person(_bob, _c1, [bob]);
+      await starter.retryStart('local-1');
+      await done();
+      expect(rig.keys.claimCalls.single.userId, _bob);
+      expect((await groupOf())!.provisional, isFalse);
+      expect(await rows(), isEmpty);
+    });
+
+    test(
+      'pendingInit never says sending for a group older than 24 h',
+      () async {
+        rig.server.sendScript.addAll([unknown, unknown]);
+        await start();
+        await done();
+        var shown = (await starter.pendingInit(conversationId: _c1))!;
+        expect(shown.status, OutgoingStatus5a.sending);
+
+        rig.clock.advance(kProvisionalExpiry);
+        // The rebuild cannot be made for a passing reason: the group stays.
+        rig.keys.peerFails = true;
+        await starter.resumeProvisional();
+        await done();
+        expect((await groupOf())!.provisional, isTrue);
+        for (final shown in [
+          await starter.pendingInit(conversationId: _c1),
+          await starter.pendingInit(recipientUserId: _bob),
+        ]) {
+          expect(shown!.localId, 'local-1');
+          expect(shown.status, OutgoingStatus5a.waiting);
+          expect(shown.waitingOn, SendBlock.provisional);
+          expect(shown.retryable, isFalse);
+        }
+      },
+    );
+  });
+
   group('resumeProvisional', () {
     test('a provisional group older than 24 h whose init is the first stored '
         'commit is cleared, not rebuilt', () async {

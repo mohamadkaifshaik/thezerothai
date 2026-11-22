@@ -49,6 +49,12 @@ const Duration kProvisionalExpiry = Duration(hours: 24);
 const String kLimitClaimsPerTargetDaily = 'keys_claims_per_target_daily';
 const String kLimitClaimsDaily = 'keys_claims_daily';
 
+/// The stored error name of a row whose expired provisional group could
+/// not be rebuilt because the peer lists no usable device (review N5). No
+/// typed error goes with it: `outgoing` shows the row `failed`, retryable,
+/// with a null `error`, and the user's retry starts again ([retryStart]).
+const String kStartErrorPeerHasNoDevice = 'PeerHasNoDevice';
+
 /// What [GroupStarter.startOrRoute] did with a first message.
 ///
 /// `started`: this device created a provisional group; the row is saved and
@@ -263,8 +269,14 @@ class GroupStarter {
   ///
   /// `sending`, or `waiting` with why the init is held: `unavailable` (the
   /// flag is not on, or this device was removed elsewhere), `cannotMessage`,
-  /// `notSynced` (a member is not attributable). Reads only. A failed read
-  /// throws, as `outgoing` does: null always means "no such row".
+  /// `notSynced` (a member is not attributable), `provisional` (review N5:
+  /// the group is [kProvisionalExpiry] old or older, its init is sent no
+  /// more, and the stored commits or a rebuild decide at the next resume).
+  /// Always `retryable: false`, never `failed`: a row that failed is no
+  /// longer an init row, and `outgoing` lists it. The user's retry of this
+  /// row goes through [retryStart] like every other (it resumes the init).
+  /// Reads only. A failed read throws, as `outgoing` does: null always
+  /// means "no such row".
   Future<OutgoingRow?> pendingInit({
     String? conversationId,
     String? recipientUserId,
@@ -288,6 +300,19 @@ class GroupStarter {
           : r.recipientUserId == recipientUserId ||
                 _known.peerOf(id) == recipientUserId;
       if (!match) continue;
+      // The age that [_resumeLocked] sends by: a group at or past
+      // [kProvisionalExpiry] (or with no creation time, or gone) has its
+      // init sent no more.
+      int? created;
+      for (final g in await vault.groups(id)) {
+        if (g.provisional) created = g.provisionalCreatedAtMicros;
+      }
+      final expired =
+          created == null ||
+          _now().difference(
+                DateTime.fromMicrosecondsSinceEpoch(created, isUtc: true),
+              ) >=
+              kProvisionalExpiry;
       final SendBlock held;
       if (!_session.mayStart || _removedElsewhere()) {
         held = SendBlock.unavailable;
@@ -296,6 +321,12 @@ class GroupStarter {
       } else if ((await vault.members(id))
           .any((m) => m.side == MemberSide.unattributed)) {
         held = SendBlock.notSynced;
+      } else if (expired) {
+        // Review N5. Decision: never `sending` for an expired group. Its
+        // init is not sent again; the stored commits and a rebuild decide,
+        // and until one of them can be had the fate of the group is not
+        // known: `provisional`, the reason rows behind it wait with.
+        held = SendBlock.provisional;
       } else {
         held = SendBlock.none;
       }
