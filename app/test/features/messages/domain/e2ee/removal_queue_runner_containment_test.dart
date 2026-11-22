@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/vault/secure_vault.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/conversation_crypto.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/membership_rules.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/removal_queue_runner.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/removal_record.dart';
@@ -351,6 +352,34 @@ void main() {
       expect(runnerScheduled.where((s) => !s.cancelled), isEmpty);
       expect(runner.queuedFor(_c1), isEmpty);
       expect(runner.pending.value, 0);
+    });
+  });
+
+  group('a parked entry (CR Minor 6)', () {
+    test('a pass lets go of a parked entry whose device is no longer pinned, '
+        'with no call', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await join(_c1, others: [sibling]);
+      await synced();
+      rig.server.commitScript.add((
+        error: const CannotMessageException(),
+        stored: false,
+      ));
+      await removeAndSettle(sibling);
+      expect((await stored())!.entries.single.parked, isTrue);
+      // Bob's commit removed it, and this device applied it.
+      await bobRemoves(_c1, [sibling.id]);
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      expect(await pin(sibling), isNull);
+      final calls = rig.server.calls.length;
+
+      await runner.runPass();
+
+      expect(runner.queuedFor(_c1), isEmpty);
+      expect(runner.pending.value, 0);
+      expect((await stored())!.entries, isEmpty);
+      expect(rig.server.calls, hasLength(calls), reason: 'no call');
     });
   });
 }

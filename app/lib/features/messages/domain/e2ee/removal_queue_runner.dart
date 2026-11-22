@@ -585,8 +585,15 @@ class RemovalQueueRunner {
     BudgetPriority priority,
     int resets,
   ) async {
-    // Parked entries wait for their hook; no call.
+    // Parked entries wait for their hook; no call. CR Minor 6 (fix round 2,
+    // ruling 8): they are pruned first, under the lock and from the stored
+    // pins only (read only, no call), so one whose device another commit
+    // already removed lets go now instead of at the un-park.
     if (_entries.every((e) => e.conversationId != id || e.parked)) {
+      await _locks.run(id, () async {
+        if (!_current(vault, resets)) return;
+        if (await _prune(vault, id, thisDevice)) await _save(vault);
+      });
       return false;
     }
     final context = _contexts.of(id);
