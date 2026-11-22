@@ -18,8 +18,10 @@
 // expireAt = removedAt + 90 days, the Firestore TTL field; doc id = the device id), written by RemoveKeyDevice with
 // reason REMOTE. A device document that carries removedAt (a REMOTE removal in progress) is not a registered device:
 // every read and claim skips it, but it keeps its place under the cap of 5 until the removal (or its retry) deletes it,
-// so a user never has more than 5 device documents. All three are erased with the account; the account
-// export lists device metadata and counts and the removed marks (device id and times), never key bytes.
+// so a user never has more than 5 device documents; a RegisterKeyDevice at the cap finishes such stuck removals first
+// (see RegisterKeyDevice). All three are erased with the account; the account export lists device metadata and counts
+// and the removed marks (device id and times), with the metadata of a device document whose removal is still pending
+// (removal_pending), never key bytes.
 //
 // Key material is raw bytes: this is the first proto in the repo with `bytes` fields. Device ids, user ids and
 // idempotency keys are strings. Nothing the server stores or returns is a message body.
@@ -74,9 +76,9 @@
 // - FAILED_PRECONDITION + DEVICE_REMOVED, no metadata (RegisterKeyDevice, UploadKeyPackages): the device id was removed
 //   with reason REMOTE within the last 90 days (at least; the mark ends when Firestore's TTL deletes it). Decided
 //   before LIMIT_REACHED and before NOT_FOUND. Do not retry with the same id: set the device up again under a new id.
-// - FAILED_PRECONDITION + REAUTH_REQUIRED (RemoveKeyDevice with reason REMOTE of an id not yet marked): the ID token's
-//   auth_time is older than ACCOUNT_DELETE_REAUTH_MAX_AGE (5 min) or missing; nothing was written. Sign in again, then
-//   retry.
+// - FAILED_PRECONDITION + REAUTH_REQUIRED (RemoveKeyDevice with reason REMOTE that is not a retry, see RemoveReason):
+//   the ID token's auth_time is older than ACCOUNT_DELETE_REAUTH_MAX_AGE (5 min) or missing; nothing was written. Sign
+//   in again, then retry.
 // - NOT_FOUND: UploadKeyPackages for a device the caller has not registered (RemoveKeyDevice of a missing device is
 //   success, not NOT_FOUND).
 // - UNAVAILABLE (retry after the hinted delay): possible on any RPC for a real storage failure (contention on a
@@ -122,9 +124,9 @@ const (
 	// The user removes another device of theirs (lost, stolen, sold). The server keeps a removed mark for at least 90
 	// days: RegisterKeyDevice and UploadKeyPackages refuse the id with FAILED_PRECONDITION + DEVICE_REMOVED. Needs a
 	// recent sign-in (FAILED_PRECONDITION + REAUTH_REQUIRED when the ID token's auth_time is older than
-	// ACCOUNT_DELETE_REAUTH_MAX_AGE, 5 min, or missing; nothing is written) unless the id is already marked: a retry
-	// finishes the removal without one. An id that was never registered is marked too (the answer does not tell whether
-	// the id existed).
+	// ACCOUNT_DELETE_REAUTH_MAX_AGE, 5 min, or missing; nothing is written) unless this is a retry: the id is already
+	// marked and its device document is gone or already being removed; a retry finishes the removal without one. An id
+	// that was never registered is marked too (the answer does not tell whether the id existed).
 	RemoveReason_REMOVE_REASON_REMOTE RemoveReason = 2
 )
 
@@ -896,6 +898,8 @@ type ClaimedKeyPackage struct {
 	// removed (with reason SIGN_OUT; a REMOTE removal keeps the id from registering again for at least 90 days) and
 	// registered again in that instant, so the client checks the key package's credential and signature key
 	// against it and against the directory entry, and skips the device on a mismatch (see the file header).
+	// The device itself may have been removed with reason REMOTE in that instant (the removal window, see
+	// ClaimKeyPackages): the key is then the removed device's own, and a commit naming it as a welcome target is refused.
 	SignaturePublicKey []byte `protobuf:"bytes,2,opt,name=signature_public_key,json=signaturePublicKey,proto3" json:"signature_public_key,omitempty"`
 	// Empty when has_key_package is false.
 	KeyPackage    []byte `protobuf:"bytes,3,opt,name=key_package,json=keyPackage,proto3" json:"key_package,omitempty"`
@@ -973,8 +977,9 @@ func (x *ClaimedKeyPackage) GetLastResort() bool {
 
 type ClaimKeyPackagesResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// One per active device of user_id, oldest first, except: a device removed during the claim is left out, and for
-	// the caller's own id the excluded device is left out.
+	// One per active device of user_id, oldest first, except: a device removed during the claim is left out (unless the
+	// removal landed after its package was picked: the removal window, see ClaimKeyPackages), and for the caller's own id
+	// the excluded device is left out.
 	KeyPackages []*ClaimedKeyPackage `protobuf:"bytes,1,rep,name=key_packages,json=keyPackages,proto3" json:"key_packages,omitempty"`
 	// The id the 1:1 conversation of the caller and user_id has or will have (32 lower-case hex): set on every
 	// success for another user, an empty one included; empty for the caller's own id; never sent with an error. Not a

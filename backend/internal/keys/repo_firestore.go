@@ -493,6 +493,14 @@ type claimTarget struct {
 // (only after a failed batch): at most 15 without contention, at most 5 + 5 x (10 x 2 + 1) = 110 in the worst case.
 // Writes: per device one batch of 2 (only a committed batch writes), at most 10. LastSeenAt is never written.
 // Not atomic across devices: an error on a later device leaves the packages already taken from earlier ones consumed.
+//
+// The removal window (code review Minor 3, security audit L1; accepted, documented in keys.proto ClaimKeyPackages): the
+// removedAt skip is decided on the device query's read, and the claim batch has no precondition on removedAt. A REMOTE
+// removal whose mark transaction commits between the two does not stop the batch, so one package of a device being
+// removed can still be handed out. claimOne's re-read after a failed batch does skip it. A precondition would need the
+// device's update time from the query and would turn every concurrent last-seen or upload write into a failed batch;
+// a fresh read per device would cost up to 5 reads per claim. The welcome-target check (messaging, ActiveDeviceIDs)
+// refuses a later commit that names the removed device.
 func (r *FirestoreRepo) Claim(ctx context.Context, targetUID, excludeDeviceID string, now time.Time) ([]Claimed, error) {
 	snaps, err := r.devices(targetUID).OrderBy("createdAt", firestore.Asc).Limit(MaxDevicesPerUser).Documents(ctx).GetAll()
 	if err != nil {

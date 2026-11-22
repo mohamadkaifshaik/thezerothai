@@ -1069,6 +1069,8 @@ class ClaimedKeyPackage extends $pb.GeneratedMessage {
   /// removed (with reason SIGN_OUT; a REMOTE removal keeps the id from registering again for at least 90 days) and
   /// registered again in that instant, so the client checks the key package's credential and signature key
   /// against it and against the directory entry, and skips the device on a mismatch (see the file header).
+  /// The device itself may have been removed with reason REMOTE in that instant (the removal window, see
+  /// ClaimKeyPackages): the key is then the removed device's own, and a commit naming it as a welcome target is refused.
   @$pb.TagNumber(2)
   $core.List<$core.int> get signaturePublicKey => $_getN(1);
   @$pb.TagNumber(2)
@@ -1163,8 +1165,9 @@ class ClaimKeyPackagesResponse extends $pb.GeneratedMessage {
           ClaimKeyPackagesResponse.$_createMessage);
   static ClaimKeyPackagesResponse? _defaultInstance;
 
-  /// One per active device of user_id, oldest first, except: a device removed during the claim is left out, and for
-  /// the caller's own id the excluded device is left out.
+  /// One per active device of user_id, oldest first, except: a device removed during the claim is left out (unless the
+  /// removal landed after its package was picked: the removal window, see ClaimKeyPackages), and for the caller's own id
+  /// the excluded device is left out.
   @$pb.TagNumber(1)
   $pb.PbList<ClaimedKeyPackage> get keyPackages => $_getList(0);
 
@@ -1192,9 +1195,13 @@ class KeyServiceApi {
   /// returns the device; same id with a different key => INVALID_ARGUMENT + VALIDATION "signature_public_key" (the
   /// stored key is kept); a sixth device => FAILED_PRECONDITION + LIMIT_REACHED "key_devices" (never evicts); an id
   /// removed with reason REMOTE (marked) => FAILED_PRECONDITION + DEVICE_REMOVED, decided before the device count, so a
-  /// marked id never learns about the cap. Validation: device_id and signature_public_key as in the header,
-  /// idempotency_key format. One transaction: 1 device read; for a new id also 1 mark read + a query of at most 6 device
-  /// documents; at most 1 write.
+  /// marked id never learns about the cap; an existing device document under a mark (one an older server re-created) is
+  /// refused the same way and marked as being removed in the same transaction. Validation: device_id and
+  /// signature_public_key as in the header, idempotency_key format. One transaction: 2 reads (the device document and
+  /// the mark); for a new id also a query of at most 6 device documents; at most 1 write. At the cap, when some of the
+  /// counted device documents are REMOTE removals that stopped before deleting them (no list shows them), the server
+  /// finishes those removals (each as RemoveKeyDevice's sweep and delete; no sign-in needed, the ids stay marked) and
+  /// runs the transaction once more; if the cap is still full the answer is LIMIT_REACHED.
   $async.Future<RegisterKeyDeviceResponse> registerKeyDevice(
           $pb.ClientContext? ctx, RegisterKeyDeviceRequest request) =>
       _client.invoke<RegisterKeyDeviceResponse>(ctx, 'KeyService',
@@ -1215,12 +1222,13 @@ class KeyServiceApi {
   /// empty. The pool never holds more than 100 (UploadKeyPackages enforces that), so one page normally suffices; if
   /// uploads keep refilling the pool, the sweep repeats for at most 5 rounds and then answers UNAVAILABLE (retry). A
   /// failed or timed-out call may already have deleted some pool documents; retrying finishes the removal.
-  /// reason (see RemoveReason): SIGN_OUT and UNSPECIFIED remove only, as above, and remember nothing. REMOTE first reads
-  /// the mark (1 read); when the id is not yet marked it needs a recent sign-in (REAUTH_REQUIRED, nothing written);
-  /// then one transaction reads the device document and the mark (2 reads) and writes the mark (create, when absent)
-  /// and the device's removedAt (when the document exists and lacks it), at most 2 writes, before the pool sweep and
-  /// the delete above. From that transaction on the device is skipped by every read and claim, and RegisterKeyDevice and
-  /// UploadKeyPackages refuse the id with DEVICE_REMOVED.
+  /// reason (see RemoveReason): SIGN_OUT and UNSPECIFIED remove only, as above, and remember nothing. REMOTE first runs
+  /// one transaction that reads the device document and the mark (2 reads) and decides on them: unless this is a retry
+  /// (the mark exists and the device document is gone or already being removed) it needs a recent sign-in
+  /// (REAUTH_REQUIRED, nothing written); then it writes the mark (create, when absent) and the device's removedAt (when
+  /// the document exists and lacks it), at most 2 writes, before the pool sweep and the delete above. From that
+  /// transaction on the device is skipped by every read and claim (a claim already past its device read can still take
+  /// one package, see ClaimKeyPackages), and RegisterKeyDevice and UploadKeyPackages refuse the id with DEVICE_REMOVED.
   $async.Future<RemoveKeyDeviceResponse> removeKeyDevice(
           $pb.ClientContext? ctx, RemoveKeyDeviceRequest request) =>
       _client.invoke<RemoveKeyDeviceResponse>(ctx, 'KeyService',
@@ -1286,6 +1294,12 @@ class KeyServiceApi {
   /// at most 1 document per device); with contention at most 110 (at most 10 picks per device, 2 pool queries each, plus
   /// 1 device read); plus the send-rules check's at most 4 (5, see GetKeyDevices) for another user. At most 10
   /// committed writes.
+  /// The removal window (accepted, security audit L1): the device list is read once, before the packages are taken,
+  /// and the package write does not check for a removal. A RemoveKeyDevice with reason REMOTE that commits its mark
+  /// between the two does not stop it, so one package of a device being removed can still be handed out, in a window of
+  /// milliseconds. A later commit that names that device as a welcome target is refused (the welcome-target check skips
+  /// removed devices), so the package normally goes unused; only a commit whose target check also ran before the mark can
+  /// still address it. Closing the window would cost a read per device on every claim.
   /// NOT replayable: a retry consumes fresh packages, and idempotency_key is format-checked only. A failed or timed-out
   /// call is not proof that nothing was consumed: packages may already have been taken, including for earlier devices
   /// of the same call when a later device fails. Claiming for the caller's own user id requires exclude_device_id to be

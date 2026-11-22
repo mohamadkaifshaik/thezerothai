@@ -16,8 +16,10 @@
 // expireAt = removedAt + 90 days, the Firestore TTL field; doc id = the device id), written by RemoveKeyDevice with
 // reason REMOTE. A device document that carries removedAt (a REMOTE removal in progress) is not a registered device:
 // every read and claim skips it, but it keeps its place under the cap of 5 until the removal (or its retry) deletes it,
-// so a user never has more than 5 device documents. All three are erased with the account; the account
-// export lists device metadata and counts and the removed marks (device id and times), never key bytes.
+// so a user never has more than 5 device documents; a RegisterKeyDevice at the cap finishes such stuck removals first
+// (see RegisterKeyDevice). All three are erased with the account; the account export lists device metadata and counts
+// and the removed marks (device id and times), with the metadata of a device document whose removal is still pending
+// (removal_pending), never key bytes.
 //
 // Key material is raw bytes: this is the first proto in the repo with `bytes` fields. Device ids, user ids and
 // idempotency keys are strings. Nothing the server stores or returns is a message body.
@@ -72,9 +74,9 @@
 //   - FAILED_PRECONDITION + DEVICE_REMOVED, no metadata (RegisterKeyDevice, UploadKeyPackages): the device id was removed
 //     with reason REMOTE within the last 90 days (at least; the mark ends when Firestore's TTL deletes it). Decided
 //     before LIMIT_REACHED and before NOT_FOUND. Do not retry with the same id: set the device up again under a new id.
-//   - FAILED_PRECONDITION + REAUTH_REQUIRED (RemoveKeyDevice with reason REMOTE of an id not yet marked): the ID token's
-//     auth_time is older than ACCOUNT_DELETE_REAUTH_MAX_AGE (5 min) or missing; nothing was written. Sign in again, then
-//     retry.
+//   - FAILED_PRECONDITION + REAUTH_REQUIRED (RemoveKeyDevice with reason REMOTE that is not a retry, see RemoveReason):
+//     the ID token's auth_time is older than ACCOUNT_DELETE_REAUTH_MAX_AGE (5 min) or missing; nothing was written. Sign
+//     in again, then retry.
 //   - NOT_FOUND: UploadKeyPackages for a device the caller has not registered (RemoveKeyDevice of a missing device is
 //     success, not NOT_FOUND).
 //   - UNAVAILABLE (retry after the hinted delay): possible on any RPC for a real storage failure (contention on a
@@ -146,9 +148,13 @@ type KeyServiceClient interface {
 	// returns the device; same id with a different key => INVALID_ARGUMENT + VALIDATION "signature_public_key" (the
 	// stored key is kept); a sixth device => FAILED_PRECONDITION + LIMIT_REACHED "key_devices" (never evicts); an id
 	// removed with reason REMOTE (marked) => FAILED_PRECONDITION + DEVICE_REMOVED, decided before the device count, so a
-	// marked id never learns about the cap. Validation: device_id and signature_public_key as in the header,
-	// idempotency_key format. One transaction: 1 device read; for a new id also 1 mark read + a query of at most 6 device
-	// documents; at most 1 write.
+	// marked id never learns about the cap; an existing device document under a mark (one an older server re-created) is
+	// refused the same way and marked as being removed in the same transaction. Validation: device_id and
+	// signature_public_key as in the header, idempotency_key format. One transaction: 2 reads (the device document and
+	// the mark); for a new id also a query of at most 6 device documents; at most 1 write. At the cap, when some of the
+	// counted device documents are REMOTE removals that stopped before deleting them (no list shows them), the server
+	// finishes those removals (each as RemoveKeyDevice's sweep and delete; no sign-in needed, the ids stay marked) and
+	// runs the transaction once more; if the cap is still full the answer is LIMIT_REACHED.
 	RegisterKeyDevice(context.Context, *connect.Request[v1.RegisterKeyDeviceRequest]) (*connect.Response[v1.RegisterKeyDeviceResponse], error)
 	// The caller's devices, at most 5, oldest first; inactive ones (not seen for 30 days) are included, flagged by
 	// last_seen_at and KeyDevice.inactive. Needs the flag only not globally off. Query of at most 5 device documents
@@ -161,12 +167,13 @@ type KeyServiceClient interface {
 	// empty. The pool never holds more than 100 (UploadKeyPackages enforces that), so one page normally suffices; if
 	// uploads keep refilling the pool, the sweep repeats for at most 5 rounds and then answers UNAVAILABLE (retry). A
 	// failed or timed-out call may already have deleted some pool documents; retrying finishes the removal.
-	// reason (see RemoveReason): SIGN_OUT and UNSPECIFIED remove only, as above, and remember nothing. REMOTE first reads
-	// the mark (1 read); when the id is not yet marked it needs a recent sign-in (REAUTH_REQUIRED, nothing written);
-	// then one transaction reads the device document and the mark (2 reads) and writes the mark (create, when absent)
-	// and the device's removedAt (when the document exists and lacks it), at most 2 writes, before the pool sweep and
-	// the delete above. From that transaction on the device is skipped by every read and claim, and RegisterKeyDevice and
-	// UploadKeyPackages refuse the id with DEVICE_REMOVED.
+	// reason (see RemoveReason): SIGN_OUT and UNSPECIFIED remove only, as above, and remember nothing. REMOTE first runs
+	// one transaction that reads the device document and the mark (2 reads) and decides on them: unless this is a retry
+	// (the mark exists and the device document is gone or already being removed) it needs a recent sign-in
+	// (REAUTH_REQUIRED, nothing written); then it writes the mark (create, when absent) and the device's removedAt (when
+	// the document exists and lacks it), at most 2 writes, before the pool sweep and the delete above. From that
+	// transaction on the device is skipped by every read and claim (a claim already past its device read can still take
+	// one package, see ClaimKeyPackages), and RegisterKeyDevice and UploadKeyPackages refuse the id with DEVICE_REMOVED.
 	RemoveKeyDevice(context.Context, *connect.Request[v1.RemoveKeyDeviceRequest]) (*connect.Response[v1.RemoveKeyDeviceResponse], error)
 	// Add key packages to a registered device's pool and optionally replace its last-resort package. Needs the flag on
 	// for the caller. Naturally idempotent: a key package's document id is derived from its bytes, so a replay stores
@@ -220,6 +227,12 @@ type KeyServiceClient interface {
 	// at most 1 document per device); with contention at most 110 (at most 10 picks per device, 2 pool queries each, plus
 	// 1 device read); plus the send-rules check's at most 4 (5, see GetKeyDevices) for another user. At most 10
 	// committed writes.
+	// The removal window (accepted, security audit L1): the device list is read once, before the packages are taken,
+	// and the package write does not check for a removal. A RemoveKeyDevice with reason REMOTE that commits its mark
+	// between the two does not stop it, so one package of a device being removed can still be handed out, in a window of
+	// milliseconds. A later commit that names that device as a welcome target is refused (the welcome-target check skips
+	// removed devices), so the package normally goes unused; only a commit whose target check also ran before the mark can
+	// still address it. Closing the window would cost a read per device on every claim.
 	// NOT replayable: a retry consumes fresh packages, and idempotency_key is format-checked only. A failed or timed-out
 	// call is not proof that nothing was consumed: packages may already have been taken, including for earlier devices
 	// of the same call when a later device fails. Claiming for the caller's own user id requires exclude_device_id to be
@@ -329,9 +342,13 @@ type KeyServiceHandler interface {
 	// returns the device; same id with a different key => INVALID_ARGUMENT + VALIDATION "signature_public_key" (the
 	// stored key is kept); a sixth device => FAILED_PRECONDITION + LIMIT_REACHED "key_devices" (never evicts); an id
 	// removed with reason REMOTE (marked) => FAILED_PRECONDITION + DEVICE_REMOVED, decided before the device count, so a
-	// marked id never learns about the cap. Validation: device_id and signature_public_key as in the header,
-	// idempotency_key format. One transaction: 1 device read; for a new id also 1 mark read + a query of at most 6 device
-	// documents; at most 1 write.
+	// marked id never learns about the cap; an existing device document under a mark (one an older server re-created) is
+	// refused the same way and marked as being removed in the same transaction. Validation: device_id and
+	// signature_public_key as in the header, idempotency_key format. One transaction: 2 reads (the device document and
+	// the mark); for a new id also a query of at most 6 device documents; at most 1 write. At the cap, when some of the
+	// counted device documents are REMOTE removals that stopped before deleting them (no list shows them), the server
+	// finishes those removals (each as RemoveKeyDevice's sweep and delete; no sign-in needed, the ids stay marked) and
+	// runs the transaction once more; if the cap is still full the answer is LIMIT_REACHED.
 	RegisterKeyDevice(context.Context, *connect.Request[v1.RegisterKeyDeviceRequest]) (*connect.Response[v1.RegisterKeyDeviceResponse], error)
 	// The caller's devices, at most 5, oldest first; inactive ones (not seen for 30 days) are included, flagged by
 	// last_seen_at and KeyDevice.inactive. Needs the flag only not globally off. Query of at most 5 device documents
@@ -344,12 +361,13 @@ type KeyServiceHandler interface {
 	// empty. The pool never holds more than 100 (UploadKeyPackages enforces that), so one page normally suffices; if
 	// uploads keep refilling the pool, the sweep repeats for at most 5 rounds and then answers UNAVAILABLE (retry). A
 	// failed or timed-out call may already have deleted some pool documents; retrying finishes the removal.
-	// reason (see RemoveReason): SIGN_OUT and UNSPECIFIED remove only, as above, and remember nothing. REMOTE first reads
-	// the mark (1 read); when the id is not yet marked it needs a recent sign-in (REAUTH_REQUIRED, nothing written);
-	// then one transaction reads the device document and the mark (2 reads) and writes the mark (create, when absent)
-	// and the device's removedAt (when the document exists and lacks it), at most 2 writes, before the pool sweep and
-	// the delete above. From that transaction on the device is skipped by every read and claim, and RegisterKeyDevice and
-	// UploadKeyPackages refuse the id with DEVICE_REMOVED.
+	// reason (see RemoveReason): SIGN_OUT and UNSPECIFIED remove only, as above, and remember nothing. REMOTE first runs
+	// one transaction that reads the device document and the mark (2 reads) and decides on them: unless this is a retry
+	// (the mark exists and the device document is gone or already being removed) it needs a recent sign-in
+	// (REAUTH_REQUIRED, nothing written); then it writes the mark (create, when absent) and the device's removedAt (when
+	// the document exists and lacks it), at most 2 writes, before the pool sweep and the delete above. From that
+	// transaction on the device is skipped by every read and claim (a claim already past its device read can still take
+	// one package, see ClaimKeyPackages), and RegisterKeyDevice and UploadKeyPackages refuse the id with DEVICE_REMOVED.
 	RemoveKeyDevice(context.Context, *connect.Request[v1.RemoveKeyDeviceRequest]) (*connect.Response[v1.RemoveKeyDeviceResponse], error)
 	// Add key packages to a registered device's pool and optionally replace its last-resort package. Needs the flag on
 	// for the caller. Naturally idempotent: a key package's document id is derived from its bytes, so a replay stores
@@ -403,6 +421,12 @@ type KeyServiceHandler interface {
 	// at most 1 document per device); with contention at most 110 (at most 10 picks per device, 2 pool queries each, plus
 	// 1 device read); plus the send-rules check's at most 4 (5, see GetKeyDevices) for another user. At most 10
 	// committed writes.
+	// The removal window (accepted, security audit L1): the device list is read once, before the packages are taken,
+	// and the package write does not check for a removal. A RemoveKeyDevice with reason REMOTE that commits its mark
+	// between the two does not stop it, so one package of a device being removed can still be handed out, in a window of
+	// milliseconds. A later commit that names that device as a welcome target is refused (the welcome-target check skips
+	// removed devices), so the package normally goes unused; only a commit whose target check also ran before the mark can
+	// still address it. Closing the window would cost a read per device on every claim.
 	// NOT replayable: a retry consumes fresh packages, and idempotency_key is format-checked only. A failed or timed-out
 	// call is not proof that nothing was consumed: packages may already have been taken, including for earlier devices
 	// of the same call when a later device fails. Claiming for the caller's own user id requires exclude_device_id to be

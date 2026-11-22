@@ -28,9 +28,9 @@ class RemoveReason extends $pb.ProtobufEnum {
   /// The user removes another device of theirs (lost, stolen, sold). The server keeps a removed mark for at least 90
   /// days: RegisterKeyDevice and UploadKeyPackages refuse the id with FAILED_PRECONDITION + DEVICE_REMOVED. Needs a
   /// recent sign-in (FAILED_PRECONDITION + REAUTH_REQUIRED when the ID token's auth_time is older than
-  /// ACCOUNT_DELETE_REAUTH_MAX_AGE, 5 min, or missing; nothing is written) unless the id is already marked: a retry
-  /// finishes the removal without one. An id that was never registered is marked too (the answer does not tell whether
-  /// the id existed).
+  /// ACCOUNT_DELETE_REAUTH_MAX_AGE, 5 min, or missing; nothing is written) unless this is a retry: the id is already
+  /// marked and its device document is gone or already being removed; a retry finishes the removal without one. An id
+  /// that was never registered is marked too (the answer does not tell whether the id existed).
   static const RemoveReason REMOVE_REASON_REMOTE =
       RemoveReason._(2, _omitEnumNames ? '' : 'REMOVE_REASON_REMOTE');
 

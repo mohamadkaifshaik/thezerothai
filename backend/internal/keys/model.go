@@ -207,7 +207,8 @@ type Repo interface {
 	// (nothing written). For every other device active at now it takes one pool document (any one) by compare-and-delete,
 	// deleting it and decrementing poolCount in one atomic write, else returns the last-resort package (LastResort),
 	// else HasKeyPackage false; a device deleted meanwhile is left out. Contention on a device is never an error.
-	// LastSeenAt is not touched.
+	// LastSeenAt is not touched. A REMOTE removal that marks a device after the device read does not stop its package
+	// from being taken (the removal window, see FirestoreRepo.Claim).
 	Claim(ctx context.Context, targetUID, excludeDeviceID string, now time.Time) ([]Claimed, error)
 	// MarkRemoved is the REMOTE removal's transaction: it reads the device document and the mark, creates the mark when
 	// absent (removedAt = now, expireAt = now + RemovalMarkTTL; an existing mark keeps its times) and sets removedAt on
