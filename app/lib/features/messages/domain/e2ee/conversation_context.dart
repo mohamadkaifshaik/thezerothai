@@ -10,8 +10,22 @@ class ConversationContext {
   /// The reference exactly as the client holds it; never logged.
   String? peerUserId;
 
-  /// Null: not known yet (treated as an unaccepted incoming request).
+  /// Null: not known yet (treated as an unaccepted incoming request). Set
+  /// only from a `ListMessages` header or an inbox row, never from a send
+  /// answer (Task 7 audit L5, Task 9 brief amendment 2).
   bool? incomingRequest;
+
+  /// A `ListMessages` header or an inbox row of this run put the
+  /// conversation in this user's Requests folder (an incoming request not
+  /// accepted yet). Task 9's `acceptForReply` calls `AcceptMessageRequest`
+  /// only while this holds; a send answer never sets it.
+  bool requestSeenInHeader = false;
+
+  /// Task 9 brief amendment 1: the acceptance steps ran in this run, or
+  /// the vault already said accepted, after a header's ACCEPTED was seen.
+  /// While false, every header or inbox row saying ACCEPTED hands the
+  /// conversation to [ConversationContexts.onAcceptedSeen].
+  bool acceptanceSettled = false;
   bool canReply = true;
 
   /// The removal clock: when this run first knew the conversation accepted.
@@ -299,20 +313,44 @@ class ConversationContexts {
   ConversationContext of(String conversationId) =>
       _byId.putIfAbsent(conversationId, ConversationContext.new);
 
+  /// Task 9 brief amendment 1 (Task 13 wires it to
+  /// `MembershipUpkeep.noteAcceptedSeen`): called, synchronously, with the
+  /// conversation id each time a `ListMessages` header or an inbox row says
+  /// ACCEPTED while that conversation's [ConversationContext
+  /// .acceptanceSettled] is false. It must not wait for anything: the
+  /// caller may hold the conversation lock.
+  void Function(String conversationId)? onAcceptedSeen;
+
   /// Takes the facts a conversation header row carries. Never sets
   /// `acceptedSeenAt` (the caller owns the clock).
-  void note(pb.Conversation row) {
+  ///
+  /// [sendAnswer]: the row came with a `SendMessage` answer. Only the peer
+  /// reference and `can_reply` are taken from it: the direction and the
+  /// state it reports never drive the acceptance or a commit (Task 7 audit
+  /// L5, Task 9 brief amendment 2; a send answer can put the user's own
+  /// outgoing request in the Requests folder).
+  void note(pb.Conversation row, {bool sendAnswer = false}) {
     if (row.id.isEmpty) return;
     final c = of(row.id);
     if (row.hasPeer() && row.peer.userId.isNotEmpty) {
       c.peerUserId = row.peer.userId;
     }
-    if (row.folder == Folder.FOLDER_REQUESTS) {
-      c.incomingRequest = true;
-    } else if (row.folder == Folder.FOLDER_INBOX) {
-      c.incomingRequest = false;
-    }
     c.canReply = row.canReply;
+    if (sendAnswer) return;
+    if (row.folder == Folder.FOLDER_REQUESTS) {
+      c
+        ..incomingRequest = true
+        ..requestSeenInHeader =
+            row.state != ConversationState.CONVERSATION_STATE_ACCEPTED;
+    } else if (row.folder == Folder.FOLDER_INBOX) {
+      c
+        ..incomingRequest = false
+        ..requestSeenInHeader = false;
+    }
+    if (row.state == ConversationState.CONVERSATION_STATE_ACCEPTED &&
+        !c.acceptanceSettled) {
+      onAcceptedSeen?.call(row.id);
+    }
   }
 
   /// The app resumed: no conversation's own engine hold is kept.

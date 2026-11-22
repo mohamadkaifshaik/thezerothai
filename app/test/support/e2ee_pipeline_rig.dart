@@ -24,6 +24,7 @@ import 'package:dzeroth/features/messages/domain/e2ee/device_directory.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/e2ee_types.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/encrypted_sender.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/known_conversations.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/membership_upkeep.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/sync_budget.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/keys/v1/keys.pb.dart' as kpb;
@@ -592,6 +593,20 @@ class RigServer {
   /// when `stored` (a lost answer), without storing anything otherwise.
   final List<({Object error, bool stored})> commitScript = [];
 
+  /// Every `AcceptMessageRequest` call (the conversation id), a refused one
+  /// too.
+  final List<String> acceptRequests = [];
+
+  /// Thrown by every `AcceptMessageRequest` call while set. Otherwise the
+  /// call accepts: the header row of the conversation, when there is one,
+  /// moves to the inbox with state ACCEPTED (a fake that changes state on
+  /// success, brief amendment 4).
+  Object? acceptError;
+
+  /// The conversation row a `SendMessage` answer carries instead of the
+  /// header row (null: the header row).
+  pb.Conversation? sendAnswerRow;
+
   /// The bytes of the commit stored at [pair], or null.
   Uint8List? commitAt(String conversationId, MlsPair pair) {
     for (final c in _commits[conversationId] ?? const <_Commit>[]) {
@@ -1025,8 +1040,27 @@ class RigMessaging implements MessagingRepository {
     if (scripted != null) throw scripted.error;
     return pb.SendMessageResponse(
       message: stored.deepCopy()..id = _server.sendResponseId ?? stored.id,
-      conversation: _server.rows[conversationId],
+      conversation: _server.sendAnswerRow ?? _server.rows[conversationId],
     );
+  }
+
+  /// `AcceptMessageRequest`: [RigServer.acceptError] refuses it; otherwise
+  /// the header row moves to the inbox, ACCEPTED.
+  @override
+  Future<void> acceptMessageRequest({
+    required String idempotencyKey,
+    required String conversationId,
+  }) async {
+    _server.acceptRequests.add(conversationId);
+    await _server._enter('acceptMessageRequest');
+    final error = _server.acceptError;
+    if (error != null) throw error;
+    final row = _server.rows[conversationId];
+    if (row != null) {
+      _server.rows[conversationId] = row.deepCopy()
+        ..folder = Folder.FOLDER_INBOX
+        ..state = ConversationState.CONVERSATION_STATE_ACCEPTED;
+    }
   }
 
   /// The contract for a commit (`backend/internal/messaging/mls.go`): a
@@ -1759,9 +1793,40 @@ class RigCrypto {
   late EncryptedSender sender;
 
   /// Task 9's acceptance (the sender's `acceptForReplyLocked` seam): every
-  /// call is recorded in [acceptCalls]; with no script the call fails.
+  /// call is recorded in [acceptCalls] (its priority in
+  /// [acceptPriorities]); a script set here answers it; with none, the
+  /// real [upkeep] does when [realAcceptance] is set, and the call fails
+  /// otherwise.
   Future<void> Function(String conversationId)? onAcceptForReply;
   final List<String> acceptCalls = [];
+  final List<BudgetPriority> acceptPriorities = [];
+
+  /// The sender's seam calls the real `MembershipUpkeep.acceptForReplyLocked`
+  /// (Task 9) when no [onAcceptForReply] script is set.
+  bool realAcceptance = false;
+
+  /// Task 13's wiring of brief amendment 1: the contexts hand every
+  /// header's ACCEPTED to `upkeep.noteAcceptedSeen`. Off by default, so the
+  /// tests of Tasks 5-8 see no acceptance steps; read at [_wire] (set it
+  /// before a [restart], or call [watchAcceptanceNow]).
+  bool watchAcceptance = false;
+
+  /// The own user reference the upkeep claims own devices with.
+  String? ownUserId = 'user-a';
+
+  /// Membership upkeep (Task 9), over this rig's runner, crypto and
+  /// directory.
+  late MembershipUpkeep upkeep;
+
+  /// What the upkeep asked to run later (its re-check timer): never run by
+  /// the rig; a test runs an entry itself.
+  final List<RigScheduled> upkeepScheduled = [];
+
+  /// Wires [watchAcceptance] now, without a restart.
+  void watchAcceptanceNow() {
+    watchAcceptance = true;
+    contexts.onAcceptedSeen = upkeep.noteAcceptedSeen;
+  }
 
   /// The commit runner (Task 9), over this rig's crypto, receiver and ledger.
   late CommitRunner commits;
@@ -1875,11 +1940,13 @@ class RigCrypto {
       contexts: contexts,
       now: clock.now,
       onChanged: changed.add,
-      acceptForReplyLocked: (id) async {
+      acceptForReplyLocked: (id, {required priority}) async {
         acceptCalls.add(id);
+        acceptPriorities.add(priority);
         final accept = onAcceptForReply;
-        if (accept == null) throw StateError('rig: no acceptance scripted');
-        await accept(id);
+        if (accept != null) return accept(id);
+        if (!realAcceptance) throw StateError('rig: no acceptance scripted');
+        await upkeep.acceptForReplyLocked(id, priority: priority);
       },
       removedElsewhere: () => removedElsewhere,
       schedule: (delay, run) => scheduled.add((delay: delay, run: run)),
@@ -1904,6 +1971,29 @@ class RigCrypto {
       },
       onUnexpectedError: (e, _) => unexpected.add(e),
     );
+    upkeep = MembershipUpkeep(
+      commits: commits,
+      ledger: ledger,
+      crypto: crypto,
+      session: device.session,
+      engine: () => device.engine,
+      messaging: messaging,
+      keys: keys,
+      directory: directory,
+      locks: locks,
+      contexts: contexts,
+      now: clock.now,
+      onChanged: changed.add,
+      ownUserId: () => ownUserId,
+      removedElsewhere: () => removedElsewhere,
+      schedule: (delay, run) {
+        final entry = RigScheduled(delay, run);
+        upkeepScheduled.add(entry);
+        return entry.cancel;
+      },
+      onUnexpectedError: (e, _) => unexpected.add(e),
+    );
+    contexts.onAcceptedSeen = watchAcceptance ? upkeep.noteAcceptedSeen : null;
   }
 
   /// An app restart: the vault file is opened again; memory starts again.
