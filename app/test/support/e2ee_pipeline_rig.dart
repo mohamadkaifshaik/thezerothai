@@ -148,10 +148,16 @@ class RigEngine implements CryptoEngine {
   }
 
   @override
-  Future<KeyPackageInfo> inspectKeyPackage(Uint8List keyPackage) {
+  Future<KeyPackageInfo> inspectKeyPackage(Uint8List keyPackage) async {
     _enter('inspectKeyPackage');
-    return inner.inspectKeyPackage(keyPackage);
+    final real = await inner.inspectKeyPackage(keyPackage);
+    return rewriteInspect?.call(keyPackage, real) ?? real;
   }
+
+  /// Rewrites what `inspectKeyPackage` reads from a package (a package
+  /// that names another device id or key than the engine built it for).
+  KeyPackageInfo? Function(Uint8List keyPackage, KeyPackageInfo real)?
+  rewriteInspect;
 
   @override
   Future<Uint8List> createGroup(Uint8List deviceState, Uint8List groupId) {
@@ -1084,7 +1090,8 @@ class RigMessaging implements MessagingRepository {
   /// STALE_EPOCH with the current pair; otherwise the commit is stored, with
   /// a welcome labelled [builtOn] per welcome device id, and the answer is
   /// the pair after it. [RigServer.commitScript] replaces the answer of a
-  /// call. A reset is not implemented here.
+  /// call. A reset names only the generation: its record (and its
+  /// welcomes) is at (g + 1, 0), its answer (g + 1, 1).
   @override
   Future<MlsPair> commitConversation({
     required String idempotencyKey,
@@ -1108,23 +1115,29 @@ class RigMessaging implements MessagingRepository {
       ),
     );
     await _server._enter('commitConversation');
-    if (reset) throw UnimplementedError('rig: a reset commit');
     final scripted = _server.commitScript.isEmpty
         ? null
         : _server.commitScript.removeAt(0);
     if (scripted != null && !scripted.stored) throw scripted.error;
     final current = _server.current(conversationId);
+    // A reset of generation g (Task 10) names g with any epoch, stores its
+    // record at (g + 1, 0) with welcomes labelled so, and answers
+    // (g + 1, 1); the server's `commitRecordPair` / `commitNextPair`.
+    final at = reset ? MlsPair(builtOn.generation + 1, 0) : builtOn;
+    final stale = reset
+        ? builtOn.generation != current.generation
+        : builtOn != current;
     _Commit? record;
     for (final c in _server._commits[conversationId] ?? const <_Commit>[]) {
-      if (c.pair == builtOn) record = c;
+      if (c.pair == at) record = c;
     }
     final MlsPair answer;
     if (record != null &&
         record.fromUser == user &&
         rigEq(record.bytes, commit) &&
-        MlsPair.above(current, builtOn)) {
+        MlsPair.above(current, at)) {
       answer = current;
-    } else if (builtOn != current) {
+    } else if (stale) {
       throw StaleEpochException(
         'stale',
         generation: current.generation,
@@ -1133,7 +1146,7 @@ class RigMessaging implements MessagingRepository {
     } else {
       _server.addCommit(
         conversationId,
-        builtOn,
+        at,
         Uint8List.fromList(commit),
         fromUser: user,
       );
@@ -1142,12 +1155,12 @@ class RigMessaging implements MessagingRepository {
           _server.addWelcome(
             device,
             conversationId,
-            builtOn,
+            at,
             Uint8List.fromList(welcome),
           );
         }
       }
-      answer = builtOn.next;
+      answer = at.next;
     }
     if (scripted != null) throw scripted.error;
     return answer;
