@@ -737,6 +737,43 @@ void main() {
       expect(fresh.map(base64Encode).where(old.contains), isEmpty);
     });
 
+    for (final claimed in [0, 5]) {
+      test('after a timeout, a grown pool count clears the saved batch and no '
+          'one-time package of it is uploaded again (claimed between runs: '
+          '$claimed)', () async {
+        await rig.signIn(_a);
+        final pool = rig.devices.values.single.pool;
+        pool.removeRange(10, pool.length);
+        // Both attempts land, both answers are lost: the pool is at 50.
+        rig.server.failAfterApply['upload'] = [timeout(), timeout()];
+        await nextRun();
+        expect(saved()['outcome'], 'unknown');
+        expect(saved()['countBefore'], 10);
+        expect(pool, hasLength(50));
+        final old = rig.server.uploads.last.keyPackages
+            .map(base64Encode)
+            .toSet();
+        final privateState = rig.file()!.deviceState!;
+        // The sign-in batch and the one top-up batch.
+        expect(rig.engine.generated, hasLength(2));
+        pool.removeRange(0, claimed);
+
+        final uploads = rig.server.uploads.length;
+        await nextRun();
+        expect(rig.server.uploads, hasLength(uploads), reason: 'no upload');
+        expect(saved()['oneTime'], isEmpty);
+        expect(rig.file()!.deviceState, privateState);
+        expect(rig.engine.generated, hasLength(2));
+
+        // A later top-up sends fresh packages only.
+        pool.removeRange(0, pool.length - 15);
+        await nextRun();
+        final fresh = rig.server.uploads.last.keyPackages;
+        expect(fresh, hasLength(35));
+        expect(fresh.map(base64Encode).where(old.contains), isEmpty);
+      });
+    }
+
     test('a refusal on the retry does not resolve the first timeout', () async {
       await rig.signIn(_a);
       final pool = rig.devices.values.single.pool;
