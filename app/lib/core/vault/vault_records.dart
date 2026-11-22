@@ -30,6 +30,7 @@ class PendingCommit {
     required this.commit,
     this.welcome,
     this.welcomeDeviceIds = const [],
+    this.keptAfterSelfRemoval = false,
   });
 
   final PendingKind kind;
@@ -42,12 +43,29 @@ class PendingCommit {
   final Uint8List? welcome;
   final List<String> welcomeDeviceIds;
 
+  /// Task 10 review N-1: a provisional reset of g + 1 that an applied
+  /// removal of this device in g kept (`conversation_commit_apply.dart`).
+  /// No call of its bytes is ever made again; the server's record alone
+  /// decides. Written only while true, so an older record reads false.
+  final bool keptAfterSelfRemoval;
+
+  /// The same record with [keptAfterSelfRemoval] set.
+  PendingCommit keptBySelfRemoval() => PendingCommit(
+    kind: kind,
+    builtOn: builtOn,
+    commit: commit,
+    welcome: welcome,
+    welcomeDeviceIds: welcomeDeviceIds,
+    keptAfterSelfRemoval: true,
+  );
+
   Uint8List encode() => _encodeJson({
     'kind': kind.name,
     'builtOn': _pairJson(builtOn),
     'commit': base64Encode(commit),
     if (welcome != null) 'welcome': base64Encode(welcome!),
     'welcomeDeviceIds': welcomeDeviceIds,
+    if (keptAfterSelfRemoval) 'keptAfterSelfRemoval': true,
   });
 
   /// [VaultCorruptException] (`vault_group_states`) for a value that is not
@@ -55,6 +73,7 @@ class PendingCommit {
   static PendingCommit decode(Uint8List bytes) =>
       _decodeJson(bytes, 'vault_group_states', (m) {
         final welcome = m['welcome'];
+        final kept = m['keptAfterSelfRemoval'];
         return PendingCommit(
           kind: PendingKind.values.byName(_string(m['kind'])),
           builtOn: _pairFrom(m['builtOn']),
@@ -63,6 +82,7 @@ class PendingCommit {
           welcomeDeviceIds: [
             for (final id in _list(m['welcomeDeviceIds'])) _string(id),
           ],
+          keptAfterSelfRemoval: kept != null && _bool(kept),
         );
       });
 }

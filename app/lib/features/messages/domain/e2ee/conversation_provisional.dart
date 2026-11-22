@@ -63,20 +63,42 @@ extension _Provisional on ConversationCrypto {
   /// closed).
   ///
   /// The key history is neither read nor written: no pin changes here.
-  /// False, with nothing written, when the marks are already at or past the
-  /// init (a replay).
-  Future<bool> _settleOwnInitIn(
+  /// [InitSettle.replay], with nothing written, when the marks are already
+  /// at or past the init; [InitSettle.settled] once it is final.
+  ///
+  /// Task 10: a provisional group whose pending commit is a RESET is settled
+  /// by its own branch ([_ResetSettle._settleResetIn]: the pins are
+  /// replaced by the new generation's members, with the reset's rows), with
+  /// [ownList] and [peerList] when the reset was made in this run. What it
+  /// decided for memory is applied by [_afterOwnInit]. That branch also
+  /// answers [InitSettle.waiting], with nothing written, while a lower
+  /// generation is not walked (audit L3).
+  Future<InitSettle> _settleOwnInitIn(
     SecureVault v,
     String id,
     GroupRecord group, {
     required Uint8List thisDevice,
     InitDelivered? delivered,
+    DeviceList? ownList,
+    DeviceList? peerList,
   }) async {
     final pending = group.pending;
-    if (!group.provisional || pending == null) return false;
+    if (!group.provisional || pending == null) return InitSettle.replay;
+    if (pending.kind == PendingKind.reset) {
+      return _settleResetIn(
+        v,
+        id,
+        group,
+        thisDevice: thisDevice,
+        ownList: ownList,
+        peerList: peerList,
+      );
+    }
     final g = group.generation;
     final stored = await v.conversation(id);
-    if (!MlsPair.above(pending.builtOn, stored?.afterPair)) return false;
+    if (!MlsPair.above(pending.builtOn, stored?.afterPair)) {
+      return InitSettle.replay;
+    }
     final sync = stored?.sync ?? const ConversationSync();
     final accepted = sync.requestAccepted || (delivered?.accepted ?? false);
     final nowMicros = _now().microsecondsSinceEpoch;
@@ -186,7 +208,7 @@ extension _Provisional on ConversationCrypto {
         await tx.putMessage(row);
       }
     });
-    return true;
+    return InitSettle.settled;
   }
 
   /// The server did not store this device's init of generation [g] (another
@@ -264,8 +286,10 @@ extension _Provisional on ConversationCrypto {
     String id,
     int generation,
     InitDelivered? delivered,
-    BudgetPriority priority,
-  ) async {
+    BudgetPriority priority, {
+    DeviceList? ownList,
+    DeviceList? peerList,
+  }) async {
     try {
       final pass = await _startOperation(priority);
       if (pass == null) return InitSettle.waiting;
@@ -291,33 +315,53 @@ extension _Provisional on ConversationCrypto {
         if (delivered == null && await _hasInitRow(v, id, generation)) {
           return InitSettle.waiting;
         }
-        return await _settleOwnInitIn(
-              v,
-              id,
-              group,
-              thisDevice: pass.deviceId,
-              delivered: delivered,
-            )
-            ? InitSettle.settled
-            : InitSettle.replay;
+        return _settleOwnInitIn(
+          v,
+          id,
+          group,
+          thisDevice: pass.deviceId,
+          delivered: delivered,
+          ownList: ownList,
+          peerList: peerList,
+        );
       });
       if (result == InitSettle.settled) _afterOwnInit(id);
       return result;
     } on _Stopped {
+      _resetSettled.remove(id);
       return InitSettle.waiting;
     } on Object catch (e, s) {
       // A vault error or a closed vault: the transaction stored nothing.
+      _resetSettled.remove(id);
       _reportIfBug(e, s, 'settleOwnInit');
       return InitSettle.waiting;
     }
   }
 
   /// Memory after an own init settled: the next send syncs first (commits
-  /// to the server's pair, then one live pull).
+  /// to the server's pair, then one live pull). After an own RESET (Task
+  /// 10) the conversation is no longer stuck (the new generation is this
+  /// device's own), and what its settle decided about the members reaches
+  /// memory now: an unattributed member asks for attribution, a refused
+  /// one is an unknown device.
   void _afterOwnInit(String id) {
-    _contexts.of(id)
+    final context = _contexts.of(id)
       ..syncedSinceStart = false
       ..livePulledAt = null;
+    final reset = _resetSettled.remove(id);
+    if (reset != null) {
+      context.stuck = false;
+      if (reset.unattributed) {
+        context
+          ..attributionConcluded = false
+          ..attributionPending = true;
+      }
+      final now = _now();
+      for (final hex in reset.unknown) {
+        context.firstSeenUnattributed[hex] ??= now;
+        context.unknownDevices.add(hex);
+      }
+    }
     _onChanged(id);
   }
 

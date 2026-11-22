@@ -21,6 +21,8 @@ import '../../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import '../../../keys/data/keys_repository.dart';
 import '../../data/messaging_repository.dart';
 import '../conversation_id.dart';
+import 'commit_call_tracker.dart';
+import 'commit_runner.dart' show kCommitCallsPerConversationPerDay;
 import 'conversation_context.dart';
 import 'conversation_crypto.dart';
 import 'conversation_locks.dart';
@@ -42,6 +44,7 @@ import 'sync_budget.dart';
 export 'pipeline_support.dart' show kServerRequestDeadline;
 
 part 'group_starter_recovery.dart';
+part 'group_starter_reset.dart';
 part 'group_starter_restart.dart';
 part 'group_starter_start.dart';
 
@@ -162,8 +165,9 @@ String dmConversationId(String a, String b) {
 ///
 /// Seams of later tasks, injected: [removedElsewhere] (Task 12),
 /// [ownUserId] and [publicIdsOff] (Task 13's wiring). A provisional group
-/// whose pending commit is not an init (Task 10's reset) is left alone
-/// here. Never logs; an unexpected failure is reported as
+/// whose pending commit is a reset is Task 10's ([resetConversation], the
+/// part `group_starter_reset.dart`); [resumeProvisional] resumes both
+/// kinds. Never logs; an unexpected failure is reported as
 /// [E2eePipelineError] with a step name only. Defines no `toString`.
 class GroupStarter {
   /// [ownUserId]: the caller's own user reference as the client holds it
@@ -216,7 +220,17 @@ class GroupStarter {
        _ownUserId = ownUserId,
        _publicIdsOff = publicIdsOff,
        _schedule = schedule ?? ((delay, run) => Timer(delay, run)),
-       _onUnexpectedError = onUnexpectedError;
+       _onUnexpectedError = onUnexpectedError,
+       _resetCalls = CommitCallTracker(messaging: messaging, now: now) {
+    // Audit L6: the join path ends this device's own reset without this
+    // class (it settles or discards it from the server's first commit of
+    // its generation); what this run remembers for it goes then. Decision:
+    // a callback, not a check at the next touch. Why: a check would keep
+    // the reset's device lists in memory until this conversation is
+    // touched again, and every later reader would have to remember to make
+    // it. One starter per session (Task 13), so one callback.
+    crypto.onOwnResetEnded = _forgetReset;
+  }
 
   final ConversationCrypto _crypto;
   final EncryptedSender _sender;
@@ -276,6 +290,30 @@ class GroupStarter {
   /// nothing.
   int _runSerial = 0;
 
+  /// Task 10 amendment 1: the call rules of a reset's `CommitConversation`
+  /// calls, the commit runner's ([CommitCallTracker]).
+  final CommitCallTracker _resetCalls;
+
+  /// Conversation -> the fresh lists the reset made in this run was checked
+  /// against, for the settle's attribution.
+  final Map<String, _ResetLists> _resetLists = {};
+
+  /// Conversation -> the bytes of a reset a call that was not the first was
+  /// refused for: never sent again; dropped once the margin has passed.
+  final Map<String, Uint8List> _resetRefused = {};
+
+  /// Audit M1. Conversation -> the bytes of a reset the server HOLDS: a
+  /// call of them answered (g + 1, e >= 1), or a listing showed them at
+  /// (g + 1, 0). While set, no call of them is made again; a resume only
+  /// retries the settle. Why: the server draws both of its caps before it
+  /// recognises a retry, and the reset cap (10 a day) is shared by every
+  /// conversation of the user. Memory of this run: after a restart the
+  /// record is listed again (once per margin at most, review I1).
+  final Map<String, Uint8List> _resetHeld = {};
+
+  /// The conversations a [repairIfStuck] runs for (single flight).
+  final Set<String> _repairing = {};
+
   /// Sign-out or a new vault: forgets this run's memory.
   void reset() {
     _unknown.clear();
@@ -283,8 +321,69 @@ class GroupStarter {
     _reported.clear();
     _initCallsOut.clear();
     _initCallEndedAt.clear();
+    _resetCalls.clear();
+    _resetLists.clear();
+    _resetRefused.clear();
+    _resetHeld.clear();
     _runSerial++;
   }
+
+  /// [id]'s provisional reset is gone (settled or discarded, here or by the
+  /// join path, audit L6): what this run remembered for it goes.
+  void _forgetReset(String id) {
+    _resetCalls.forget(id);
+    _resetLists.remove(id);
+    _resetRefused.remove(id);
+    _resetHeld.remove(id);
+  }
+
+  /// R6 step 5 (Task 10): this device resets [conversationId] into the next
+  /// generation g + 1: the server's current generation g from a commit
+  /// listing, fresh lists, claims for the peer and this user's other
+  /// devices, the provisional group of g + 1 with its pending reset (and
+  /// the call counted) in ONE transaction, then `CommitConversation` with
+  /// `reset`. The answer (g + 1, 1) settles it (g walked to its end first;
+  /// the pins replaced by g + 1's members); a later pair, STALE_EPOCH or an
+  /// outcome still unknown after one identical resend is decided by the
+  /// record at (g + 1, 0) (this device's: settled; another's: the group
+  /// goes and the winner's welcome is joined; none: it stays provisional and
+  /// [resumeProvisional] resends or expires it). Returns once the call has
+  /// an answer, or is left to the resume.
+  ///
+  /// Allowed only with `describeState(...).canReset` (stuck, waiting past
+  /// [kResetWaitWithoutWelcome], the M5 pause); a reset already in progress
+  /// is resumed instead (never a second one). Manual resets are not counted
+  /// against `kAutoResetsPerDay` or `kAutoResetsPerUserPerDay`.
+  ///
+  /// Throws, as the port documents: [FeatureDisabledException] while the
+  /// flag is not on (nothing is listed or claimed); [RateLimitedException]
+  /// at a daily cap (the reset cap `messages_resets_daily`, the commit cap
+  /// of the conversation, or a claim cap; the provisional group is gone);
+  /// the server's typed [AppException] for another refusal (or a failed
+  /// claim); and [E2eeActionException] with `notAccepted`,
+  /// `peerHasNoDevice` or `unavailable` (plan Difference 3: the port has no
+  /// type for them). [ArgumentError] for an invalid id.
+  ///
+  /// Named `resetConversation`, not the plan's `reset`: this class already
+  /// has [reset] (sign-out), and Dart has no overloads; the port's method
+  /// has this name.
+  Future<void> resetConversation(
+    String conversationId, {
+    BudgetPriority priority = BudgetPriority.user,
+  }) => _resetConversation(conversationId, priority);
+
+  /// The recovery table's stuck-member response (Task 10, Open question 3):
+  /// when [conversationId] is `stuck` and `canReset`, one reset by itself,
+  /// at most `kAutoResetsPerDay` per conversation and (audit L1)
+  /// `kAutoResetsPerUserPerDay` across conversations per IST day (security
+  /// read M9; both counted before the first claim). Otherwise it stays
+  /// `stuck`: with the flag off, removed elsewhere or a failed engine
+  /// (`canReset` false; nothing is counted), at a limit (`canReset` true:
+  /// the user's tap), or while a reset is in progress. The automatic reset
+  /// adds no device this device removed from the conversation today (audit
+  /// L4; a manual reset is the user's choice). Never throws.
+  Future<void> repairIfStuck(String conversationId) =>
+      _repairIfStuck(conversationId);
 
   /// Completes when no resume of [conversationId] is running (at once when
   /// none is). Starts none.
@@ -293,15 +392,29 @@ class GroupStarter {
       _running[conversationId] ?? Future<void>.value();
 
   /// R6 step 4: called at vault ready and before any send. Every provisional
-  /// group whose pending commit is an init is resumed (its init resent byte
-  /// for byte under the same key, until [kInitResendMargin] before
-  /// [kProvisionalExpiry]) or, once [kProvisionalExpiry] old, decided by
-  /// the server's first stored commit. That commit is this init: the
-  /// identical request is sent once more and the group is cleared with the
-  /// server's replayed answer (review W1; with no answer nothing changes).
-  /// Else it is replaced by a new group from fresh claims (claimed first;
-  /// a failed claim changes nothing). One conversation lock at a time.
+  /// group this class owns is resumed, one conversation lock at a time.
   /// Never throws.
+  ///
+  /// An INIT: its init is resent byte for byte under the same key, until
+  /// [kInitResendMargin] before [kProvisionalExpiry]; once
+  /// [kProvisionalExpiry] old it is decided by the server's first stored
+  /// commit. That commit is this init: the identical request is sent once
+  /// more and the group is cleared with the server's replayed answer (review
+  /// W1; with no answer nothing changes). Else it is replaced by a new group
+  /// from fresh claims (claimed first; a failed claim changes nothing).
+  ///
+  /// A RESET (Task 10 amendment 4, review m-3): its record at (g + 1, 0)
+  /// decides, at any age. This device's: settled (the server holds it, so
+  /// it is never sent again, audit M1). Another record, or the server past
+  /// g + 1: the group goes and the winner's welcome is joined. Not stored:
+  /// a young reset is resent with the same bytes (spaced, counted, never
+  /// inside the margin before expiry, never after a refusal of them); a
+  /// [kProvisionalExpiry] old one, or one whose resend was refused, goes
+  /// only on a listing that started after [kRequestInFlightMargin] with no
+  /// call of it still out. A record the server could not answer: resent at
+  /// most once per margin; one the local budget kept from being asked:
+  /// nothing. Nothing is done while a call of it may still land, or while
+  /// its wait after an unknown outcome runs (review m-5).
   Future<void> resumeProvisional({
     BudgetPriority priority = BudgetPriority.background,
   }) => _resumeAll(priority);
