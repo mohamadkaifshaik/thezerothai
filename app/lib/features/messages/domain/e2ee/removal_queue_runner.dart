@@ -298,7 +298,8 @@ class RemovalQueueRunner {
   /// every conversation this device has group state for, most recently
   /// active first. Throws [ArgumentError] for an empty id, for this
   /// device's own id (use sign-out) and for an id a fresh own list does not
-  /// name (review I1: callers pass an id from the own list), [StateError]
+  /// name (review I1: callers pass an id from the own list; a stored intent
+  /// for the id skips that check and is finished, ruling 3), [StateError]
   /// with no call when there is no vault or the stored queue cannot be
   /// read, and rethrows a failed own-list read (nothing sent) or a failed
   /// RemoveKeyDevice (nothing queued). Then a pass starts at
@@ -316,40 +317,51 @@ class RemovalQueueRunner {
     if (!await _ensureLoaded(vault)) {
       throw StateError('The removal queue cannot be read.');
     }
-    // Review I1: only this user's own devices. RemoveKeyDevice of an id
-    // the caller does not own answers success too (the server deletes under
-    // the caller's uid only), so the call proves nothing: a fresh own list
-    // decides, before anything is sent. A failed read rethrows.
-    final mine = await _keys.listMine().timeout(
-      kMlsRpcTimeout,
-      onTimeout: () => throw const NetworkException('timed out'),
-    );
-    final listed = mine.devices.where((d) => d.deviceId == deviceId);
-    if (listed.isEmpty) {
-      throw ArgumentError('Not one of this user\'s devices.');
+    // CR Minor 1 (fix round 2, ruling 3): a stored intent for the id is a
+    // removal the user already asked for whose outcome is unknown. The
+    // server may have carried it out, so the own list may no longer name
+    // the device: the own-list check was made when the intent was stored,
+    // and this call finishes it (RemoveKeyDevice again, then queue).
+    final waiting = _intents.where((i) => i.deviceId == deviceId).firstOrNull;
+    final Uint8List? key;
+    if (waiting != null) {
+      key = waiting.signatureKey;
+    } else {
+      // Review I1: only this user's own devices. RemoveKeyDevice of an id
+      // the caller does not own answers success too (the server deletes
+      // under the caller's uid only), so the call proves nothing: a fresh
+      // own list decides, before anything is sent. A failed read rethrows.
+      final mine = await _keys.listMine().timeout(
+        kMlsRpcTimeout,
+        onTimeout: () => throw const NetworkException('timed out'),
+      );
+      final listed = mine.devices.where((d) => d.deviceId == deviceId);
+      if (listed.isEmpty) {
+        throw ArgumentError('Not one of this user\'s devices.');
+      }
+      // Ruling 1 (fix round 2): the key the own list shows now, kept with
+      // the intent and then the removed mark.
+      key = Uint8List.fromList(listed.first.signaturePublicKey);
     }
-    // Ruling 1 (fix round 2): the key the own list shows now, kept with
-    // the intent and then the removed mark.
-    final key = Uint8List.fromList(listed.first.signaturePublicKey);
     if (!identical(_session.vault, vault) || !_loaded) {
       throw StateError('The vault changed.');
     }
-    // Review M1: the intent is stored BEFORE the call, so a crash or a
-    // vault change between the call and the queue's write leaves it, and
-    // the next pass sends it again and queues.
-    _intents
-      ..removeWhere((i) => i.deviceId == deviceId)
-      ..add(
+    if (waiting == null) {
+      // Review M1: the intent is stored BEFORE the call, so a crash or a
+      // vault change between the call and the queue's write leaves it, and
+      // the next pass sends it again and queues.
+      _intents.add(
         RemovalMark(
           deviceId: deviceId,
           atMicros: _now().microsecondsSinceEpoch,
           signatureKey: key,
         ),
       );
-    while (_intents.length > kMaxRemovalIntents) {
-      _intents.removeAt(0);
+      while (_intents.length > kMaxRemovalIntents) {
+        _intents.removeAt(0);
+      }
+      await _save(vault, queue: false);
     }
-    await _save(vault, queue: false);
     _sending.add(deviceId);
     try {
       await _sendRemove(deviceId);

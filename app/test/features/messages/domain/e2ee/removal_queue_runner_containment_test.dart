@@ -1,3 +1,4 @@
+import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/vault/secure_vault.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/membership_rules.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -92,6 +93,35 @@ void main() {
       expect(requests(), isEmpty);
       expect((await pin(sibling))!.side, MemberSide.unattributed);
       expect(queued(_c1, sibling), isTrue);
+    });
+  });
+
+  group('a retry of a removal whose outcome is unknown (CR Minor 1)', () {
+    test('removeDevice finishes the intent although the own list no longer '
+        'names the device', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await join(_c1, others: [sibling]);
+      await synced();
+      // The server removed it, but the answer was lost.
+      rig.keys.onRemoved = () async {
+        rig.keys.onRemoved = null;
+        throw const NetworkException('rig: the answer was lost');
+      };
+      await expectLater(
+        runner.removeDevice(sibling.idString),
+        throwsA(isA<NetworkException>()),
+      );
+      expect(rig.keys.own.any((d) => d.deviceId == sibling.idString), isFalse);
+      expect(requests(), isEmpty);
+
+      // The user tries again.
+      await removeAndSettle(sibling);
+
+      expect(rig.keys.removeCalls, hasLength(2));
+      expect(await pin(sibling), isNull);
+      expect(runner.pending.value, 0);
+      expect(await runner.wasRemovedByUser(sibling.id), isTrue);
     });
   });
 }
