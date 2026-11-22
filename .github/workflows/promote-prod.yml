@@ -235,6 +235,12 @@ jobs:
           firebase deploy --only firestore:rules,firestore:indexes \
             --project "${FIREBASE_PROJECT_ID}" --non-interactive
 
+      - name: Wait for Firestore indexes to be READY (before promotion)
+        timeout-minutes: 12
+        env:
+          PROJECT: ${{ vars.PROD_PROJECT_ID }}
+        run: bash scripts/promotion/wait-firestore-indexes.sh "$PROJECT"
+
       - name: Shift 10% traffic to the verified revision
         if: steps.stage.outputs.stage == '10'
         env:
