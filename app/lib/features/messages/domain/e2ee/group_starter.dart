@@ -233,6 +233,76 @@ class GroupStarter {
     BudgetPriority priority = BudgetPriority.background,
   }) => _resumeAll(priority);
 
+  /// The first message of a provisional group, while its init is not
+  /// answered: the row that carries the init of [conversationId], or of the
+  /// conversation started with [recipientUserId] (exactly one of the two).
+  /// Null when there is none (never started, settled, or discarded: the
+  /// message or the failed row is then in the vault or with the sender).
+  ///
+  /// Review I4: `EncryptedSender.outgoing` cannot list this row (it may be
+  /// addressed by recipient, and the sender owns no init row). Task 13b's
+  /// `watchThread` MUST merge this ahead of `outgoing`, or the first bubble
+  /// of a draft thread disappears until the init lands and the user sends
+  /// the text again.
+  ///
+  /// `sending`, or `waiting` with why the init is held: `unavailable` (the
+  /// flag is not on, or this device was removed elsewhere), `cannotMessage`,
+  /// `notSynced` (a member is not attributable). Reads only. A failed read
+  /// throws, as `outgoing` does: null always means "no such row".
+  Future<OutgoingRow?> pendingInit({
+    String? conversationId,
+    String? recipientUserId,
+  }) async {
+    if ((conversationId == null) == (recipientUserId == null)) {
+      throw ArgumentError('Exactly one of the two addresses.');
+    }
+    final vault = _session.vault;
+    if (vault == null) throw StateError('The vault is not ready.');
+    if (!_known.isLoadedFor(vault)) await _known.load(vault);
+    for (final r in (await vault.outbox()).items) {
+      if (r.init == null || r.stage != OutboxStage.encrypted) continue;
+      // The row's conversation: its own id, or the one stored for its
+      // recipient reference in the provisional transaction.
+      final id =
+          r.conversationId ??
+          await _known.conversationForPeer(vault, r.recipientUserId ?? '');
+      if (id == null) continue;
+      final match = conversationId != null
+          ? id == conversationId
+          : r.recipientUserId == recipientUserId ||
+                _known.peerOf(id) == recipientUserId;
+      if (!match) continue;
+      final SendBlock held;
+      if (!_session.mayStart || _removedElsewhere()) {
+        held = SendBlock.unavailable;
+      } else if (!_contexts.of(id).canReply) {
+        held = SendBlock.cannotMessage;
+      } else if ((await vault.members(id))
+          .any((m) => m.side == MemberSide.unattributed)) {
+        held = SendBlock.notSynced;
+      } else {
+        held = SendBlock.none;
+      }
+      return OutgoingRow(
+        localId: r.localId,
+        conversationId: id,
+        content: r.content,
+        createdAt: DateTime.fromMicrosecondsSinceEpoch(
+          r.createdAtMicros,
+          isUtc: true,
+        ),
+        status: held == SendBlock.none
+            ? OutgoingStatus5a.sending
+            : OutgoingStatus5a.waiting,
+        waitingOn: held,
+        error: null,
+        retryable: false,
+        tryTomorrow: false,
+      );
+    }
+    return null;
+  }
+
   /// The user's retry of the unsent row [localId] (Task 13b's `retrySend`
   /// calls this, not the sender's `retry`). A row that still carries its
   /// init has it resent; a waiting or failed row of a conversation whose

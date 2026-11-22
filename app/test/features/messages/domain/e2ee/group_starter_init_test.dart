@@ -1387,6 +1387,85 @@ void main() {
     });
   });
 
+  group('the pending init row (review I4)', () {
+    test('pendingInit answers for a recipient-addressed and an id-addressed '
+        'init row, and null after a settle or a discard', () async {
+      expect(await starter.pendingInit(conversationId: _c1), isNull);
+      gate = Completer<void>();
+      await start();
+      // The sender lists nothing for it: the row is addressed by recipient.
+      expect(await rig.sender.outgoing(_c1), isEmpty);
+      for (final shown in [
+        await starter.pendingInit(conversationId: _c1),
+        await starter.pendingInit(recipientUserId: _bob),
+      ]) {
+        expect(shown!.localId, 'local-1');
+        expect(shown.conversationId, _c1);
+        expect(shown.status, OutgoingStatus5a.sending);
+        expect(shown.waitingOn, SendBlock.none);
+        expect(decodeMessageContentLenient(shown.content).text, 'hello');
+        expect(shown.error, isNull);
+      }
+      expect(await starter.pendingInit(conversationId: _c2), isNull);
+      expect(await starter.pendingInit(recipientUserId: 'ref-carol'), isNull);
+      gate!.complete();
+      await done();
+      // Settled: the message is stored, nothing is pending.
+      expect(await starter.pendingInit(conversationId: _c1), isNull);
+      expect(await starter.pendingInit(recipientUserId: _bob), isNull);
+
+      // Addressed by conversation id; then discarded on a refusal.
+      final carol = await RigPeer.create('carol');
+      person('ref-carol', _c2, [carol]);
+      gate = Completer<void>();
+      rig.server.sendScript.add((
+        error: const CannotMessageException(),
+        stored: false,
+      ));
+      await start(localId: 'local-2', peer: 'ref-carol', conversationId: _c2);
+      final second = await starter.pendingInit(conversationId: _c2);
+      expect(second!.localId, 'local-2');
+      expect(second.status, OutgoingStatus5a.sending);
+      gate!.complete();
+      await done(_c2);
+      expect(await starter.pendingInit(conversationId: _c2), isNull);
+      // The failed row is the sender's now.
+      expect((await rig.sender.outgoing(_c2)).single.localId, 'local-2');
+    });
+
+    test('pendingInit says waiting while the init is held', () async {
+      rig.server.sendScript.addAll([unknown, unknown]);
+      await start();
+      await done();
+
+      await rig.device.session.onFlagChanged(E2eeFlag.off, uid: _me);
+      var shown = (await starter.pendingInit(conversationId: _c1))!;
+      expect(shown.status, OutgoingStatus5a.waiting);
+      expect(shown.waitingOn, SendBlock.unavailable);
+      await rig.device.session.onFlagChanged(E2eeFlag.on, uid: _me);
+
+      rig.removedElsewhere = true;
+      shown = (await starter.pendingInit(conversationId: _c1))!;
+      expect(shown.waitingOn, SendBlock.unavailable);
+      rig.removedElsewhere = false;
+
+      await rig.device.vault.transaction(
+        (tx) => tx.putMember(
+          MemberRecord(
+            conversationId: _c1,
+            deviceId: bob.id,
+            signatureKey: bob.key,
+            side: MemberSide.unattributed,
+            since: const MlsPair(1, 1),
+          ),
+        ),
+      );
+      shown = (await starter.pendingInit(conversationId: _c1))!;
+      expect(shown.status, OutgoingStatus5a.waiting);
+      expect(shown.waitingOn, SendBlock.notSynced);
+    });
+  });
+
   group('the 24 h rebuild (review I3)', () {
     test('a failed claim leaves the provisional group untouched, and a later '
         'resume rebuilds it in one step', () async {
