@@ -47,6 +47,9 @@ void main() {
   late GroupStarter starter;
   _SpyBudget? spy;
 
+  /// Bob's offer this device joined generation 1 from ([setUpJoined]).
+  late RigOffer joined;
+
   /// Pipeline errors the running test expects (checked by the tearDown).
   var expectedErrors = <String>[];
 
@@ -129,7 +132,7 @@ void main() {
     peers([bob, ...listed]);
     await rig.accept(_c1);
     rig.header(_c1, _bob);
-    await rig.offer(
+    joined = await rig.offer(
       _c1,
       bob,
       others: [for (final o in others) await o.keyPackage()],
@@ -230,6 +233,29 @@ void main() {
 
   const unknown = (error: NetworkException('timed out'), stored: false);
   const lostAnswer = (error: NetworkException('timed out'), stored: true);
+
+  /// M5's pause (two undos today): the reset is offered in a conversation
+  /// that is not stuck.
+  Future<void> pauseCommitting() async {
+    await rig.ledger.addUndone(_c1);
+    await rig.ledger.addUndone(_c1);
+    expect((await state()).canReset, isTrue);
+  }
+
+  /// Bob's removal of this device from generation 1, stored on the server
+  /// at its current pair (not applied here).
+  Future<void> bobRemovesMe() async {
+    final removal = await rigCommit(
+      joined.add.group,
+      remove: [rig.device.deviceId],
+    );
+    rig.server.addCommit(
+      _c1,
+      rig.server.current(_c1),
+      removal.commit,
+      fromUser: 'user-b',
+    );
+  }
 
   group('who may reset, and when', () {
     test('reset throws FeatureDisabledException with the flag off or unknown '
@@ -1407,6 +1433,69 @@ void main() {
       expect([
         for (final l in await lines()) l.line,
       ], isNot(contains(SystemLine.encryptionReset)));
+    });
+  });
+
+  group('a removal of this device in g (review I-1)', () {
+    test('review I-1: a removal stored at (g, e) before the reset is '
+        'accepted: the reset settles into g + 1, with no deviceAdded row for '
+        'bob, and the pins are the members of g + 1', () async {
+      await setUpJoined();
+      await pauseCommitting();
+      await bobRemovesMe();
+      // The server checks only the generation: it accepts the reset, and
+      // the settle walks g first, which applies the removal.
+      await reset();
+      expect(resets(), hasLength(1));
+      final g2 = await groupAt(2);
+      expect(g2, isNotNull, reason: 'the server holds g + 1 with this leaf');
+      expect(g2!.provisional, isFalse);
+      expect(await groupAt(1), isNull);
+      final pins = await rig.device.vault.members(_c1);
+      expect(
+        {for (final m in pins) vaultDeviceIdHex(m.deviceId)},
+        {vaultDeviceIdHex(rig.device.deviceId), vaultDeviceIdHex(bob.id)},
+      );
+      for (final m in pins) {
+        expect(m.since, const MlsPair(2, 1));
+      }
+      expect((await pin(bob.id))!.side, MemberSide.theirs);
+      expect([
+        for (final l in await lines())
+          if (l.line == SystemLine.deviceAdded) l,
+      ], isEmpty);
+      expect(
+        (await rig.device.vault.conversation(_c1))!.afterPair,
+        const MlsPair(2, 0),
+      );
+      expect((await state()).phase, ConversationPhase.ready);
+    });
+
+    test('review I-1: a catch-up removal while an abandoned reset call is '
+        'out keeps g + 1 provisional', () async {
+      await setUpJoined();
+      await pauseCommitting();
+      final ended = Completer<void>();
+      rig.server.commitScript.addAll([unknown, unknown]);
+      rig.server.onCall = (call) async {
+        if (call == 'commitConversation' &&
+            rig.server.commitRequests.length == 1) {
+          rig.server.abandon(rig.server.commitRequests.last.key, ended.future);
+        }
+      };
+      await reset();
+      expect((await groupAt(2))!.provisional, isTrue);
+
+      // A receiver catch-up applies bob's removal of this device in g.
+      await bobRemovesMe();
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.waitingForWelcome);
+      expect(await groupAt(1), isNull);
+      final g2 = await groupAt(2);
+      expect(g2, isNotNull, reason: 'a call of the reset may still land');
+      expect(g2!.provisional, isTrue);
+      expect(g2.pending?.kind, PendingKind.reset);
+      ended.complete();
+      await pumpEventQueue();
     });
   });
 }
