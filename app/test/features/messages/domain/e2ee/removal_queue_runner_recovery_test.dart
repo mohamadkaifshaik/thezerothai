@@ -418,6 +418,74 @@ void main() {
       expect((await stored())!.entries, hasLength(1));
     });
 
+    test('a corrupt record with a readable queue: the rebuild keeps the '
+        'earlier queue entries (fix round 4, SA N3)', () async {
+      final sibling = await RigPeer.create('sibling');
+      final older = await RigPeer.create('older');
+      await setUpRig(ownListed: [sibling]);
+      // The older entry's device is pinned nowhere yet (a peer's add not
+      // applied here): only the stored entry keeps it.
+      await stateOnly(_c1, accepted: false, mine: [sibling]);
+      await rig.device.vault.transaction((tx) async {
+        await tx.putSetting(
+          kVaultSettingRemovalQueue,
+          RemovalQueue(
+            entries: [
+              RemovalQueueEntry(
+                deviceId: older.id,
+                conversationId: _c1,
+                parked: true,
+              ),
+            ],
+          ).encode(),
+        );
+        await tx.putSetting(kVaultSettingRemovalRecord, rigBytes('not json'));
+      });
+      expectedErrors = ['removalQueue.read', 'removalQueue.rebuilt'];
+
+      await removeAndSettle(sibling);
+
+      expect(runner.unreadable, isFalse);
+      expect(queued(_c1, older), isTrue, reason: 'the earlier entry survives');
+      expect(queued(_c1, sibling), isTrue);
+      final entries = (await stored())!.entries;
+      expect(entries, hasLength(2));
+      final record = RemovalRecord.decode(
+        (await rig.device.vault.setting(kVaultSettingRemovalRecord))!,
+      );
+      expect([for (final m in record.removed) m.deviceId], [sibling.idString]);
+    });
+
+    test('a corrupt queue with a readable record: the rebuild keeps the '
+        'earlier removed marks (fix round 4, SA N3)', () async {
+      final sibling = await RigPeer.create('sibling');
+      final older = await RigPeer.create('older');
+      await setUpRig(ownListed: [sibling]);
+      await stateOnly(_c1, accepted: false, mine: [sibling]);
+      await rig.device.vault.transaction((tx) async {
+        await tx.putSetting(kVaultSettingRemovalQueue, rigBytes('not json'));
+        await tx.putSetting(
+          kVaultSettingRemovalRecord,
+          RemovalRecord(
+            removed: [
+              RemovalMark(
+                deviceId: older.idString,
+                atMicros: rig.clock.now().microsecondsSinceEpoch,
+              ),
+            ],
+          ).encode(),
+        );
+      });
+      expectedErrors = ['removalQueue.read', 'removalQueue.rebuilt'];
+
+      await removeAndSettle(sibling);
+
+      expect(runner.unreadable, isFalse);
+      expect(await runner.wasRemovedByUser(older.id), isTrue);
+      expect(await runner.wasRemovedByUser(sibling.id), isTrue);
+      expect(queued(_c1, sibling), isTrue);
+    });
+
     test('a failed removal with an unreadable record writes nothing', () async {
       final sibling = await RigPeer.create('sibling');
       await setUpRig(ownListed: [sibling]);

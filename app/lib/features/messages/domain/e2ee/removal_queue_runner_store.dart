@@ -305,51 +305,72 @@ extension _RemovalStore on RemovalQueueRunner {
   /// image is not of it. False: either cannot be read (amendment 7:
   /// unknown, nothing changes; the stored values are left as they are) or
   /// the vault changed meanwhile.
+  ///
+  /// SA N3 (fix round 4, ruling 12): the queue and the record are read and
+  /// decoded each on its own. When one cannot be read, the other's values
+  /// are still put in the image (unused while nothing is loaded: every
+  /// reader checks `_loaded`), so a rebuild ([removeDevice]) replaces only
+  /// the value that cannot be read and keeps the one that can.
   Future<bool> _ensureLoaded(SecureVault vault) async {
     if (identical(_loadedFor, vault)) return true;
     try {
-      final raw = await vault.setting(kVaultSettingRemovalQueue);
-      final queue = raw == null
-          ? const RemovalQueue()
-          : RemovalQueue.decode(raw);
-      final rawRecord = await vault.setting(kVaultSettingRemovalRecord);
-      final record = rawRecord == null
-          ? const RemovalRecord()
-          : RemovalRecord.decode(rawRecord);
+      Future<T?> readOne<T>(
+        String key,
+        T empty,
+        T Function(Uint8List) decode,
+      ) async {
+        try {
+          final raw = await vault.setting(key);
+          return raw == null ? empty : decode(raw);
+        } on VaultCorruptException {
+          return null;
+        }
+      }
+
+      final queue = await readOne(
+        kVaultSettingRemovalQueue,
+        const RemovalQueue(),
+        RemovalQueue.decode,
+      );
+      final record = await readOne(
+        kVaultSettingRemovalRecord,
+        const RemovalRecord(),
+        RemovalRecord.decode,
+      );
       if (!identical(_session.vault, vault)) return false;
       if (identical(_loadedFor, vault)) return true;
       _entries
         ..clear()
-        ..addAll(queue.entries);
+        ..addAll(queue?.entries ?? const []);
+      _notBeforeMicros = queue?.notBeforeMicros;
       _intents
         ..clear()
-        ..addAll(record.intents);
+        ..addAll(record?.intents ?? const []);
       // SA L4 (ruling 6): expired marks go on load; the next pass writes it.
       final now = _now();
       final live = [
-        for (final m in record.removed)
+        for (final m in record?.removed ?? const <RemovalMark>[])
           if (!_older(m, now, kRemovedByUserLimit)) m,
       ];
-      _recordPruned = live.length != record.removed.length;
+      _recordPruned = record != null && live.length != record.removed.length;
       _removed
         ..clear()
         ..addAll(live);
-      _notBeforeMicros = queue.notBeforeMicros;
+      _queueUnreadable = queue == null;
+      _recordUnreadable = record == null;
+      if (queue == null || record == null) {
+        if (!identical(_unreadableFor, vault)) {
+          _unreadableFor = vault;
+          _reportBug('removalQueue.read');
+        }
+        _loadedFor = null;
+        _publish();
+        return false;
+      }
       _loadedFor = vault;
       _unreadableFor = null;
       _publish();
       return true;
-    } on VaultCorruptException {
-      if (!identical(_unreadableFor, vault)) {
-        _unreadableFor = vault;
-        _reportBug('removalQueue.read');
-      }
-      _loadedFor = null;
-      _entries.clear();
-      _intents.clear();
-      _removed.clear();
-      _publish();
-      return false;
     } on Object catch (e, s) {
       _reportIfBug(e, s, 'removalQueue.load');
       return false;

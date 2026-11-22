@@ -158,8 +158,10 @@ const Duration kLostOwnListReuse = Duration(seconds: 60);
 /// and writes nothing, [unreadable] says so and [wasRemovedByUser] throws.
 /// [removeDevice] is NOT refused (fix round 2, ruling 10: failing closed
 /// would keep a lost device in): after its fresh own-list check it sends
-/// RemoveKeyDevice and, on success, writes both values fresh over the
-/// unreadable ones (`removalQueue.rebuilt`).
+/// RemoveKeyDevice and, on success, writes the unreadable value fresh
+/// (`removalQueue.rebuilt`); the other one, when readable, keeps what it
+/// held (fix round 4, ruling 12). 5b: after `rebuilt`, the user is asked
+/// to check the device list again.
 ///
 /// Never logs; an unexpected failure is reported as [E2eePipelineError]
 /// with a step name only. Defines no `toString` (it holds device ids).
@@ -233,6 +235,11 @@ class RemovalQueueRunner {
 
   /// The vault whose stored queue could not be read (reported once).
   SecureVault? _unreadableFor;
+
+  /// Fix round 4, ruling 12: which of the two stored values could not be
+  /// read at the last load (a rebuild replaces only that one).
+  bool _queueUnreadable = false;
+  bool _recordUnreadable = false;
 
   /// Conversations whose `removalQueue.keyMismatch` was reported this run.
   final Set<String> _mismatchReported = {};
@@ -365,7 +372,8 @@ class RemovalQueueRunner {
   /// longer names the device: the first call removed it, so it is queued
   /// and this completes, fix round 4, ruling 2). A stored
   /// queue or record that cannot be read does not refuse it (ruling 10):
-  /// both are rebuilt once RemoveKeyDevice succeeded. Then a pass starts at
+  /// the unreadable one is rebuilt once RemoveKeyDevice succeeded (a
+  /// readable one is kept, fix round 4, ruling 12). Then a pass starts at
   /// [BudgetPriority.live]; this returns once the queue is stored.
   Future<void> removeDevice(String deviceId) async {
     if (deviceId.isEmpty) throw ArgumentError.value('', 'deviceId');
@@ -382,8 +390,9 @@ class RemovalQueueRunner {
     // closed here would keep the attacker in. With the fresh own-list check
     // below, RemoveKeyDevice is still sent; nothing is written before it
     // (the unreadable values stay as they are if it fails), and on success
-    // both are rebuilt fresh (an empty queue plus this device's entries),
-    // written over the unreadable values (`removalQueue.rebuilt`).
+    // the unreadable value is rebuilt fresh (an empty queue plus this
+    // device's entries, or an empty record plus its mark), written over it
+    // (`removalQueue.rebuilt`); a readable one keeps its values (ruling 12).
     // Reconcile's M3 rule still removes the device wherever a readable own
     // list no longer shows it.
     final rebuild = !await _ensureLoaded(vault) && unreadable;
@@ -491,13 +500,19 @@ class RemovalQueueRunner {
         throw StateError('The vault changed.');
       }
       if (rebuild && !_loaded) {
-        _entries.clear();
-        _intents.clear();
-        _removed.clear();
+        // SA N3 (fix round 4, ruling 12): only the value that cannot be
+        // read is rebuilt; the readable one, loaded into the image, stays.
+        if (_queueUnreadable) {
+          _entries.clear();
+          _notBeforeMicros = null;
+        }
+        if (_recordUnreadable) {
+          _intents.clear();
+          _removed.clear();
+          _recordPruned = false;
+        }
         _holds.clear();
-        _notBeforeMicros = null;
         _intentsNotBefore = null;
-        _recordPruned = false;
         _loadedFor = vault;
         _unreadableFor = null;
         _reportBug('removalQueue.rebuilt');
@@ -542,6 +557,8 @@ class RemovalQueueRunner {
     _notBeforeMicros = null;
     _loadedFor = null;
     _unreadableFor = null;
+    _queueUnreadable = false;
+    _recordUnreadable = false;
     _removed.clear();
     _mismatchReported.clear();
     _historyReported.clear();
