@@ -1360,6 +1360,35 @@ void main() {
       expect(rig.server.sends, hasLength(1));
     });
 
+    test('a change left pending by an unknown outcome with a server retry '
+        'time arms its re-check at that time, not at the margin (Task 9 '
+        'round P, review test gap 2)', () async {
+      final sibling = await lostPhone();
+      rig.server.commitScript.add((
+        error: const ScreeningUnavailableException(
+          'busy',
+          retryAfter: Duration(seconds: 5),
+        ),
+        stored: false,
+      ));
+
+      await rig.upkeep.reconcile(_c1);
+
+      expect(requests(), hasLength(1));
+      expect((await groupRecord()).pending, isNotNull);
+      expect((await pin(sibling))!.side, MemberSide.mine);
+      // The runner's not-before is the server's time: the re-check is due
+      // then.
+      expect(liveRechecks(), 1);
+      expect(rig.upkeepScheduled.last.delay, const Duration(seconds: 5));
+
+      rig.clock.advance(const Duration(seconds: 5));
+      await runRecheck();
+      expect(requests(), hasLength(2));
+      expect(requests()[1].sameBytes(requests()[0]), isTrue);
+      expect(await pin(sibling), isNull);
+    });
+
     test('a re-check that still does not land arms one more, at most 3 '
         'chained re-checks, then none', () async {
       final sibling = await lostPhone();
