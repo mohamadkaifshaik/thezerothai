@@ -66,6 +66,16 @@ extension _Reconcile on MembershipUpkeep {
     _scheduleRecheck(id, at, depth: depth + 1);
   }
 
+  /// Ruling O: whether adds of [id] wait for a RATE_LIMITED answer's retry
+  /// time ([MembershipUpkeep._addsNotBefore]).
+  bool _addsHeld(String id) {
+    final at = _addsNotBefore[id];
+    if (at == null) return false;
+    if (_now().isBefore(at)) return true;
+    _addsNotBefore.remove(id);
+    return false;
+  }
+
   /// When the re-check of a change left `pending` is due: the runner's
   /// not-before when it lies ahead, else [kRequestInFlightMargin] on.
   DateTime _pendingDue(String id) {
@@ -348,7 +358,7 @@ extension _Reconcile on MembershipUpkeep {
       for (final m in members)
         if (!removing.contains(vaultDeviceIdHex(m.deviceId))) m,
     ];
-    final mayAdd = _session.mayStart && !unverifiable;
+    final mayAdd = _session.mayStart && !unverifiable && !_addsHeld(id);
 
     // M5 and the rest of "may commit": no claim is spent on a change that
     // cannot be made now.
@@ -425,16 +435,33 @@ extension _Reconcile on MembershipUpkeep {
       removeDeviceIds: removes,
       priority: priority,
     );
+    // Task 9 ruling O: a RATE_LIMITED answer to THIS change (the runner
+    // records each one; compared by identity with the one before it).
+    final rateLimited = !identical(_commits.lastRateLimit, limitBefore);
     if (adds.isNotEmpty &&
-        (outcome == CommitOutcome.refused ||
+        ((outcome == CommitOutcome.refused && !rateLimited) ||
             (outcome == CommitOutcome.notAllowed &&
                 _commits.lastChangeUnbuildable(id)))) {
       // Audit M1: the engine could not build a commit with these adds, or
       // the server refused the commit that carried them. Each is tried for
       // the IST day, so one broken or poisoned package is not claimed
       // again on every pass (a key package and a claim of the cap each
-      // time, and a commit call on the refused path).
+      // time, and a commit call on the refused path). Ruling O: never on
+      // RATE_LIMITED. Why: a rate limit is transient and says nothing about
+      // the device; the add waits only for the server's retry time.
       await _markTried([for (final a in adds) a.deviceId]);
+    }
+    if (adds.isNotEmpty && outcome == CommitOutcome.refused && rateLimited) {
+      // Ruling O: the adds wait for the server's retry time, in this run:
+      // the pass that follows (the unheld entry's second, or the removal
+      // follow-up's) claims none before it, and one re-check is armed for
+      // it (ruling C), whatever the follow-up answers.
+      final wait = _commits.lastRateLimit?.retryAfter;
+      final at = _now().add(
+        wait != null && wait > Duration.zero ? wait : kPeerRemovalFetchGap,
+      );
+      _addsNotBefore[id] = at;
+      _armRetry(id, depth, at);
     }
     // Audit M1: removals are never held back for adds. A change with adds
     // that ends `notAllowed` (the flag went off meanwhile, the engine

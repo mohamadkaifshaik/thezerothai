@@ -874,6 +874,54 @@ void main() {
       },
     );
 
+    test('a RATE_LIMITED change that also adds marks no device tried: the '
+        'removal still goes alone, and the add is claimed again the same day '
+        '(Task 9 ruling O)', () async {
+      final sibling = await RigPeer.create('sibling');
+      final bob2 = await RigPeer.create('bob2');
+      await setUpJoined(
+        others: [sibling],
+        ownListed: [sibling],
+        alsoListed: [bob2],
+      );
+      await synced();
+      peerClaims([bob, bob2]);
+      rig.clock.advance(kDeviceListReuse);
+      ownList(const []);
+      rig.server.commitScript.add((
+        error: const RateLimitedException(
+          'slow down',
+          retryAfter: Duration(minutes: 3),
+        ),
+        stored: false,
+      ));
+
+      await rig.upkeep.reconcile(_c1);
+
+      // The removal was due: it went alone after the rate limit.
+      expect(requests(), hasLength(2));
+      expect(requests().first.welcome, isNotNull);
+      expect(requests().last.welcome, isNull);
+      expect(await pin(sibling), isNull);
+      // A rate limit says nothing about bob2's device.
+      expect(await rig.ledger.emptyClaimTried(bob2.id), isFalse);
+      // The pass after the removal claimed nothing before the retry time,
+      // and one re-check is armed for it.
+      expect(rig.keys.claimCalls, hasLength(1));
+      expect(liveRechecks(), 1);
+      expect(rig.upkeepScheduled.last.delay, const Duration(minutes: 3));
+
+      // After the server's retry time, the same IST day, the re-check
+      // claims bob2 and adds it.
+      rig.clock.advance(const Duration(minutes: 3));
+      peerClaims([bob, bob2]);
+      await runRecheck();
+      expect(rig.keys.claimCalls, hasLength(2));
+      expect(requests(), hasLength(3));
+      expect(requests().last.welcomeDeviceIds, [bob2.idString]);
+      expect((await pin(bob2))!.side, MemberSide.theirs);
+    });
+
     test('an add that fails its check is claimed at most once per IST day '
         '(audit M1)', () async {
       final bob2 = await RigPeer.create('bob2');

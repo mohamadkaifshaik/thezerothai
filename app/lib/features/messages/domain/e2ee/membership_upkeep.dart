@@ -171,6 +171,12 @@ class MembershipUpkeep {
   /// The re-checks whose timer fired and that are still running.
   final Set<Future<void>> _recheckRuns = {};
 
+  /// Task 9 ruling O. Conversation -> no add is claimed before this time:
+  /// the server's retry time of a RATE_LIMITED change that carried adds.
+  /// Memory of this run (a restart only claims sooner); removals are never
+  /// held by it.
+  final Map<String, DateTime> _addsNotBefore = {};
+
   /// The app is paused: the re-check timers are cancelled (no network call
   /// while paused). Each conversation re-checks at its next trigger.
   void cancelScheduled() {
@@ -186,6 +192,7 @@ class MembershipUpkeep {
   void reset() {
     cancelScheduled();
     _sights.clear();
+    _addsNotBefore.clear();
   }
 
   /// Completes when no acceptance a header started, and no re-check whose
