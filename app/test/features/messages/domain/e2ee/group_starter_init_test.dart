@@ -4410,6 +4410,37 @@ void main() {
       );
     });
 
+    test('a hand-over from the join code while a resume of the conversation '
+        'runs starts one more resume after it, never joins it (pre-flag-on '
+        'review m-C)', () async {
+      rig.server.sendScript.addAll([unknown, unknown]);
+      await start();
+      await done();
+      expect((await groupOf())!.provisional, isTrue);
+      expect(rig.server.sends, hasLength(2));
+      rig.scheduled.clear();
+
+      // A resume is running: its request is in flight.
+      gate = Completer<void>();
+      rig.server.sendScript.addAll([unknown, unknown]);
+      final running = starter.resumeProvisional();
+      await pumpEventQueue();
+      expect(rig.server.sends, hasLength(3));
+
+      // The join code hands the group over meanwhile (its settle found the
+      // own init stored and unanswered).
+      rig.crypto.onOwnInitUnanswered!(_c1);
+      gate!.complete();
+      await running;
+      await pumpEventQueue();
+      await done();
+
+      // The handed-over resume asked again once the running one had ended.
+      expect(rig.server.sends, hasLength(4));
+      expect(rig.server.sends[3].same(rig.server.sends[0]), isTrue);
+      expect((await groupOf())!.provisional, isTrue);
+    });
+
     test(
       'the join code hands an own unanswered init to the starter once per '
       'group per run, not once per welcome poll (pre-flag-on review m-2)',

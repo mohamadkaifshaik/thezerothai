@@ -227,10 +227,29 @@ class GroupStarter {
   /// priority (no user intent). Why: the join code leaves such a group
   /// provisional for the starter (review W1); without this the group
   /// waited for the next vault-ready, send or retry, holding every row of
-  /// the conversation meanwhile. The resume is single flight: one already
-  /// running is joined.
+  /// the conversation meanwhile.
+  ///
+  /// Pre-flag-on fix round 2, ruling 5 (code review m-C). Decision: when a
+  /// resume of [id] is running, this one starts AFTER it (its
+  /// `whenComplete`), never joins it; an end after [reset] starts nothing.
+  /// Why: the running resume read the group before the join's settle left
+  /// it unanswered, so joining it asked nothing again and the group waited
+  /// for an unrelated trigger (the same reason as [_armMarginResume]).
   void _resumeAfterJoin(String id) {
-    Zone.root.run(() => unawaited(_resume(id, BudgetPriority.background)));
+    final serial = _runSerial;
+    Zone.root.run(() {
+      final running = _running[id];
+      if (running == null) {
+        unawaited(_resume(id, BudgetPriority.background));
+        return;
+      }
+      unawaited(
+        running.whenComplete(() {
+          if (serial != _runSerial) return;
+          unawaited(_resume(id, BudgetPriority.background));
+        }),
+      );
+    });
   }
 
   final ConversationCrypto _crypto;
