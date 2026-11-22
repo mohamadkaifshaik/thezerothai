@@ -365,8 +365,9 @@ void main() {
       expect(s.canReset, isFalse);
     });
 
-    test('an unknown-state call, peerHasNoDevice and unavailable are '
-        'E2eeActionException with the kind named (amendment 9)', () async {
+    test('unavailable and peerHasNoDevice are E2eeActionException with the '
+        'kind named, the commit cap a RateLimitedException (amendment '
+        '9)', () async {
       await setUpJoined();
       // Not offered: a healthy conversation.
       await expectLater(
@@ -438,12 +439,9 @@ void main() {
       siblings([sib]);
       await makeStuck();
 
-      // The peer's claim has no package: nothing is built or sent.
+      // Only bob is listed and his claim has no package: nothing is built
+      // or sent.
       final real = rig.keys.claims[_bob]!;
-      rig.keys.claims[_bob] = () async => kpb.ClaimKeyPackagesResponse(
-        conversationId: _c1,
-        keyPackages: [kpb.ClaimedKeyPackage(deviceId: bob.idString)],
-      );
       peers([bob]);
       rig.keys.claims[_bob] = () async => kpb.ClaimKeyPackagesResponse(
         conversationId: _c1,
