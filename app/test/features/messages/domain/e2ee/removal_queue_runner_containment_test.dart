@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/vault/secure_vault.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_crypto.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/daily_ledger.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/membership_rules.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/removal_queue_runner.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/removal_record.dart';
@@ -380,6 +381,83 @@ void main() {
       expect(runner.pending.value, 0);
       expect((await stored())!.entries, isEmpty);
       expect(rig.server.calls, hasLength(calls), reason: 'no call');
+    });
+  });
+
+  group('an own device removed on another own device (SA M2)', () {
+    /// The user's other phone removed the sibling: the own list no longer
+    /// names it, and this device never ran removeDevice.
+    Future<RigPeer> removedElsewhereByUser() async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await join(_c1, others: [sibling]);
+      await synced();
+      expect((await pin(sibling))!.side, MemberSide.mine);
+      rig.keys.own.removeWhere((d) => d.deviceId == sibling.idString);
+      return sibling;
+    }
+
+    test('a pass queues a mine pin a fresh own list does not show, and '
+        'removes it', () async {
+      final sibling = await removedElsewhereByUser();
+
+      await runner.onVaultReady();
+      await runner.idle();
+
+      expect(rig.keys.removeCalls, isEmpty);
+      expect(requests(_c1), hasLength(1));
+      expect(await pin(sibling), isNull);
+      expect(runner.pending.value, 0);
+      expect(await runner.wasRemovedByUser(sibling.id), isFalse);
+    });
+
+    test('it is not user-queued: the M5 pause holds it', () async {
+      final sibling = await removedElsewhereByUser();
+      for (var i = 0; i < kAntiFlapUndosPerDay; i++) {
+        await rig.ledger.addUndone(_c1);
+      }
+
+      await runner.onVaultReady();
+      await runner.idle();
+
+      expect(requests(), isEmpty);
+      expect(queued(_c1, sibling), isTrue);
+      expect((await pin(sibling))!.side, MemberSide.mine);
+    });
+
+    test('reconcile exempts a queued removal from the pause only when the '
+        'user removed the device', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await join(_c1, others: [sibling]);
+      await synced();
+      for (var i = 0; i < kAntiFlapUndosPerDay; i++) {
+        await rig.ledger.addUndone(_c1);
+      }
+      // Queued; the own list reconcile reads still shows it (M3 says no).
+      rig.upkeep.queuedRemovals = (_) => {sibling.id};
+      rig.upkeep.removedByUser = (_) => false;
+
+      await rig.upkeep.reconcile(_c1);
+      expect(requests(), isEmpty, reason: 'held by the pause');
+
+      rig.upkeep.removedByUser = (_) => true;
+      await rig.upkeep.reconcile(_c1);
+      expect(requests(_c1), hasLength(1));
+      expect(await pin(sibling), isNull);
+    });
+
+    test('a mine pin the own list still shows is never queued', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await join(_c1, others: [sibling]);
+      await synced();
+
+      await runner.onVaultReady();
+      await runner.idle();
+
+      expect(runner.queuedFor(_c1), isEmpty);
+      expect(requests(), isEmpty);
     });
   });
 }

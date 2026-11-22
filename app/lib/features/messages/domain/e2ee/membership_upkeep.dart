@@ -171,6 +171,12 @@ class MembershipUpkeep {
   /// it any more.
   Uint8List? Function(Uint8List deviceId)? removedKeyOf;
 
+  /// Task 11 fix round 2, ruling 11: [deviceId] has a "removed by the
+  /// user" mark. Only such a queued removal is exempt from the M5 pause
+  /// (ruling H); the queue also holds own devices the own list no longer
+  /// shows, which no user removed here. Null: none is.
+  bool Function(Uint8List deviceId)? removedByUser;
+
   /// Conversation -> the one scheduled re-check, with its due time.
   final Map<String, _Recheck> _rechecks = {};
 

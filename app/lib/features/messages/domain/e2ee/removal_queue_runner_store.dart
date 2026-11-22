@@ -129,6 +129,58 @@ extension _RemovalStore on RemovalQueueRunner {
     }
   }
 
+  /// SA M2 (fix round 2, ruling 11): on every own device, each `mine` pin
+  /// (never this device) that a fresh own list does not show is queued, in
+  /// every conversation with group state, most recently active first: the
+  /// M3 condition ([mayRemoveOwnDevice]; a list that is not readable and
+  /// non-empty queues nothing). This covers a removal made on another own
+  /// device, where [removeDevice] never ran here, so a conversation that is
+  /// never opened does not keep the lost device with no time limit. Such an
+  /// entry is not user-queued: it has no removed mark, so it has no pause
+  /// exemption and [wasRemovedByUser] does not answer from it. The own list
+  /// is read only when such a pin exists.
+  Future<void> _queueLostOwn(
+    SecureVault vault,
+    Uint8List thisDevice,
+    BudgetPriority priority,
+    int resets,
+  ) async {
+    final pins = <String, List<MemberRecord>>{};
+    for (final c in await vault.groupConversationIds()) {
+      final mine = [
+        for (final m in await vault.members(c))
+          if (m.side == MemberSide.mine && !_same(m.deviceId, thisDevice)) m,
+      ];
+      if (mine.isNotEmpty) pins[c] = mine;
+    }
+    if (pins.isEmpty || !_current(vault, resets)) return;
+    final own = await _directory.own(fresh: true, priority: priority);
+    if (!own.readableNonEmpty) return;
+    final ranked = await _byRecentActivity(vault);
+    if (!_current(vault, resets)) return;
+    var changed = false;
+    for (final c in ranked) {
+      for (final m in pins[c] ?? const <MemberRecord>[]) {
+        if (!mayRemoveOwnDevice(
+          member: m,
+          ownList: own,
+          thisDeviceId: thisDevice,
+        )) {
+          continue;
+        }
+        final already = _entries.any(
+          (e) => e.conversationId == c && _same(e.deviceId, m.deviceId),
+        );
+        if (already) continue;
+        _entries.add(
+          RemovalQueueEntry(deviceId: m.deviceId, conversationId: c),
+        );
+        changed = true;
+      }
+    }
+    if (changed) await _save(vault);
+  }
+
   /// Loads the stored queue and the runner's record for [vault] when this
   /// image is not of it. False: either cannot be read (amendment 7:
   /// unknown, nothing changes; the stored values are left as they are) or

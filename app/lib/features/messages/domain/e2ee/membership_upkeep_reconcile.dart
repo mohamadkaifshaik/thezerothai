@@ -255,6 +255,11 @@ extension _Reconcile on MembershipUpkeep {
     // Ruling H (audit L2): the removals the M5 pause and the fail-closed
     // ledger do not hold: the user's queued ones and M3's own devices.
     final pauseExempt = <Uint8List>[];
+    final exempting = <String>{};
+    void exempt(Uint8List deviceId) {
+      if (exempting.add(vaultDeviceIdHex(deviceId))) pauseExempt.add(deviceId);
+    }
+
     // Task 11's queue: the members it names (never this device). Only
     // `mine` pins, and an `unattributed` pin whose key is the key of the
     // user's removed mark (fix round 2, ruling 1), are ever removed from it,
@@ -271,7 +276,11 @@ extension _Reconcile on MembershipUpkeep {
           continue;
         }
         remove(m.deviceId);
-        pauseExempt.add(m.deviceId);
+        // Fix round 2, ruling 11: exempt only when the user removed it (a
+        // removed mark); the queue also holds lost own devices its pass
+        // found, which M3 below exempts when this pass's own list agrees.
+        // No seam set (no runner): every queued id is the user's.
+        if (removedByUser?.call(m.deviceId) ?? true) exempt(m.deviceId);
       }
     }
     // M3: one readable own list decides.
@@ -281,9 +290,7 @@ extension _Reconcile on MembershipUpkeep {
         ownList: own,
         thisDeviceId: thisDevice,
       )) {
-        if (!removing.contains(vaultDeviceIdHex(m.deviceId))) {
-          pauseExempt.add(m.deviceId);
-        }
+        exempt(m.deviceId);
         remove(m.deviceId);
       }
     }

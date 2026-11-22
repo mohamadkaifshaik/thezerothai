@@ -18,6 +18,7 @@ import 'conversation_crypto.dart';
 import 'conversation_locks.dart';
 import 'device_directory.dart';
 import 'e2ee_types.dart';
+import 'membership_rules.dart' show mayRemoveOwnDevice;
 import 'membership_upkeep.dart';
 import 'message_receiver.dart';
 import 'pipeline_support.dart';
@@ -94,11 +95,18 @@ const String kLimitCommitsPerConversationDaily =
 /// only its conversation, in memory and with the same 24 h cap; the pass
 /// goes on to the others.
 ///
-/// **The pause exemption (ruling H; amendment 3).** Every change is a
-/// user-queued removal, so it goes through [CommitRunner.mayCommit] and
-/// [CommitRunner.changeLocked] with `pauseExempt: true`: the M5 pause and
-/// the fail-closed ledger do not hold it; the 20-call cap and every other
-/// condition still do.
+/// **The pause exemption (ruling H; amendment 3).** A user-queued removal
+/// (a device with a removed mark) goes through [CommitRunner.mayCommit] and
+/// [CommitRunner.changeLocked] with `pauseExempt: true` when only the
+/// exemption would let it go: the M5 pause and the fail-closed ledger do
+/// not hold it; the 20-call cap and every other condition still do.
+///
+/// **Lost own devices (SA M2; fix round 2, ruling 11).** Each pass also
+/// queues every `mine` pin that a fresh own list does not show, in every
+/// conversation with group state (the M3 condition), so a removal made on
+/// another own device reaches the conversations this device holds even
+/// when none of them is opened. Those entries are not user-queued: no
+/// pause exemption.
 ///
 /// **One owner per pass (amendment 4).** The upkeep's `queuedRemovals` is
 /// [queuedFor] (set by the constructor), so `reconcile`'s one commit
@@ -168,7 +176,8 @@ class RemovalQueueRunner {
        _onUnexpectedError = onUnexpectedError {
     upkeep
       ..queuedRemovals = queuedFor
-      ..removedKeyOf = _removedKeyOf;
+      ..removedKeyOf = _removedKeyOf
+      ..removedByUser = _removedByUser;
   }
 
   final KeysRepository _keys;
@@ -283,12 +292,19 @@ class RemovalQueueRunner {
   /// own list showed when the user removed [deviceId], while its mark is
   /// within [kRemovedByUserLimit]; null without one, or while the record is
   /// not loaded for the open vault.
-  Uint8List? _removedKeyOf(Uint8List deviceId) {
+  Uint8List? _removedKeyOf(Uint8List deviceId) =>
+      _markOf(deviceId)?.signatureKey;
+
+  /// Ruling 11 (the upkeep's `removedByUser`): [deviceId] has an unexpired
+  /// removed mark, so its queued removal is the user's (pause exempt).
+  bool _removedByUser(Uint8List deviceId) => _markOf(deviceId) != null;
+
+  RemovalMark? _markOf(Uint8List deviceId) {
     if (!_loaded) return null;
     final now = _now();
     for (final m in _removed) {
       if (_older(m, now, kRemovedByUserLimit)) continue;
-      if (_same(utf8.encode(m.deviceId), deviceId)) return m.signatureKey;
+      if (_same(utf8.encode(m.deviceId), deviceId)) return m;
     }
     return null;
   }
@@ -557,6 +573,11 @@ class RemovalQueueRunner {
     // queue's hold does not apply to it).
     await _runIntents(vault, priority, resets);
     if (!_current(vault, resets)) return;
+    // Ruling 11 (SA M2): own devices the own list no longer shows, queued
+    // even while the queue is held (queuing is local; the hold is for
+    // commits).
+    await _queueLostOwn(vault, thisDevice, priority, resets);
+    if (!_current(vault, resets)) return;
     final notBefore = _notBeforeMicros;
     if (notBefore != null) {
       final at = DateTime.fromMicrosecondsSinceEpoch(notBefore, isUtc: true);
@@ -669,20 +690,33 @@ class RemovalQueueRunner {
       if (!identical(_session.vault, vault)) return false;
       final members = await vault.members(id);
       if (_pruneAgainst(id, members, thisDevice)) await _save(vault);
-      final removes = _removable(id, members);
+      var removes = _removable(id, members);
       if (removes.isEmpty) return false;
-      if (!await _commits.mayCommit(
-        id,
-        PendingKind.change,
-        pauseExempt: true,
-      )) {
-        return false;
+      // Ruling H: a removal the user asked for is exempt from the M5 pause
+      // and the fail-closed ledger. Ruling 11: an entry the pass queued for
+      // a lost own device (no removed mark) is not; when only the exemption
+      // would let the change go, it carries the user's removals alone.
+      var exempt = false;
+      if (!await _commits.mayCommit(id, PendingKind.change)) {
+        removes = [
+          for (final d in removes)
+            if (_removedByUser(d)) d,
+        ];
+        if (removes.isEmpty ||
+            !await _commits.mayCommit(
+              id,
+              PendingKind.change,
+              pauseExempt: true,
+            )) {
+          return false;
+        }
+        exempt = true;
       }
       outcome = await _commits.changeLocked(
         id,
         removeDeviceIds: removes,
         priority: priority,
-        pauseExempt: true,
+        pauseExempt: exempt,
       );
     }
     // CR Minor 5 (fix round 2, ruling 7): a reset() or a vault change
