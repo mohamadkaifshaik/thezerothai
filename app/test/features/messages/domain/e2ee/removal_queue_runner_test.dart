@@ -578,6 +578,9 @@ void main() {
       },
     );
 
+    // A guard of the cap, not of the runner (review M5): changeLocked
+    // checks the cap too, so this passes even without the runner's
+    // mayCommit.
     test('the daily call cap still holds', () async {
       final sibling = await RigPeer.create('sibling');
       await setUpRig(ownListed: [sibling]);

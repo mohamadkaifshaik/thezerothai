@@ -100,6 +100,43 @@ void main() {
     });
   });
 
+  group('a stored hold (review M5)', () {
+    test('a restart with a stored hold respects it and arms the timer at '
+        'its time', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await join(_c1, others: [sibling]);
+      await synced();
+      rig.server.commitScript.add((
+        error: const RateLimitedException(
+          'rig',
+          retryAfter: Duration(minutes: 10),
+        ),
+        stored: false,
+      ));
+      await removeAndSettle(sibling);
+      expect((await stored())!.notBeforeMicros, isNotNull);
+      final sent = requests().length;
+
+      rig.clock.advance(const Duration(minutes: 3));
+      await rig.restart();
+      runnerScheduled.clear();
+      runner = build();
+      await runner.onVaultReady();
+      await runner.onAppResumed();
+      await runner.idle();
+
+      expect(requests(), hasLength(sent), reason: 'held after the restart');
+      expect(queued(_c1, sibling), isTrue);
+      expect(runnerScheduled.last.delay, const Duration(minutes: 7));
+
+      rig.clock.advance(const Duration(minutes: 7));
+      await runTimer();
+      expect(await pin(sibling), isNull);
+      expect(runner.pending.value, 0);
+    });
+  });
+
   group('the own-device list (review M2)', () {
     test('a removal refreshes the cached own-device list', () async {
       final sibling = await RigPeer.create('sibling');
