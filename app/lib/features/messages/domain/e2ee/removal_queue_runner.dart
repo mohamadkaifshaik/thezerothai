@@ -351,7 +351,8 @@ class RemovalQueueRunner {
   /// name (review I1: callers pass an id from the own list; a stored intent
   /// for the id skips that check and is finished, ruling 3), [StateError]
   /// with no call when there is no vault, or [kMaxRemovalIntents] intents
-  /// or unexpired removed marks are stored already (ruling 6; reported as
+  /// are stored already (ruling 6; the removed-mark cap never refuses,
+  /// fix round 4, ruling 10; reported as
   /// `removalQueue.intentCap`), and rethrows a failed own-list read
   /// (nothing sent) or a failed RemoveKeyDevice (nothing queued; except a
   /// definite refusal of a stored intent's retry while a fresh own list no
@@ -393,15 +394,15 @@ class RemovalQueueRunner {
     if (waiting != null) {
       key = waiting.signatureKey;
     } else {
-      // CR Minor 4 and SA L1 (fix round 2, ruling 6): at a cap the new
-      // removal is refused, before anything is sent; nothing stored is
+      // CR Minor 4 and SA L1 (fix round 2, ruling 6): at the intent cap
+      // the new removal is refused, before anything is sent; no intent is
       // dropped to make room (a hostile own list must not push out the
-      // user's real removals). Expired marks go first.
+      // user's real removals). Expired marks go first. SA N1 (fix round 4,
+      // ruling 10): the removed-mark cap never refuses; [_queueRemoved]
+      // makes room or queues the device without a mark.
       final now = _now();
       _removed.removeWhere((m) => _older(m, now, kRemovedByUserLimit));
-      final marked = _removed.any((m) => m.deviceId == deviceId);
-      if (_intents.length >= kMaxRemovalIntents ||
-          (!marked && _removed.length >= kMaxRemovalIntents)) {
+      if (_intents.length >= kMaxRemovalIntents) {
         _reportBug('removalQueue.intentCap');
         throw StateError('Too many device removals are stored.');
       }

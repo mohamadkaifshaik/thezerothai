@@ -10,8 +10,11 @@ import '../../../../core/vault/vault_status.dart';
 const String kVaultSettingRemovalRecord = 'messages.e2ee.removalRecord';
 
 /// The most intents kept, and the most removed devices remembered (the
-/// contract's 5 own devices, times 4). At the cap a new removal is refused;
-/// nothing stored is dropped to make room (Task 11 fix round 2, ruling 6).
+/// contract's 5 own devices, times 4). At the intent cap a new removal is
+/// refused and no intent is dropped (Task 11 fix round 2, ruling 6). The
+/// removed-mark cap never refuses a removal: the oldest mark no queue entry
+/// or pin needs makes room, else the device is queued without a mark (fix
+/// round 4, ruling 10).
 const int kMaxRemovalIntents = 20;
 
 /// An intent older than this is dropped (it was retried at every pass).

@@ -28,6 +28,26 @@ extension _RemovalStore on RemovalQueueRunner {
   ) async {
     final id = Uint8List.fromList(utf8.encode(deviceId));
     final ranked = await _byRecentActivity(vault);
+    // SA N1 (fix round 4, ruling 10): the ids pinned anywhere, read only
+    // when the marks are at their cap (to find one that carries no weight).
+    final now = _now();
+    final atCap =
+        _removed
+            .where(
+              (m) =>
+                  m.deviceId != deviceId &&
+                  !_older(m, now, kRemovedByUserLimit),
+            )
+            .length >=
+        kMaxRemovalIntents;
+    final pinned = <Uint8List>[];
+    if (atCap) {
+      for (final c in ranked) {
+        for (final m in await vault.members(c)) {
+          pinned.add(m.deviceId);
+        }
+      }
+    }
     if (!identical(_session.vault, vault) || !_loaded) {
       throw StateError('The vault changed.');
     }
@@ -38,14 +58,27 @@ extension _RemovalStore on RemovalQueueRunner {
       if (already) continue;
       _entries.add(RemovalQueueEntry(deviceId: id, conversationId: c));
     }
-    final now = _now();
     _removed.removeWhere(
       (m) => m.deviceId == deviceId || _older(m, now, kRemovedByUserLimit),
     );
-    // Ruling 6: no stored mark is dropped to make room. removeDevice
-    // refuses at the cap before any call; only a removal that already went
-    // through (an intent finished meanwhile) can meet it here, and then it
-    // is still queued, without its mark.
+    // SA N1 (fix round 4, ruling 10): the mark cap never refuses a
+    // removal (20 junk devices a stolen session registered must not keep
+    // the real lost device in). At the cap the oldest mark that carries no
+    // weight goes: no queue entry and no pin anywhere names its device.
+    // When every mark is still needed, the device is queued without one
+    // (`removalQueue.markCap`): its removal still reaches every group, but
+    // [wasRemovedByUser] does not answer for it.
+    if (_removed.length >= kMaxRemovalIntents) {
+      final byAge = List.of(_removed)
+        ..sort((a, b) => a.atMicros.compareTo(b.atMicros));
+      for (final m in byAge) {
+        final d = utf8.encode(m.deviceId);
+        if (_entries.any((e) => _same(e.deviceId, d))) continue;
+        if (pinned.any((p) => _same(p, d))) continue;
+        _removed.remove(m);
+        break;
+      }
+    }
     if (_removed.length < kMaxRemovalIntents) {
       _removed.add(
         RemovalMark(
@@ -55,7 +88,7 @@ extension _RemovalStore on RemovalQueueRunner {
         ),
       );
     } else {
-      _reportBug('removalQueue.intentCap');
+      _reportBug('removalQueue.markCap');
     }
     _intents.removeWhere((i) => i.deviceId == deviceId);
     await _save(vault);

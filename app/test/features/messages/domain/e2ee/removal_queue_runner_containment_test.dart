@@ -409,36 +409,84 @@ void main() {
       expect(intents.first.deviceId, mark(0, now).deviceId);
     });
 
-    test('at the removed-mark cap a new removal is refused, after the expired '
-        'marks are pruned', () async {
+    test('the removed-mark cap never refuses a removal: 20 unexpired marks '
+        'for devices pinned nowhere, and a 21st removal reaches the server '
+        'and the groups; the oldest mark makes room (fix round 4, SA '
+        'N1)', () async {
       final sibling = await RigPeer.create('sibling');
       await setUpRig(ownListed: [sibling]);
-      await stateOnly(_c1, accepted: false, mine: [sibling]);
+      await join(_c1, others: [sibling]);
+      await synced();
       final then = rig.clock.now();
       await putRecord(
         RemovalRecord(
-          removed: [for (var i = 0; i < kMaxRemovalIntents; i++) mark(i, then)],
+          removed: [
+            for (var i = 0; i < kMaxRemovalIntents; i++)
+              mark(i, then.add(Duration(minutes: i))),
+          ],
         ),
       );
-      expectedErrors = ['removalQueue.intentCap'];
+      rig.clock.advance(const Duration(hours: 1));
 
-      await expectLater(
-        runner.removeDevice(sibling.idString),
-        throwsA(isA<StateError>()),
-      );
-      expect(rig.keys.removeCalls, isEmpty);
-      expect(
-        await runner.wasRemovedByUser(rigBytes(mark(0, then).deviceId)),
-        isTrue,
-      );
-
-      // Once those marks expire they are pruned first, and it goes.
-      rig.clock.advance(kRemovedByUserLimit + const Duration(minutes: 1));
       await removeAndSettle(sibling);
 
-      expect(rig.keys.removeCalls, hasLength(1));
+      expect(rig.keys.removeCalls.single.deviceId, sibling.idString);
+      expect(await pin(sibling), isNull, reason: 'left the group');
+      expect(requests(_c1), hasLength(1));
+      final removed = [
+        for (final m in (await storedRecord()).removed) m.deviceId,
+      ];
+      expect(removed, hasLength(kMaxRemovalIntents));
+      expect(removed, isNot(contains(mark(0, then).deviceId)));
+      expect(removed, contains(mark(1, then).deviceId));
+      expect(removed, contains(sibling.idString));
+      expect(await runner.wasRemovedByUser(sibling.id), isTrue);
+    });
+
+    test('when every mark is still needed, the removal still goes and is '
+        'queued without a mark (fix round 4, SA N1)', () async {
+      const c2 = '22222222222222222222222222222222';
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await join(_c1, others: [sibling]);
+      await synced();
+      final now = rig.clock.now();
+      await putRecord(
+        RemovalRecord(
+          removed: [for (var i = 0; i < kMaxRemovalIntents; i++) mark(i, now)],
+        ),
+      );
+      // Each marked device still has a queue entry (an unaccepted request).
+      await stateOnly(c2, accepted: false);
+      await rig.device.vault.transaction(
+        (tx) => tx.putSetting(
+          kVaultSettingRemovalQueue,
+          RemovalQueue(
+            entries: [
+              for (var i = 0; i < kMaxRemovalIntents; i++)
+                RemovalQueueEntry(
+                  deviceId: rigBytes(mark(i, now).deviceId),
+                  conversationId: c2,
+                  parked: true,
+                ),
+            ],
+          ).encode(),
+        ),
+      );
+      expectedErrors = ['removalQueue.markCap'];
+
+      await removeAndSettle(sibling);
+
+      expect(rig.keys.removeCalls.single.deviceId, sibling.idString);
+      expect(await pin(sibling), isNull, reason: 'left the group');
       final removed = (await storedRecord()).removed;
-      expect([for (final m in removed) m.deviceId], [sibling.idString]);
+      expect(removed, hasLength(kMaxRemovalIntents));
+      expect([
+        for (final m in removed) m.deviceId,
+      ], isNot(contains(sibling.idString)));
+      // The 20 parked entries, and the sibling's own (c2 has group state).
+      expect(runner.queuedFor(c2), hasLength(kMaxRemovalIntents + 1));
+      expect(await runner.wasRemovedByUser(sibling.id), isFalse);
     });
 
     test('expired marks are pruned when the record is loaded', () async {
