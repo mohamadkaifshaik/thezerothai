@@ -1742,22 +1742,103 @@ void main() {
       expect(await rig.sender.outgoing(_c2), isEmpty);
     });
 
-    test('FEATURE_DISABLED on a retry without it is a refusal', () async {
-      rig.server.sendScript.addAll([
-        unknown,
-        (error: const FeatureDisabledException('off'), stored: false),
-      ]);
+    // Task 9 concern 1, changed on purpose: this test was Task 8's "a
+    // refused retry is decided at once". The first attempt's outcome is
+    // unknown, so its request may still reach the server until
+    // [kInitResendMargin] after it started; the refusal of the retry right
+    // after it decides nothing. After the margin the same refusal does.
+    test(
+      'FEATURE_DISABLED on a retry without it is a refusal once the '
+      'margin after the unknown attempt has passed (Task 9 concern 1)',
+      () async {
+        rig.server.sendScript.addAll([
+          unknown,
+          (error: const FeatureDisabledException('off'), stored: false),
+        ]);
 
+        await start();
+        await done();
+
+        expect(rig.server.sends, hasLength(2));
+        expect((await groupOf())!.provisional, isTrue);
+        expect(await rig.device.vault.members(_c1), hasLength(2));
+        var row = (await rows()).single;
+        expect(row.stage, OutboxStage.encrypted);
+        expect(row.init, isNotNull);
+        expect(row.lastError, isNull);
+        // One resume, at the margin's end after the unknown attempt started.
+        expect(rig.scheduled.map((s) => s.delay), [kInitResendMargin]);
+
+        rig.clock.advance(kInitResendMargin);
+        rig.server.sendScript.add((
+          error: const FeatureDisabledException('off'),
+          stored: false,
+        ));
+        rig.scheduled.single.run();
+        await done();
+
+        expect(rig.server.sends, hasLength(3));
+        expect(rig.server.sends[0].same(rig.server.sends[2]), isTrue);
+        expect(await groupOf(), isNull);
+        expect(await rig.device.vault.members(_c1), isEmpty);
+        row = (await rows()).single;
+        expect(row.stage, OutboxStage.plain);
+        expect(row.lastError, 'FeatureDisabledException');
+        expect(row.init, isNull);
+      },
+    );
+
+    test('a refusal or a STALE_EPOCH right after an attempt with an unknown '
+        'outcome deletes nothing inside the margin; after it the record '
+        'decides (Task 9 concern 1)', () async {
+      // The first call takes 10 s, so the automatic second try (also
+      // unknown) starts 10 s after it; the refusal comes 40 s after that
+      // second try started. The margin counts from the LAST start.
+      var sent = 0;
+      rig.server.beforeSend = (send) async {
+        sent++;
+        if (sent == 1) rig.clock.advance(const Duration(seconds: 10));
+      };
+      rig.server.sendScript.addAll([unknown, unknown]);
       await start();
       await done();
-
       expect(rig.server.sends, hasLength(2));
+      rig.scheduled.clear();
+
+      rig.clock.advance(const Duration(seconds: 40));
+      const stale = (
+        error: StaleEpochException(
+          'stale',
+          generation: 1,
+          epoch: 1,
+          conversationId: _c1,
+        ),
+        stored: false,
+      );
+      rig.server.sendScript.add(stale);
+      await starter.resumeProvisional();
+      await done();
+      // Inside the margin after the second (unknown) try: kept, no join.
+      expect(rig.server.sends, hasLength(3));
+      expect(rig.server.calls, contains('listConversationCommits'));
+      expect((await groupOf())!.provisional, isTrue);
+      expect((await rows()).single.init, isNotNull);
+      expect(rig.device.engine.calls, isNot(contains('joinFromWelcome')));
+      expect(rig.scheduled.map((s) => s.delay), [
+        kInitResendMargin - const Duration(seconds: 40),
+      ]);
+
+      // At the margin's end the record decides: nothing stored, refused.
+      rig.clock.advance(kInitResendMargin - const Duration(seconds: 40));
+      rig.server.sendScript.add((
+        error: const FeatureDisabledException('off'),
+        stored: false,
+      ));
+      rig.scheduled.single.run();
+      await done();
+      expect(rig.server.sends, hasLength(4));
       expect(await groupOf(), isNull);
-      expect(await rig.device.vault.members(_c1), isEmpty);
-      final row = (await rows()).single;
-      expect(row.stage, OutboxStage.plain);
-      expect(row.lastError, 'FeatureDisabledException');
-      expect(row.init, isNull);
+      expect((await rows()).single.lastError, 'FeatureDisabledException');
     });
 
     test('text typed while provisional waits at stage plain and goes out '

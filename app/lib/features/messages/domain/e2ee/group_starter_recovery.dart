@@ -281,6 +281,11 @@ extension _Recovery on GroupStarter {
       // is exempt: the commits already said "stored", and no answer to it
       // deletes anything.
       if (!replay && _sendsNoMore(group)) return none;
+      // Task 9 concern 1: when this call's outcome stays unknown, its
+      // request may reach the server until [kInitResendMargin] after now.
+      // Not for a replay: the commits already said "stored", and a later
+      // store cannot undo that.
+      final callStartedAt = _now();
       final pb.SendMessageResponse response;
       try {
         response = await _messaging.sendEncrypted(
@@ -322,6 +327,7 @@ extension _Recovery on GroupStarter {
         return const _Next(_NextKind.join);
       } on AppException catch (e) {
         if (sendOutcomeUnknown(e)) {
+          if (!replay) _noteUnknownStart(id, callStartedAt);
           // Audit M2: a call the client stopped waiting for may still
           // leave it; the expiry waits for its end.
           _trackInit(id, key);
@@ -359,6 +365,8 @@ extension _Recovery on GroupStarter {
         }
         return _refuse(id, g, row, e);
       } on Object catch (e, s) {
+        // An outcome nobody can tell: as an unknown one.
+        if (!replay) _noteUnknownStart(id, callStartedAt);
         _reportIfBug(e, s, 'start.sendEncrypted');
         _unknown.add(row.localId);
         return none;
@@ -579,8 +587,10 @@ extension _Recovery on GroupStarter {
     // client when its call started. An init call whose client wait ran out
     // may still leave it: while one runs nothing is asked (a "not stored"
     // read now could be followed by the store), and after its end the
-    // margin counts from that end. The end schedules the resume.
-    if (_initMayStillLand(id)) return none;
+    // margin counts from that end. The end schedules the resume. Task 9
+    // concern 1: an unknown outcome's margin is not asked here; it holds
+    // only a "not stored" answer, in [_ownInitStored].
+    if (_abandonedMayLand(id)) return none;
     final own = await _ownInitStored(id, pending, priority);
     if (own == null) return none;
     if (own) {
@@ -651,7 +661,17 @@ extension _Recovery on GroupStarter {
     if (!await _takeSyncUnit(priority)) return null;
     final provedAt = _now();
     final own = await _listOwnInit(id, pending);
-    if (own == false && _initMayStillLand(id, at: provedAt)) return null;
+    if (own == false && _initMayStillLand(id, at: provedAt)) {
+      // Task 9 concern 1: held only by an unknown outcome's margin (no
+      // abandoned call, whose end schedules its own resume): one resume
+      // at the margin's end, so the record decides without another
+      // trigger.
+      final left = _abandonedMayLand(id, at: provedAt)
+          ? null
+          : _unknownMarginLeft(id, provedAt);
+      if (left != null) _armMarginResume(id, left);
+      return null;
+    }
     return own;
   }
 
@@ -869,11 +889,63 @@ extension _Recovery on GroupStarter {
     );
   }
 
-  /// Whether an init request of [id] may still reach the server: a call
-  /// whose client wait ran out still runs, or ended less than
-  /// [kInitResendMargin] before [at] (now when not given; ruling N passes
-  /// the start of a commit listing).
-  bool _initMayStillLand(String id, {DateTime? at}) {
+  /// Whether an init request of [id] may still reach the server, at [at]
+  /// (now when not given; ruling N passes the start of a commit listing):
+  /// an abandoned call may still land ([_abandonedMayLand]), or (Task 9
+  /// concern 1) a call whose outcome stayed unknown started less than
+  /// [kInitResendMargin] before [at] ([_unknownMarginLeft]).
+  bool _initMayStillLand(String id, {DateTime? at}) =>
+      _abandonedMayLand(id, at: at) ||
+      _unknownMarginLeft(id, at ?? _now()) != null;
+
+  /// Task 9 concern 1 (the gate). The runner's rule for the starter: a
+  /// call whose outcome stayed unknown (a timeout, a lost answer, an
+  /// error nobody can tell) started at [at] for [id]; a later "not
+  /// stored" read decides nothing until [kInitResendMargin] after the
+  /// LAST such start. Why: the client's wait is shorter than the server's
+  /// request deadline, so that request can still be stored after a
+  /// refusal of the retry and after the listing that follows it; a
+  /// discard then deletes a group the server holds (no welcome exists
+  /// for its creator). Cost: a refusal right after an unknown attempt is
+  /// decided one margin later (Task 8 decided it at once). Memory of this
+  /// run: after a restart the calls of the earlier run are not counted (a
+  /// stated limit; the process that made them is gone).
+  void _noteUnknownStart(String id, DateTime at) {
+    final last = _initUnknownStartedAt[id];
+    if (last == null || at.isAfter(last)) _initUnknownStartedAt[id] = at;
+  }
+
+  /// The time left, from now, until [kInitResendMargin] has passed after
+  /// [id]'s last unknown-outcome call start; null when it had passed at
+  /// [at]. Zero when it ends between [at] and now.
+  Duration? _unknownMarginLeft(String id, DateTime at) {
+    final last = _initUnknownStartedAt[id];
+    if (last == null) return null;
+    final end = last.add(kInitResendMargin);
+    if (!at.isBefore(end)) return null;
+    final now = _now();
+    return now.isBefore(end) ? end.difference(now) : Duration.zero;
+  }
+
+  /// One resume of [id] after [wait] (at background priority: a timer is
+  /// no user intent), armed once per conversation at a time. An end after
+  /// [reset] changes nothing.
+  void _armMarginResume(String id, Duration wait) {
+    if (!_marginArmed.add(id)) return;
+    final serial = _runSerial;
+    Zone.root.run(
+      () => _schedule(wait, () {
+        if (serial != _runSerial) return;
+        _marginArmed.remove(id);
+        unawaited(_resume(id, BudgetPriority.background));
+      }),
+    );
+  }
+
+  /// Audit M2: whether an init call of [id] whose client wait ran out
+  /// still runs, or ended less than [kInitResendMargin] before [at] (now
+  /// when not given).
+  bool _abandonedMayLand(String id, {DateTime? at}) {
     if ((_initCallsOut[id] ?? 0) > 0) return true;
     final ended = _initCallEndedAt[id];
     if (ended == null) return false;

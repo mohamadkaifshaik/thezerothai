@@ -331,6 +331,14 @@ class GroupStarter {
   /// margin counts from then.
   final Map<String, DateTime> _initCallEndedAt = {};
 
+  /// Task 9 concern 1. Conversation -> the start of the last init call
+  /// whose outcome stayed unknown in this run: a "not stored" read decides
+  /// nothing until [kInitResendMargin] after it.
+  final Map<String, DateTime> _initUnknownStartedAt = {};
+
+  /// Conversations with one resume armed for the end of that margin.
+  final Set<String> _marginArmed = {};
+
   /// Bumped by [reset]: the end of a call tracked before it changes
   /// nothing.
   int _runSerial = 0;
@@ -366,6 +374,8 @@ class GroupStarter {
     _reported.clear();
     _initCallsOut.clear();
     _initCallEndedAt.clear();
+    _initUnknownStartedAt.clear();
+    _marginArmed.clear();
     _resetCalls.clear();
     _resetLists.clear();
     _resetRefused.clear();
