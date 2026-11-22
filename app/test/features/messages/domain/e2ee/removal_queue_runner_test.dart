@@ -673,7 +673,8 @@ void main() {
   });
 
   group('persistence (amendment 7)', () {
-    test('a sealed read that fails is unknown and changes nothing', () async {
+    test('a sealed read that fails is unknown and a pass changes '
+        'nothing', () async {
       final sibling = await RigPeer.create('sibling');
       await setUpRig(ownListed: [sibling]);
       await join(_c1, others: [sibling]);
@@ -686,10 +687,6 @@ void main() {
 
       await runner.onVaultReady();
       await runner.idle();
-      await expectLater(
-        runner.removeDevice(sibling.idString),
-        throwsA(isA<StateError>()),
-      );
       await runner.runPass();
 
       expect(rig.keys.removeCalls, isEmpty);
@@ -698,6 +695,50 @@ void main() {
       expect(runner.unreadable, isTrue);
       expect(await rig.sealedSetting(kVaultSettingRemovalQueue), sealed);
       expect((await pin(sibling))!.side, MemberSide.mine);
+    });
+
+    test('an unreadable queue does not block a removal: it reaches the '
+        'server and the groups, and the queue is rebuilt (CR Minor 8, SA '
+        'M1)', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await join(_c1, others: [sibling]);
+      await synced();
+      await rig.device.vault.transaction(
+        (tx) => tx.putSetting(kVaultSettingRemovalQueue, rigBytes('not json')),
+      );
+      expectedErrors = ['removalQueue.read', 'removalQueue.rebuilt'];
+      await runner.onVaultReady();
+      await runner.idle();
+      expect(runner.unreadable, isTrue);
+
+      await removeAndSettle(sibling);
+
+      expect(rig.keys.removeCalls.single.deviceId, sibling.idString);
+      expect(requests(_c1), hasLength(1));
+      expect(await pin(sibling), isNull);
+      expect(runner.unreadable, isFalse);
+      expect((await stored())!.entries, isEmpty, reason: 'readable again');
+      expect(await runner.wasRemovedByUser(sibling.id), isTrue);
+    });
+
+    test('an id a fresh own list does not name is still refused while the '
+        'queue cannot be read', () async {
+      await setUpRig();
+      await join(_c1);
+      await rig.device.vault.transaction(
+        (tx) => tx.putSetting(kVaultSettingRemovalQueue, rigBytes('not json')),
+      );
+      final sealed = await rig.sealedSetting(kVaultSettingRemovalQueue);
+      expectedErrors = ['removalQueue.read'];
+
+      await expectLater(
+        runner.removeDevice(bob.idString),
+        throwsA(isA<ArgumentError>()),
+      );
+
+      expect(rig.keys.removeCalls, isEmpty);
+      expect(await rig.sealedSetting(kVaultSettingRemovalQueue), sealed);
     });
 
     test('every change is stored', () async {

@@ -123,9 +123,12 @@ const String kLimitCommitsPerConversationDaily =
 /// ([kVaultSettingRemovalRecord]) holds the intents (M1) and the devices
 /// the user removed, for [kRemovedByUserLimit] and at most
 /// [kMaxRemovalIntents] (concern 1, [wasRemovedByUser]). A stored value
-/// (either one) that cannot be read is "unknown": nothing is queued,
-/// removed or written (fail closed), [unreadable] says so, [removeDevice]
-/// refuses before any call and [wasRemovedByUser] throws.
+/// (either one) that cannot be read is "unknown": a pass queues, removes
+/// and writes nothing, [unreadable] says so and [wasRemovedByUser] throws.
+/// [removeDevice] is NOT refused (fix round 2, ruling 10: failing closed
+/// would keep a lost device in): after its fresh own-list check it sends
+/// RemoveKeyDevice and, on success, writes both values fresh over the
+/// unreadable ones (`removalQueue.rebuilt`).
 ///
 /// Never logs; an unexpected failure is reported as [E2eePipelineError]
 /// with a step name only. Defines no `toString` (it holds device ids).
@@ -306,10 +309,12 @@ class RemovalQueueRunner {
   /// device's own id (use sign-out) and for an id a fresh own list does not
   /// name (review I1: callers pass an id from the own list; a stored intent
   /// for the id skips that check and is finished, ruling 3), [StateError]
-  /// with no call when there is no vault, the stored queue cannot be read,
-  /// or [kMaxRemovalIntents] intents or unexpired removed marks are stored
-  /// already (ruling 6; reported as `removalQueue.intentCap`), and rethrows a failed own-list read (nothing sent) or a failed
-  /// RemoveKeyDevice (nothing queued). Then a pass starts at
+  /// with no call when there is no vault, or [kMaxRemovalIntents] intents
+  /// or unexpired removed marks are stored already (ruling 6; reported as
+  /// `removalQueue.intentCap`), and rethrows a failed own-list read
+  /// (nothing sent) or a failed RemoveKeyDevice (nothing queued). A stored
+  /// queue or record that cannot be read does not refuse it (ruling 10):
+  /// both are rebuilt once RemoveKeyDevice succeeded. Then a pass starts at
   /// [BudgetPriority.live]; this returns once the queue is stored.
   Future<void> removeDevice(String deviceId) async {
     if (deviceId.isEmpty) throw ArgumentError.value('', 'deviceId');
@@ -321,7 +326,17 @@ class RemovalQueueRunner {
     if (_same(own, id)) {
       throw ArgumentError('This device is removed by signing out.');
     }
-    if (!await _ensureLoaded(vault)) {
+    // CR Minor 8 and SA M1 (fix round 2, ruling 10): a stored queue or
+    // record that cannot be read must not keep a lost device in: failing
+    // closed here would keep the attacker in. With the fresh own-list check
+    // below, RemoveKeyDevice is still sent; nothing is written before it
+    // (the unreadable values stay as they are if it fails), and on success
+    // both are rebuilt fresh (an empty queue plus this device's entries),
+    // written over the unreadable values (`removalQueue.rebuilt`).
+    // Reconcile's M3 rule still removes the device wherever a readable own
+    // list no longer shows it.
+    final rebuild = !await _ensureLoaded(vault) && unreadable;
+    if (!rebuild && !_loaded) {
       throw StateError('The removal queue cannot be read.');
     }
     // CR Minor 1 (fix round 2, ruling 3): a stored intent for the id is a
@@ -362,7 +377,7 @@ class RemovalQueueRunner {
       // the intent and then the removed mark.
       key = Uint8List.fromList(listed.first.signaturePublicKey);
     }
-    if (!identical(_session.vault, vault) || !_loaded) {
+    if (!identical(_session.vault, vault) || (!rebuild && !_loaded)) {
       throw StateError('The vault changed.');
     }
     // CR Minor 3 (fix round 2, ruling 5): marked as being sent BEFORE the
@@ -370,10 +385,12 @@ class RemovalQueueRunner {
     // either is in flight never sends the same intent a second time.
     _sending.add(deviceId);
     try {
-      if (waiting == null) {
+      if (waiting == null && !rebuild) {
         // Review M1: the intent is stored BEFORE the call, so a crash or a
         // vault change between the call and the queue's write leaves it,
-        // and the next pass sends it again and queues.
+        // and the next pass sends it again and queues. (Not while
+        // rebuilding: that write would replace the unreadable values before
+        // the call succeeded.)
         _intents.add(
           RemovalMark(
             deviceId: deviceId,
@@ -398,9 +415,22 @@ class RemovalQueueRunner {
         }
         rethrow;
       }
-      if (!identical(_session.vault, vault) || !_loaded) {
+      if (!identical(_session.vault, vault)) {
         throw StateError('The vault changed.');
       }
+      if (rebuild && !_loaded) {
+        _entries.clear();
+        _intents.clear();
+        _removed.clear();
+        _holds.clear();
+        _notBeforeMicros = null;
+        _intentsNotBefore = null;
+        _recordPruned = false;
+        _loadedFor = vault;
+        _unreadableFor = null;
+        _reportBug('removalQueue.rebuilt');
+      }
+      if (!_loaded) throw StateError('The vault changed.');
       await _queueRemoved(vault, deviceId, key, BudgetPriority.live);
     } finally {
       _sending.remove(deviceId);

@@ -274,7 +274,7 @@ void main() {
     });
 
     test(
-      'a record that cannot be read is unknown and changes nothing',
+      'a record that cannot be read is unknown and a pass changes nothing',
       () async {
         final sibling = await RigPeer.create('sibling');
         await setUpRig(ownListed: [sibling]);
@@ -288,10 +288,7 @@ void main() {
 
         await runner.onVaultReady();
         await runner.idle();
-        await expectLater(
-          runner.removeDevice(sibling.idString),
-          throwsA(isA<StateError>()),
-        );
+        await runner.runPass();
 
         expect(rig.keys.removeCalls, isEmpty);
         expect(runner.unreadable, isTrue);
@@ -299,5 +296,50 @@ void main() {
         expect(await rig.sealedSetting(kVaultSettingRemovalRecord), sealed);
       },
     );
+
+    test('a record that cannot be read does not block a removal; both '
+        'values are rebuilt (CR Minor 8, SA M1)', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await stateOnly(_c1, accepted: false, mine: [sibling]);
+      await rig.device.vault.transaction(
+        (tx) => tx.putSetting(kVaultSettingRemovalRecord, rigBytes('not json')),
+      );
+      expectedErrors = ['removalQueue.read', 'removalQueue.rebuilt'];
+
+      await removeAndSettle(sibling);
+
+      expect(rig.keys.removeCalls.single.deviceId, sibling.idString);
+      expect(queued(_c1, sibling), isTrue);
+      expect(runner.unreadable, isFalse);
+      final record = RemovalRecord.decode(
+        (await rig.device.vault.setting(kVaultSettingRemovalRecord))!,
+      );
+      expect(record.intents, isEmpty);
+      expect([for (final m in record.removed) m.deviceId], [sibling.idString]);
+      expect((await stored())!.entries, hasLength(1));
+    });
+
+    test('a failed removal with an unreadable record writes nothing', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await stateOnly(_c1, accepted: false, mine: [sibling]);
+      await rig.device.vault.transaction(
+        (tx) => tx.putSetting(kVaultSettingRemovalRecord, rigBytes('not json')),
+      );
+      final sealed = await rig.sealedSetting(kVaultSettingRemovalRecord);
+      expectedErrors = ['removalQueue.read'];
+      rig.keys.removeError = const NetworkException('rig: offline');
+
+      await expectLater(
+        runner.removeDevice(sibling.idString),
+        throwsA(isA<NetworkException>()),
+      );
+
+      expect(rig.keys.removeCalls, hasLength(1));
+      expect(runner.unreadable, isTrue);
+      expect(await stored(), isNull);
+      expect(await rig.sealedSetting(kVaultSettingRemovalRecord), sealed);
+    });
   });
 }
