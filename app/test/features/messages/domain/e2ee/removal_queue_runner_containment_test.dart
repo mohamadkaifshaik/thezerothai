@@ -491,6 +491,31 @@ void main() {
       expect(runner.queuedFor(_c1), isEmpty);
       expect(runner.pending.value, 0);
     });
+
+    test('a pass that outlives reset() and a reload during its catch-up '
+        'makes no commit (fix round 4, CR2 M-2)', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await join(_c1, others: [sibling]);
+      await synced();
+      // Sign-out, then the next run loads the stored queue again, while the
+      // old pass's catch-up lists.
+      var hooked = false;
+      bool? reloaded;
+      rig.server.onCall = (call) async {
+        if (call != 'listConversationCommits' || hooked) return;
+        hooked = true;
+        runner.reset();
+        reloaded = await runner.wasRemovedByUser(sibling.id);
+      };
+
+      await removeAndSettle(sibling);
+
+      expect(hooked, isTrue);
+      expect(reloaded, isTrue, reason: 'the next run loaded the queue');
+      expect(requests(), isEmpty, reason: 'the old pass commits nothing');
+      expect(queued(_c1, sibling), isTrue);
+    });
   });
 
   group('a parked entry (CR Minor 6)', () {

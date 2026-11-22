@@ -66,7 +66,10 @@ extension _RemovalAttempt on RemovalQueueRunner {
     BudgetPriority priority,
     int resets,
   ) async {
-    if (!identical(_session.vault, vault)) return false;
+    // Fix round 4, ruling 4 (CR2 M-2): here and after the catch-up, the
+    // pass's own check ([_current]): a reset() and a reload meanwhile must
+    // not let this pass commit for the next run's queue.
+    if (!_current(vault, resets)) return false;
     final groups = await vault.groups(id);
     if (groups.isEmpty || groups.any((g) => g.provisional)) {
       // No current group yet: no pin is caught up, so only this device's
@@ -88,7 +91,7 @@ extension _RemovalAttempt on RemovalQueueRunner {
         if (await _prune(vault, id, thisDevice)) await _save(vault);
         return false;
       }
-      if (!identical(_session.vault, vault)) return false;
+      if (!_current(vault, resets)) return false;
       caughtUp = true;
       final members = await vault.members(id);
       if (_pruneAgainst(id, members, thisDevice, caughtUp: true)) {

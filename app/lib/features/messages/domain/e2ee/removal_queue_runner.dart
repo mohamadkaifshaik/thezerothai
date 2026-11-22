@@ -641,7 +641,9 @@ class RemovalQueueRunner {
       if (!order.contains(e.conversationId)) order.add(e.conversationId);
     }
     for (final id in order) {
-      if (!identical(_session.vault, vault) || _removedElsewhere()) return;
+      // Fix round 4, ruling 4 (CR2 M-2): the same check as everywhere in
+      // the pass, so a pass that outlived a reset() and a reload stops.
+      if (!_current(vault, resets) || _removedElsewhere()) return;
       final held = _holds[id];
       if (held != null) {
         if (_now().isBefore(held)) continue;
