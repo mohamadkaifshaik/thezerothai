@@ -90,11 +90,21 @@ extension _Start on GroupStarter {
     }
     // (b) Raw uids on both sides: the id is computed as the server does.
     final me = _ownUserId();
-    if (_publicIdsOff()) {
+    final verified = _publicIdsOff();
+    if (verified) {
       // Decision: without the own uid the id cannot be checked: refused.
       if (me == null || me.isEmpty || dmConversationId(me, peer) != id) {
         return _out(StartResult.unavailable);
       }
+    }
+    // Review I2. Decision: the claim's id is the server's word. An id this
+    // vault already knows (or holds a group for) is used only with proof
+    // that it is THIS peer's conversation; without it the message could be
+    // encrypted to another person's group, chosen by the server. Checked
+    // again under the lock in [_create].
+    if (!_proven(id, peer, draft, verified) &&
+        (_known.contains(id) || (await op.vault.groups(id)).isNotEmpty)) {
+      return _out(StartResult.unavailable);
     }
 
     // The own side: only when the own list shows other active devices.
@@ -126,6 +136,7 @@ extension _Start on GroupStarter {
         draft,
         key,
         rebuild: rebuild,
+        verified: verified,
         own: own,
         theirs: theirs,
         claimedTheirs: claimed.keyPackages,
@@ -172,6 +183,12 @@ extension _Start on GroupStarter {
         return _out(StartResult.unavailable);
     }
   }
+
+  /// Proof that the conversation [id] a claim named is [peer]'s: the caller
+  /// addressed the draft by that id, the id was computed from the two raw
+  /// uids ([verified]), or the vault stores [peer] as that id's peer ref.
+  bool _proven(String id, String peer, _Draft draft, bool verified) =>
+      draft.conversationId == id || verified || _known.peerOf(id) == peer;
 
   /// A readable list as it is; a deferred one as the last readable list it
   /// carries; null when there is none (unreadable, or never read).
@@ -242,6 +259,7 @@ extension _Start on GroupStarter {
     _Draft draft,
     String key, {
     required bool rebuild,
+    required bool verified,
     required DeviceList own,
     required DeviceList theirs,
     required List<kpb.ClaimedKeyPackage> claimedTheirs,
@@ -249,19 +267,20 @@ extension _Start on GroupStarter {
     required List<kpb.ClaimedKeyPackage> claimedMine,
     required List<KeyPackageInfo?> inspectedMine,
   }) async {
+    // Review I2: an existing conversation takes the row only with proof
+    // that it is this peer's (read again here, under the lock).
+    final existing = _proven(id, peer, draft, verified)
+        ? const _Created(_CreatedKind.existing)
+        : const _Created(_CreatedKind.unavailable);
     // A conversation this vault knows of that has no group here waits for
     // its welcome (C1): no second group is started for it. A rebuild is the
     // one exception: the id is known from this device's own discarded init.
-    if (!rebuild && _known.contains(id)) {
-      return const _Created(_CreatedKind.existing);
-    }
+    if (!rebuild && _known.contains(id)) return existing;
     final session = _messaging.cacheSession;
     try {
       return await _session.runWrite((v) async {
         op.check(v);
-        if ((await v.groups(id)).isNotEmpty) {
-          return const _Created(_CreatedKind.existing);
-        }
+        if ((await v.groups(id)).isNotEmpty) return existing;
         final deviceState = await v.deviceState();
         if (deviceState == null) {
           return const _Created(_CreatedKind.unavailable);

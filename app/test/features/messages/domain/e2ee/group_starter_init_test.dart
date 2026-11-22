@@ -773,6 +773,60 @@ void main() {
       rig.unexpected.clear();
     });
 
+    test('a claim answering a known conversation with no stored peer ref is '
+        'refused unless the id is proven to be this peer\'s', () async {
+      // _c2 was joined from a welcome; no attribution stored a peer ref.
+      await joined(_c2, bob);
+      expect(rig.known.contains(_c2), isTrue);
+      expect(rig.known.peerOf(_c2), isNull);
+      final dave = await RigPeer.create('dave');
+      person('ref-dave', _c2, [dave]);
+      rig.server.rows.remove(_c2);
+
+      // Public ids on: the id cannot be computed, and nothing stored says
+      // _c2 is dave's. The message never goes into that conversation.
+      var r = await start(peer: 'ref-dave');
+      expect(r.result, StartResult.unavailable);
+      expect(await rows(), isEmpty);
+      expect(rig.server.sends, isEmpty);
+
+      // Raw uids: the computed id proves it.
+      publicIdsOff = true;
+      final real = dmConversationId(_me, 'ref-erin');
+      final erin = await RigPeer.create('erin');
+      await joined(real, bob);
+      expect(rig.known.peerOf(real), isNull);
+      person('ref-erin', real, [erin]);
+      rig.server.rows.remove(real);
+      r = await start(localId: 'local-2', peer: 'ref-erin');
+      expect(r.result, StartResult.joinedExisting);
+      expect(r.conversationId, real);
+      await done(real);
+      expect(inits(), isEmpty);
+    });
+
+    test('a group that appears before the lock for an unproven id takes no '
+        'row', () async {
+      // The claim for dave answers _c2; while the own-side claim is in
+      // flight, _c2 is joined from a welcome (no peer ref is stored).
+      final dave = await RigPeer.create('dave');
+      person('ref-dave', _c2, [dave]);
+      rig.server.rows.remove(_c2);
+      await sibling('sib');
+      final own = rig.keys.claims[_me]!;
+      rig.keys.claims[_me] = () async {
+        await joined(_c2, bob);
+        return own();
+      };
+
+      final r = await start(peer: 'ref-dave');
+
+      expect(rig.known.peerOf(_c2), isNull);
+      expect(r.result, StartResult.unavailable);
+      expect(await rows(), isEmpty);
+      expect(rig.server.sends, isEmpty);
+    });
+
     test('the per-target claim cap is tryAgainTomorrow', () async {
       for (final name in [
         'keys_claims_per_target_daily',
