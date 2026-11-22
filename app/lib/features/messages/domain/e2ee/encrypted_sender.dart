@@ -278,7 +278,8 @@ class EncryptedSender {
       );
     });
     _onChanged(conversationId);
-    unawaited(drain(conversationId));
+    // The user's own send (the composer's): user priority.
+    unawaited(drain(conversationId, priority: BudgetPriority.user));
   }
 
   /// Encrypts and sends [conversationId]'s waiting rows in order. Returns
@@ -288,9 +289,14 @@ class EncryptedSender {
   /// joins a background drain does not wait on the background budget).
   /// Takes the conversation lock (never call it with the lock held). Never
   /// throws.
+  ///
+  /// [priority] defaults to [BudgetPriority.background] (review m2): a
+  /// user-priority drain may accept an incoming request (amendment 5), so
+  /// only the user's own send and retry pass [BudgetPriority.user], and a
+  /// caller that forgets the argument fails safe.
   Future<void> drain(
     String conversationId, {
-    BudgetPriority priority = BudgetPriority.user,
+    BudgetPriority priority = BudgetPriority.background,
   }) {
     final running = _running[conversationId];
     if (running != null) {
@@ -327,7 +333,8 @@ class EncryptedSender {
     } on Object catch (e, s) {
       _reportIfBug(e, s, 'send.retry');
     }
-    await drain(id);
+    // The user's own retry: user priority.
+    await drain(id, priority: BudgetPriority.user);
   }
 
   /// Deletes the row [localId] when, as far as this device knows, the

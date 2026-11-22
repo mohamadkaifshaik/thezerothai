@@ -166,8 +166,10 @@ void main() {
     await rig.sender.settled(_c1);
   }
 
-  /// One more trigger (a resume, a push, a poll).
-  Future<void> drain() => rig.sender.drain(_c1);
+  /// One more trigger, at user priority, as these tests were written (the
+  /// user's own send or retry). `drain`'s default is background since Task
+  /// 9 review m2; a test of an automatic trigger passes it.
+  Future<void> drain() => rig.sender.drain(_c1, priority: BudgetPriority.user);
 
   Future<ConversationSync> sync() async =>
       (await rig.device.vault.conversation(_c1))?.sync ??
@@ -1687,7 +1689,7 @@ void main() {
       );
       await listing.future;
       // The user's send joins the running drain.
-      final user = rig.sender.drain(_c1);
+      final user = rig.sender.drain(_c1, priority: BudgetPriority.user);
       release.complete();
       await Future.wait([background, user]);
       expect(atListing, [BudgetPriority.background, BudgetPriority.user]);
@@ -1713,7 +1715,7 @@ void main() {
         await release.future;
         throw lost.error;
       };
-      final user = rig.sender.drain(_c1);
+      final user = rig.sender.drain(_c1, priority: BudgetPriority.user);
       await listing.future;
       // Two joiners: the strongest of them is what the rerun uses.
       final joined = [

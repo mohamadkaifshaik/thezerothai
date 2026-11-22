@@ -1253,7 +1253,29 @@ void main() {
       expect((await sync()).requestAccepted, isFalse);
 
       // The user's retry accepts and sends.
+      await rig.sender.drain(_c1, priority: BudgetPriority.user);
+      expect(rig.server.acceptRequests, [_c1]);
+      expect(rig.server.sends, hasLength(1));
+    });
+
+    test('a drain with no priority given drains at background and does not '
+        'accept (review m2)', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRequest(sibling);
+      // The user's own send stops at another gate first.
+      await updateSync((s) => s.copyWith(epochMustAdvance: true));
+      await send('l1');
+      await updateSync((s) => s.copyWith(epochMustAdvance: false));
+      expect(rig.acceptCalls, isEmpty);
+
+      // A caller that forgets the priority (an open, a poll): no accept.
       await rig.sender.drain(_c1);
+      expect(rig.acceptCalls, isEmpty);
+      expect(rig.server.acceptRequests, isEmpty);
+      expect(rig.server.sends, isEmpty);
+
+      // Only an explicit user priority accepts.
+      await rig.sender.drain(_c1, priority: BudgetPriority.user);
       expect(rig.server.acceptRequests, [_c1]);
       expect(rig.server.sends, hasLength(1));
     });
