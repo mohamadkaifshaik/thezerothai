@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'dart:ui' show AppLifecycleState;
 
 import 'package:connectrpc/connect.dart' as connect;
+import 'package:drift/native.dart';
 import 'package:dzeroth/app/session_wiring.dart';
 import 'package:dzeroth/features/messages/domain/messaging_feature_flag.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
@@ -11,6 +12,8 @@ import 'package:dzeroth/core/crypto/crypto_engine.dart';
 import 'package:dzeroth/core/crypto/crypto_types.dart';
 import 'package:dzeroth/core/feature_flags/service_feature_gate.dart';
 import 'package:dzeroth/core/session/session_end.dart';
+import 'package:dzeroth/core/vault/secure_vault.dart' show openVaultOnDatabase;
+import 'package:dzeroth/core/vault/vault_database.dart';
 import 'package:dzeroth/core/vault/vault_records.dart'
     show kVaultSettingRegisteredOnce;
 import 'package:dzeroth/core/vault/vault_session.dart';
@@ -23,6 +26,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../support/fake_crypto_engine.dart';
 import '../../support/fake_key_server.dart';
+import '../../support/fake_vault_cipher.dart';
 import '../../support/fake_vault_world.dart';
 
 const _a = 'user-a';
@@ -148,8 +152,9 @@ class _Rig {
     world.advance(d);
   }
 
-  void launch() {
-    session = world.launch(supported: supported, reported: reported);
+  void launch({VaultSession? realSession}) {
+    session =
+        realSession ?? world.launch(supported: supported, reported: reported);
     gate = ServiceFeatureGate(isEnabled: () => flag, now: () => now);
     service = DeviceKeysService(
       session: session,
@@ -653,6 +658,177 @@ void main() {
     );
   });
 
+  group('pending upload', () {
+    const setting = 'keys.device.pendingUpload';
+    Future<void> nextRun() async {
+      rig.advance(_hour);
+      await rig.service.onAppResumed();
+    }
+
+    Map<String, dynamic> saved() =>
+        jsonDecode(rig.setting(setting)) as Map<String, dynamic>;
+    connect.ConnectException refused() => keyServerError(
+      connect.Code.resourceExhausted,
+      common.ErrorReason.ERROR_REASON_RATE_LIMITED,
+    );
+    connect.ConnectException timeout() =>
+        connect.ConnectException(connect.Code.deadlineExceeded, 'timeout');
+
+    test(
+      'three refused runs grow state once, then upload the saved batch',
+      () async {
+        rig.server.failNext['upload'] = List.generate(3, (_) => refused());
+        await rig.signIn(_a);
+        final initial = rig.file()!.deviceState!;
+        final first = rig.server.uploads.first;
+        expect(saved()['outcome'], 'failed');
+        expect(
+          saved()['oneTime'],
+          first.keyPackages.map(base64Encode).toList(),
+        );
+        expect(saved()['lastResort'], base64Encode(first.lastResortKeyPackage));
+        for (var i = 0; i < 3; i++) {
+          await nextRun();
+          expect(rig.file()!.deviceState, initial);
+          expect(rig.server.uploads.last.keyPackages, first.keyPackages);
+          expect(
+            rig.server.uploads.last.lastResortKeyPackage,
+            first.lastResortKeyPackage,
+          );
+        }
+        expect(rig.server.uploads, hasLength(4));
+        expect(rig.engine.generated, hasLength(1));
+        expect(saved()['oneTime'], isEmpty);
+        expect(saved()['lastResort'], isNull);
+      },
+    );
+
+    test('after a timeout an unchanged count reuses the saved bytes', () async {
+      rig.server.failNext['upload'] = [timeout(), timeout()];
+      await rig.signIn(_a);
+      expect(saved()['outcome'], 'unknown');
+      await nextRun();
+      expect(rig.server.uploads, hasLength(3));
+      expect(
+        rig.server.uploads.last.keyPackages,
+        rig.server.uploads.first.keyPackages,
+      );
+      expect(rig.engine.generated, hasLength(1));
+    });
+
+    test('after a timeout, a lower pool count clears the saved batch, uploads none of its one-time packages, and the next run generates a fresh batch', () async {
+      await rig.signIn(_a);
+      final pool = rig.devices.values.single.pool;
+      pool.removeRange(10, pool.length);
+      rig.server.failAfterApply['upload'] = [timeout(), timeout()];
+      await nextRun();
+      expect(saved()['countBefore'], 10);
+      final old = rig.server.uploads.last.keyPackages.map(base64Encode).toSet();
+      final privateState = rig.file()!.deviceState!;
+      pool.removeRange(0, pool.length - 8);
+      await nextRun();
+      expect(rig.server.uploads, hasLength(3));
+      expect(saved()['oneTime'], isEmpty);
+      expect(rig.file()!.deviceState, privateState);
+      await nextRun();
+      expect(rig.server.uploads, hasLength(4));
+      final fresh = rig.server.uploads.last.keyPackages;
+      expect(fresh, hasLength(42));
+      expect(fresh.map(base64Encode).where(old.contains), isEmpty);
+    });
+
+    test('a refusal on the retry does not resolve the first timeout', () async {
+      await rig.signIn(_a);
+      final pool = rig.devices.values.single.pool;
+      pool.removeRange(10, pool.length);
+      var calls = 0;
+      rig.server.onCall['upload'] = () async {
+        if (++calls == 2) rig.server.failNext['upload'] = [refused()];
+      };
+      rig.server.failAfterApply['upload'] = [timeout()];
+      await nextRun();
+      expect(saved()['outcome'], 'unknown');
+      await nextRun();
+      expect(rig.server.uploads, hasLength(3));
+      expect(saved()['oneTime'], isEmpty);
+    });
+
+    test('an unreadable saved batch is replaced and reported once', () async {
+      await rig.signIn(_a);
+      final pool = rig.devices.values.single.pool..clear();
+      rig.file()!.rows[setting] = '{';
+      await nextRun();
+      await nextRun();
+      expect(pool, hasLength(50));
+      expect(rig.reported.map((e) => e.toString()), [
+        'DeviceKeysError(pendingUpload)',
+      ]);
+      expect(saved()['oneTime'], isEmpty);
+    });
+
+    test(
+      'private state and sealed pending packages commit together before upload',
+      () async {
+        final db = VaultDatabase.forTesting(NativeDatabase.memory());
+        final cipher = FakeVaultCipher();
+        final session = VaultSession(
+          openCipher: (_, {required create}) async => cipher,
+          openVault: ({
+            required uid,
+            required cipher,
+            String? expectedStorage,
+            required create,
+          }) => openVaultOnDatabase(db, uid: uid, cipher: cipher),
+          wipeVaultFile: ({required alias, String? expectedStorage}) async {},
+          deleteVaultKey: ({required alias}) async {},
+          createOwner: () => FakeVaultOwner(rig.world),
+          markers: rig.world.markers,
+          supported: true,
+          launchId: 'keys-real-vault',
+          now: () => rig.now,
+        );
+        rig.launch(realSession: session);
+        await rig.signIn(_a);
+        final vault = session.vault!;
+        addTearDown(vault.close);
+        final original = await vault.deviceState();
+        rig.devices.values.single.pool.clear();
+        await db.customStatement(
+          "CREATE TRIGGER reject_pending BEFORE INSERT ON vault_settings "
+          "WHEN NEW.setting_key = 'keys.device.pendingUpload' "
+          "BEGIN SELECT RAISE(ABORT, 'injected'); END",
+        );
+        await nextRun();
+        expect(
+          await vault.deviceState(),
+          original,
+          reason: 'private write rolls back',
+        );
+        expect(rig.server.uploads, hasLength(1));
+        await db.customStatement('DROP TRIGGER reject_pending');
+        rig.server.failNext['upload'] = [refused()];
+        await nextRun();
+        final plain = (await vault.setting(setting))!;
+        final raw =
+            (await db
+                    .customSelect(
+                      "SELECT value FROM vault_settings WHERE setting_key = 'keys.device.pendingUpload'",
+                    )
+                    .getSingle())
+                .read<Uint8List>('value');
+        final encoded = base64Encode(rig.server.uploads.last.keyPackages.first);
+        expect(utf8.decode(plain), contains(encoded));
+        expect(latin1.decode(raw), isNot(contains(encoded)));
+        expect(
+          latin1.decode(raw),
+          isNot(
+            contains(latin1.decode(rig.server.uploads.last.keyPackages.first)),
+          ),
+        );
+      },
+    );
+  });
+
   group('uploads with an unknown outcome', () {
     test('one identical retry (same key, same bytes), then a fresh top-up '
         'after the next list', () async {
@@ -675,9 +851,16 @@ void main() {
       final id = rig.storedId()!;
       expect(rig.devices[id]!.pool, hasLength(50));
 
-      // Others claim 40 packages; the next run lists and tops up with FRESH
-      // packages under a new key.
+      // Others claim 40 packages. The changed count clears the batch;
+      // the following run tops up with fresh packages under a new key.
       rig.devices[id]!.pool.removeRange(0, 40);
+      rig.advance(_hour);
+      await rig.service.onAppResumed();
+      expect(
+        rig.server.uploads,
+        hasLength(2),
+        reason: 'changed pool clears first',
+      );
       rig.advance(_hour);
       await rig.service.onAppResumed();
       final fresh = rig.server.uploads.last;
