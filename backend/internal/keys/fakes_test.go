@@ -52,7 +52,8 @@ func (f *fakeRepo) MarkRemoved(_ context.Context, uid, deviceID string, now time
 	}
 	k := devKey(uid, deviceID)
 	_, marked := f.marks[k]
-	if !recent && !(marked && (f.find(uid, deviceID) < 0 || !f.live(uid, deviceID))) {
+	retry := marked && (f.find(uid, deviceID) < 0 || !f.live(uid, deviceID))
+	if !recent && !retry {
 		return ErrReauthRequired
 	}
 	if !marked {
