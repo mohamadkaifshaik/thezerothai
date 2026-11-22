@@ -703,6 +703,43 @@ void main() {
       ], isEmpty);
     });
 
+    test('the pins of g + 1 are admitted to the key history before '
+        'attribution: a refused member is unattributed with an unknownDevice '
+        'row, and the history keeps closed and allow', () async {
+      final bob2 = await RigPeer.create('bob2');
+      await setUpJoined();
+      peers([bob, bob2]);
+      await makeStuck();
+      // While the call is out, bob2's id is seen with another key here
+      // (tainted), and the history is closed at a raised allowance. The
+      // settle in this run has the reset's lists, which list bob2.
+      rig.server.onCall = (call) async {
+        if (call != 'commitConversation') return;
+        await rig.putKeyHistory(
+          _c1,
+          ids: [(bob.id, bob.key)],
+          changed: [bob2.id],
+          closed: true,
+          allow: 512,
+        );
+      };
+      await reset();
+      expect((await groupAt(2))!.provisional, isFalse);
+      expect((await pin(bob.id))!.side, MemberSide.theirs);
+      expect((await pin(bob2.id))!.side, MemberSide.unattributed);
+      final unknownLines = [
+        for (final l in await lines())
+          if (l.line == SystemLine.unknownDevice) l,
+      ];
+      expect(unknownLines, hasLength(1));
+      expect(rigEq(unknownLines.single.deviceId!, bob2.id), isTrue);
+      expect((await state()).unknownDevicePresent, isTrue);
+      final history = (await rig.keyHistory(_c1))!;
+      expect(history['closed'], isTrue);
+      expect(history['allow'], 512);
+      expect(await rig.keyHistoryChanged(_c1), [vaultDeviceIdHex(bob2.id)]);
+    });
+
     test('STALE_EPOCH: the provisional group is deleted and the winner\'s '
         'welcome is joined', () async {
       await setUpJoined();
