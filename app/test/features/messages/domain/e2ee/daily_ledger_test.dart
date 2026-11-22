@@ -515,7 +515,7 @@ void main() {
 
     test('an exhausted record: every reversal is an undo and the count reads '
         'at its cap', () async {
-      const capped = DailyRecord.capped('2026-03-10');
+      final capped = DailyRecord.capped(istDay(clock));
       expect(capped.undoneIn(_conv), kAntiFlapUndosPerDay);
       expect(
         capped.undoesOwnChange(_conv, added: [a], removed: const []),
