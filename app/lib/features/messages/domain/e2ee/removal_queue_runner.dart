@@ -502,6 +502,13 @@ class RemovalQueueRunner {
   /// entries are un-parked and a pass starts. Never throws. Completes once
   /// the un-park is stored, never waiting for the pass (review I3): it may
   /// be called while holding a conversation lock.
+  ///
+  /// Never call it (or [onAccepted]) inside a `VaultSession.runWrite`
+  /// body, and never await it there: the un-park is stored with its own
+  /// `runWrite`, which waits for the write the caller holds (the session's
+  /// mutex is not re-entrant), so that would deadlock in a release build
+  /// and fail with a [StateError] in a debug build (fix round 2, ruling
+  /// 16). Call it after the write returned.
   Future<void> noteConversation(String conversationId) =>
       _unparkIfUsable(conversationId);
 
@@ -509,7 +516,8 @@ class RemovalQueueRunner {
   /// whose reconcile already carried the queued removals): its parked
   /// entries are un-parked when it can be answered, and a pass starts (it
   /// lets go of the removed ones). Never throws. Like [noteConversation]
-  /// it never waits for the pass, so it may be called under a lock.
+  /// it never waits for the pass, so it may be called under a lock, and
+  /// like it, never inside a `runWrite` body.
   Future<void> onAccepted(String conversationId) =>
       _unparkIfUsable(conversationId);
 
