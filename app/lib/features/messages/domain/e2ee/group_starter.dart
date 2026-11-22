@@ -331,10 +331,15 @@ class GroupStarter {
   /// with a lasting answer (fix round 2, ruling 2: a STALE_EPOCH naming this
   /// conversation, CANNOT_MESSAGE, FEATURE_DISABLED or NOT_FOUND, never one
   /// with a retry time; a rate limit, a quota, degraded mode and the other
-  /// checks made before the replay lookup are unknown outcomes). The only
-  /// evidence on which [discardInit] discards a group
-  /// the server holds as this device's. Cleared before each request of the
-  /// row, by its settle or discard ([_forget]) and by [reset].
+  /// refusals that do not last are unknown outcomes). The only evidence on
+  /// which [discardInit] discards a group the server holds as this
+  /// device's. Fix round 3, ruling 5 (audit L-1): CANNOT_MESSAGE,
+  /// FEATURE_DISABLED and NOT_FOUND are made BEFORE the server's replay
+  /// lookup, and can be undone (an unblock, a reactivation, an allowlist
+  /// change): they count because they last, so the discard they allow may
+  /// still delete a group the server holds. Only the STALE_EPOCH comes
+  /// after the lookup. Cleared before each request of the row, by its
+  /// settle or discard ([_forget]) and by [reset].
   final Set<String> _replayRefused = {};
 
   /// Pre-flag-on fix round 2, ruling 3 (code review m-A, audit L-a): when

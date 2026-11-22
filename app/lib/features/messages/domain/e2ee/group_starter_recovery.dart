@@ -397,7 +397,9 @@ extension _Recovery on GroupStarter {
             // Why: the server runs those checks BEFORE its replay lookup,
             // so they say nothing about the group, and a discard on them
             // deletes a conversation the server still holds as ours. The
-            // first page is still asked: it can only settle, never
+            // lasting ones are made before the lookup too, and count only
+            // because they last ([_lastingRefusal], fix round 3, ruling 5).
+            // The first page is still asked: it can only settle, never
             // discard.
             if (_lastingRefusal(e)) {
               _replayRefused.add(row.localId);
@@ -816,11 +818,16 @@ OutboxItem _withAttempt(OutboxItem r, int attempts, {String? lastError}) =>
     );
 
 /// Pre-flag-on fix round 2, ruling 2: whether the server's refusal [e] of a
-/// replay is a lasting answer about the conversation, made AFTER the
-/// server's replay lookup found nothing to replay: CANNOT_MESSAGE,
-/// FEATURE_DISABLED, or NOT_FOUND for the conversation (a STALE_EPOCH
-/// naming this conversation is the other one, read in [_sendLocked]). A
-/// refusal that names a retry time never counts.
+/// replay is a lasting answer about the conversation: CANNOT_MESSAGE,
+/// FEATURE_DISABLED, or NOT_FOUND for the conversation. A refusal that
+/// names a retry time never counts.
+///
+/// Fix round 3, ruling 5 (audit L-1): these three are made BEFORE the
+/// server's replay lookup, not after it; they count because they last,
+/// not because the lookup found nothing. They can be undone (an unblock, a
+/// reactivation, an allowlist change), so a discard on them may delete a
+/// group the server still holds as ours. Only a STALE_EPOCH naming this
+/// conversation (read in [_sendLocked]) comes after the lookup.
 bool _lastingRefusal(AppException e) =>
     _refusalRetryAfter(e) == null &&
     (e is CannotMessageException ||
