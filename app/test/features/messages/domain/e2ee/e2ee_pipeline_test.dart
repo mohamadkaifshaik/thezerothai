@@ -176,6 +176,17 @@ void main() {
           id: _c2,
           peer: common.AuthorSnapshot(userId: 'ref-carol'),
         );
+      // 13b-i review N1: only `send` may read the cache; every other member
+      // touches nothing of the repository (snapshots around them).
+      var mark = messaging.touched.length;
+      void expectUntouched(String where) {
+        expect(
+          messaging.touched.sublist(mark),
+          isEmpty,
+          reason: '$flag: $where',
+        );
+      }
+
       final port = EncryptedMessagingImpl(pipeline);
       final previewIds = <String>[];
       final previewSub = port.previewChanged.listen(previewIds.add);
@@ -194,6 +205,7 @@ void main() {
       expect(thread.security.state, ConversationEncryptionState.ready);
       expect(thread.security.canSend, isTrue);
       await port.loadOlder(const ThreadRef.conversation(_c1));
+      expectUntouched('the members before send');
       for (final to in [
         const ThreadRef.conversation(_c1),
         ThreadRef.recipientOf(common.AuthorSnapshot(userId: 'ref-bob')),
@@ -212,6 +224,12 @@ void main() {
           reason: '$flag: ever encrypted',
         );
       }
+      expect(
+        messaging.touched.sublist(mark).toSet(),
+        _inertCacheReads,
+        reason: '$flag: send',
+      );
+      mark = messaging.touched.length;
       await port.retrySend('local-1');
       await expectLater(
         port.resetConversation(_c1),
@@ -230,6 +248,7 @@ void main() {
       await Future<void>.delayed(Duration.zero);
       await previewSub.cancel();
       expect(previewIds, isEmpty);
+      expectUntouched('the members after send');
 
       expect(engineAsked, 0, reason: '$flag: the engine factory');
       expect(world.calls, isEmpty, reason: '$flag: the vault openers');
