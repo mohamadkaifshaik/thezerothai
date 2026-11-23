@@ -241,6 +241,19 @@ void main() {
       });
     });
 
+    test('a message waiting to decrypt says so, before any other state '
+        '(Task 13b item 27)', () {
+      final x = DecryptedMessage(
+        id: 'x',
+        at: _at(0),
+        mine: false,
+        state: EncryptedMessageState.undecryptable,
+        waitingToDecrypt: true,
+      );
+      expect(encryptedDisplayText(x), kWaitingToDecryptText);
+      expect(encryptedIsPlaceholder(x), isTrue);
+    });
+
     test('text of an unverified message is never used even if set', () {
       final x = m(check: MessageCheck.unverified, text: 'secret');
       expect(encryptedDisplayText(x), kCouldNotVerifyText);

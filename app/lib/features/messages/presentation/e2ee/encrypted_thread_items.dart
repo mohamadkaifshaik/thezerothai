@@ -9,6 +9,8 @@ import 'encryption_copy.dart';
 /// fixed placeholder of its state or check. The `text` of any other row is never
 /// read.
 String encryptedDisplayText(DecryptedMessage m) {
+  // Plan 5a Task 13b (gate item 27): a message still held to decrypt again.
+  if (m.waitingToDecrypt) return kWaitingToDecryptText;
   return switch (m.state) {
     EncryptedMessageState.visible => switch (m.check) {
       MessageCheck.ok => m.text,

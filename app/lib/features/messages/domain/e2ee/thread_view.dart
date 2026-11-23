@@ -1,13 +1,208 @@
 import '../../../../core/network/app_exception.dart';
+import '../../../../core/vault/secure_vault.dart';
+import 'deferred_record.dart' show DeferredView;
 import 'e2ee_types.dart';
 import 'encrypted_messaging.dart';
 import 'group_starter.dart' show kStartErrorPeerHasNoDevice;
 import 'message_content_codec.dart';
 
-// Plan 5a Task 13b: the pure mapping from the pipeline's rows to the port's
-// thread entries (no engine, no network, no vault). Step 13b-i holds the
-// outgoing half; the stored-row, system-line, preview and security mappings
-// come with step 13b-ii.
+// Plan 5a Task 13b: the pure mapping from the pipeline's rows and state to
+// the port's thread entries, previews and security (no engine, no network,
+// no vault reads). Step 13b-i: the outgoing half; step 13b-ii: the rest.
+
+/// 5b's preview text limit (characters, a single line).
+const int kPreviewTextMax = 140;
+
+/// The port's security of one conversation from the pipeline's state
+/// ("Produces for Plan 5b", the mapping). [usable]: the vault is ready, the
+/// engine works and the device is not removed elsewhere; when false
+/// nothing can be sent and nothing reset.
+///
+/// A conversation the pipeline knows nothing about (phase `notEncrypted`)
+/// is `ready` with `canSend` (the port's empty thread: whether it is
+/// encrypted is the caller's decision). Otherwise the first that holds, in
+/// 5b's order: pendingRequest, waitingForDevice, stuck, changesBlocked,
+/// unknownDevice, listUnverifiable (Task 2's M4 rule decides it, never a
+/// routine cap: gate item 38), peerHasNoDevice, sendPaused, syncing, ready
+/// (a provisional group is ready).
+ConversationSecurity securityOf(
+  ConversationCryptoState state, {
+  required bool usable,
+}) {
+  if (state.phase == ConversationPhase.notEncrypted) {
+    // The port's documented answer for a ref the pipeline knows nothing
+    // about: ready, canSend, no entries (the caller decides encryption).
+    return const ConversationSecurity(state: ConversationEncryptionState.ready);
+  }
+  final unaccepted = !state.requestAccepted;
+  final pending = unaccepted && state.incomingRequest;
+  final sent = unaccepted && !state.incomingRequest;
+  final ConversationEncryptionState s;
+  if (pending) {
+    s = ConversationEncryptionState.pendingRequest;
+  } else if (state.phase == ConversationPhase.waitingForWelcome) {
+    s = ConversationEncryptionState.waitingForDevice;
+  } else if (state.phase == ConversationPhase.stuck) {
+    s = ConversationEncryptionState.stuck;
+  } else if (state.committingPausedToday) {
+    s = ConversationEncryptionState.changesBlocked;
+  } else if (state.unknownDevicePresent) {
+    s = ConversationEncryptionState.unknownDevice;
+  } else if (state.deviceListUnverifiable) {
+    s = ConversationEncryptionState.listUnverifiable;
+  } else if (state.sendBlock == SendBlock.peerHasNoDevice) {
+    s = ConversationEncryptionState.peerHasNoDevice;
+  } else if (state.sendBlock == SendBlock.epochMustAdvance) {
+    s = ConversationEncryptionState.sendPaused;
+  } else if (state.sendBlock == SendBlock.notSynced) {
+    s = ConversationEncryptionState.syncing;
+  } else {
+    s = ConversationEncryptionState.ready;
+  }
+  final blocked = switch (s) {
+    ConversationEncryptionState.pendingRequest ||
+    ConversationEncryptionState.waitingForDevice ||
+    ConversationEncryptionState.stuck ||
+    ConversationEncryptionState.unknownDevice ||
+    ConversationEncryptionState.peerHasNoDevice => true,
+    // Difference 1: M5 stops commits; sends only while an unknown device
+    // is present.
+    ConversationEncryptionState.changesBlocked => state.unknownDevicePresent,
+    _ => false,
+  };
+  final member =
+      state.phase == ConversationPhase.ready ||
+      state.phase == ConversationPhase.provisional;
+  final counts = member && !unaccepted;
+  return ConversationSecurity(
+    state: s,
+    canSend: usable && !blocked,
+    canReset: usable && !sent && state.canReset,
+    sentRequest: sent,
+    myDevices: counts ? state.myDeviceCount : 0,
+    theirDevices: counts ? state.theirDeviceCount : 0,
+  );
+}
+
+/// A stored message row as the port's entry. Gate item 26: the stored check
+/// `badReportKey` (a matching commitment over content whose report key has
+/// the wrong length) is `unverified`, as a real mismatch is; the port has no
+/// field for the detail (recorded for the port-additions PR). Text and
+/// shared post only for a visible row whose check is ok and whose bytes
+/// decode; `canReport` for the peer's visible row whose bytes are here.
+DecryptedMessage entryOfStored(StoredMessage row) {
+  final state = _stateOf(row.state);
+  final visible = state == EncryptedMessageState.visible;
+  final content = row.content;
+  var check = switch (row.check) {
+    StoredMessageCheck.ok => MessageCheck.ok,
+    StoredMessageCheck.undecodable => MessageCheck.undecodable,
+    _ => MessageCheck.unverified,
+  };
+  var text = '';
+  var shared = '';
+  if (visible && check == MessageCheck.ok) {
+    final decoded = content == null
+        ? null
+        : decodeMessageContentLenient(content);
+    if (decoded == null || !decoded.wireOk) {
+      check = MessageCheck.undecodable;
+    } else {
+      text = decoded.text;
+      shared = decoded.sharedPostId;
+    }
+  }
+  return DecryptedMessage(
+    id: row.messageId,
+    at: DateTime.fromMicrosecondsSinceEpoch(row.createdAtMicros, isUtc: true),
+    mine: row.mine,
+    state: state,
+    check: check,
+    text: text,
+    sharedPostId: shared,
+    canReport: !row.mine && visible && content != null,
+  );
+}
+
+EncryptedMessageState _stateOf(String stored) => switch (stored) {
+  StoredMessageState.visible => EncryptedMessageState.visible,
+  StoredMessageState.removed => EncryptedMessageState.removed,
+  StoredMessageState.deletedAccount => EncryptedMessageState.deletedAccount,
+  _ => EncryptedMessageState.undecryptable,
+};
+
+/// A stored system row as the port's line; null when its content does not
+/// decode or names a line this build does not know (never shown).
+SystemLineEntry? lineOfStored(StoredMessage row) {
+  final content = row.content;
+  if (content == null) return null;
+  final line = SystemLineContent.decode(content);
+  if (line == null) return null;
+  final kind = switch (line.line) {
+    SystemLine.encryptionReset => SystemLineKind.encryptionReset,
+    SystemLine.deviceAdded => SystemLineKind.deviceAdded,
+    SystemLine.deviceRemoved => SystemLineKind.deviceRemoved,
+    SystemLine.unknownDevice => SystemLineKind.unknownDevice,
+    _ => null,
+  };
+  if (kind == null) return null;
+  final side = switch (line.side) {
+    MemberSide.mine => LineSide.mine,
+    MemberSide.theirs => LineSide.theirs,
+    MemberSide.unattributed => LineSide.unattributed,
+    _ => null,
+  };
+  return SystemLineEntry(
+    id: row.messageId,
+    at: DateTime.fromMicrosecondsSinceEpoch(row.createdAtMicros, isUtc: true),
+    kind: kind,
+    side: side,
+  );
+}
+
+/// Gate item 27: a message this device still holds and will try to decrypt
+/// again: undecryptable, waiting, with no side, text or report.
+DecryptedMessage entryOfDeferred(DeferredView view) => DecryptedMessage(
+  id: view.id,
+  at: DateTime.fromMicrosecondsSinceEpoch(view.atMicros, isUtc: true),
+  mine: false,
+  state: EncryptedMessageState.undecryptable,
+  waitingToDecrypt: true,
+);
+
+/// The inbox preview of a conversation from its newest stored message row
+/// (never a system row; the caller picks it). [genericOnly]: an unaccepted
+/// incoming request (R10). `generic` with no row. Text: the first line, cut
+/// to [kPreviewTextMax] characters (never inside a surrogate pair).
+ConversationPreview previewOf(
+  StoredMessage? newest, {
+  required bool genericOnly,
+}) {
+  if (genericOnly || newest == null) {
+    return const ConversationPreview(kind: PreviewKind.generic);
+  }
+  final e = entryOfStored(newest);
+  final kind = switch (e.state) {
+    EncryptedMessageState.removed => PreviewKind.removed,
+    EncryptedMessageState.deletedAccount => PreviewKind.deletedAccount,
+    EncryptedMessageState.undecryptable => PreviewKind.undecryptable,
+    EncryptedMessageState.visible => switch (e.check) {
+      MessageCheck.unverified => PreviewKind.unverified,
+      MessageCheck.undecodable => PreviewKind.undecodable,
+      MessageCheck.ok =>
+        e.sharedPostId.isNotEmpty ? PreviewKind.sharedPost : PreviewKind.text,
+    },
+  };
+  if (kind != PreviewKind.text) {
+    return ConversationPreview(kind: kind, mine: e.mine);
+  }
+  final firstLine = e.text.split('\n').first;
+  final runes = firstLine.runes;
+  final text = runes.length <= kPreviewTextMax
+      ? firstLine
+      : String.fromCharCodes(runes.take(kPreviewTextMax));
+  return ConversationPreview(kind: kind, text: text, mine: e.mine);
+}
 
 /// One own unsent row (`EncryptedSender.outgoing`, or the starter's pending
 /// init) as the port's entry: [ThreadEntry.id] is the caller's `localId`
