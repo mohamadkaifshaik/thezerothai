@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import '../../../../gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import '../../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import 'conversation_crypto.dart' show CatchUpResult;
@@ -541,6 +543,7 @@ class SyncCoordinator {
   }
 
   /// Completes when nothing this coordinator started is running.
+  @visibleForTesting
   Future<void> idle() async {
     while (_inflight.isNotEmpty || _queueRunning) {
       await Future.wait([..._inflight]);
