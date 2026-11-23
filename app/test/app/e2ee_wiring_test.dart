@@ -281,4 +281,9 @@ void main() {
       expect(publicIdsKnownOff(const OnboardingState()), isFalse);
     });
   });
+
+  test('encryptedMessagingOver: no pipeline (a platform with no vault), no '
+      'port (Task 13b ruling 1)', () {
+    expect(encryptedMessagingOver(null), isNull);
+  });
 }

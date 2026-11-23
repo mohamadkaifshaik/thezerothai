@@ -100,7 +100,16 @@ final _required = <String, RegExp>{
   'onSessionEnd: (end) => e2eePipeline?.forgetNotes(end)': RegExp(
     r'onSessionEnd:\s*\((\w+)\)\s*=>\s*e2eePipeline\?\.forgetNotes\(\s*\1\s*\)',
   ),
+  // Plan 5a Task 13b (controller ruling 1): the port, one for the app's
+  // lifetime, over the pipeline (null where the pipeline is not built).
+  'final encryptedMessaging = encryptedMessagingOver(e2eePipeline)': RegExp(
+    r'final\s+encryptedMessaging\s*=\s*encryptedMessagingOver\(\s*e2eePipeline\s*\)',
+  ),
 };
+
+/// Plan 5a Task 13b (controller ruling 1): the port is NOT handed to the
+/// widget tree here; 5b's Task 14 does that.
+final _portInAppWidget = RegExp(r'AppWidget\([^;]*\bencryptedMessaging\b');
 
 final _declaration = RegExp(
   r'late\s+final\s+E2eePipeline\?\s+e2eePipeline\s*;',
@@ -135,6 +144,9 @@ List<String> missingE2eeWiring(String source) {
   }
   for (final e in _required.entries) {
     if (!e.value.hasMatch(code)) missing.add(e.key);
+  }
+  if (_portInAppWidget.hasMatch(code)) {
+    missing.add('the port is not passed to AppWidget (5b Task 14)');
   }
   // N1: nothing awaits between the declaration and the one assignment.
   final declared = _declaration.allMatches(code).toList();
@@ -237,6 +249,18 @@ void main() {
           ),
         ),
         ['onSessionEnd: (end) => e2eePipeline?.forgetNotes(end)'],
+      );
+    });
+
+    test('the port handed to AppWidget is seen', () {
+      final cut = source.replaceFirst(
+        'AppWidget(',
+        'AppWidget(encryptedMessaging: encryptedMessaging, ',
+      );
+      expect(cut, isNot(source));
+      expect(
+        missingE2eeWiring(cut),
+        contains('the port is not passed to AppWidget (5b Task 14)'),
       );
     });
 
