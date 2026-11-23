@@ -39,6 +39,13 @@ extension _InitDiscard on GroupStarter {
   }) async {
     final op = await _op();
     if (op == null) return InitDiscard.notDecided;
+    // Port additions, SA L1 (flag-on gate G1). Decision: a device removed
+    // elsewhere, or whose removed-elsewhere fact is not known yet (the seam
+    // is `stopsPipeline`, which fails closed), decides nothing and asks
+    // nothing. Why: the decision below may call ListConversationCommits and
+    // ListMessages, and Task 12 keeps such a device silent; checked here so
+    // that no caller (the port, the pipeline) can go around it.
+    if (_removedElsewhere()) return InitDiscard.notDecided;
     GroupRecord? group;
     for (final g in await op.vault.groups(id)) {
       if (g.provisional) group = g;

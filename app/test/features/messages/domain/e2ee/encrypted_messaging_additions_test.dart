@@ -1,8 +1,10 @@
 import 'package:dzeroth/core/network/app_exception.dart';
+import 'package:dzeroth/features/keys/domain/device_keys_service.dart'
+    show RemovedElsewhere;
 import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging_impl.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/group_starter.dart'
-    show kInitResendMargin;
+    show InitDiscard, kInitResendMargin;
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/keys/v1/keys.pb.dart' as kpb;
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
@@ -171,6 +173,56 @@ void main() {
       expect((await vault.group(_c2, 1))!.provisional, isTrue);
       expect((await vault.outbox()).items.single.init, isNotNull);
     });
+
+    for (final state in [RemovedElsewhere.removed, RemovedElsewhere.unknown]) {
+      test('a pending first message on a stopped device ($state) answers '
+          'notDecided with no MLS call, through the port and through the '
+          "starter's own discard (SA L1, flag-on gate G1)", () async {
+        await unansweredInit();
+        if (state == RemovedElsewhere.removed) {
+          h.deviceKeys.markRemoved();
+        } else {
+          h.deviceKeys.state = state;
+        }
+        await h.settle();
+        final calls = h.rig.server.calls.length;
+
+        expect(await port.discardUnsent('local-1'), UnsentDiscard.notDecided);
+        expect(
+          await h.pipeline.starter.discardInit(_c2),
+          InitDiscard.notDecided,
+        );
+
+        expect(h.rig.server.calls.sublist(calls), isEmpty, reason: 'no RPC');
+        final vault = h.rig.device.vault;
+        expect((await vault.group(_c2, 1))!.provisional, isTrue);
+        expect((await vault.outbox()).items.single.init, isNotNull);
+      });
+    }
+
+    test(
+      'a pending first message while the pipeline is not started answers '
+      'notDecided with no MLS call (SA L1: the rule of _discardOrOwe)',
+      () async {
+        await unansweredInit();
+        // Removed, then the fact clears with no wake: the pipeline stays
+        // stopped though nothing stops it now.
+        h.deviceKeys.markRemoved();
+        await h.settle();
+        h.deviceKeys.state = RemovedElsewhere.notRemoved;
+        expect(h.pipeline.started, isFalse);
+        expect(h.pipeline.hasParts, isTrue);
+        final calls = h.rig.server.calls.length;
+
+        expect(await port.discardUnsent('local-1'), UnsentDiscard.notDecided);
+
+        expect(h.rig.server.calls.sublist(calls), isEmpty, reason: 'no RPC');
+        expect(
+          (await h.rig.device.vault.outbox()).items.single.init,
+          isNotNull,
+        );
+      },
+    );
   });
 
   group('an unreadable outbox row (gate item 18, a flag-on gate)', () {

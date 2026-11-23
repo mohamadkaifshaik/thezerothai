@@ -562,10 +562,19 @@ class EncryptedMessagingImpl implements EncryptedMessaging {
   /// Gate item 15: [row] is an init row; only while it is the pending init
   /// of its conversation is it discarded, by the starter (offered on a
   /// pending init row only).
+  ///
+  /// SA L1 (flag-on gate G1): the init discard makes MLS calls, so it runs
+  /// only while the pipeline is started and nothing stops it, the rule the
+  /// pipeline's own delete-for-me uses (`_discardOrOwe`); otherwise
+  /// `notDecided` ("try again") with no call. The starter checks the
+  /// stopped fact itself too.
   Future<UnsentDiscard> _discardInit(
     PipelineParts parts,
     OutboxItem row,
   ) async {
+    if (!_pipeline.started || _pipeline.deviceKeys.stopsPipeline) {
+      return UnsentDiscard.notDecided;
+    }
     final id = row.conversationId;
     final recipient = row.recipientUserId;
     final pending = id != null
