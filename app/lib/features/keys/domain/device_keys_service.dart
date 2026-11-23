@@ -811,48 +811,6 @@ class DeviceKeysService {
     });
   });
 
-  Future<_Local> _loadOrCreate(SecureVault v) async {
-    final idBytes = await v.deviceId();
-    if (idBytes != null) {
-      final id = _decodeId(idBytes);
-      final state = await v.deviceState();
-      final key = await v.setting(kVaultSettingDeviceSignatureKey);
-      if (id != null && state != null && key != null && key.length == 32) {
-        return _Local(
-          id: id,
-          signatureKey: key,
-          created: false,
-          lastSeenMicros: await _readMicros(v, kVaultSettingDeviceLastSeen),
-          lastResortMicros: await _readMicros(v, kVaultSettingLastResortAt),
-        );
-      }
-      // Cannot happen (written in one transaction). Fail closed: never
-      // overwrite or rotate an existing device here.
-      throw const _DeviceUnusable();
-    }
-    final engine = _engine();
-    final random = await engine.randomBytes(16);
-    final id = _hex(random);
-    final idBytesNew = Uint8List.fromList(utf8.encode(id));
-    final created = await engine.createDevice(idBytesNew);
-    await v.transaction((tx) async {
-      await tx.putDevice(idBytesNew, created.deviceState);
-      await tx.putSetting(
-        kVaultSettingDeviceSignatureKey,
-        created.signaturePublicKey,
-      );
-      await tx.putSetting(kVaultSettingDeviceLastSeen, _micros(0));
-      await tx.putSetting(kVaultSettingLastResortAt, _micros(0));
-    });
-    return _Local(
-      id: id,
-      signatureKey: created.signaturePublicKey,
-      created: true,
-      lastSeenMicros: 0,
-      lastResortMicros: 0,
-    );
-  }
-
   Future<void> _persist(
     SecureVault vault,
     String uid,
