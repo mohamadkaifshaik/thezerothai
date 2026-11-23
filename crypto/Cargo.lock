@@ -58,6 +58,7 @@ dependencies = [
  "ctr 0.9.2",
  "ghash 0.5.1",
  "subtle",
+ "zeroize",
 ]
 
 [[package]]
@@ -492,6 +493,7 @@ name = "dzmls"
 version = "0.1.0"
 dependencies = [
  "aes 0.8.4",
+ "aes-gcm 0.10.3",
  "aes-gcm 0.11.1",
  "openmls",
  "openmls_basic_credential",
