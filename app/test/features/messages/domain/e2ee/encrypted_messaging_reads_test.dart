@@ -452,6 +452,39 @@ void main() {
       expect(await port.search('hello', conversationId: _c2), isEmpty);
       expect(await port.search(''), isEmpty);
     });
+
+    test('search returns the newest matches overall when there are more '
+        'than limit, whatever the conversation order (controller ruling '
+        'on 13b-ii)', () async {
+      await joined();
+      await h.offer(_c2, bob);
+      await h.pipeline.crypto.processWelcomes();
+      expect(h.pipeline.known.ids, containsAll([_c1, _c2]));
+      // _c1: many old matches over more than one read page, and the newest
+      // match of all; _c2: two matches between them.
+      for (var n = 1; n <= 55; n++) {
+        await store(_c1, n);
+      }
+      await store(_c1, 100);
+      await store(_c2, 60);
+      await store(_c2, 70);
+      final hits = await port.search('hello', limit: 3);
+      expect(hits.map((x) => (x.conversationId, x.messageId)), [
+        (_c1, _mid(100)),
+        (_c2, _mid(70)),
+        (_c2, _mid(60)),
+      ]);
+      final one = await port.search('hello', limit: 1);
+      expect(one.single.messageId, _mid(100));
+      final five = await port.search('hello', limit: 5);
+      expect(five.map((x) => x.messageId), [
+        _mid(100),
+        _mid(70),
+        _mid(60),
+        _mid(55),
+        _mid(54),
+      ]);
+    });
   });
 
   group('reportPayload (item 32)', () {

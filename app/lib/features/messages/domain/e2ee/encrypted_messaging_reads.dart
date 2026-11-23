@@ -142,11 +142,20 @@ extension _Reads on EncryptedMessagingImpl {
   }
 
   /// R14: a case-insensitive substring scan of visible, check-ok message
-  /// rows, conversation by conversation in the vault's known order, newest
-  /// first within each, [_readPage] rows per read with a yield to the event
-  /// loop between reads; stops at [limit]; the hits are returned newest
-  /// first. Unaccepted incoming requests are skipped. Nothing is indexed or
+  /// rows, conversation by conversation, newest first within each,
+  /// [_readPage] rows per read with a yield to the event loop between
+  /// reads. Unaccepted incoming requests are skipped. Nothing is indexed or
   /// written; deferred items are never searched (gate item 28).
+  ///
+  /// Controller ruling on 13b-ii, decision: the answer is the newest
+  /// [limit] matches overall, newest first. Every conversation is scanned
+  /// into a bounded set of the newest [limit] hits so far; a conversation
+  /// stops as soon as the set is full and its next row is older than the
+  /// set's oldest hit (the vault's sort key is the creation time, then the
+  /// message id, so every later row is older too). Why this rather than
+  /// ordering the conversations by activity first: the guarantee holds
+  /// whatever the order, with no extra read per conversation, and the
+  /// early stop keeps the scan bounded much the same.
   Future<List<EncryptedSearchHit>> _search(
     String query, {
     required String? conversationId,
@@ -170,7 +179,7 @@ extension _Reads on EncryptedMessagingImpl {
             .clearedAtMicros;
         String? before;
         var more = true;
-        while (more && hits.length < limit) {
+        while (more) {
           final rows = await parts.vault.messages(
             id,
             limit: _readPage,
@@ -181,15 +190,20 @@ extension _Reads on EncryptedMessagingImpl {
               more = false;
               break;
             }
+            // Full, and this row (and every later one) is older than the
+            // oldest kept hit: nothing more of this conversation can enter.
+            if (hits.length >= limit &&
+                r.createdAtMicros < hits.last.at.microsecondsSinceEpoch) {
+              more = false;
+              break;
+            }
             final hit = _hitOf(r, needle);
-            if (hit != null) hits.add(hit);
-            if (hits.length >= limit) break;
+            if (hit != null) _keepNewest(hits, hit, limit);
           }
           if (rows.length < _readPage) more = false;
           if (rows.isNotEmpty) before = rows.last.sortKey;
           await Future<void>.delayed(Duration.zero);
         }
-        if (hits.length >= limit) break;
       }
     } on Object catch (e, s) {
       if (EncryptedMessagingImpl._isBug(e)) {
@@ -197,8 +211,23 @@ extension _Reads on EncryptedMessagingImpl {
       }
       return const [];
     }
-    hits.sort((a, b) => b.at.compareTo(a.at));
     return hits;
+  }
+
+  /// Inserts [hit] into [hits] (newest first) and drops the oldest past
+  /// [limit]. A tie in time goes after the hits already kept.
+  static void _keepNewest(
+    List<EncryptedSearchHit> hits,
+    EncryptedSearchHit hit,
+    int limit,
+  ) {
+    var i = hits.length;
+    while (i > 0 && hits[i - 1].at.isBefore(hit.at)) {
+      i--;
+    }
+    if (i >= limit) return;
+    hits.insert(i, hit);
+    if (hits.length > limit) hits.removeLast();
   }
 
   EncryptedSearchHit? _hitOf(StoredMessage r, String needle) {
