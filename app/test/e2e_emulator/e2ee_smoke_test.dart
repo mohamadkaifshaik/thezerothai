@@ -10,6 +10,7 @@ import 'package:dzeroth/features/messages/domain/e2ee/message_content_codec.dart
 import 'package:dzeroth/features/messages/presentation/report_conversation.dart'
     show encryptedReportTargetId;
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pbenum.dart';
+import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import 'package:dzeroth/gen/dzeroth/moderation/v1/moderation.pbenum.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -181,12 +182,32 @@ void _scenario() {
       );
 
       // The conversation is MLS at (1, 1): the server's header, and the pair
-      // both vaults stored the message at.
+      // both vaults stored the message at. messaging.proto
+      // (Conversation.encryption) fills the encryption and the pair on a
+      // SendMessage response and a ListMessages first page; every
+      // ListConversations row leaves them UNSPECIFIED and marks an encrypted
+      // conversation by `last_message.encrypted` instead.
       final row = (await a1.inbox()).where((r) => r.id == conv).toList();
       expect(row, hasLength(1));
       expect(
-        row.single.encryption,
+        row.single.lastMessage.encrypted,
+        isTrue,
+        reason: 'the inbox row shows an encrypted last message',
+      );
+      final page = await a1.api.messaging.listMessages(
+        pb.ListMessagesRequest(conversationId: conv),
+      );
+      expect(
+        page.conversation.encryption,
         ConversationEncryption.CONVERSATION_ENCRYPTION_MLS,
+      );
+      expect(
+        (
+          page.conversation.mlsGeneration.toInt(),
+          page.conversation.mlsEpoch.toInt(),
+        ),
+        (1, 1),
+        reason: 'the server\'s pair of the conversation after the init',
       );
       for (final dev in [a1, b1]) {
         final stored = await dev.storedWithText(conv, one);
