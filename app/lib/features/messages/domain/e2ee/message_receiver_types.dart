@@ -135,21 +135,34 @@ class _Stopped implements Exception {
 
 /// One operation's vault, user and device; no `toString`.
 class _Pass {
-  _Pass(this.session, this.vault, this.uid, this.deviceId)
-    : deviceGeneration = deviceGenerationOf(vault);
+  _Pass(
+    this.session,
+    this.vault,
+    this.uid,
+    this.deviceId, {
+    required this.deviceGeneration,
+    required this.removedElsewhere,
+  });
 
   final VaultSession session;
   final SecureVault vault;
   final String uid;
   final Uint8List deviceId;
 
-  /// The vault's device generation when the pass started (Task 12 fix
-  /// round 1, I2: a body after "set up again" writes nothing).
+  /// The vault's device generation when the pass started, read before its
+  /// first await (Task 12 fix round 1, I2: a body after "set up again"
+  /// writes nothing; fix wave 4: and no RPC follows).
   final int deviceGeneration;
+
+  /// The pipeline's removed-elsewhere fact, read again by every body (fix
+  /// wave 4, SA L2: a detection during a pass stops its writes).
+  final bool Function() removedElsewhere;
 
   bool get live {
     final v = session.vault;
-    return identical(v, vault) && v?.uid == uid;
+    return identical(v, vault) &&
+        v?.uid == uid &&
+        deviceGenerationOf(vault) == deviceGeneration;
   }
 
   /// The first thing every runWrite body does.
@@ -157,7 +170,8 @@ class _Pass {
     if (!identical(v, vault) ||
         v.uid != uid ||
         !live ||
-        deviceGenerationOf(v) != deviceGeneration) {
+        deviceGenerationOf(v) != deviceGeneration ||
+        removedElsewhere()) {
       throw const _Stopped();
     }
   }

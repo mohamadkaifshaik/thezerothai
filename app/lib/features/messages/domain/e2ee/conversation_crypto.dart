@@ -545,6 +545,8 @@ class ConversationCrypto {
   }) async {
     final vault = _session.vault;
     if (vault == null) return null;
+    // Before the first await (fix wave 4, CR Minor A / SA L3).
+    final generation = deviceGenerationOf(vault);
     try {
       final uid = vault.uid;
       final id = await vault.deviceId();
@@ -565,6 +567,7 @@ class ConversationCrypto {
         serverPairs: serverPairs,
         handled: parent?.handled,
         fromSwitch: fromSwitch,
+        deviceGeneration: generation,
       );
     } on Object catch (e, s) {
       // A closed or changed vault: nothing to do now.
@@ -731,12 +734,13 @@ class _Operation {
     Map<String, MlsPair>? serverPairs,
     Set<String>? handled,
     this.fromSwitch = false,
+    required this.deviceGeneration,
   }) : serverPairs = serverPairs ?? {},
-       handled = handled ?? {},
-       deviceGeneration = deviceGenerationOf(vault);
+       handled = handled ?? {};
 
-  /// The vault's device generation when the operation started (Task 12
-  /// fix round 1, I2: a body after "set up again" writes nothing).
+  /// The vault's device generation when the operation started, read before
+  /// its first await (Task 12 fix round 1, I2: a body after "set up again"
+  /// writes nothing; fix wave 4: and no RPC follows).
   final int deviceGeneration;
 
   /// The poll of catch-up's generation switch (the held conversation was
@@ -765,9 +769,13 @@ class _Operation {
   final int cacheSession;
   final BudgetPriority priority;
 
+  /// Also false once "set up again" ran (fix wave 4): a stale operation
+  /// stops its RPCs too, not only its writes.
   bool get live {
     final v = session.vault;
-    return identical(v, vault) && v?.uid == uid;
+    return identical(v, vault) &&
+        v?.uid == uid &&
+        deviceGenerationOf(vault) == deviceGeneration;
   }
 
   /// The first thing every runWrite body of the operation does.

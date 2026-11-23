@@ -270,6 +270,69 @@ void main() {
     expect(state.phase, ConversationPhase.waitingForWelcome);
   });
 
+  test('a start whose device id read straddles setUpAgain makes no call and '
+      'stores nothing (fix wave 4, generation read before the first '
+      'await)', () async {
+    await rig.accept(_c1);
+    rig.header(_c1, 'ref-bob');
+    await rig.offer(_c1, bob);
+    // The poll's start holds in its device id read (the OLD id).
+    final hold = Completer<void>();
+    final holding = Completer<void>();
+    rig.device.onDeviceId = () async {
+      if (holding.isCompleted) return;
+      holding.complete();
+      await hold.future;
+    };
+    // The reset's transaction runs; its new device row waits.
+    final cleared = Completer<void>();
+    final newRow = Completer<void>();
+    keys.beforeRecreate = () {
+      cleared.complete();
+      return newRow.future;
+    };
+    final calls = rig.server.calls.length;
+
+    final poll = rig.crypto.processWelcomes();
+    await holding.future;
+    final setUp = reset.setUpAgain();
+    await cleared.future;
+    hold.complete();
+    final joined = await poll;
+    newRow.complete();
+    await setUp;
+    rig.device.onDeviceId = null;
+
+    expect(joined, isEmpty);
+    expect(rig.server.calls.sublist(calls), isEmpty);
+    expect(await rig.device.vault.groups(_c1), isEmpty);
+  });
+
+  test('an operation stopped by setUpAgain sends no further call (fix wave '
+      '4, live compares the generation)', () async {
+    await rig.accept(_c1);
+    rig.header(_c1, 'ref-bob');
+    await rig.offer(_c1, bob);
+    final newRow = Completer<void>();
+    keys.beforeRecreate = () => newRow.future;
+    Future<void>? setUp;
+    var after = -1;
+    rig.server.onCall = (call) async {
+      if (call != 'listWelcomes' || setUp != null) return;
+      setUp = reset.setUpAgain();
+      after = rig.server.calls.length;
+    };
+
+    await rig.crypto.processWelcomes();
+    rig.server.onCall = null;
+    final later = rig.server.calls.sublist(after);
+    newRow.complete();
+    await setUp;
+
+    expect(later, isEmpty);
+    expect(await rig.device.vault.groups(_c1), isEmpty);
+  });
+
   test('after setUpAgain the first-saw times start again, so no manual '
       'reset is offered at once (fix round 1, M1)', () async {
     await join(_c1);

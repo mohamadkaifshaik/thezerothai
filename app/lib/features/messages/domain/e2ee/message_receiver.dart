@@ -893,10 +893,19 @@ class MessageReceiver implements EpochMessageSink {
     final vault = _session.vault;
     // Task 12: every pass, sink walk and retry stops while removed elsewhere.
     if (vault == null || _crypto.removedElsewhere) return null;
+    // Before the first await (fix wave 4, CR Minor A / SA L3).
+    final generation = deviceGenerationOf(vault);
     try {
       final deviceId = await vault.deviceId();
       if (deviceId == null) return null;
-      return _Pass(_session, vault, vault.uid, deviceId);
+      return _Pass(
+        _session,
+        vault,
+        vault.uid,
+        deviceId,
+        deviceGeneration: generation,
+        removedElsewhere: () => _crypto.removedElsewhere,
+      );
     } on Object catch (e, s) {
       _reportIfBug(e, s, 'receive.start');
       return null;
@@ -926,10 +935,12 @@ class MessageReceiver implements EpochMessageSink {
     BudgetPriority priority,
     String lane,
   ) async {
-    if (budget.paused) return false;
+    // Fix wave 4 (SA L2): a detection during a pass stops its next call,
+    // also one that waited for its unit.
+    if (budget.paused || _crypto.removedElsewhere) return false;
     try {
       await budget.take(priority, lane: lane);
-      return true;
+      return !_crypto.removedElsewhere;
     } on BudgetPaused {
       return false;
     } on StateError {

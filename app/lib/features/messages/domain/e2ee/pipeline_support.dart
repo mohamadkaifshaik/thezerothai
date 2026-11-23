@@ -107,8 +107,16 @@ void bumpDeviceGeneration(SecureVault vault) =>
 
 /// One operation's vault, user and device; no `toString`.
 class PipelineOp {
-  PipelineOp(this.session, this.vault, this.uid, this.deviceId)
-    : deviceGeneration = deviceGenerationOf(vault);
+  /// [deviceGeneration]: the generation read synchronously when the start
+  /// began, BEFORE its first await (fix wave 4, CR Minor A / SA L3), so a
+  /// reset during the start's device id read is a mismatch.
+  PipelineOp(
+    this.session,
+    this.vault,
+    this.uid,
+    this.deviceId, {
+    required this.deviceGeneration,
+  });
 
   final VaultSession session;
   final SecureVault vault;
@@ -118,9 +126,13 @@ class PipelineOp {
   /// The vault's device generation when the operation started (I2).
   final int deviceGeneration;
 
+  /// Also false once "set up again" ran (fix wave 4): a stale operation
+  /// stops its RPCs too, not only its writes.
   bool get live {
     final v = session.vault;
-    return identical(v, vault) && v?.uid == uid;
+    return identical(v, vault) &&
+        v?.uid == uid &&
+        deviceGenerationOf(vault) == deviceGeneration;
   }
 
   bool owns(SecureVault v) =>

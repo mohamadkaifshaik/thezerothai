@@ -728,10 +728,18 @@ class EncryptedSender {
   Future<_Op?> _start() async {
     final vault = _session.vault;
     if (vault == null) return null;
+    // Before the first await (fix wave 4).
+    final generation = deviceGenerationOf(vault);
     try {
       final deviceId = await vault.deviceId();
       if (deviceId == null) return null;
-      return _Op(_session, vault, vault.uid, deviceId);
+      return _Op(
+        _session,
+        vault,
+        vault.uid,
+        deviceId,
+        deviceGeneration: generation,
+      );
     } on Object catch (e, s) {
       _reportIfBug(e, s, 'send.start');
       return null;

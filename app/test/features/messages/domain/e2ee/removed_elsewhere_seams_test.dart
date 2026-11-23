@@ -19,19 +19,20 @@ import '../../../../support/e2ee_pipeline_rig.dart';
 
 const _c1 = '11111111111111111111111111111111';
 
-/// A sync budget whose first take waits for [release].
+/// A sync budget whose takes wait for [gate] while it is set and open.
 class _HeldBudget extends SyncBudget {
   _HeldBudget(RigClock clock)
     : super(perMinute: 100000, ownDeviceCount: () => 1, now: clock.now);
 
-  final Completer<void> release = Completer<void>();
+  Completer<void>? gate;
   bool waiting = false;
 
   @override
   Future<void> take(BudgetPriority priority, {Object? lane}) async {
-    if (!release.isCompleted) {
+    final g = gate;
+    if (g != null && !g.isCompleted) {
       waiting = true;
-      await release.future;
+      await g.future;
     }
     return super.take(priority, lane: lane);
   }
@@ -119,6 +120,7 @@ void main() {
     await rig.offer(_c1, bob);
     final calls = rig.server.calls.length;
 
+    budget.gate = Completer<void>();
     final poll = rig.crypto.processWelcomes();
     for (var i = 0; i < 50 && !budget.waiting; i++) {
       await Future<void>.delayed(Duration.zero);
@@ -126,10 +128,56 @@ void main() {
     expect(budget.waiting, isTrue);
     // Detection happens while the take waits in the budget's queue.
     rig.removedElsewhere = true;
-    budget.release.complete();
+    budget.gate!.complete();
 
     expect(await poll, isEmpty);
     expect(rig.server.calls.sublist(calls), isEmpty);
+  });
+
+  test("found removed while a receive pass waited for its unit: the pass's "
+      'call does not go out (fix wave 4, SA L2, _takeUnit)', () async {
+    await rig.dispose();
+    late _HeldBudget budget;
+    rig = await RigCrypto.create(
+      readBudget: (clock) => budget = _HeldBudget(clock),
+    );
+    await rig.accept(_c1);
+    rig.header(_c1, 'ref-bob');
+    await rig.offer(_c1, bob);
+    expect(await rig.crypto.processWelcomes(), [_c1]);
+    final calls = rig.server.calls.length;
+
+    budget.gate = Completer<void>();
+    final pass = rig.receiver.pullLive(_c1, priority: BudgetPriority.user);
+    for (var i = 0; i < 50 && !budget.waiting; i++) {
+      await Future<void>.delayed(Duration.zero);
+    }
+    expect(budget.waiting, isTrue);
+    rig.removedElsewhere = true;
+    budget.gate!.complete();
+    await pass;
+
+    expect(rig.server.calls.sublist(calls), isEmpty);
+  });
+
+  test('found removed while a page is listed: the page writes nothing (fix '
+      'wave 4, SA L2, _Pass.check)', () async {
+    await rig.accept(_c1);
+    rig.header(_c1, 'ref-bob');
+    await rig.offer(_c1, bob);
+    expect(await rig.crypto.processWelcomes(), [_c1]);
+    Object? atListing;
+    rig.server.onCall = (call) async {
+      if (call != 'listEpochMessages' || atListing != null) return;
+      atListing = await rig.dump();
+      rig.removedElsewhere = true;
+    };
+
+    await rig.receiver.pullLive(_c1, priority: BudgetPriority.user);
+    rig.server.onCall = null;
+
+    expect(atListing, isNotNull);
+    expect(await rig.dump(), atListing);
   });
 
   test('removed elsewhere: attribution reads no device list while a member '
