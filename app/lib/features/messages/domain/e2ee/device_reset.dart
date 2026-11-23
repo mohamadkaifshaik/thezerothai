@@ -8,6 +8,7 @@ import '../../../keys/domain/device_keys_service.dart';
 import 'conversation_context.dart';
 import 'device_key_history.dart';
 import 'former_pins.dart';
+import 'known_conversations.dart';
 import 'pipeline_support.dart' show bumpDeviceGeneration;
 
 /// The highest pair the vault takes (2^53 - 1 in both parts): the sent log
@@ -55,7 +56,9 @@ const FormerPins _formerPins = FormerPins();
 /// then waits to be added: every conversation reads `waitingForWelcome`.
 ///
 /// Uses the pipeline's ONE [DeviceKeyHistory] (pass
-/// `ConversationCrypto.keyHistory`; never construct a second one).
+/// `ConversationCrypto.keyHistory`; never construct a second one) and its
+/// ONE [KnownConversations] (every known conversation's first sighting is
+/// cleared, also one with no group left).
 ///
 /// Not wired here (Task 13): who calls it (the port's `setUpDeviceAgain`),
 /// forgetting the commit runner's and the crypto's memory of own commits
@@ -66,15 +69,18 @@ class DeviceReset {
     required DeviceKeysService deviceKeys,
     required ConversationContexts contexts,
     required DeviceKeyHistory keyHistory,
+    required KnownConversations known,
   }) : _session = session,
        _deviceKeys = deviceKeys,
        _contexts = contexts,
-       _keyHistory = keyHistory;
+       _keyHistory = keyHistory,
+       _known = known;
 
   final VaultSession _session;
   final DeviceKeysService _deviceKeys;
   final ConversationContexts _contexts;
   final DeviceKeyHistory _keyHistory;
+  final KnownConversations _known;
 
   /// Refused unless removed elsewhere ([StateError]) and the flag is on
   /// ([FeatureDisabledException]: the only choice is then to sign out);
@@ -159,6 +165,16 @@ class DeviceReset {
         ),
       );
     }
+    // Fix wave 5 (CR Minor B): every known conversation's first sighting
+    // goes too, also one with no group left (waiting for a welcome), so no
+    // manual reset is offered at once for the new id.
+    if (!_known.isLoadedFor(v)) await _known.load(v);
+    final sightings = <String, ConversationSync>{};
+    for (final id in _known.ids) {
+      if (ids.contains(id)) continue;
+      final sync = (await v.conversation(id))?.sync;
+      if (sync != null && _hasSighting(sync)) sightings[id] = sync;
+    }
     await v.transaction((tx) async {
       for (final p in plans) {
         final kept = <String, MemberRecord>{
@@ -210,18 +226,13 @@ class DeviceReset {
         // any new device; the next catch-up records a fresh sighting, so
         // the 24 h wait before a manual reset starts again.
         final sync = p.sync;
-        if (sync != null &&
-            (sync.firstSawGeneration != null ||
-                sync.firstSawGenerationAtMicros != null)) {
-          await tx.putConversationSync(
-            p.id,
-            sync.copyWith(
-              firstSawGeneration: null,
-              firstSawGenerationAtMicros: null,
-            ),
-          );
+        if (sync != null && _hasSighting(sync)) {
+          await tx.putConversationSync(p.id, _withoutSighting(sync));
         }
         await _keyHistory.writeIn(tx, p.id, p.history);
+      }
+      for (final e in sightings.entries) {
+        await tx.putConversationSync(e.key, _withoutSighting(e.value));
       }
       for (final item in outbox.items) {
         if (item.stage != OutboxStage.encrypted) continue;
@@ -245,9 +256,15 @@ class DeviceReset {
         );
       }
     });
-    return ids;
+    return {...ids, ...sightings.keys};
   }
 }
+
+bool _hasSighting(ConversationSync s) =>
+    s.firstSawGeneration != null || s.firstSawGenerationAtMicros != null;
+
+ConversationSync _withoutSighting(ConversationSync s) =>
+    s.copyWith(firstSawGeneration: null, firstSawGenerationAtMicros: null);
 
 bool _sameBytes(List<int> a, List<int> b) {
   if (a.length != b.length) return false;

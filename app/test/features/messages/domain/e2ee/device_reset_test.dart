@@ -87,6 +87,7 @@ void main() {
       deviceKeys: keys,
       contexts: rig.contexts,
       keyHistory: rig.crypto.keyHistory,
+      known: rig.known,
     );
     offers.clear();
   });
@@ -331,6 +332,37 @@ void main() {
 
     expect(later, isEmpty);
     expect(await rig.device.vault.groups(_c1), isEmpty);
+  });
+
+  test('a known conversation waiting for a welcome, with no group, gets its '
+      'first sighting cleared too (fix wave 5, CR Minor B)', () async {
+    await join(_c1);
+    final v = rig.device.vault;
+    // c2: accepted and known (it was joined once), no group left now.
+    await rig.accept(_c2);
+    await rig.known.add(_c2);
+    final seen = rig.clock.now().subtract(const Duration(hours: 25));
+    final sync = (await v.conversation(_c2))!.sync;
+    await v.transaction(
+      (tx) => tx.putConversationSync(
+        _c2,
+        sync.copyWith(
+          firstSawGeneration: 1,
+          firstSawGenerationAtMicros: seen.microsecondsSinceEpoch,
+        ),
+      ),
+    );
+    expect(await v.groups(_c2), isEmpty);
+    rig.removedElsewhere = true;
+
+    await reset.setUpAgain();
+
+    final after = (await v.conversation(_c2))!.sync;
+    expect(after.firstSawGeneration, isNull);
+    expect(after.firstSawGenerationAtMicros, isNull);
+    expect(after.requestAccepted, isTrue);
+    final state = await rig.crypto.describeState(_c2);
+    expect(state.canReset, isFalse);
   });
 
   test('after setUpAgain the first-saw times start again, so no manual '
