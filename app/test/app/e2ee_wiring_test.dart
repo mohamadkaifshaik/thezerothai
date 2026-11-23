@@ -68,7 +68,8 @@ void main() {
     late VaultStatus status;
 
     setUp(() {
-      now = DateTime.utc(2026, 11, 23, 12);
+      // Only durations matter to the throttle: any start will do.
+      now = DateTime.now();
       calls = [];
       status = VaultStatus.off;
     });
