@@ -50,9 +50,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     authRepository.onSessionEnded = _sessionEndedHook;
   }
 
-  late final void Function(String uid) _sessionEndedHook = (uid) {
+  void _sessionEndedHook(String uid) {
     if (!isClosed) add(AuthSessionEndedByServer(uid));
-  };
+  }
 
   /// The uid being signed out for SESSION_ENDED; cleared by its end (or a
   /// failed sign-out). Deduplicates a burst of reports.
@@ -350,7 +350,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   Future<void> close() {
     _unknownTimer?.cancel();
     _userSubscription?.cancel();
-    if (identical(_authRepository.onSessionEnded, _sessionEndedHook)) {
+    // Tear-offs of the same method on the same bloc are equal (`==`).
+    if (_authRepository.onSessionEnded == _sessionEndedHook) {
       _authRepository.onSessionEnded = null;
     }
     return super.close();
