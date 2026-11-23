@@ -57,6 +57,7 @@ class _PostVideoState extends State<PostVideo> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
     final player = _player;
     if (player == null) {
       return Stack(
@@ -94,7 +95,7 @@ class _PostVideoState extends State<PostVideo> {
           return const Center(child: CircularProgressIndicator());
         }
         return ColoredBox(
-          color: Colors.black,
+          color: colors.surface,
           child: Stack(
             children: [
               Center(
@@ -106,12 +107,12 @@ class _PostVideoState extends State<PostVideo> {
               Align(
                 alignment: Alignment.bottomCenter,
                 child: ColoredBox(
-                  color: Colors.black54,
+                  color: colors.surfaceContainerHigh,
                   child: Row(
                     children: [
                       IconButton(
                         tooltip: value.isPlaying ? 'Pause video' : 'Play video',
-                        color: Colors.white,
+                        color: colors.onSurface,
                         onPressed: value.isPlaying ? player.pause : player.play,
                         icon: Icon(
                           value.isPlaying ? Icons.pause : Icons.play_arrow,
@@ -127,7 +128,7 @@ class _PostVideoState extends State<PostVideo> {
                         tooltip: value.volume == 0
                             ? 'Unmute video'
                             : 'Mute video',
-                        color: Colors.white,
+                        color: colors.onSurface,
                         onPressed: () =>
                             player.setVolume(value.volume == 0 ? 1 : 0),
                         icon: Icon(
