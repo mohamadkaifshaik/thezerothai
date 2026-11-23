@@ -755,11 +755,14 @@ void main() {
     expect(
       deviceRemovedText(otherSessionsEnded: false),
       // Task 13b ruling 3 (#1097 audit H1): no password advice; a password
-      // change alone may not sign a thief out.
-      'Removed. Your other devices stay signed in until you remove them or '
-      'sign them out.',
+      // change alone may not sign a thief out. 13b-i review I2: the cut was
+      // not made, so the removed device stays signed in too.
+      'Removed. That device can stay signed in to your account until you '
+      'sign out on it. Your other devices also stay signed in.',
     );
     expect(kDeviceRemovedSessionsKept, isNot(contains('password')));
+    // I2: never implies that removing the device signed it out.
+    expect(kDeviceRemovedSessionsKept, isNot(contains('until you remove')));
     expect(deviceRemovedText(), kDeviceRemovedText);
     expect(
       kDeviceRemoveSignOutMessage,

@@ -555,9 +555,14 @@ const kDeviceRemoveReauthFailedText =
 /// device out, so that advice could give false comfort; the line states only
 /// what is true. Shown only with `device_sign_out` on (off today); the owner
 /// may reword it.
+///
+/// 13b-i review I2 (controller decision, 2026-11-23): `false` means the cut
+/// was NOT made (keys.proto `other_sessions_ended`), so the removed device
+/// itself can stay signed in as well; the line never implies that removing
+/// a device signs it out. The two-seat security seat checks the wording.
 const kDeviceRemovedSessionsKept =
-    'Removed. Your other devices stay signed in until you remove them or '
-    'sign them out.';
+    'Removed. That device can stay signed in to your account until you sign '
+    'out on it. Your other devices also stay signed in.';
 
 /// Removed, `other_sessions_ended` true.
 const kDeviceRemovedSessionsEnded =
