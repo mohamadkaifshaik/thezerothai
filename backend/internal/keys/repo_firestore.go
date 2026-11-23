@@ -65,11 +65,25 @@ func (d deviceDoc) removed() bool { return d.RemovedAt != nil }
 
 // markDoc is users/{uid}/keyDeviceRemovals/{deviceId}, the removed mark of a REMOTE removal. The doc id is the device id
 // (one direct get answers "is this id marked?"); nothing else names the device. ExpireAt is the Firestore TTL field
-// (infra/terraform/modules/firestore ttl_fields key_device_removals_expire_at) and is never read by the code. The H2 cut
-// fields (cutAt, cutDone) come with the session-cut PR.
+// (infra/terraform/modules/firestore ttl_fields key_device_removals_expire_at) and is never read by the code. CutAt (absent
+// = none) is the session cut the removal asked for, the remover's auth_time (H2); CutDone says it was written on the
+// account, so a retry neither cuts again nor reports it undone. Neither is exported (the account's cut is in identity's
+// section).
 type markDoc struct {
-	RemovedAt time.Time `firestore:"removedAt"`
-	ExpireAt  time.Time `firestore:"expireAt"`
+	RemovedAt time.Time  `firestore:"removedAt"`
+	ExpireAt  time.Time  `firestore:"expireAt"`
+	CutAt     *time.Time `firestore:"cutAt,omitempty"`
+	CutDone   bool       `firestore:"cutDone,omitempty"`
+}
+
+// state is the mark's session-cut part.
+func (m markDoc) state() MarkState {
+	var st MarkState
+	if m.CutAt != nil {
+		st.CutAt = *m.CutAt
+	}
+	st.CutDone = m.CutDone
+	return st
 }
 
 func (d deviceDoc) device(id string) Device {
@@ -135,8 +149,18 @@ func (r *FirestoreRepo) markRef(uid, id string) *firestore.DocumentRef { return 
 // ErrReauthRequired and nothing is written. A Register of the same id runs its transaction on the same two documents, so
 // Firestore serialises the two: either the Register lands first and is stamped here, or it reads the mark and is refused.
 func (r *FirestoreRepo) MarkRemoved(ctx context.Context, uid, deviceID string, now time.Time, recent bool) error {
+	_, err := r.MarkRemovedCut(ctx, uid, deviceID, now, recent, time.Time{})
+	return err
+}
+
+// MarkRemovedCut implements Repo: MarkRemoved that also records the session cut. A non-zero cut becomes the mark's cutAt
+// (in the mark's create, or as a field update of an existing mark that has none: a removal repeated with the flag on
+// after one made with it off); an existing cutAt is kept. Still at most 2 writes (the mark and the device document).
+func (r *FirestoreRepo) MarkRemovedCut(ctx context.Context, uid, deviceID string, now time.Time, recent bool, cut time.Time) (MarkState, error) {
 	now = now.UTC()
-	return r.run(ctx, uid, deviceID, func(_ context.Context, tx *firestore.Transaction) error {
+	var st MarkState
+	err := r.run(ctx, uid, deviceID, func(_ context.Context, tx *firestore.Transaction) error {
+		st = MarkState{}
 		devRef, markRef := r.deviceRef(uid, deviceID), r.markRef(uid, deviceID)
 		snaps, err := tx.GetAll([]*firestore.DocumentRef{devRef, markRef})
 		if err != nil {
@@ -152,19 +176,47 @@ func (r *FirestoreRepo) MarkRemoved(ctx context.Context, uid, deviceID string, n
 				return fmt.Errorf("keys: decode device: %w", err)
 			}
 		}
+		var m markDoc
+		if marked {
+			if err := snaps[1].DataTo(&m); err != nil {
+				return fmt.Errorf("keys: decode removal mark: %w", err)
+			}
+		}
 		retry := marked && (!devExists || cur.removed())
 		if !recent && !retry {
 			return ErrReauthRequired
 		}
+		st = m.state()
+		var cutAt *time.Time
+		if !cut.IsZero() && st.CutAt.IsZero() {
+			c := cut.UTC()
+			cutAt, st = &c, MarkState{CutAt: c}
+		}
 		b := store.NewFirestoreTxBatch(tx)
-		if !marked {
-			b.Create(markRef, markDoc{RemovedAt: now, ExpireAt: now.Add(RemovalMarkTTL)})
+		switch {
+		case !marked:
+			b.Create(markRef, markDoc{RemovedAt: now, ExpireAt: now.Add(RemovalMarkTTL), CutAt: cutAt})
+		case cutAt != nil:
+			b.Update(markRef, []firestore.Update{{Path: "cutAt", Value: *cutAt}, {Path: "cutDone", Value: false}})
 		}
 		if devExists && !cur.removed() {
 			b.Update(devRef, []firestore.Update{{Path: "removedAt", Value: now}})
 		}
 		return b.Err()
 	})
+	if err != nil {
+		return MarkState{}, err
+	}
+	return st, nil
+}
+
+// MarkCutDone implements Repo: one field update of the mark's cutDone, no read (a missing mark is an error, never
+// re-created).
+func (r *FirestoreRepo) MarkCutDone(ctx context.Context, uid, deviceID string) error {
+	if _, err := r.markRef(uid, deviceID).Update(ctx, []firestore.Update{{Path: "cutDone", Value: true}}); err != nil {
+		return logger.RedactErr(fmt.Errorf("keys: note the session cut done: %w", err), uid, deviceID)
+	}
+	return nil
 }
 
 // ListRemovalMarks implements ExportSource: one query ordered by document id (no index), after afterID exclusive, at most

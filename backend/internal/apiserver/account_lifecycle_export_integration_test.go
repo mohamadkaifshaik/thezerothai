@@ -269,6 +269,9 @@ func TestAccountLifecycle_ExportContentsGolden(t *testing.T) {
 		// The account's own public id is exported in the profile section (a fixed literal; this env mints none).
 		{Path: "publicId", Value: "u0123456789abcdefghjkmnpqrs"},
 		{Path: "homeTabs", Value: []map[string]any{{"kind": "LIST", "id": "0000000000000000603", "title": "Golden list"}}},
+		// The session cut (a REMOTE device removal with device_sign_out on) is the account's own data: exported in the
+		// profile section. In the past, so A's own token (signed in just now) still passes the cut check.
+		{Path: "sessionsValidAfter", Value: locAt},
 	}); err != nil {
 		t.Fatalf("seed profile extras: %v", err)
 	}

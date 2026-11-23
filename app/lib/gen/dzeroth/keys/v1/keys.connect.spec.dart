@@ -54,6 +54,9 @@ abstract final class KeyService {
   /// the document exists and lacks it), at most 2 writes, before the pool sweep and the delete above. From that
   /// transaction on the device is skipped by every read and claim (a claim already past its device read can still take
   /// one package, see ClaimKeyPackages), and RegisterKeyDevice and UploadKeyPackages refuse the id with DEVICE_REMOVED.
+  /// With FEATURE_DEVICE_SIGN_OUT on for the caller the mark also records the session cut (see REMOVE_REASON_REMOTE),
+  /// and before the sweep the server writes the cut on the account (1 read, at most 1 write) and then notes it done on
+  /// the mark (1 write). RemoveKeyDeviceResponse.other_sessions_ended says whether the cut was made.
   static const removeKeyDevice = connect.Spec(
     '/$name/RemoveKeyDevice',
     connect.StreamType.unary,

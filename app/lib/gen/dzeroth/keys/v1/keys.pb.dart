@@ -510,7 +510,14 @@ class RemoveKeyDeviceRequest extends $pb.GeneratedMessage {
 }
 
 class RemoveKeyDeviceResponse extends $pb.GeneratedMessage {
-  factory RemoveKeyDeviceResponse() => RemoveKeyDeviceResponse._();
+  factory RemoveKeyDeviceResponse({
+    $core.bool? otherSessionsEnded,
+  }) {
+    final result = RemoveKeyDeviceResponse._();
+    if (otherSessionsEnded != null)
+      result.otherSessionsEnded = otherSessionsEnded;
+    return result;
+  }
 
   RemoveKeyDeviceResponse._();
 
@@ -526,6 +533,7 @@ class RemoveKeyDeviceResponse extends $pb.GeneratedMessage {
       package:
           const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.keys.v1'),
       createEmptyInstance: RemoveKeyDeviceResponse.$_createMessage)
+    ..aOB(1, _omitFieldNames ? '' : 'otherSessionsEnded')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -551,6 +559,19 @@ class RemoveKeyDeviceResponse extends $pb.GeneratedMessage {
       $pb.GeneratedMessage.$_defaultFor<RemoveKeyDeviceResponse>(
           RemoveKeyDeviceResponse.$_createMessage);
   static RemoveKeyDeviceResponse? _defaultInstance;
+
+  /// REMOTE only: true when the account's other sessions were ended by this removal (by this call, or by an earlier
+  /// attempt of the same removal), so every other device must sign in again (SESSION_ENDED). False: they keep working
+  /// (FEATURE_DEVICE_SIGN_OUT was off for the caller); tell the user to sign out on the lost device or change their
+  /// password. Always false for SIGN_OUT and UNSPECIFIED.
+  @$pb.TagNumber(1)
+  $core.bool get otherSessionsEnded => $_getBF(0);
+  @$pb.TagNumber(1)
+  set otherSessionsEnded($core.bool value) => $_setBool(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasOtherSessionsEnded() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearOtherSessionsEnded() => $_clearField(1);
 }
 
 class UploadKeyPackagesRequest extends $pb.GeneratedMessage {
@@ -1229,6 +1250,9 @@ class KeyServiceApi {
   /// the document exists and lacks it), at most 2 writes, before the pool sweep and the delete above. From that
   /// transaction on the device is skipped by every read and claim (a claim already past its device read can still take
   /// one package, see ClaimKeyPackages), and RegisterKeyDevice and UploadKeyPackages refuse the id with DEVICE_REMOVED.
+  /// With FEATURE_DEVICE_SIGN_OUT on for the caller the mark also records the session cut (see REMOVE_REASON_REMOTE),
+  /// and before the sweep the server writes the cut on the account (1 read, at most 1 write) and then notes it done on
+  /// the mark (1 write). RemoveKeyDeviceResponse.other_sessions_ended says whether the cut was made.
   $async.Future<RemoveKeyDeviceResponse> removeKeyDevice(
           $pb.ClientContext? ctx, RemoveKeyDeviceRequest request) =>
       _client.invoke<RemoveKeyDeviceResponse>(ctx, 'KeyService',
