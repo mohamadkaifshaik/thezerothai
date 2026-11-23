@@ -560,9 +560,16 @@ const kDeviceRemoveReauthFailedText =
 /// was NOT made (keys.proto `other_sessions_ended`), so the removed device
 /// itself can stay signed in as well; the line never implies that removing
 /// a device signs it out. The two-seat security seat checks the wording.
+///
+/// Branch audit L3 (controller wording, 2026-11-23; the owner may edit):
+/// "sign out on it" is a step a lost or stolen device's owner cannot take,
+/// and "Removed." alone could read as cut off while the removal commits
+/// are still pending (`removalsPending`). The line is honest about both:
+/// the device stops getting new messages only once the removal finishes,
+/// and it was not signed out.
 const kDeviceRemovedSessionsKept =
-    'Removed. That device can stay signed in to your account until you sign '
-    'out on it. Your other devices also stay signed in.';
+    "Removed. It won't get new encrypted messages once the removal "
+    "finishes. That device wasn't signed out of your account.";
 
 /// Removed, `other_sessions_ended` true.
 const kDeviceRemovedSessionsEnded =
