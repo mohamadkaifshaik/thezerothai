@@ -2,6 +2,8 @@ import 'dart:async';
 
 import '../core/feature_flags/public_ids_feature_flag.dart';
 import '../core/vault/vault_status.dart';
+import '../features/messages/domain/e2ee/e2ee_types.dart'
+    show E2eePipelineError;
 import '../features/notifications/presentation/bloc/push_cubit.dart';
 import '../features/onboarding/presentation/bloc/onboarding_state.dart';
 
@@ -44,10 +46,14 @@ void resumeE2ee({
       due && (throttle == null || status == null || throttle.mayRetry(status));
   if (retry) {
     unawaited(
-      _reported(retryVault(allowConfirmedWipe: false), onUnexpectedError),
+      _reported(
+        'retry',
+        retryVault(allowConfirmedWipe: false),
+        onUnexpectedError,
+      ),
     );
   }
-  unawaited(_reported(deviceKeysResumed(), onUnexpectedError));
+  unawaited(_reported('deviceKeys', deviceKeysResumed(), onUnexpectedError));
   if (due) pipelineResumed?.call();
 }
 
@@ -124,9 +130,11 @@ Future<void> flagTurnedOnWithOpenVault({
   Future<void> Function()? startPipeline,
   E2eeWiringErrorReporter? onUnexpectedError,
 }) async {
-  await _reported(ensureDeviceReady(), onUnexpectedError);
+  await _reported('flagOn.deviceKeys', ensureDeviceReady(), onUnexpectedError);
   final start = startPipeline;
-  if (start != null) await _reported(start(), onUnexpectedError);
+  if (start != null) {
+    await _reported('flagOn.start', start(), onUnexpectedError);
+  }
 }
 
 /// Plan 5a Task 13 (gate item 67): each time `messagePushes` GROWS from the
@@ -164,13 +172,18 @@ bool publicIdsKnownOff(OnboardingState s) =>
     !s.flagsPending &&
     !s.enabledFeatures.contains(kFeaturePublicIds);
 
+/// Awaits [run]; a failure is reported as `E2eePipelineError('wiring.<step>')`
+/// with its stack, never the raw error object (fix wave ruling 8, security
+/// audit L5: its message could carry text into crash reports; the pipeline
+/// reports step names only, and so does its wiring).
 Future<void> _reported(
+  String step,
   Future<void> run,
   E2eeWiringErrorReporter? onUnexpectedError,
 ) async {
   try {
     await run;
-  } on Object catch (e, s) {
-    onUnexpectedError?.call(e, s);
+  } on Object catch (_, s) {
+    onUnexpectedError?.call(E2eePipelineError('wiring.$step'), s);
   }
 }

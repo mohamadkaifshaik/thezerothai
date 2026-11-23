@@ -53,7 +53,11 @@ void main() {
           (e, _) => fail('escaped: $e'),
         );
         await pumpEventQueue();
-        expect(reported, hasLength(2));
+        // Fix wave ruling 8 (SA L5): a step name only, never the raw error.
+        expect(reported.map((e) => '$e'), [
+          'E2eePipelineError(wiring.retry)',
+          'E2eePipelineError(wiring.deviceKeys)',
+        ]);
       },
     );
   });
@@ -170,7 +174,9 @@ void main() {
         onUnexpectedError: (e, _) => reported.add(e),
       );
       expect(calls, ['pipeline']);
-      expect(reported, hasLength(1));
+      expect(reported.map((e) => '$e'), [
+        'E2eePipelineError(wiring.flagOn.deviceKeys)',
+      ]);
     });
   });
 
