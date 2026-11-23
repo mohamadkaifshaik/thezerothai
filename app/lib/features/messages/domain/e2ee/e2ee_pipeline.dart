@@ -215,6 +215,11 @@ class E2eePipeline {
   /// e2ee_pipeline_notes.dart).
   Future<void>? _deleting;
 
+  /// Deletes made at once by [noteDeleted] that have not ended (re-review
+  /// r2-m1: the start window waits for them before its last look at the
+  /// owed discards). Each never throws.
+  final Set<Future<void>> _deletesInFlight = {};
+
   /// A conversation's local copies changed (the parts' `onChanged`, and a
   /// delete made here). Never carries content.
   Stream<String> get changes => _changes.stream;
@@ -341,6 +346,14 @@ class E2eePipeline {
         if (e is! StateError) _report('pipeline.notes', s);
       }
       // Fix round 2 (r1-I1): never throws.
+      await _applyOwedDiscards(parts);
+      // Re-review r2-m1: a delete made in this window (after the snapshot
+      // above) owes its discard only once its local transaction ends: wait
+      // for those, then look again, right before the coordinator's
+      // resumeProvisional could resend that conversation's init.
+      while (_deletesInFlight.isNotEmpty) {
+        await Future.wait([..._deletesInFlight]);
+      }
       await _applyOwedDiscards(parts);
       if (parts.live && identical(_startedFor?.vault, vault)) {
         // The coordinator is running once this call returns (it sets its
@@ -486,7 +499,13 @@ class E2eePipeline {
       return;
     }
     _inRoot(() async {
-      await _deleteNow(parts, conversationId, at);
+      final run = _deleteNow(parts, conversationId, at).then((_) {});
+      _deletesInFlight.add(run);
+      try {
+        await run;
+      } finally {
+        _deletesInFlight.remove(run);
+      }
     });
   }
 
@@ -536,6 +555,12 @@ class E2eePipeline {
     // Review I2: a delete that failed earlier is tried again.
     if (_notedDeleted.isNotEmpty && parts.live) {
       _inRoot(() => _applyDeletes(parts));
+    }
+    // Re-review r2-m1: an owed init discard (one that could not decide, or
+    // one owed while not started) is tried again, before the coordinator's
+    // resume (which may resend a provisional group's init).
+    if (_owedDiscards.isNotEmpty && started && !_deviceKeys.stopsPipeline) {
+      _inRoot(() => _applyOwedDiscards(parts));
     }
     final owed = [..._owedWhilePaused];
     _owedWhilePaused.clear();

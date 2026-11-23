@@ -205,6 +205,54 @@ void main() {
     expect(h.pipeline.notedCount, 0, reason: 'nothing owed any more');
   });
 
+  test('r2-m1: a delete arriving inside the start window never lets the '
+      'start\'s resumeProvisional resend that conversation\'s init', () async {
+    final v = h.rig.device.vault;
+    await unansweredInit();
+    h.deviceKeys.markRemoved();
+    // The wake's start window: the user deletes the conversation in it.
+    h.pipeline.onStartWindowForTest = () async {
+      h.pipeline.onStartWindowForTest = null;
+      h.pipeline.noteDeleted(_c1);
+    };
+    final sends = h.rig.server.sends.length;
+
+    h.deviceKeys.clearRemoved();
+    await _until(() async => h.pipeline.started);
+    await h.settle();
+
+    expect(h.rig.server.sends, hasLength(sends), reason: 'never resent');
+    expect(await v.group(_c1, 1), isNull, reason: 'discarded');
+    expect(h.pipeline.notedCount, 0);
+  });
+
+  test(
+    'r2-m1: an owed discard that could not decide is retried at resume',
+    () async {
+      final v = h.rig.device.vault;
+      await unansweredInit();
+      // The stored-commits read fails once: the discard cannot decide.
+      var fail = true;
+      h.rig.server.onCall = (call) async {
+        if (call == 'listConversationCommits' && fail) {
+          fail = false;
+          throw const NetworkException('rig: no network');
+        }
+      };
+      final done = h.pipeline.changes.firstWhere((id) => id == _c1);
+      h.pipeline.noteDeleted(_c1);
+      await done;
+      await h.settle();
+      expect(await v.group(_c1, 1), isNotNull);
+      expect(h.pipeline.notedCount, 1, reason: 'owed');
+
+      h.pipeline.onAppResumed();
+      await _until(() async => await v.group(_c1, 1) == null);
+      await h.settle();
+      expect(h.pipeline.notedCount, 0);
+    },
+  );
+
   test('r1-m2: a delete whose init discard answers held keeps the init row '
       'and the provisional group; the local copies go', () async {
     final v = h.rig.device.vault;
