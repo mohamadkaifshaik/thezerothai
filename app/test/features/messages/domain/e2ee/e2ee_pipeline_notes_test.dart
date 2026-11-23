@@ -205,6 +205,26 @@ void main() {
     expect(h.pipeline.notedCount, 0, reason: 'nothing owed any more');
   });
 
+  test('r1-m2: a delete whose init discard answers held keeps the init row '
+      'and the provisional group; the local copies go', () async {
+    final v = h.rig.device.vault;
+    // Attempts from an earlier run (a reset starts a new run of the
+    // starter), inside the resend margin of this one: held.
+    await unansweredInit(margin: false);
+    h.pipeline.starter.reset();
+    await _storeMessage(v, _c1);
+
+    final done = h.pipeline.changes.firstWhere((id) => id == _c1);
+    h.pipeline.noteDeleted(_c1);
+    await done;
+    await h.settle();
+
+    expect(await v.messages(_c1), isEmpty);
+    expect((await v.group(_c1, 1))!.provisional, isTrue);
+    expect((await v.outbox()).items.single.init, isNotNull);
+    expect(h.pipeline.notedCount, 0, reason: 'decided: nothing owed');
+  });
+
   test('I3: a push and an open during the start window run after the '
       'start, never dropped', () async {
     await h.offer(_c1, bob);
