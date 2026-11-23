@@ -3,6 +3,7 @@ import 'package:dzeroth/features/keys/domain/device_keys_service.dart'
     show RemovedElsewhere;
 import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging_impl.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/removal_record.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/group_starter.dart'
     show InitDiscard, kInitResendMargin;
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
@@ -431,6 +432,34 @@ void main() {
       await expectLater(port.dropRemoval(third.idString), throwsStateError);
       await expectLater(port.dropRemoval(''), throwsStateError);
       await h.settle();
+    });
+
+    test('a removal parked in an earlier run is asked for once the vault is '
+        'ready, also while the pipeline does not start (CR n2)', () async {
+      final other = await RigPeer.create('other');
+      await h.rig.device.vault.transaction(
+        (tx) => tx.putSetting(
+          kVaultSettingRemovalRecord,
+          RemovalRecord(
+            intents: [
+              RemovalMark(
+                deviceId: other.idString,
+                atMicros: h.rig.clock.now().microsecondsSinceEpoch,
+                signatureKey: other.key,
+                reauth: true,
+              ),
+            ],
+          ).encode(),
+        ),
+      );
+      h.deviceKeys.markRemoved();
+
+      await h.ready();
+
+      expect(h.pipeline.started, isFalse);
+      expect(port.needsReauth.value, isTrue);
+      expect(port.parkedRemovals.value, [other.idString]);
+      expect(h.rig.keys.removeCalls, isEmpty);
     });
 
     test('a closed vault drops the ask and the parked refs', () async {

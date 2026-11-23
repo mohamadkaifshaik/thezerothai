@@ -380,6 +380,8 @@ class E2eePipeline {
     // Review I2: a delete the user made before the vault was ready is a
     // local write: made now, whatever the device state.
     await _applyDeletes(parts);
+    // Port additions, CR n2: the parked removals ask before any start.
+    await parts.runner.loadRecord();
     await _maybeStart();
   }
 

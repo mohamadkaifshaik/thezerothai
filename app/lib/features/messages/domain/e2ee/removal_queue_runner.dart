@@ -466,6 +466,15 @@ class RemovalQueueRunner {
   /// The vault became ready: the stored queue is loaded and a pass starts.
   Future<void> onVaultReady() => _startPass(BudgetPriority.background);
 
+  /// Port additions, CR n2: loads the stored queue and record of the open
+  /// vault, with no pass and no call, so a removal parked for a re-sign-in
+  /// in an earlier run raises [needsReauth] as soon as the vault is ready,
+  /// also while the pipeline does not start. Never throws.
+  Future<void> loadRecord() async {
+    final vault = _session.vault;
+    if (vault != null) await _ensureLoaded(vault);
+  }
+
   /// The app resumed: a pass starts (none before `notBeforeMicros`).
   Future<void> onAppResumed() => _startPass(BudgetPriority.background);
 
