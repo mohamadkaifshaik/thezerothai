@@ -700,11 +700,25 @@ void _scenario() {
       // younger than kDeviceListReuse, so neither adds B2).
       b2 = await start('B2', b);
       final tb2 = b2.watch(conv);
+      // The port's `waitingForDevice` is not enough: the encrypted-row hint
+      // alone puts the conversation in B2's known set, which already reads
+      // as waiting (conversation_describe.dart:73-74), before any catch-up
+      // recorded the sighting the 24 h rule counts from. Wait for the vault
+      // facts `canReset` reads (conversation_describe.dart:132-160): the
+      // first sighting (catch-up's `_noteWaiting`) and the acceptance (a
+      // ListMessages header saying ACCEPTED, through the receive probe).
       await w.eventually(
-        'B2 waits for a welcome',
-        () async =>
-            tb2.latest?.security.state ==
-            ConversationEncryptionState.waitingForDevice,
+        'B2 recorded the sighting and the acceptance, waiting for a welcome',
+        () async {
+          if (tb2.latest?.security.state !=
+              ConversationEncryptionState.waitingForDevice) {
+            return false;
+          }
+          final sync = (await b2.vault.conversation(conv))?.sync;
+          return sync != null &&
+              sync.firstSawGenerationAtMicros != null &&
+              sync.requestAccepted;
+        },
         nudge: () async {
           await b2.nudgeInbox();
           b2.push(conv);
