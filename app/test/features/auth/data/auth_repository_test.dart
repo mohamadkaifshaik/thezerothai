@@ -36,6 +36,84 @@ void main() {
     googleSignIn = _MockGoogleSignIn();
   });
 
+  group('SESSION_ENDED seam (AuthTokenProvider)', () {
+    test('refreshIdToken forces a new token from the SDK', () async {
+      final user = _MockUser();
+      when(() => firebaseAuth.currentUser).thenReturn(user);
+      when(() => user.getIdToken(true)).thenAnswer((_) async => 'fresh');
+      final repo = AuthRepository(
+        firebaseAuth: firebaseAuth,
+        googleSignIn: googleSignIn,
+      );
+      expect(await repo.refreshIdToken(), 'fresh');
+      verify(() => user.getIdToken(true)).called(1);
+    });
+
+    test('reportSessionEnded tells onServerEndedSession, and is a no-op '
+        'without '
+        'it', () {
+      final repo = AuthRepository(
+        firebaseAuth: firebaseAuth,
+        googleSignIn: googleSignIn,
+      );
+      repo.reportSessionEnded('uid-1');
+      final seen = <String>[];
+      repo.onServerEndedSession = seen.add;
+      repo.reportSessionEnded('uid-1');
+      expect(seen, ['uid-1']);
+    });
+  });
+
+  // Fix round ruling 4 (CR M2, SA L5): "straight to the password prompt"
+  // follows reauthenticate's own order (Google, then Apple, then password),
+  // so a mixed account gets the Continue step and its popup opens on a tap.
+  group('reauthUsesPassword', () {
+    bool usesPassword(List<String> providers) {
+      final user = _MockUser();
+      final infos = [
+        for (final id in providers)
+          (() {
+            final i = _MockUserInfo();
+            when(() => i.providerId).thenReturn(id);
+            return i;
+          })(),
+      ];
+      when(() => user.providerData).thenReturn(infos);
+      when(() => firebaseAuth.currentUser).thenReturn(user);
+      return AuthRepository(
+        firebaseAuth: firebaseAuth,
+        googleSignIn: googleSignIn,
+      ).reauthUsesPassword;
+    }
+
+    test('password only: true', () {
+      expect(usesPassword(['password']), isTrue);
+    });
+
+    test('Google and a password (mixed): false, Google is used', () {
+      expect(usesPassword(['password', 'google.com']), isFalse);
+    });
+
+    test('Apple and a password (mixed): false, Apple is used', () {
+      expect(usesPassword(['apple.com', 'password']), isFalse);
+    });
+
+    test('Google only: false', () {
+      expect(usesPassword(['google.com']), isFalse);
+    });
+
+    test('nobody signed in: false', () {
+      when(() => firebaseAuth.currentUser).thenReturn(null);
+      expect(
+        AuthRepository(
+          firebaseAuth: firebaseAuth,
+          googleSignIn: googleSignIn,
+        ).reauthUsesPassword,
+        isFalse,
+      );
+    });
+  });
+
   group('account-deletion session end', () {
     late _MockUser user;
     late AuthRepository repo;

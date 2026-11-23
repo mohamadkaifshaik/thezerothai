@@ -32,6 +32,13 @@ abstract class AuthState with _$AuthState {
     /// transition to no user (an auth stream error included). Set in the
     /// same state that drops the user; null until a session has ended.
     SessionEnd? lastSessionEnd,
+
+    /// The last session ended because the server refused it with
+    /// SESSION_ENDED (a device was removed from the account on another
+    /// device; lane D PR 4, ruling 2): the sign-in screens show
+    /// [SessionEndedException.userMessage]. Set in the state that drops the
+    /// user, only for that cause; cleared when a user signs in.
+    @Default(false) bool signedOutByDeviceRemoval,
   }) = _AuthState;
 
   const AuthState._();

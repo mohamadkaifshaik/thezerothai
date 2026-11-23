@@ -10,6 +10,7 @@ import 'bloc/auth_event.dart';
 import 'bloc/auth_state.dart';
 import 'widgets/auth_page_layout.dart';
 import 'widgets/email_password_form.dart';
+import 'widgets/session_ended_notice.dart';
 import 'widgets/social_sign_in_buttons.dart';
 
 /// Sign-in and sign-up (one screen, two modes) on the real auth BLoC. The
@@ -78,6 +79,8 @@ class _AuthScreenState extends State<AuthScreen> {
                           ? null
                           : () => _switchMode(context),
                     )
+                  : !signUp && state.signedOutByDeviceRemoval
+                  ? const SessionEndedNotice()
                   : null,
               onSubmit: (email, password) {
                 if (_accountExists) setState(() => _accountExists = false);
