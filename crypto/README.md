@@ -379,8 +379,10 @@ are sent in order; a failed head row holds the ones behind it. The first message
   baselines, the device key history (one setting per conversation, whose key holds the conversation id in clear),
   welcome clock-skew retries, the known conversations with their peer refs (`messages.e2ee.known`), the removal queue,
   "registered once", "removed elsewhere" and an unconfirmed key-package batch.
-- The plaintext cache database holds only an id set of conversations ever seen encrypted. It never holds decrypted
-  text.
+- The plaintext cache database keeps the server's rows as they came (an encrypted message's row carries its
+  `encrypted` marker, not its text) and one pipeline record: the set of conversation ids ever seen encrypted, whose
+  conversation rows are shown with the marker set and an empty snippet. No code writes decrypted text into it; the
+  guards below check the `pb.Message` paths that could.
 - Memory only: device lists and fetch times, budgets, "synced since start", and the removal and warning clocks. After a
   restart a clock starts again, so a removal or a warning comes later, never earlier.
 - Decrypted text lives only in the vault and in memory. It never reaches the cache, a log, a URL, a route or a
@@ -432,25 +434,62 @@ that miss this device): a lying server can make a device stop. Nothing is delete
   stays visible as failed.
 - A device stuck in `failed(retryable: false)` receives nothing until it is set up again.
 
-**What the guards check** (`app/test/guards/vault_guard_test.dart`, every rule with a planted-violation self-test; the
-pipeline rules cover the whole directory, so a new file is checked without a list change):
+**Key packages under a hostile server (Task 14 audit M1, code M-3).** There is no core prune of key packages yet (an
+open question of the plan). A server that keeps answering "too few packages" or "no last-resort package" makes a
+device publish about 4 batches per IST day: about 204 packages, at most 228 (each `!hasLastResort` answer can add one
+counted package even at the cap, about 24 a day). The daily cap is never reset by a clock moved back; a clock set
+back a day keeps the forward day's count (fail closed, like `DailyLedger`). The other way round, about 10 accounts
+starting conversations can drain a device's one-time pool in a day, leaving only the last-resort package until the
+next IST day.
+
+**Other accepted limits.**
+
+- Task 11 follow-up: removed device ids are remembered 30 days on the client and 90 days on the server. A device that
+  comes back under a new id is stopped only by the session cut. While the removal queue cannot be read, each pass
+  makes one extra `ListMyKeyDevices` call.
+- Task 11 L5: the 30-day limits are measured with the device clock.
+- Task 9 L4: the `GetKeyDevices` answer is trusted to list every registered device (the K5 limit; closing it needs a
+  contract field).
+- Task 8 gate 11: "sent" and a readable empty device list are the server's word, and the report commitment is shared
+  (Task 8 audit L10).
+- Pre-flag L-a: the init-discard margin lives in memory only. After a restart, a discard of a row an earlier run sent
+  is held until one margin after the new run began (pre-flag fix 2), not one margin after that call's start.
+
+**What the guards check** (`app/test/guards/vault_guard_test.dart` and `app/test/guards/pipeline_guard_test.dart`;
+every rule has a planted-violation self-test, except the meta-test that checks the flag-off inertness tests still
+exist. Each rule covers a directory (the pipeline's, or all hand-written `lib/`), so a new file is checked without a
+list change. These are text scans of the source, so they cover the spellings below, not every way Dart can write
+them):
 
 - No print, log or report names a secret: the names also include `text`, `sharedPostId`, `conversationId`,
   `messageId`, `deviceId`, `peerUserId`, `signatureKey` and `keyPackage`, in the vault, keys, crypto and pipeline
-  code. The pipeline's own `_report...` helpers and `dart:developer`'s `log` count as sinks.
-- No error or exception message built in the pipeline interpolates anything (`$`). Allowed: the coordinator's step
-  name (always a literal, pinned) and two codec texts that interpolate constants.
-- Every `toString` in the pipeline is pinned (`E2eePipelineError`, `ConversationCryptoState`, `ReceiveOutcome`,
-  `BudgetPaused`). The pipeline's content types and every type of the port file (and every `ThreadEntry` subtype)
-  define none.
-- R14: no pipeline file imports `messaging_store.dart`, `message_outbox.dart`, `core/storage/` or drift. Pipeline
-  code holds the repository only as `messaging` / `_messaging` and uses only the allowed `MessagingRepository`
-  members; `sendMessage`, `refreshThread`, `pollThread` and `cachedThread` can never be reached.
-- No `Uuid` in the pipeline. Only the commit runner, membership rules, membership upkeep and the removal queue runner
-  (and their part files) pass `removeDeviceIds:`.
-- No `BlocObserver` in the app, and no `pb.Message` is built except the id-only one that opens an encrypted search hit.
-- `MessageSearchState` keeps `@Freezed(toStringOverride: false)` and its generated file declares no `toString` (the
-  generated one printed the typed search query).
+  code, the encrypted presentation, message search and `lib/app/e2ee_wiring.dart`. Sinks: the error reporters
+  (`_report...`, `report...Error`, the injected `onUnexpectedError`), `dart:developer`'s `log`, any logger
+  (`package:logging`, `package:logger`, `Logger.root`, a local `Logger`), `FlutterError.reportError` and
+  Crashlytics.
+- Errors and reports carry fixed names only: the error callback receives only `E2eePipelineError`; the step names
+  forwarded into it, and the callback's one alias, are pinned; report helpers take step literals and the caught error
+  and stack. Error constructors in the pipeline (including bare `Exception(` / `Error(` and `Future.error(`) take
+  fixed text, an enum value, a number or a `.length`. Allowed by name: the coordinator's step name, two codec texts
+  that interpolate constants, the reset refusal's typed cause and the commit limit's name.
+- Every `toString` in the vault layer and the pipeline is pinned, with or without a return type (`E2eePipelineError`,
+  `ConversationCryptoState`, `ReceiveOutcome`, `BudgetPaused`, ...). The pipeline's content types, every type of the
+  port file and every `ThreadEntry` subtype define none, hand-written or generated by freezed. Every freezed class
+  under `lib/features/messages` opts out of the generated `toString`; `MessageSearchState` (which printed the typed
+  search query) is pinned. `SearchQuery.toString` prints the kind and the issue only.
+- R14: no pipeline file imports `messaging_store.dart`, `message_outbox.dart`, `core/storage/`, drift, `dart:io`,
+  `dart:html`, `package:web`, `shared_preferences`, `path_provider`, secure storage, `api_client.dart` or a generated
+  Connect client. Pipeline code uses only the allowed `MessagingRepository` members, on any receiver, chained or
+  aliased; the two names it shares with the vault are allowed only in their vault shapes (`vault.outbox(`,
+  `tx.deleteConversation(`). So `sendMessage`, `refreshThread`, `pollThread` and `cachedThread` cannot be reached
+  under the names the guard reads.
+- No `Uuid` in the pipeline. In all of hand-written `lib/`, only the commit runner, membership rules, membership
+  upkeep and the removal queue runner (and their part files), plus the two engine forwarders, pass
+  `removeDeviceIds:`. The removal entry points (`change`, `changeLocked`) are pinned, and no file outside the pipeline
+  imports a door library.
+- No `BlocObserver` in the app. No `pb.Message` is built except the id-only one that opens an encrypted search hit;
+  outside the pinned data layer, no file importing `messaging.pb` writes `text` or a snippet into a message, rebuilds
+  one or decodes one.
 
 ## Key package and leaf lifetime
 
