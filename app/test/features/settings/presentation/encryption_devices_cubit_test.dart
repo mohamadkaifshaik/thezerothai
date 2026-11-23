@@ -296,8 +296,7 @@ void main() {
       expect(c.state.list, isNotNull);
     });
 
-    test('without confirmItsYou (device_sign_out off) the port is called '
-        'directly, as before', () async {
+    test('without confirmItsYou the port is called directly', () async {
       final c = make();
       addTearDown(c.close);
       await c.load();

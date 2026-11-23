@@ -170,11 +170,16 @@ class _DevicesView extends StatelessWidget {
   ) async {
     final messenger = ScaffoldMessenger.of(context);
     final status = context.read<EncryptionStatusCubit?>();
-    // Lane D PR 4 (rulings 3-5): with device_sign_out on for the user, the
-    // removal also signs out the other sessions; it says so and asks for a
-    // re-sign-in before anything is sent. Off: exactly as before.
+    // Lane D PR 4, fix round ruling 1: every Remove here is a REMOTE removal
+    // of another device (this device has no Remove: signing out removes it),
+    // and the server wants a recent sign-in for every REMOTE removal (H1),
+    // whatever the flags. So EVERY tap asks for a re-sign-in before anything
+    // is sent, in full and manage access alike. The repository is read
+    // non-null: a missing provider is a programming error and fails loudly,
+    // never a promptless send. device_sign_out (the removal also signs out
+    // the other sessions) only changes the copy.
     final signOut = _deviceSignOutOn(context);
-    final auth = signOut ? context.read<AuthRepository?>() : null;
+    final auth = context.read<AuthRepository>();
     final added = device.addedAt;
     final confirmed = await showAppAlertConfirm(
       context,
@@ -192,11 +197,10 @@ class _DevicesView extends StatelessWidget {
     // (read now, after the dialog), never from `manage` access.
     final atLimit =
         status?.state.kind == EncryptionStatusKind.deviceLimitReached;
-    Future<bool> Function()? confirm(bool again) => auth == null
-        ? null
-        : () => context.mounted
-              ? confirmItsYou(context, auth, again: again)
-              : Future.value(false);
+    Future<bool> Function() confirm(bool again) =>
+        () => context.mounted
+        ? confirmItsYou(context, auth, again: again)
+        : Future.value(false);
     var outcome = await cubit.remove(
       device.ref,
       retrySetup: atLimit,

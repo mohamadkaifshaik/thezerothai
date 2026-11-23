@@ -485,8 +485,11 @@ const kDeviceRemoveFailedText =
     'conversations. In a conversation, you can still block the person or reset '
     'encryption.';
 
-// With `device_sign_out` on (lane D PR 4, removal design §4; the owner may
-// edit). A REMOTE removal then also signs out every other session.
+// Device removal copy (lane D PR 4, removal design §4; the owner may edit).
+// The title naming the device, the sign-out message, the keyed results and
+// the footer show only with `device_sign_out` on (a REMOTE removal then also
+// signs out every other session); the "Confirm it's you" texts show on every
+// removal (the server wants a recent sign-in for every REMOTE removal).
 
 /// Remove: dialog title naming the device by its added date (the only name a
 /// device has), or this device's generic title without one.

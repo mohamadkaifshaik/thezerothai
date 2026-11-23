@@ -9,7 +9,7 @@ enum EncryptionDevicesStatus { loading, ready, failed }
 /// What [EncryptionDevicesCubit.remove] did: the directory removal answered, it failed, or nothing was attempted
 /// (the cubit is closed or another removal is running).
 ///
-/// With a re-sign-in asked for (`confirmItsYou`, device_sign_out on; lane D
+/// With a re-sign-in asked for (`confirmItsYou`, every REMOTE removal; lane D
 /// PR 4 ruling 3): [cancelled] when the user did not confirm it was them
 /// (nothing was sent), [needsReauth] when the removal answered
 /// REAUTH_REQUIRED (the call missed the recent-sign-in window; the removal
@@ -119,9 +119,9 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
   /// [retrySetup] (the screen sets it only at the 5-device limit) asks the port to register this device again after
   /// the removal. Order: [confirmItsYou] (when given), remove, retry (when asked), reload.
   ///
-  /// [confirmItsYou] (device_sign_out on; lane D PR 4, ruling 3) is the re-sign-in. It runs FIRST, before anything
-  /// is sent or queued and before the row shows its spinner, so the REMOTE call that follows at once is inside the
-  /// server's recent-sign-in window (`ACCOUNT_DELETE_REAUTH_MAX_AGE`). False or a throw: [RemoveOutcome.cancelled],
+  /// [confirmItsYou] (the screen passes it on every Remove tap; lane D PR 4, ruling 3 and fix round ruling 1) is the
+  /// re-sign-in. It runs FIRST, before anything is sent or queued and before the row shows its spinner, so the
+  /// REMOTE call that follows at once is inside the server's recent-sign-in window (`ACCOUNT_DELETE_REAUTH_MAX_AGE`). False or a throw: [RemoveOutcome.cancelled],
   /// nothing sent. A REAUTH_REQUIRED answer anyway: [RemoveOutcome.needsReauth], the list kept and no error (the
   /// queue parked the removal; calling this again for the same ref sends it at once).
   Future<RemoveOutcome> remove(
