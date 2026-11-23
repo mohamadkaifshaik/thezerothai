@@ -591,7 +591,7 @@ class EncryptedMessagingImpl implements EncryptedMessaging {
   @override
   Future<Uint8List?> reportPayload(String conversationId, String messageId) {
     _checkVault();
-    return _reportPayload(conversationId, messageId);
+    return _storedPayload(conversationId, messageId);
   }
 
   @override

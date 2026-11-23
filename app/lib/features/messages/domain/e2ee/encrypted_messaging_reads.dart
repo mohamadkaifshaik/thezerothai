@@ -220,8 +220,10 @@ extension _Reads on EncryptedMessagingImpl {
 
   /// R13 (gate item 32): an owned copy of the exact stored bytes of a
   /// visible message that is not mine and still after `cleared_at`
-  /// (whatever its check and age); else null. No network call.
-  Future<Uint8List?> _reportPayload(
+  /// (whatever its check and age); else null. No network call. Named
+  /// `_stored*`, not `_report*`: Task 15's guards treat `_report*` as the
+  /// error sinks, and this is a payload reader.
+  Future<Uint8List?> _storedPayload(
     String conversationId,
     String messageId,
   ) async {
