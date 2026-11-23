@@ -126,6 +126,23 @@ void main() {
       },
     );
 
+    test('CR I1: a count reset by a sign-out (3, then 0) forwards the next '
+        'session\'s first push', () async {
+      final sub = forwardMessagePushes(
+        states: states.stream,
+        initial: const PushState(messagePushes: 3),
+        onPush: pushes.add,
+      );
+      states
+        ..add(const PushState())
+        ..add(
+          const PushState(messagePushes: 1, lastMessageConversationId: 'c'),
+        );
+      await pumpEventQueue();
+      await sub.cancel();
+      expect(pushes, ['c']);
+    });
+
     test(
       'a push without a conversation id forwards null (welcomes only)',
       () async {

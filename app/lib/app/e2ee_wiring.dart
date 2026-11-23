@@ -50,19 +50,28 @@ Future<void> flagTurnedOnWithOpenVault({
   if (start != null) await _reported(start(), onUnexpectedError);
 }
 
-/// Plan 5a Task 13 (gate item 67): each time `messagePushes` GROWS past the
-/// last seen count (starting from [initial]), [onPush] gets that push's
-/// conversation id, or null when it carried none (the pipeline then polls
-/// welcomes only). Other push-state changes forward nothing.
+/// Plan 5a Task 13 (gate item 67): each time `messagePushes` GROWS from the
+/// previous state's count (starting from [initial]), [onPush] gets that
+/// push's conversation id, or null when it carried none (the pipeline then
+/// polls welcomes only). Other push-state changes forward nothing.
+///
+/// Fix wave ruling 2 (code review I1): the count is compared with the
+/// PREVIOUS state, never a high-water mark: `PushCubit.stop()` (sign-out,
+/// account switch) resets it to 0, and the next session's pushes count
+/// from 1 again.
+///
+/// Ruling 11 (N5): the null path is kept for safety but is not reached
+/// today: `PushCubit` drops a message push that carries no conversation.
 StreamSubscription<PushState> forwardMessagePushes({
   required Stream<PushState> states,
   required PushState initial,
   required void Function(String? conversationId) onPush,
 }) {
-  var seen = initial.messagePushes;
+  var previous = initial.messagePushes;
   return states.listen((state) {
-    if (state.messagePushes <= seen) return;
-    seen = state.messagePushes;
+    final grew = state.messagePushes > previous;
+    previous = state.messagePushes;
+    if (!grew) return;
     final id = state.lastMessageConversationId;
     onPush(id.isEmpty ? null : id);
   });
