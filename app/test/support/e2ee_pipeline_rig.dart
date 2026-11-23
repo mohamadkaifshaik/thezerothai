@@ -1857,9 +1857,14 @@ class RigKeys implements KeysRepository {
     return kpb.RemoveKeyDeviceResponse();
   }
 
+  /// Thrown by every `ListMyKeyDevices` call while set (RATE_LIMITED...).
+  Object? ownError;
+
   @override
   Future<kpb.ListMyKeyDevicesResponse> listMine() async {
     listCalls++;
+    final error = ownError;
+    if (error != null) throw error;
     if (ownFails) throw const NetworkException('rig');
     return kpb.ListMyKeyDevicesResponse(devices: own);
   }

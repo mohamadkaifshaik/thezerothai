@@ -255,6 +255,28 @@ class E2eePipeline {
   /// [E2eePipelineError] with the step name only.
   void reportPortError(String step, StackTrace stack) => _report(step, stack);
 
+  /// Plan 5a Task 13b (the port's `removalsPending`): the open vault's
+  /// removal queue count, parked conversations included; 0 with no parts.
+  /// One listenable for the app's lifetime: it follows the parts of each
+  /// vault ([_watchRemovals]).
+  ValueListenable<int> get removalsPending => _removals;
+  final ValueNotifier<int> _removals = ValueNotifier(0);
+  void Function()? _unwatchRemovals;
+
+  void _watchRemovals(_Parts? parts) {
+    _unwatchRemovals?.call();
+    _unwatchRemovals = null;
+    if (parts == null) {
+      _removals.value = 0;
+      return;
+    }
+    final pending = parts.runner.pending;
+    void copy() => _removals.value = pending.value;
+    pending.addListener(copy);
+    _unwatchRemovals = () => pending.removeListener(copy);
+    copy();
+  }
+
   /// The pipeline started for the open vault (parts built, device usable,
   /// not removed elsewhere) and its coordinator runs. Review I3: false while
   /// a start applies the remembered notes (the start window): a hint then
@@ -293,6 +315,7 @@ class E2eePipeline {
       parts?.dispose();
       parts = _parts = _Parts(this, vault);
       _startedFor = null;
+      _watchRemovals(parts);
     }
     try {
       if (!parts.known.isLoadedFor(vault)) await parts.known.load(vault);
@@ -461,6 +484,7 @@ class E2eePipeline {
     _wasRemoved = false;
     _inboxOwed = false;
     _owedWhilePaused.clear();
+    _watchRemovals(null);
     if (parts == null) return;
     if (identical(_owners[parts.vault], this)) _owners[parts.vault] = null;
     parts.dispose();

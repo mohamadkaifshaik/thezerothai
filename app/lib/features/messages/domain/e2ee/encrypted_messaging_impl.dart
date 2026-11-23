@@ -1,48 +1,124 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
 import '../../../../core/network/app_exception.dart';
+import '../../../../core/vault/secure_vault.dart';
 import '../../../../core/vault/vault_session.dart';
 import '../../../../core/vault/vault_status.dart';
+import '../../../../gen/dzeroth/keys/v1/keys.pb.dart' as kpb;
 import '../conversation_id.dart';
 import 'e2ee_pipeline.dart';
 import 'e2ee_types.dart';
 import 'encrypted_messaging.dart';
 import 'group_starter.dart' show StartOutcome, StartResult;
+import 'membership_rules.dart' show codeParties;
 import 'message_content_codec.dart';
 import 'thread_view.dart';
+
+part 'encrypted_messaging_reads.dart';
+part 'encrypted_messaging_threads.dart';
 
 /// Plan 5a Task 13b: the screens' port ([EncryptedMessaging], 5b's text)
 /// over the pipeline ([E2eePipeline]). One for the app's lifetime, built by
 /// `encryptedMessagingOver` in `app/e2ee_wiring.dart` where a vault is
 /// supported; 5b's Task 14 hands it to the widget tree.
 ///
-/// **Step 13b-i (this file as of that step):** the send path ([send],
-/// [retrySend]), the unsent rows ([unsentEntries]), and the thin maps
-/// ([removedElsewhere], [checkRemovedAgain], [setUpDeviceAgain],
-/// [retryDeviceSetup], [hasLocal], [resetConversation]). The thread,
-/// preview, search, security code, report and device-list members answer
-/// their no-vault answers (an empty thread, no previews, no hits, no code,
-/// no payload, no devices, nothing pending) while no vault is ready, and
-/// are step 13b-ii's otherwise ([_step2]).
+/// This file: the send path ([send], [retrySend]), the unsent rows
+/// ([unsentEntries]) and the thin maps (step 13b-i). The part
+/// `encrypted_messaging_threads.dart`: [watchThread] and [loadOlder]; the
+/// part `encrypted_messaging_reads.dart`: the code, previews, search,
+/// reports and own devices (step 13b-ii).
 ///
 /// **R1: with no vault nothing runs.** With no ready vault every member
 /// answers at once and calls nothing but [send]'s two cache reads (the
 /// pinned inertness test): no engine, no vault, no key directory, no MLS
-/// method.
+/// method. The constructor only adds listeners.
+///
+/// **Memory across accounts (security read L3, gate item 30).** When the
+/// session's vault changes (sign-out, another user, a lost lock, a new
+/// vault object), every thread stream is closed and the bound recipient
+/// refs and the last own-device list are forgotten ([_checkVault]); the
+/// known set is the pipeline's, per vault.
 ///
 /// Never logs; an unexpected failure is reported through the pipeline as
-/// `E2eePipelineError` with a step name only, and the member gives its
-/// "unavailable" answer. Defines no `toString`.
+/// `E2eePipelineError` with a fixed step name only, and the member gives
+/// its "unavailable" answer. Defines no `toString`.
 class EncryptedMessagingImpl implements EncryptedMessaging {
-  EncryptedMessagingImpl(E2eePipeline pipeline) : _pipeline = pipeline;
+  EncryptedMessagingImpl(E2eePipeline pipeline) : _pipeline = pipeline {
+    _pipeline.changes.listen(_onChanged);
+    _session.status.addListener(_onStatus);
+    _pipeline.deviceKeys.status.addListener(_onStatus);
+    _pipeline.deviceKeys.removedElsewhereFact.addListener(_onStatus);
+  }
 
   final E2eePipeline _pipeline;
   final StreamController<String> _previewChanged = StreamController.broadcast();
-  final ValueNotifier<int> _noRemovals = ValueNotifier(0);
 
   VaultSession get _session => _pipeline.session;
+
+  /// The open threads, one per ref (gate item 29).
+  final Map<ThreadRef, _Thread> _threads = {};
+
+  /// K2: recipient ref -> the conversation id a send (or the vault) bound
+  /// it to.
+  final Map<String, String> _bound = {};
+
+  /// The refs of the last [ownDevices] answer (gate item 37) and the last
+  /// readable directory list (a rate limit answers it again).
+  Set<String>? _ownRefs;
+  List<kpb.KeyDevice>? _lastDirectory;
+
+  /// The vault the memory above belongs to (L3).
+  SecureVault? _vaultSeen;
+
+  /// L3: a vault other than the one the memory belongs to forgets it all
+  /// (every thread stream closes: its screen opens a new one).
+  void _checkVault() {
+    final v = _session.vault;
+    if (identical(v, _vaultSeen)) return;
+    final had = _vaultSeen != null;
+    _vaultSeen = v;
+    if (!had) return;
+    final threads = [..._threads.values];
+    _threads.clear();
+    _bound.clear();
+    _ownRefs = null;
+    _lastDirectory = null;
+    for (final t in threads) {
+      t.close();
+    }
+  }
+
+  void _onStatus() {
+    _checkVault();
+    for (final t in [..._threads.values]) {
+      t.refreshIfWatched();
+    }
+  }
+
+  void _onChanged(String conversationId) {
+    _checkVault();
+    if (!_previewChanged.isClosed) _previewChanged.add(conversationId);
+    for (final t in [..._threads.values]) {
+      if (t.shows(conversationId)) t.refreshIfWatched();
+    }
+  }
+
+  /// K2: [recipient]'s thread continues under [conversationId].
+  void _bind(String recipient, String conversationId) {
+    _bound[recipient] = conversationId;
+    for (final t in [..._threads.values]) {
+      if (t.ref.recipientUserId == recipient) t.refreshIfWatched();
+    }
+  }
+
+  /// A programming error, reported (with a fixed step literal at each call
+  /// site: Task 15 forbids interpolated text); a closed vault (StateError)
+  /// or a failed read (an Exception) is quiet and gives the member's
+  /// "unavailable" answer.
+  static bool _isBug(Object error) => error is Error && error is! StateError;
 
   // -------------------------------------------------------------------------
   // This device (gate items 34, 35)
@@ -109,22 +185,19 @@ class EncryptedMessagingImpl implements EncryptedMessaging {
 
   @override
   Stream<EncryptedThread> watchThread(ThreadRef ref) {
-    if (_pipeline.parts != null) _step2('watchThread');
-    // Nothing is known with no ready vault: the empty thread the port
-    // documents for a ref the pipeline knows nothing about.
-    return Stream.value(
-      EncryptedThread(
-        conversationId: ref.conversationId,
-        security: const ConversationSecurity(
-          state: ConversationEncryptionState.ready,
-        ),
-      ),
-    );
+    _checkVault();
+    return _threads.putIfAbsent(ref, () => _Thread(this, ref)).stream;
   }
 
+  /// Widens [ref]'s window by [kThreadPage] rows and re-emits; nothing for
+  /// a thread nobody watches. No network.
   @override
   Future<void> loadOlder(ThreadRef ref) async {
-    if (_pipeline.parts != null) _step2('loadOlder');
+    _checkVault();
+    final t = _threads[ref];
+    if (t == null) return;
+    t.window += kThreadPage;
+    await t.refresh();
   }
 
   /// Plan Task 13b order, security reads C1 and H1, re-reads R1 and R2.
@@ -171,7 +244,7 @@ class EncryptedMessagingImpl implements EncryptedMessaging {
       if (parts == null) {
         return await _sendWithoutVault(conversationId, recipient);
       }
-      return await _sendRouted(
+      final out = await _sendRouted(
         parts,
         conversationId: conversationId,
         recipient: recipient,
@@ -179,6 +252,15 @@ class EncryptedMessagingImpl implements EncryptedMessaging {
         text: text,
         sharedPostId: sharedPostId,
       );
+      // K2 (gate item 29): the recipient's thread continues under the id.
+      final bound = out.conversationId;
+      if (recipient != null &&
+          out.kind == SendOutcomeKind.queued &&
+          bound != null) {
+        _checkVault();
+        _bind(recipient, bound);
+      }
+      return out;
     } on ArgumentError {
       rethrow;
     } on StateError {
@@ -456,23 +538,25 @@ class EncryptedMessagingImpl implements EncryptedMessaging {
   }
 
   // -------------------------------------------------------------------------
-  // Step 13b-ii members: their no-vault answers only (see the class doc).
+  // Step 13b-ii: the bodies are in the part encrypted_messaging_reads.dart.
 
   @override
-  Future<SecurityCode> securityCode(String conversationId) async {
-    if (_pipeline.parts != null) _step2('securityCode');
-    return const SecurityCode(reason: NoCodeReason.unavailable);
+  Future<SecurityCode> securityCode(String conversationId) {
+    _checkVault();
+    return _securityCode(conversationId);
   }
 
   @override
   Future<Map<String, ConversationPreview>> previews(
     Iterable<String> conversationIds,
-  ) async {
-    if (_pipeline.parts != null) _step2('previews');
-    // Ids the vault does not know are left out: with no vault, every id.
-    return const {};
+  ) {
+    _checkVault();
+    return _previews(conversationIds);
   }
 
+  /// The conversation id after every pipeline change of it (a superset of
+  /// "its newest row changed": a stored message, a delete, an outgoing row,
+  /// a state change). Never carries content.
   @override
   Stream<String> get previewChanged => _previewChanged.stream;
 
@@ -481,44 +565,31 @@ class EncryptedMessagingImpl implements EncryptedMessaging {
     String query, {
     String? conversationId,
     int limit = 200,
-  }) async {
-    if (_pipeline.parts != null) _step2('search');
-    return const [];
+  }) {
+    _checkVault();
+    return _search(query, conversationId: conversationId, limit: limit);
   }
 
   @override
-  Future<Uint8List?> reportPayload(
-    String conversationId,
-    String messageId,
-  ) async {
-    if (_pipeline.parts != null) _step2('reportPayload');
-    return null;
+  Future<Uint8List?> reportPayload(String conversationId, String messageId) {
+    _checkVault();
+    return _reportPayload(conversationId, messageId);
   }
 
   @override
-  Future<OwnDeviceList> ownDevices() async {
-    if (_pipeline.parts != null) _step2('ownDevices');
-    // Never from the directory alone: with no vault there is no membership
-    // to merge with, and R1 makes no directory call.
-    return const OwnDeviceList(directoryKnown: false);
+  Future<OwnDeviceList> ownDevices() {
+    _checkVault();
+    return _ownDevices();
   }
 
   @override
-  Future<void> removeDevice(String ref) async {
-    if (_pipeline.parts != null) _step2('removeDevice');
-    // Gate item 37: only refs of the own list; with no vault it is empty.
-    throw ArgumentError('Not a device of the own list.');
+  Future<void> removeDevice(String ref) {
+    _checkVault();
+    return _removeDevice(ref);
   }
 
+  /// The open vault's removal queue count (the pipeline follows each
+  /// vault's parts); 0 with no vault.
   @override
-  ValueListenable<int> get removalsPending {
-    if (_pipeline.parts != null) _step2('removalsPending');
-    return _noRemovals;
-  }
-
-  /// A member whose ready-vault behaviour is step 13b-ii's. Unreachable in
-  /// the app until then: bootstrap holds the port and hands it to nothing
-  /// (5b's Task 14 does, after step 13b-ii).
-  static Never _step2(String member) =>
-      throw UnimplementedError('EncryptedMessaging.$member: Task 13b-ii.');
+  ValueListenable<int> get removalsPending => _pipeline.removalsPending;
 }
