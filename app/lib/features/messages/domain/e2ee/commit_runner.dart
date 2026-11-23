@@ -673,9 +673,17 @@ class CommitRunner {
   Future<PipelineOp?> _op() async {
     final vault = _session.vault;
     if (vault == null) return null;
+    // Before the first await (fix wave 4).
+    final generation = deviceGenerationOf(vault);
     final deviceId = await vault.deviceId();
     if (deviceId == null) return null;
-    return PipelineOp(_session, vault, vault.uid, deviceId);
+    return PipelineOp(
+      _session,
+      vault,
+      vault.uid,
+      deviceId,
+      deviceGeneration: generation,
+    );
   }
 
   /// The highest stored group when none is provisional, else null.

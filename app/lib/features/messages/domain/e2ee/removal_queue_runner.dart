@@ -9,6 +9,7 @@ import '../../../../core/network/app_exception.dart';
 import '../../../../core/vault/secure_vault.dart';
 import '../../../../core/vault/vault_session.dart';
 import '../../../../core/vault/vault_status.dart';
+import '../../../../gen/dzeroth/keys/v1/keys.pb.dart' as kpb;
 import '../../../keys/data/keys_repository.dart';
 import '../../../keys/domain/device_keys_service.dart'
     show kDeviceKeysRateLimitFallback;
@@ -184,6 +185,7 @@ class RemovalQueueRunner {
     required ConversationContexts contexts,
     required DateTime Function() now,
     required bool Function() removedElsewhere,
+    required bool Function() removedDefinitely,
     void Function() Function(Duration delay, void Function() run)? schedule,
     void Function(Object error, StackTrace stack)? onUnexpectedError,
   }) : _keys = keys,
@@ -197,6 +199,7 @@ class RemovalQueueRunner {
        _contexts = contexts,
        _now = now,
        _removedElsewhere = removedElsewhere,
+       _removedDefinitely = removedDefinitely,
        _schedule = schedule ?? ((delay, run) => Timer(delay, run).cancel),
        _onUnexpectedError = onUnexpectedError {
     upkeep
@@ -215,7 +218,13 @@ class RemovalQueueRunner {
   final ConversationLocks _locks;
   final ConversationContexts _contexts;
   final DateTime Function() _now;
+
+  /// Task 13 passes `DeviceKeysService.stopsPipeline` here (passes, commits)
+  /// and `.removedElsewhere` (definite) to [_removedDefinitely], the user
+  /// removal's gate (final round 5, SA L8: an unreadable marker must not
+  /// stop the user removing a lost device).
   final bool Function() _removedElsewhere;
+  final bool Function() _removedDefinitely;
   final void Function() Function(Duration delay, void Function() run) _schedule;
   final void Function(Object error, StackTrace stack)? _onUnexpectedError;
 
@@ -280,6 +289,13 @@ class RemovalQueueRunner {
 
   final ValueNotifier<int> _pending = ValueNotifier(0);
 
+  /// Brief amendment 3: the intents whose RemoveKeyDevice answered
+  /// REAUTH_REQUIRED, parked until the user signs in again and asks again
+  /// ([removeDevice]). Parked again from the stored mark (fix wave 9).
+  final Set<String> _reauthParked = {};
+  final Set<String> _rebuildReauth = {}; // no intent stored (fix wave 10)
+  final ValueNotifier<bool> _needsReauth = ValueNotifier(false);
+
   Future<void>? _running;
   bool _again = false;
   BudgetPriority _againPriority = BudgetPriority.background;
@@ -295,6 +311,22 @@ class RemovalQueueRunner {
   /// than about 400 conversations the queue takes more than a day (500
   /// commit calls per user per day, shared by all own devices).
   ValueListenable<int> get pending => _pending;
+
+  /// Brief amendment 3 (removal design section 4, "Task 11 queue"): true
+  /// while a removal waits for a re-sign-in. A REMOTE RemoveKeyDevice of
+  /// an id the server has not marked yet needs a recent sign-in; when it
+  /// answers REAUTH_REQUIRED (the first call did not reach the server in
+  /// time) its intent is PARKED, never dropped: it stays stored (so
+  /// [wasRemovedByUser] still answers true), no pass sends it again, and
+  /// this turns true. The UI (lane D PR 4 / 5b) then asks the user to sign
+  /// in again and calls [removeDevice] for the same id, which sends it at
+  /// once; its success clears the ask, and so does [dropRemoval]. The
+  /// intent is stored marked as waiting (fix wave 9, SA L5): never dropped
+  /// for its age, and the next run parks it again on load. [reset] clears
+  /// the memory only. While the stored record cannot be read (the rebuild
+  /// path), no intent is stored, but the ask is raised the same way (fix
+  /// round 1, M3).
+  ValueListenable<bool> get needsReauth => _needsReauth;
 
   /// The device ids queued for [conversationId], parked ones included (the
   /// upkeep's `queuedRemovals`, amendment 4). Empty while the queue is not
@@ -374,7 +406,8 @@ class RemovalQueueRunner {
   /// device's own id (use sign-out) and for an id a fresh own list does not
   /// name (review I1: callers pass an id from the own list; a stored intent
   /// for the id skips that check and is finished, ruling 3), [StateError]
-  /// with no call when there is no vault, or [kMaxRemovalIntents] intents
+  /// with no call when there is no vault, while this device is removed
+  /// elsewhere (fix wave 2, SA M2), or [kMaxRemovalIntents] intents
   /// are stored already (ruling 6; the removed-mark cap never refuses,
   /// fix round 4, ruling 10; reported as
   /// `removalQueue.intentCap`), and rethrows a failed own-list read
@@ -401,6 +434,12 @@ class RemovalQueueRunner {
   }
 
   Future<void> _removeDevice(String deviceId) async {
+    // Fix wave 2 (SA M2): a device the account removed elsewhere removes no
+    // other device: no own-list read, no RemoveKeyDevice, no intent stored
+    // (a stored one would go out once the fact clears).
+    if (_removedDefinitely()) {
+      throw StateError('This device was removed elsewhere.');
+    }
     if (deviceId.isEmpty) throw ArgumentError.value('', 'deviceId');
     final id = Uint8List.fromList(utf8.encode(deviceId));
     final vault = _session.vault;
@@ -496,6 +535,18 @@ class RemovalQueueRunner {
         failureStack = s;
       }
       if (failure != null) {
+        if (failure is ReauthRequiredException) {
+          // Brief amendment 3: parked, never dropped (the intent stored
+          // above stays, now marked so: fix wave 9). Fix round 1, M3: a
+          // rebuild stored no intent, but the ask is raised all the same;
+          // the user's next call for the id sends it and clears it.
+          if (rebuild) {
+            _parkRebuild(deviceId);
+          } else {
+            await _parkStored(vault, deviceId);
+          }
+          Error.throwWithStackTrace(failure, failureStack!);
+        }
         var settled = false;
         if (_definiteRefusal(failure) && identical(_loadedFor, vault)) {
           if (waiting == null) {
@@ -524,6 +575,7 @@ class RemovalQueueRunner {
         _startPass(BudgetPriority.live);
         return;
       }
+      _unparkReauth(deviceId);
       if (!identical(_session.vault, vault)) {
         throw StateError('The vault changed.');
       }
@@ -597,8 +649,17 @@ class RemovalQueueRunner {
     // Fix round 5, ruling 5 (m5): a removal of the old run is not joined
     // by the next run's call for the same id (its own call, sent again).
     _removing.clear();
+    _reauthParked.clear();
+    _rebuildReauth.clear();
+    _needsReauth.value = false;
     _publish();
   }
+
+  /// Fix wave 9 (SA L5): the user gives up a removal waiting for a
+  /// re-sign-in: its intent goes and its ask clears, with no call; a
+  /// [StateError] for any other id, while its call is in flight, with no
+  /// vault or an unreadable record (final round 4).
+  Future<void> dropRemoval(String deviceId) => _dropRemoval(deviceId);
 
   /// A conversation header or inbox row was taken
   /// (`ConversationContexts.note`; Task 13 wires it): when [conversationId]
@@ -780,25 +841,6 @@ class RemovalQueueRunner {
     } on Object catch (e, s) {
       _reportIfBug(e, s, 'removalQueue.unpark');
     }
-  }
-
-  /// The conversations with group state, most recently active first (the
-  /// newest stored message; none counts as oldest; a tie keeps the vault's
-  /// ascending order).
-  Future<List<String>> _byRecentActivity(SecureVault vault) async {
-    _rankingReads++;
-    final ids = await vault.groupConversationIds();
-    final at = <String, int>{};
-    for (final id in ids) {
-      final newest = await vault.messages(id, limit: 1);
-      at[id] = newest.isEmpty ? 0 : newest.first.createdAtMicros;
-    }
-    final indexed = [for (var i = 0; i < ids.length; i++) (i, ids[i])];
-    indexed.sort((a, b) {
-      final c = at[b.$2]!.compareTo(at[a.$2]!);
-      return c != 0 ? c : a.$1.compareTo(b.$1);
-    });
-    return [for (final e in indexed) e.$2];
   }
 
   /// One timer for the pass at [at] (the queue's `notBeforeMicros`, a

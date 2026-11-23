@@ -15,6 +15,9 @@ extension _WelcomeJoin on ConversationCrypto {
     required bool mayWalk,
   }) async {
     final id = w.conversationId;
+    // Fix wave 4: a poll stopped meanwhile (its vault gone, or "set up
+    // again" ran) handles no further welcome.
+    if (!poll.live) throw const _Stopped();
     // 1. The label; a component the client cannot hold is permanent.
     final g = pairComponentFromInt64(w.mlsGeneration);
     final e = pairComponentFromInt64(w.mlsEpoch);

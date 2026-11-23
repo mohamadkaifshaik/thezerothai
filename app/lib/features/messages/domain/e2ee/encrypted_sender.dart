@@ -248,6 +248,12 @@ class EncryptedSender {
     final op = await _start();
     if (op == null) throw StateError('The vault is not ready.');
     await _session.runWrite((v) async {
+      // Task 12 fix wave 11 (CR Nit 2): `owns` includes the device
+      // generation, so a message typed in the instant "set up again" runs
+      // is refused too (a failed send the user retries), although a plain
+      // row is something the reset keeps. Accepted: one rule for every
+      // body of an operation started before the reset, and the retry is
+      // an ordinary enqueue under the new generation.
       if (!op.owns(v)) throw StateError('The vault is not ready.');
       final rows = (await v.outbox()).items;
       if (rows.any((r) => r.localId == localId)) {
@@ -728,10 +734,18 @@ class EncryptedSender {
   Future<_Op?> _start() async {
     final vault = _session.vault;
     if (vault == null) return null;
+    // Before the first await (fix wave 4).
+    final generation = deviceGenerationOf(vault);
     try {
       final deviceId = await vault.deviceId();
       if (deviceId == null) return null;
-      return _Op(_session, vault, vault.uid, deviceId);
+      return _Op(
+        _session,
+        vault,
+        vault.uid,
+        deviceId,
+        deviceGeneration: generation,
+      );
     } on Object catch (e, s) {
       _reportIfBug(e, s, 'send.start');
       return null;

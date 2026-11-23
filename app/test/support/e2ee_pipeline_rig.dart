@@ -1454,12 +1454,18 @@ class _RigVaultSession extends VaultSession {
 /// before every `outbox` read (it may throw). Everything else is the real
 /// vault's, unchanged.
 class _RigVault implements SecureVault {
-  _RigVault(this._inner, this._confirm, this._beforeOutbox);
+  _RigVault(
+    this._inner,
+    this._confirm,
+    this._beforeOutbox,
+    this._beforeDeviceId,
+  );
 
   final SecureVault _inner;
   final Future<bool> Function(String key, Future<bool> Function() real)
   _confirm;
   final Future<void> Function() _beforeOutbox;
+  final Future<void> Function() _beforeDeviceId;
 
   @override
   Future<bool> confirmStored(String idempotencyKey) =>
@@ -1475,7 +1481,11 @@ class _RigVault implements SecureVault {
   Future<T> transaction<T>(Future<T> Function(VaultTx tx) body) =>
       _inner.transaction(body);
   @override
-  Future<Uint8List?> deviceId() => _inner.deviceId();
+  Future<Uint8List?> deviceId() async {
+    await _beforeDeviceId();
+    return _inner.deviceId();
+  }
+
   @override
   Future<Uint8List?> deviceState() => _inner.deviceState();
   @override
@@ -1590,6 +1600,10 @@ class RigDevice {
   /// (the vault's own read is not made then). Null: the real read.
   Future<void> Function()? onOutbox;
 
+  /// Runs before every `deviceId` read of the vault (a test holds it to
+  /// race a start against "set up again"). Null: the real read at once.
+  Future<void> Function()? onDeviceId;
+
   Future<bool> _confirmStored(String key, Future<bool> Function() real) {
     confirmStoredCalls.add(key);
     final hook = onConfirmStored;
@@ -1652,6 +1666,7 @@ class RigDevice {
             await openVaultOnDatabase(_db, uid: uid, cipher: cipher),
             _confirmStored,
             () async => onOutbox?.call(),
+            () async => onDeviceId?.call(),
           ),
       wipeVaultFile: ({required alias, String? expectedStorage}) async {},
       deleteVaultKey: ({required alias}) async {},
@@ -1813,8 +1828,10 @@ class RigKeys implements KeysRepository {
     return answer == null ? kpb.ClaimKeyPackagesResponse() : answer();
   }
 
-  /// Every `RemoveKeyDevice` call, in order (a refused one too).
-  final List<({String deviceId, String key})> removeCalls = [];
+  /// Every `RemoveKeyDevice` call, in order (a refused one too), with the
+  /// reason it was sent with (Task 12, design section 4).
+  final List<({String deviceId, String key, kpb.RemoveReason reason})>
+  removeCalls = [];
 
   /// Thrown by every `RemoveKeyDevice` call while set.
   Object? removeError;
@@ -1829,8 +1846,9 @@ class RigKeys implements KeysRepository {
   Future<kpb.RemoveKeyDeviceResponse> removeDevice({
     required String deviceId,
     required String idempotencyKey,
+    required kpb.RemoveReason reason,
   }) async {
-    removeCalls.add((deviceId: deviceId, key: idempotencyKey));
+    removeCalls.add((deviceId: deviceId, key: idempotencyKey, reason: reason));
     final error = removeError;
     if (error != null) throw error;
     own.removeWhere((d) => d.deviceId == deviceId);
@@ -1986,8 +2004,13 @@ class RigCrypto {
   /// run by the rig; a test runs an entry itself.
   final List<RigScheduled> commitScheduled = [];
 
-  /// Task 12's "removed elsewhere" fact, as the sender reads it.
+  /// Task 12's "removed elsewhere" fact, as the sender reads it (the
+  /// pipeline's `stopsPipeline`).
   bool removedElsewhere = false;
+
+  /// The definite fact (a DEVICE_REMOVED answer), as the removal queue's
+  /// user removal reads it (final round 5, SA L8); null: [removedElsewhere].
+  bool? removedDefinitely;
 
   /// The engine every component of this rig is handed instead of the
   /// device's (a guarded engine that answers `unavailable`, say); null: the
@@ -2004,7 +2027,8 @@ class RigCrypto {
   /// [messaging] replaces the repository view of user `user-a`; [locks]
   /// the first run's conversation locks (a test that watches them);
   /// [engine] the device's engine; [syncBudget] the sync budget (a test
-  /// that watches the units taken); [start] the clock's first value (the
+  /// that watches the units taken), [readBudget] the receiver's read
+  /// budget; [start] the clock's first value (the
   /// real time when null; a test that moves the clock within one IST day
   /// and expects the same day pins a start well inside one, see
   /// [rigMidIstDay]).
@@ -2014,6 +2038,7 @@ class RigCrypto {
     ConversationLocks? locks,
     RigEngine? engine,
     SyncBudget Function(RigClock clock)? syncBudget,
+    SyncBudget Function(RigClock clock)? readBudget,
     DateTime? start,
   }) async {
     final clock = RigClock(start);
@@ -2034,11 +2059,9 @@ class RigCrypto {
     rig.syncBudget =
         syncBudget?.call(clock) ??
         SyncBudget(perMinute: 100000, ownDeviceCount: () => 1, now: clock.now);
-    rig.readBudget = SyncBudget(
-      perMinute: 100000,
-      ownDeviceCount: () => 1,
-      now: clock.now,
-    );
+    rig.readBudget =
+        readBudget?.call(clock) ??
+        SyncBudget(perMinute: 100000, ownDeviceCount: () => 1, now: clock.now);
     rig.directoryBudget = SyncBudget(
       perMinute: 100000,
       ownDeviceCount: () => 1,

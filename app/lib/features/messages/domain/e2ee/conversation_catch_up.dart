@@ -236,7 +236,11 @@ extension _CatchUp on ConversationCrypto {
     String id,
     MlsPair? after,
   ) async {
-    if (!await _takeSyncUnit(pass.priority)) return null;
+    // Fix wave 4 (CR Minor A): a stale operation (its vault gone, or "set
+    // up again" ran since it started) lists nothing.
+    if (!pass.live || !await _takeSyncUnit(pass.priority) || !pass.live) {
+      return null;
+    }
     try {
       return await _messaging.listConversationCommits(
         conversationId: id,

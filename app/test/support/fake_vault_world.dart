@@ -92,6 +92,14 @@ class FakeVaultWorld {
   /// Uids whose `SecureVault.wipe()` fails before deleting rows.
   final Set<String> vaultWipeFails = {};
 
+  /// Setting keys whose read throws [VaultCorruptException] (a sealed row
+  /// that does not open).
+  final Set<String> settingReadFails = {};
+
+  /// Setting keys whose write makes its transaction throw at commit
+  /// (nothing of that transaction is applied).
+  final Set<String> settingWriteFails = {};
+
   /// Uids held by another tab (acquire answers false).
   final Set<String> heldElsewhere = {};
 
@@ -391,6 +399,9 @@ class FakeWorldVault implements SecureVault {
       tx.ended = true;
     }
     if (closed) throw StateError('closed');
+    if (tx.settingKeys.any(_world.settingWriteFails.contains)) {
+      throw StateError('fake vault: the write failed');
+    }
     tx.commit();
     return result;
   }
@@ -398,6 +409,9 @@ class FakeWorldVault implements SecureVault {
   @override
   Future<Uint8List?> setting(String key) async {
     if (closed) throw StateError('closed');
+    if (_world.settingReadFails.contains(key)) {
+      throw const VaultCorruptException('vault_settings');
+    }
     final v = _file.rows[key];
     return v == null ? null : Uint8List.fromList(v.codeUnits);
   }
@@ -474,9 +488,13 @@ class _FakeTx implements VaultTx {
     _file.commits++;
   }
 
+  /// The setting keys this transaction writes.
+  final Set<String> settingKeys = {};
+
   @override
   Future<void> putSetting(String key, Uint8List value) async {
     final v = String.fromCharCodes(value);
+    settingKeys.add(key);
     _stage(() {
       _file.rows[key] = v;
       _file.settingWrites[key] = (_file.settingWrites[key] ?? 0) + 1;
