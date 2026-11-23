@@ -301,9 +301,14 @@ const Set<String> _stackNames = {
 final RegExp _privateReporter = RegExp(
   r'(?<![\w$.])(?:this\s*\.\s*)?_report\w*\s*\(',
 );
-final RegExp _reportErrorCall = RegExp(
-  r'(?<![\w$.])(?:this\s*\.\s*)?report\w*Error\s*\(',
-);
+
+/// Any `report...Error(` call, also on a receiver (`_pipeline.reportPortError(`).
+final RegExp _reportErrorCall = RegExp(r'(?<![\w$])report\w*Error\s*\(');
+
+/// Report helper calls that forward a step their own caller named, by file
+/// (the finding as `_reportCallViolations` prints it). Each needs a why; the
+/// forwarder's callers are checked like any other report call. Empty today.
+const Map<String, List<String>> _pinnedReportForwards = {};
 
 /// Report calls in [source] that pass something other than a step name and
 /// the caught error / stack.
@@ -854,7 +859,7 @@ class Other { void notAMember() {} }
       final sinks = <String>[];
       final forwards = <String, List<String>>{};
       final aliases = <String, List<String>>{};
-      final reports = <String>[];
+      final reports = <String, List<String>>{};
       for (final e in _pipelineFiles().entries) {
         for (final v in sinkArgumentViolations(e.value)) {
           sinks.add('${e.key}: $v');
@@ -863,9 +868,8 @@ class Other { void notAMember() {} }
         if (f.isNotEmpty) forwards[e.key] = f;
         final a = aliasAssignments(e.value, _callbackNames);
         if (a.isNotEmpty) aliases[e.key] = a;
-        for (final v in _reportCallViolations(e.value)) {
-          reports.add('${e.key}: $v');
-        }
+        final r = _reportCallViolations(e.value);
+        if (r.isNotEmpty) reports[e.key] = r;
       }
       expect(sinks, isEmpty, reason: sinks.join('\n'));
       expect(forwards, _pinnedForwards);
@@ -881,12 +885,12 @@ class Other { void notAMember() {} }
       }
       expect(
         reports,
-        isEmpty,
+        _pinnedReportForwards,
         reason:
             'A _report... helper takes a step literal and the caught error '
-            'and stack; a report...Error call takes '
-            "E2eePipelineError('<literal>') and a stack.\n"
-            '${reports.join('\n')}',
+            'and stack; a report...Error call takes a step literal or '
+            "E2eePipelineError('<literal>') and a stack. A forwarder that "
+            'passes its own `step` on is pinned in _pinnedReportForwards.',
       );
     });
 
@@ -1071,15 +1075,24 @@ class Other { void notAMember() {} }
         'reportPortError(e, s);',
         "reportUnexpectedError(StateError('x'), s);",
         "reportPortError(const E2eePipelineError('a'), deviceId);",
+        '_pipeline.reportPortError(conversationId, s);',
+        'void reportPortError(String step, StackTrace s) => _report(step, s);',
       ]) {
         expect(_reportCallViolations(bad), isNotEmpty, reason: bad);
       }
+      expect(
+        _reportCallViolations(
+          'void reportPortError(String step, StackTrace s) => _report(step, s);',
+        ),
+        ['_report*(step)'],
+      );
       for (final ok in [
         "_reportIfBug(e, s, 'commit.mayCommit');",
         "_reportBug('commit.random');",
         "_reportOnce('send.outbox.unreadable', stack);",
         'void _reportIfBug(Object e, StackTrace s, String step) {}',
         "reportPortError(const E2eePipelineError('port.send'), s);",
+        "_pipeline.reportPortError('port.send', s);",
       ]) {
         expect(_reportCallViolations(ok), isEmpty, reason: ok);
       }
