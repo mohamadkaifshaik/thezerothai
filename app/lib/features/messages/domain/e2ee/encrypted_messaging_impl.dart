@@ -469,6 +469,12 @@ class EncryptedMessagingImpl implements EncryptedMessaging {
   /// is shown once, as the init. Gate item 17: null when the rows cannot be
   /// read now (no ready vault, a vault whose cipher cannot run): never an
   /// empty list, which always means "no unsent rows".
+  ///
+  /// 13b-i review N2, decision: also null when the rows were read and only
+  /// `describeState` failed. Why: each entry's status depends on the
+  /// conversation's state (a blocked row says why), and an entry built from
+  /// a guessed state could say "sending" for a row that cannot go; the
+  /// caller already treats null as "can't tell now" and keeps what it shows.
   Future<List<DecryptedMessage>?> unsentEntries(ThreadRef ref) async {
     final parts = _pipeline.parts;
     if (parts == null) return null;
