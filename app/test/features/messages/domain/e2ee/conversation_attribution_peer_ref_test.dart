@@ -2,7 +2,6 @@ import 'dart:typed_data';
 
 import 'package:dzeroth/core/vault/secure_vault.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_crypto.dart';
-import 'package:dzeroth/features/messages/domain/e2ee/e2ee_types.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../../support/e2ee_pipeline_rig.dart';
