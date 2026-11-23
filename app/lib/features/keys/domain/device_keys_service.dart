@@ -386,8 +386,14 @@ class DeviceKeysService {
 
   // ---------------------------------------------------------------------
 
+  /// This device's own removal: always SIGN_OUT (removal design 2.4: the
+  /// server keeps no mark, so [onSignOutFailed] can register the same id).
   Future<void> _removeQuietly(String id) async {
-    final rpc = _repo.removeDevice(deviceId: id, idempotencyKey: _newKey());
+    final rpc = _repo.removeDevice(
+      deviceId: id,
+      idempotencyKey: _newKey(),
+      reason: pb.RemoveReason.REMOVE_REASON_SIGN_OUT,
+    );
     final settled = rpc.then<void>((_) {}, onError: (Object _) {});
     _removalRpc = settled;
     try {

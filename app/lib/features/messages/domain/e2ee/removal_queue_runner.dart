@@ -9,6 +9,7 @@ import '../../../../core/network/app_exception.dart';
 import '../../../../core/vault/secure_vault.dart';
 import '../../../../core/vault/vault_session.dart';
 import '../../../../core/vault/vault_status.dart';
+import '../../../../gen/dzeroth/keys/v1/keys.pb.dart' as kpb;
 import '../../../keys/data/keys_repository.dart';
 import '../../../keys/domain/device_keys_service.dart'
     show kDeviceKeysRateLimitFallback;

@@ -158,10 +158,51 @@ void main() {
       signaturePublicKey: _sig(),
       idempotencyKey: _key1,
     );
-    await repo.removeDevice(deviceId: _id, idempotencyKey: _key2);
+    await repo.removeDevice(
+      deviceId: _id,
+      idempotencyKey: _key2,
+      reason: pb.RemoveReason.REMOVE_REASON_SIGN_OUT,
+    );
     expect(server.devices, isEmpty);
-    await repo.removeDevice(deviceId: _id, idempotencyKey: _key2);
+    await repo.removeDevice(
+      deviceId: _id,
+      idempotencyKey: _key2,
+      reason: pb.RemoveReason.REMOVE_REASON_SIGN_OUT,
+    );
     expect(server.calls, ['register', 'remove', 'remove']);
+  });
+
+  test('remove sends the reason it is given: SIGN_OUT leaves no mark, '
+      'REMOTE marks the id', () async {
+    await repo.registerDevice(
+      deviceId: _id,
+      signaturePublicKey: _sig(),
+      idempotencyKey: _key1,
+    );
+    await repo.removeDevice(
+      deviceId: _id,
+      idempotencyKey: _key2,
+      reason: pb.RemoveReason.REMOVE_REASON_SIGN_OUT,
+    );
+    expect(server.removedMarks, isEmpty);
+    await repo.removeDevice(
+      deviceId: _id,
+      idempotencyKey: _key1,
+      reason: pb.RemoveReason.REMOVE_REASON_REMOTE,
+    );
+    expect(server.removals.map((r) => r.reason), [
+      pb.RemoveReason.REMOVE_REASON_SIGN_OUT,
+      pb.RemoveReason.REMOVE_REASON_REMOTE,
+    ]);
+    expect(server.removedMarks, {_id});
+    await expectLater(
+      repo.registerDevice(
+        deviceId: _id,
+        signaturePublicKey: _sig(),
+        idempotencyKey: _key2,
+      ),
+      throwsA(isA<DeviceRemovedException>()),
+    );
   });
 
   // One call per method, in a fixed order: register, list, remove, upload,
@@ -173,7 +214,11 @@ void main() {
       idempotencyKey: _key1,
     ),
     () => repo.listMine(),
-    () => repo.removeDevice(deviceId: _id, idempotencyKey: _key1),
+    () => repo.removeDevice(
+      deviceId: _id,
+      idempotencyKey: _key1,
+      reason: pb.RemoveReason.REMOVE_REASON_SIGN_OUT,
+    ),
     () => repo.uploadKeyPackages(
       deviceId: _id,
       keyPackages: [
@@ -289,7 +334,11 @@ void main() {
     () async {
       flag = false;
       await expectLater(
-        repo.removeDevice(deviceId: _id, idempotencyKey: _key1),
+        repo.removeDevice(
+          deviceId: _id,
+          idempotencyKey: _key1,
+          reason: pb.RemoveReason.REMOVE_REASON_SIGN_OUT,
+        ),
         throwsA(isA<FeatureDisabledException>()),
       );
       expect(server.rpcCount, 0);

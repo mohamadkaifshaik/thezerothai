@@ -6,10 +6,17 @@ part of 'removal_queue_runner.dart';
 /// entries.
 extension _RemovalStore on RemovalQueueRunner {
   /// One `RemoveKeyDevice` with a fresh key, bounded by [kMlsRpcTimeout].
+  /// Always REMOTE (removal design section 4): the user removes another
+  /// device of theirs, so the server remembers the id and refuses its
+  /// Register and Upload.
   Future<void> _sendRemove(String deviceId) async {
     final key = hexOf(await randomOf(_engine(), 16));
     await _keys
-        .removeDevice(deviceId: deviceId, idempotencyKey: key)
+        .removeDevice(
+          deviceId: deviceId,
+          idempotencyKey: key,
+          reason: kpb.RemoveReason.REMOVE_REASON_REMOTE,
+        )
         .timeout(
           kMlsRpcTimeout,
           onTimeout: () => throw const NetworkException('timed out'),

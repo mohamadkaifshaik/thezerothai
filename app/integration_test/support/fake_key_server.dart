@@ -31,7 +31,9 @@ import 'package:protobuf/well_known_types/google/protobuf/timestamp.pb.dart'
 ///   re-adds the claimed one); at most 100 in the pool; the last-resort one
 ///   replaced when sent; neither => VALIDATION `key_packages`;
 /// - RemoveKeyDevice deletes the device, its pool and last-resort package; a
-///   missing device is success;
+///   missing device is success; reason REMOTE also writes a removed mark
+///   ([removedMarks]: Register and Upload then answer DEVICE_REMOVED), and
+///   needs a recent sign-in while [remoteNeedsReauth] holds;
 /// - ClaimKeyPackages takes one package per device of the caller (minus the
 ///   excluded one), else the last-resort one.
 ///
@@ -64,6 +66,22 @@ class FakeKeyServer {
   final Map<String, Future<void> Function()> onCall = {};
 
   bool featureEnabled = true;
+
+  /// The removed marks (lane D H1): ids removed with `REMOVE_REASON_REMOTE`.
+  /// RegisterKeyDevice and UploadKeyPackages refuse a marked id with
+  /// FAILED_PRECONDITION + DEVICE_REMOVED, before any other check of the
+  /// device (a marked id never learns about the device cap). A test may add
+  /// an id itself (a removal made by another device of the account).
+  final Set<String> removedMarks = {};
+
+  /// Ids ListMyKeyDevices leaves out although the device exists (Task 12:
+  /// an answer that lacks this device, honest or not).
+  final Set<String> hiddenFromList = {};
+
+  /// A REMOTE removal of an id that is not marked yet needs a recent
+  /// sign-in: while this is set it answers REAUTH_REQUIRED and changes
+  /// nothing (a marked id is a retry and needs none).
+  bool remoteNeedsReauth = false;
 
   /// The `conversation_id` a claim answers with ('' = none; K2).
   String claimConversationId = '';
@@ -141,12 +159,22 @@ class FakeKeyServer {
     if (!_idPattern.hasMatch(id)) throw _validation('device_id');
   }
 
+  void _checkNotRemoved(String id) {
+    if (removedMarks.contains(id)) {
+      throw keyServerError(
+        connect.Code.failedPrecondition,
+        common.ErrorReason.ERROR_REASON_DEVICE_REMOVED,
+      );
+    }
+  }
+
   pb.RegisterKeyDeviceResponse _register(pb.RegisterKeyDeviceRequest r) {
     _checkKey(r.idempotencyKey);
     _checkId(r.deviceId);
     if (r.signaturePublicKey.length != 32) {
       throw _validation('signature_public_key');
     }
+    _checkNotRemoved(r.deviceId);
     final existing = devices[r.deviceId];
     if (existing != null) {
       if (!_same(existing.signatureKey, r.signaturePublicKey)) {
@@ -172,12 +200,25 @@ class FakeKeyServer {
   }
 
   pb.ListMyKeyDevicesResponse _list() => pb.ListMyKeyDevicesResponse(
-    devices: [for (final d in devices.values) d.toProto()],
+    devices: [
+      for (final d in devices.values)
+        if (!hiddenFromList.contains(d.id)) d.toProto(),
+    ],
   );
 
   pb.RemoveKeyDeviceResponse _remove(pb.RemoveKeyDeviceRequest r) {
     _checkKey(r.idempotencyKey);
     _checkId(r.deviceId);
+    // UNSPECIFIED behaves as SIGN_OUT (removal design 2.4): no mark.
+    if (r.reason == pb.RemoveReason.REMOVE_REASON_REMOTE) {
+      if (!removedMarks.contains(r.deviceId) && remoteNeedsReauth) {
+        throw keyServerError(
+          connect.Code.failedPrecondition,
+          common.ErrorReason.ERROR_REASON_REAUTH_REQUIRED,
+        );
+      }
+      removedMarks.add(r.deviceId);
+    }
     devices.remove(r.deviceId);
     return pb.RemoveKeyDeviceResponse();
   }
@@ -192,6 +233,7 @@ class FakeKeyServer {
         r.keyPackages.any((p) => p.isEmpty || p.length > 4096)) {
       throw _validation('key_packages');
     }
+    _checkNotRemoved(r.deviceId);
     final device = devices[r.deviceId];
     if (device == null) {
       throw connect.ConnectException(connect.Code.notFound, 'not found');
