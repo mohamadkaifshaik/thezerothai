@@ -32,9 +32,17 @@ export FEATURE_DEVICE_SIGN_OUT=off
 export FEATURE_PUBLIC_IDS=allowlist
 export FEATURE_PUBLIC_IDS_ALLOWLIST="e2eesmoke-${smoke_run}-c,e2eesmoke-${smoke_run}-d"
 # Every device of the test calls from the same loopback address; the per-IP limits (120 a minute by default) would
-# count four users' devices as one client. The per-user limits stay at their defaults.
+# count four users' devices as one client.
 export RATE_LIMIT_PER_IP_PER_MIN=100000
 export RATE_LIMIT_PRE_AUTH_IP_PER_MIN=100000
+# The per-user messaging and key-directory limits are shared by all of a user's devices (A1 and A2 here), and the
+# test nudges far more often than an app would (a push, a resume and an inbox refresh every few seconds while it
+# waits), so the defaults (read 30, sync 60, commit 20, keys read 60 a minute) would refuse the test's own polling.
+# The client's budgets are still exercised; a refusal of any RPC is recorded and printed with every failure.
+export RATE_LIMIT_MESSAGES_READ_PER_MIN=100000
+export RATE_LIMIT_MESSAGES_SYNC_PER_MIN=100000
+export RATE_LIMIT_MESSAGES_COMMIT_PER_MIN=100000
+export RATE_LIMIT_KEYS_READ_PER_MIN=100000
 
 auth_host="${FIREBASE_AUTH_EMULATOR_HOST:-127.0.0.1:9099}"
 project="${FIREBASE_PROJECT_ID:-demo-dzeroth-local}"
@@ -50,22 +58,41 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-api_bin="$tmp/dzeroth-api$(cd "$root/backend" && go env GOEXE)"
-(cd "$root/backend" && go build -o "$api_bin" ./cmd/api)
+# A server already answering on the port (a stale API from an earlier run) would take the test's calls with other
+# flags: refuse to start rather than test it.
+if curl -fsS --max-time 2 "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then
+	echo "e2ee-smoke: something already answers on port $PORT; stop it first" >&2
+	exit 1
+fi
+
+exe="$(cd "$root/backend" && go env GOEXE)"
+api_bin="$tmp/dzeroth-api$exe"
+opsctl_bin="$tmp/opsctl$exe"
+(cd "$root/backend" && go build -o "$api_bin" ./cmd/api && go build -o "$opsctl_bin" ./cmd/opsctl)
+# Step 10a runs opsctl (`messages takedown`, against the Firestore emulator this process inherits) from the test
+# process, which on Windows needs the native path.
+opsctl_native="$opsctl_bin"
+if command -v cygpath >/dev/null 2>&1; then
+	opsctl_native="$(cygpath -w "$opsctl_bin")"
+fi
 "$api_bin" >"$tmp/api.log" 2>&1 &
 api_pid=$!
 
 ready=0
 for _ in $(seq 1 60); do
-	if curl -fsS "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then
-		ready=1
+	if ! kill -0 "$api_pid" 2>/dev/null; then
 		break
 	fi
-	if ! kill -0 "$api_pid" 2>/dev/null; then
+	if curl -fsS --max-time 2 "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then
+		ready=1
 		break
 	fi
 	sleep 1
 done
+# The answer must come from the binary started here: it is still running.
+if [ "$ready" = 1 ] && ! kill -0 "$api_pid" 2>/dev/null; then
+	ready=0
+fi
 if [ "$ready" != 1 ]; then
 	echo "e2ee-smoke: the API did not answer /health on port $PORT; its last log lines:" >&2
 	tail -n 40 "$tmp/api.log" >&2 || true
@@ -77,7 +104,8 @@ status=0
 	--dart-define=E2EE_SMOKE_API="http://127.0.0.1:$PORT" \
 	--dart-define=E2EE_SMOKE_AUTH="$auth_host" \
 	--dart-define=E2EE_SMOKE_PROJECT="$project" \
-	--dart-define=E2EE_SMOKE_RUN="$smoke_run") || status=$?
+	--dart-define=E2EE_SMOKE_RUN="$smoke_run" \
+	--dart-define=E2EE_SMOKE_OPSCTL="$opsctl_native") || status=$?
 if [ "$status" != 0 ]; then
 	echo "e2ee-smoke: the test failed ($status); the API's last log lines:" >&2
 	tail -n 60 "$tmp/api.log" >&2 || true
