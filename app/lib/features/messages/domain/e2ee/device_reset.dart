@@ -42,11 +42,12 @@ const FormerPins _formerPins = FormerPins();
 ///
 /// **The key history (device-key-history design section 7; carryovers from
 /// Task 5).** No entry is dropped or reset. The one change: this device's
-/// OLD (id, key) is admitted, because its pin becomes a former pin while the
-/// device takes a new id, and the cross-check then holds the old id to that
-/// key like any other pin ([KeyHistory.admitFormerSelf]). If the history
-/// only holds it (closed at its allowance), the old own former pin is
-/// written `unattributed` so the cross-check still passes. An unreadable
+/// OLD id is admitted with the vault's STORED own key
+/// ([KeyHistory.admitFormerSelf]), so the cross-check then holds the old id
+/// to that key like any other id. The old own pin is kept as a former pin
+/// only when it carries that key, and always `unattributed` (fix wave 1, SA
+/// M1): the account removed that device, so a welcome bringing it back is
+/// attributed from the lists, never `mine` from memory. An unreadable
 /// history stays as it is (never overwritten).
 ///
 /// **Then** [DeviceKeysService.recreateDevice]: a new device id, state and
@@ -122,6 +123,13 @@ class DeviceReset {
   Future<Set<String>> _clearIn(SecureVault v) async {
     final ownId = await v.deviceId();
     final ownHex = ownId == null ? null : vaultDeviceIdHex(ownId);
+    // Fix wave 1 (SA M1): the old self is admitted with the vault's STORED
+    // own key, never with a pin's key (a welcome could have pinned this id
+    // under another key).
+    final storedKey = await v.setting(kVaultSettingDeviceSignatureKey);
+    final ownKey = storedKey != null && storedKey.length == 32
+        ? storedKey
+        : null;
     final outbox = await v.outbox();
     final ids = <String>{...await v.groupConversationIds()};
     for (final item in outbox.items) {
@@ -158,22 +166,34 @@ class DeviceReset {
         };
         for (final m in p.pins) {
           final hex = vaultDeviceIdHex(m.deviceId);
-          var pin = m;
-          if (hex == ownHex) {
-            final refusal = p.history.admitFormerSelf(hex, m.signatureKey);
-            if (refusal == KeyRefusal.unrecorded) {
-              // Held, not recorded: only an unattributed pin passes the
-              // cross-check for a held id.
-              pin = MemberRecord(
-                conversationId: m.conversationId,
-                deviceId: m.deviceId,
-                signatureKey: m.signatureKey,
-                side: MemberSide.unattributed,
-                since: m.since,
-              );
-            }
+          if (hex != ownHex) {
+            kept[hex] = m;
+            continue;
           }
-          kept[hex] = pin;
+          // Fix wave 1 (SA M1): the old own pin is the device the account
+          // removed. Its former pin never keeps a side, so a welcome or
+          // commit that brings the old (id, key) back is attributed from
+          // the lists like any new device (unknown while no list shows
+          // it), never `mine` from memory.
+          if (ownKey != null) p.history.admitFormerSelf(hex, ownKey);
+          if (ownKey == null || !_sameBytes(m.signatureKey, ownKey)) {
+            // A pin under another key than the vault's (or no readable
+            // vault key): nothing of it is recorded and it is not kept. A
+            // former pin on a key the history does not hold for the id
+            // would make the history unreadable; the id itself is held to
+            // the vault key above.
+            kept.remove(hex);
+            continue;
+          }
+          // Recorded or held (closed at its allowance): unattributed passes
+          // the cross-check either way.
+          kept[hex] = MemberRecord(
+            conversationId: m.conversationId,
+            deviceId: m.deviceId,
+            signatureKey: m.signatureKey,
+            side: MemberSide.unattributed,
+            since: m.since,
+          );
         }
         if (p.pins.isNotEmpty) {
           await _formerPins.putIn(tx, v, p.id, kept.values.toList());
@@ -227,6 +247,15 @@ class DeviceReset {
     });
     return ids;
   }
+}
+
+bool _sameBytes(List<int> a, List<int> b) {
+  if (a.length != b.length) return false;
+  var diff = 0;
+  for (var i = 0; i < a.length; i++) {
+    diff |= a[i] ^ b[i];
+  }
+  return diff == 0;
 }
 
 /// One conversation's reads for the transaction. No `toString` (it holds

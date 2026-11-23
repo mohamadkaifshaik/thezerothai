@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:dzeroth/core/crypto/mls_derivations.dart' show mlsGroupId;
 import 'package:dzeroth/core/crypto/mls_pair.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/vault/secure_vault.dart';
@@ -12,6 +13,8 @@ import 'package:dzeroth/features/messages/domain/e2ee/device_key_history.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/device_reset.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/e2ee_types.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/former_pins.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/membership_rules.dart'
+    show kConversationCopyStale;
 import 'package:dzeroth/features/messages/domain/e2ee/sync_budget.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -72,6 +75,13 @@ void main() {
     bob = await RigPeer.create('bob');
     rig.keys.peers['ref-bob'] = [rigKeyDevice(bob.idString, bob.key)];
     keys = _FakeDeviceKeys(rig);
+    // The vault's own signature key, as DeviceKeysService stores it.
+    await rig.device.vault.transaction(
+      (tx) => tx.putSetting(
+        kVaultSettingDeviceSignatureKey,
+        rig.device.signatureKey,
+      ),
+    );
     reset = DeviceReset(
       session: rig.device.session,
       deviceKeys: keys,
@@ -320,17 +330,92 @@ void main() {
     );
   });
 
+  test('a welcome that brings the old (id, key) back pins it unattributed '
+      'and raises the unknown-device path (fix wave 1, SA M1)', () async {
+    await join(_c1);
+    final v = rig.device.vault;
+    final oldHex = vaultDeviceIdHex(ownId());
+    // A key package of the OLD device (its state, its key), kept by whoever
+    // holds a copy of the old vault.
+    final oldPackage = await rigKeyPackage(rig.device);
+    rig.removedElsewhere = true;
+
+    await reset.setUpAgain();
+
+    final kept = (await const FormerPins().of(
+      v,
+      _c1,
+    )).singleWhere((m) => vaultDeviceIdHex(m.deviceId) == oldHex);
+    expect(kept.side, MemberSide.unattributed);
+    // The account removed the old id: no own list shows it any more.
+    rig.keys.own.removeWhere((d) => d.deviceId == rig.device.deviceIdString);
+    // Bob welcomes the NEW id at generation 2, with the old leaf in it.
+    final newPackage = await rigKeyPackage(rig.device);
+    final add = await rigCreateAndAdd(bob, mlsGroupId(_c1, 2), [
+      newPackage,
+      oldPackage,
+    ]);
+    const at = MlsPair(2, 0);
+    rig.server.addCommit(_c1, at, add.commit, fromUser: 'user-b');
+    rig.server.addWelcome(keys.newId!, _c1, at, add.welcome);
+
+    expect(await rig.crypto.processWelcomes(), [_c1]);
+
+    final pin = (await v.members(_c1))
+        .singleWhere((m) => vaultDeviceIdHex(m.deviceId) == oldHex);
+    expect(pin.side, MemberSide.unattributed);
+    // Once a fetch counts, the old device is an unknown device.
+    rig.clock.advance(kConversationCopyStale + const Duration(seconds: 1));
+    await rig.crypto.attributeMembers(_c1, priority: BudgetPriority.user);
+    expect(
+      (await v.members(_c1))
+          .singleWhere((m) => vaultDeviceIdHex(m.deviceId) == oldHex)
+          .side,
+      MemberSide.unattributed,
+    );
+    expect(rig.contexts.of(_c1).unknownDevices, contains(oldHex));
+  });
+
+  test('an own pin whose key is not the vault key is never recorded as the '
+      'old self (fix wave 1, SA M1)', () async {
+    await join(_c1);
+    final v = rig.device.vault;
+    final oldHex = vaultDeviceIdHex(ownId());
+    final other = Uint8List.fromList(List.filled(32, 9));
+    await v.transaction(
+      (tx) => tx.putSetting(kVaultSettingDeviceSignatureKey, other),
+    );
+    rig.removedElsewhere = true;
+
+    await reset.setUpAgain();
+
+    final ids = await rig.keyHistoryIds(_c1);
+    expect(ids[oldHex], base64Encode(other));
+    expect(
+      (await const FormerPins().of(
+        v,
+        _c1,
+      )).where((m) => vaultDeviceIdHex(m.deviceId) == oldHex),
+      isEmpty,
+    );
+  });
+
   test("setUpAgain keeps every conversation's pins as former pins", () async {
     await join(_c1);
     await join(_c2);
     final v = rig.device.vault;
+    final oldHex = vaultDeviceIdHex(ownId());
+    // Every pin keeps its key and side, except the old own pin: the account
+    // removed it, so it is kept unattributed (fix wave 1, SA M1).
     final pinned = {
       for (final c in [_c1, _c2])
         c: {
           for (final m in await v.members(c))
             vaultDeviceIdHex(m.deviceId): (
               base64Encode(m.signatureKey),
-              m.side,
+              vaultDeviceIdHex(m.deviceId) == oldHex
+                  ? MemberSide.unattributed
+                  : m.side,
             ),
         },
     };
