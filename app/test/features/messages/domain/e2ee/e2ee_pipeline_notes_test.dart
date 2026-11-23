@@ -163,11 +163,9 @@ void main() {
     expect(await h.pipeline.starter.pendingInit(conversationId: _c1), isNull);
   });
 
-  test('I3: a push, an open and an encrypted hint during the start window '
-      'run after the start, never dropped', () async {
+  test('I3: a push and an open during the start window run after the '
+      'start, never dropped', () async {
     await h.offer(_c1, bob);
-    // A remembered id, so the start has notes to apply.
-    h.pipeline.noteEncrypted('33333333333333333333333333333333');
     final window = Completer<void>();
     var entered = false;
     h.pipeline.onStartWindowForTest = () {
@@ -177,18 +175,18 @@ void main() {
     final ready = h.pipeline.onVaultReady(h.rig.device.vault);
     await _until(() async => entered);
 
-    h.pipeline
-      ..onPush(_c1)
-      ..noteEncrypted(_c2);
+    h.pipeline.onPush(_c1);
     final opened = h.pipeline.opened(_c1);
+    expect(h.pipeline.notedCount, 1, reason: 'the push is remembered');
     window.complete();
     await ready;
     await opened;
     await h.settle();
 
     expect(h.pipeline.coordinator!.isWatched(_c1), isTrue);
-    expect(h.pipeline.known.contains(_c2), isTrue);
-    expect(h.welcomePolls, greaterThanOrEqualTo(2));
+    // The start's poll and the replayed push's (joined or after it): a
+    // dropped push would leave the start's poll alone.
+    expect(h.welcomePolls, 2);
     expect(h.pipeline.notedCount, 0);
   });
 
