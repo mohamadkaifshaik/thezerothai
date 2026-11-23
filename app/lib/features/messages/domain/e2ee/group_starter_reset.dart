@@ -156,6 +156,12 @@ extension _Reset on GroupStarter {
       throw const E2eeActionException(E2eeRefusal.unavailable);
     }
     final me = _ownUserId();
+    // Fix round 1, ruling 10 (CR N-3), recorded: `others` still counts an
+    // own device the user removed, so a reset whose only other own device
+    // is one may claim the own side for nothing (one claim of the
+    // per-target cap, one package of a device being removed). Accepted:
+    // the claim API cannot exclude one device, and the answer is asked
+    // only after the claims (`_ownKeptOut`, under the lock).
     var mine = const <kpb.ClaimedKeyPackage>[];
     final others = [
       for (final d in own.devices)

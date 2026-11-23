@@ -147,7 +147,10 @@ extension _Start on GroupStarter {
       return _out(StartResult.unavailable);
     }
 
-    // The own side: only when the own list shows other active devices.
+    // The own side: only when the own list shows other active devices. As
+    // in the reset (fix round 1, ruling 10, CR N-3): an own device the user
+    // removed still counts here, so the claim may be spent for nothing;
+    // the claim API cannot exclude one device.
     var mine = const <kpb.ClaimedKeyPackage>[];
     final others = [
       for (final d in own.devices)

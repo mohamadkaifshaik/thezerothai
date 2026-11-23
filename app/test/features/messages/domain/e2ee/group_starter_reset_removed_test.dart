@@ -133,13 +133,15 @@ void main() {
     expect(rig.unexpected, isEmpty);
   });
 
-  test('an unreadable removal queue with a fresh own list adds the own '
-      'devices that list shows, and no other', () async {
+  test('an unreadable removal queue with a fresh own list still adds the '
+      'own devices that list shows (fix round 1, ruling 10, CR N-1)', () async {
     final sib = await RigPeer.create('sib');
     final sib2 = await RigPeer.create('sib2');
     await setUpJoined();
     siblings([sib2]);
-    // The claim also hands out a package of sib, which no fresh list shows.
+    // The claim also hands out a package of sib, which no fresh list shows:
+    // `checkClaims` (not this change) keeps it out; the point here is that
+    // the fresh list's sib2 is still added while the queue is unreadable.
     ownClaims([sib, sib2]);
     await makeStuck();
     unreadableQueue();
