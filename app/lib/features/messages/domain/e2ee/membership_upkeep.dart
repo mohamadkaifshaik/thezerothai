@@ -28,6 +28,7 @@ import 'message_receiver.dart';
 import 'pipeline_support.dart';
 import 'sync_budget.dart';
 
+part 'membership_upkeep_own_adds.dart';
 part 'membership_upkeep_reconcile.dart';
 
 const FormerPins _former = FormerPins();
