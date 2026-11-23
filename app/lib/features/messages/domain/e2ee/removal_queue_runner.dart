@@ -287,6 +287,17 @@ class RemovalQueueRunner {
   /// before a reset writes no hold and arms no timer after it.
   int _resets = 0;
 
+  /// How many times [reset] ran (Task 13's sign-out test).
+  @visibleForTesting
+  int get resets => _resets;
+
+  int _passesAsked = 0;
+
+  /// How many passes were asked for (started or joined; Task 13's wiring
+  /// tests). A count only.
+  @visibleForTesting
+  int get passesAsked => _passesAsked;
+
   final ValueNotifier<int> _pending = ValueNotifier(0);
 
   /// Brief amendment 3: the intents whose RemoveKeyDevice answered
@@ -704,6 +715,7 @@ class RemovalQueueRunner {
   // Passes
 
   Future<void> _startPass(BudgetPriority priority) {
+    _passesAsked++;
     final p = priority == BudgetPriority.user ? BudgetPriority.live : priority;
     final running = _running;
     if (running != null) {

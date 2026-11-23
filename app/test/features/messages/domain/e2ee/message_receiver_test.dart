@@ -671,6 +671,9 @@ void main() {
         ),
       ]) {
         await setUpJoined();
+        // An older since token stays valid after the takedown (Task 13
+        // turned the rig's default on; this test reads the change list).
+        rig.server.takedownRetiresSince = false;
         await say(bobGroup(), 1);
         await rig.receiver.pullLive(_c1);
         expect((await row(_mid(1)))!.state, StoredMessageState.visible);
@@ -3125,6 +3128,8 @@ void main() {
 
     test('a takedown after the group is gone removes the stored row', () async {
       await setUpJoined();
+      // An older since token stays valid after the takedown (Task 13).
+      rig.server.takedownRetiresSince = false;
       await say(bobGroup(), 1);
       await say(bobGroup(), 2, at: seconds(1));
       await rig.receiver.pullLive(_c1);
@@ -6443,6 +6448,8 @@ void main() {
     test('a removed state seen for a deferred id writes a removed row and '
         'purges the item in one transaction', () async {
       await setUpJoined();
+      // An older since token stays valid after the takedown (Task 13).
+      rig.server.takedownRetiresSince = false;
       final m1 = await deferOne(1);
       rig.server.tombstone(_c1, _mid(1), MessageState.MESSAGE_STATE_REMOVED);
       rig.changed.clear();
@@ -6473,6 +6480,8 @@ void main() {
     test('a deleted-account state seen for a deferred id writes that row, '
         'and at or before cleared_at the item is only purged', () async {
       await setUpJoined();
+      // An older since token stays valid after the takedown (Task 13).
+      rig.server.takedownRetiresSince = false;
       await deferOne(1);
       await deferOne(2, at: seconds(10));
       final s = await sync();
@@ -6502,6 +6511,8 @@ void main() {
     test('a tombstone on a probe page that is not processed still ends its '
         'deferred message as a removed row', () async {
       await setUpJoined();
+      // An older since token stays valid after the takedown (Task 13).
+      rig.server.takedownRetiresSince = false;
       final m1 = await deferOne(1);
       rig.server.tombstone(_c1, _mid(1), MessageState.MESSAGE_STATE_REMOVED);
       // A gapped page: never processed as a batch.
@@ -6519,6 +6530,8 @@ void main() {
     test('a tombstone on a probe page that is not processed is noted for the '
         'run even when its write never starts', () async {
       await setUpJoined();
+      // An older since token stays valid after the takedown (Task 13).
+      rig.server.takedownRetiresSince = false;
       final m1 = await deferOne(1);
       await reconciled();
       // A later run, past the retry spacing: the item is due.
@@ -6580,6 +6593,8 @@ void main() {
     test('a tombstone for an id that is neither stored nor deferred writes '
         'nothing and is remembered for the run', () async {
       await setUpJoined();
+      // An older since token stays valid after the takedown (Task 13).
+      rig.server.takedownRetiresSince = false;
       await prime();
       await say(bobGroup(), 1, at: seconds(1));
       rig.server.tombstone(_c1, _mid(1), MessageState.MESSAGE_STATE_REMOVED);
@@ -6596,6 +6611,8 @@ void main() {
     test('a replayed deferred record never stores a taken-down message as '
         'visible', () async {
       await setUpJoined();
+      // An older since token stays valid after the takedown (Task 13).
+      rig.server.takedownRetiresSince = false;
       final m1 = await deferOne(1);
       final key = DeferredRecords.keyOf(_c1);
       final held = (await rig.sealedSetting(key))!;
@@ -6739,6 +6756,8 @@ void main() {
     test('a tombstone on a fast-path page whose batch stopped before it '
         'still keeps its deferred message from the engine', () async {
       await setUpJoined();
+      // An older since token stays valid after the takedown (Task 13).
+      rig.server.takedownRetiresSince = false;
       final m1 = await deferOne(1);
       await reconciled();
       nextRun();

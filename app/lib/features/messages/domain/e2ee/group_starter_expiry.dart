@@ -272,3 +272,49 @@ extension _Expiry on GroupStarter {
     return false;
   }
 }
+
+/// The provisional group's age and the user's delete mark, read by the
+/// resume and the discard. Moved from `group_starter_recovery.dart`
+/// unchanged, beside the fix wave's [_clearedSince] (the file-size rule).
+extension _ProvisionalAge on GroupStarter {
+  /// Task 13 fix wave, ruling 1: whether the user deleted [id] for themself
+  /// ON THIS DEVICE at or after [row].
+  ///
+  /// Final round, ruling 1 (code review m1, security N-a). Decision: only
+  /// `localClearedAtMicros` (this device's own delete, on the device clock
+  /// the row's time is on) counts, never `clearedAtMicros`, which the
+  /// receiver may set from the server's `cleared_at`. Why: the server's time
+  /// is on another clock; with this clock behind, a delete made on another
+  /// device would make a NEW first message here look deleted. With only the
+  /// server's time, the init is resent as before.
+  Future<bool> _clearedSince(
+    SecureVault vault,
+    String id,
+    OutboxItem row,
+  ) async {
+    final cleared = (await vault.conversation(id))?.sync.localClearedAtMicros;
+    return cleared != null && cleared >= row.createdAtMicros;
+  }
+
+  /// How long ago [group] was made provisional; [kProvisionalExpiry] when
+  /// it carries no creation time.
+  ///
+  /// Review M4 (the class of N8). Decision: a creation time AFTER now (the
+  /// device clock moved back) has no age that can be told, so the group
+  /// counts as expired: its init is sent no more and the stored commits
+  /// decide. Why: a negative age would pass as "young" for as long as the
+  /// clock stays behind, and the 24 h bound on resending one init would not
+  /// hold.
+  Duration _ageOf(GroupRecord group) {
+    final created = group.provisionalCreatedAtMicros;
+    if (created == null) return kProvisionalExpiry;
+    final at = DateTime.fromMicrosecondsSinceEpoch(created, isUtc: true);
+    final now = _now();
+    return at.isAfter(now) ? kProvisionalExpiry : now.difference(at);
+  }
+
+  /// Audit M3: whether [group]'s init is sent no more: it is within
+  /// [kInitResendMargin] of [kProvisionalExpiry], or older.
+  bool _sendsNoMore(GroupRecord group) =>
+      _ageOf(group) >= kProvisionalExpiry - kInitResendMargin;
+}

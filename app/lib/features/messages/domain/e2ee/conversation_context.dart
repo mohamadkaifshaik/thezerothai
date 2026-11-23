@@ -325,6 +325,18 @@ class ConversationContexts {
   /// caller may hold the conversation lock.
   void Function(String conversationId)? onAcceptedSeen;
 
+  /// Plan 5a Task 13 (gate items 45 and 67; the pipeline wires it): called,
+  /// synchronously, after every [note] of a `ListMessages` header or an
+  /// inbox row read from the server in this run (never a [note] with
+  /// `peerOnly`), once its facts are taken. The pipeline hands the row to
+  /// the removal queue's `noteConversation` (a parked conversation that
+  /// became usable is un-parked, SA M3) and, for `can_reply` true, to
+  /// `DeviceDirectory.markUsable`. Like [onAcceptedSeen] it must not wait
+  /// for anything: the caller may hold the conversation lock. [note] is
+  /// never called inside a `runWrite` body (its callers note a row right
+  /// after the RPC that returned it).
+  void Function(pb.Conversation row)? onRowNoted;
+
   /// Takes the facts a conversation header row carries. Never sets
   /// `acceptedSeenAt` (the caller owns the clock).
   ///
@@ -360,6 +372,7 @@ class ConversationContexts {
         !c.acceptanceSettled) {
       onAcceptedSeen?.call(row.id);
     }
+    onRowNoted?.call(row);
   }
 
   /// The app resumed: no conversation's own engine hold is kept.

@@ -168,6 +168,7 @@ extension _ResetResume on GroupStarter {
       case InitSettle.notProvisional:
         _forgetReset(id);
         _onChanged(id);
+        if (settled == InitSettle.settled) onResetSettled?.call(id);
         return const _Next(_NextKind.settledReset);
       case InitSettle.replay:
         // Amendment 6: the marks are already at or past this reset (this

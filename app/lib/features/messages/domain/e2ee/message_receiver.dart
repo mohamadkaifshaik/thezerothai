@@ -27,6 +27,7 @@ import 'receive_record.dart';
 import 'sync_budget.dart';
 
 part 'message_receiver_failures.dart';
+part 'message_receiver_pending.dart';
 part 'message_receiver_reconcile.dart';
 part 'message_receiver_sink.dart';
 part 'message_receiver_types.dart';

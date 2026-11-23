@@ -76,6 +76,8 @@ import '../features/moderation/data/moderation_repository.dart';
 import '../features/moderation/domain/reports_feature_flag.dart';
 import '../features/messages/data/messaging_repository.dart';
 import '../features/messages/data/messaging_store.dart';
+import '../features/messages/domain/e2ee/e2ee_pipeline.dart';
+import '../core/session/user_ids.dart' show MyUserId;
 import '../features/search/data/search_repository.dart';
 import '../features/notifications/data/notifications_repository.dart';
 import '../features/notifications/data/notifications_store.dart';
@@ -101,6 +103,7 @@ import '../firebase_options_prod.dart' as prod_firebase;
 import 'app_config.dart';
 import 'auth_emulator.dart';
 import 'app_widget.dart';
+import 'e2ee_wiring.dart';
 import 'restored_session.dart';
 import 'session_wiring.dart';
 
@@ -296,6 +299,9 @@ Future<void> bootstrap() async {
   // Built below, once the flag gate exists; a failed sign-out (which can
   // only follow a user action) re-registers the device the hook removed.
   late final DeviceKeysService deviceKeys;
+  // Plan 5a Task 13: the E2EE message pipeline, built below once the
+  // messaging repository exists; null where the vault is not supported.
+  late final E2eePipeline? e2eePipeline;
   final authBloc = AuthBloc(
     authRepository: authRepository,
     // One 3 s budget for both: push unregistration and, only when the
@@ -338,7 +344,14 @@ Future<void> bootstrap() async {
     states: onboardingBloc.stream,
     uidOf: onboardingBloc.uidOf,
     vaultSession: vaultSession,
-    onFlagOnWithOpenVault: () => unawaited(deviceKeys.ensureReady()),
+    // Gate item 29: the device first, the pipeline's start second.
+    onFlagOnWithOpenVault: () => unawaited(
+      flagTurnedOnWithOpenVault(
+        ensureDeviceReady: deviceKeys.ensureReady,
+        startPipeline: e2eePipeline?.start,
+        onUnexpectedError: reportUnexpectedError,
+      ),
+    ),
   );
 
   // E2EE device keys: this install's encryption device in the key directory
@@ -348,17 +361,20 @@ Future<void> bootstrap() async {
   // device and e2ee_dm off or unknown (no vault, nothing generated, nothing
   // sent); a device that already exists stays listable and removable with the
   // flag off.
+  // One key-directory repository (one flag gate) for the device keys and
+  // the message pipeline.
+  final keysRepository = KeysRepository(
+    apiClient: apiClient,
+    gate: buildServiceGate(
+      onboardingBloc,
+      kFeatureE2eeDm,
+      onUnexpectedError: reportUnexpectedError,
+    ),
+    deviceFacts: () => vaultSession.vaultKnown,
+  );
   deviceKeys = DeviceKeysService(
     session: vaultSession,
-    repository: KeysRepository(
-      apiClient: apiClient,
-      gate: buildServiceGate(
-        onboardingBloc,
-        kFeatureE2eeDm,
-        onUnexpectedError: reportUnexpectedError,
-      ),
-      deviceFacts: () => vaultSession.vaultKnown,
-    ),
+    repository: keysRepository,
     engine: engine,
     currentUid: () => authBloc.state.user?.uid,
     onUnexpectedError: reportUnexpectedError,
@@ -368,11 +384,28 @@ Future<void> bootstrap() async {
   vaultSession
     ..addVaultReadyHook(deviceKeys.onVaultReady)
     ..beforeExplicitWipe = deviceKeys.removeThisDevice;
-  // Lives as long as the app (the binding keeps it).
+  // Lives as long as the app (the binding keeps it). Gate items 35-37: the
+  // engine, one non-confirming vault retry, the device keys, the pipeline;
+  // the retry and the pipeline's resume at most once a minute, at once after
+  // a real pause, and the retry never for a storage it must not touch (fix
+  // wave ruling 3).
+  final resumeThrottle = E2eeResumeThrottle(isWeb: kIsWeb);
+  vaultSession.status.addListener(
+    () => resumeThrottle.noteStatus(vaultSession.status.value),
+  );
   AppLifecycleListener(
-    onResume: () {
-      cryptoEngine.onAppResumed();
-      unawaited(deviceKeys.onAppResumed());
+    onResume: () => resumeE2ee(
+      engineResumed: cryptoEngine.onAppResumed,
+      retryVault: vaultSession.retry,
+      deviceKeysResumed: deviceKeys.onAppResumed,
+      pipelineResumed: e2eePipeline?.onAppResumed,
+      throttle: resumeThrottle,
+      vaultStatus: () => vaultSession.status.value,
+      onUnexpectedError: reportUnexpectedError,
+    ),
+    onPause: () {
+      resumeThrottle.notePaused();
+      e2eePipeline?.onAppPaused();
     },
   );
 
@@ -597,6 +630,45 @@ Future<void> bootstrap() async {
     onUnexpectedError: reportUnexpectedError,
   );
 
+  // Plan 5a Task 13: the E2EE message pipeline (one for the app's
+  // lifetime), where the vault is supported (e2eeVaultSupported, the one
+  // rule _buildVaultSession uses too). Inert for a user with no vault on this
+  // device and e2ee_dm off or unknown (the pinned inertness test). Its ready
+  // hook runs AFTER the device keys' (registered above, gate item 21), so
+  // the device exists first. Task 13b builds the EncryptedMessaging port
+  // over it, in e2ee_wiring.dart (this file is near the split size).
+  e2eePipeline = e2eeVaultSupported
+      ? E2eePipeline(
+          session: vaultSession,
+          deviceKeys: deviceKeys,
+          engine: () => cryptoEngine,
+          messaging: messagingRepository,
+          keys: keysRepository,
+          // The own id as GetMe sent it (null until known); the notes are
+          // tagged with the AUTHENTICATED uid (review r1-I2).
+          ownUserId: () => onboardingBloc.state.myUserId,
+          currentUid: () => authBloc.state.user?.uid,
+          publicIdsOff: () => publicIdsKnownOff(onboardingBloc.state),
+          onUnexpectedError: reportUnexpectedError,
+        )
+      : null;
+  final pipeline = e2eePipeline;
+  if (pipeline != null) {
+    vaultSession.addVaultReadyHook(pipeline.onVaultReady);
+    // Gate item 43: the repository's hints.
+    messagingRepository
+      ..onEncryptedConversation = pipeline.noteEncrypted
+      ..onRequestAccepted = pipeline.noteAccepted
+      ..onConversationDeleted = pipeline.noteDeleted;
+    // Gate item 67: a message push pulls its conversation (welcomes only
+    // without one). Lives as long as the app.
+    forwardMessagePushes(
+      states: pushCubit.stream,
+      initial: pushCubit.state,
+      onPush: pipeline.onPush,
+    );
+  }
+
   // `public_ids` appearing or disappearing for the signed-in account: the ids
   // cached so far are of the other kind (wiped once per transition, before the
   // GetMe answer that carries the flag is cached or shown).
@@ -624,6 +696,11 @@ Future<void> bootstrap() async {
     initialUser: authBloc.state.isAuthenticated ? authBloc.state.user : null,
     vaultSession: vaultSession,
     readE2eeFlag: readE2eeFlag,
+    // Hints remembered for a session that never had a ready vault are
+    // dropped here (a closing ready vault drops its own); remembered deletes
+    // and owed discards are kept, tagged with their account, only for a
+    // lost session (fix wave ruling 7: an explicit end wipes their vault).
+    onSessionEnd: (end) => e2eePipeline?.forgetNotes(end),
   );
 
   runApp(
@@ -772,7 +849,7 @@ VaultSession _buildVaultSession({
         StackTrace.current,
       ),
     ),
-    supported: kIsWeb || defaultTargetPlatform == TargetPlatform.android,
+    supported: e2eeVaultSupported,
     launchId: const Uuid().v4(),
     onUnexpectedError: onUnexpectedError,
   );

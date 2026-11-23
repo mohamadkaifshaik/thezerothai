@@ -1,0 +1,284 @@
+// Plan 5a Task 13 step 13-ii: the app-level E2EE pipeline wiring helpers
+// (lib/app/e2ee_wiring.dart). The bootstrap lines that call them are pinned
+// by test/guards/e2ee_bootstrap_wiring_guard_test.dart.
+import 'dart:async';
+
+import 'package:dzeroth/app/e2ee_wiring.dart';
+import 'package:dzeroth/core/feature_flags/public_ids_feature_flag.dart';
+import 'package:dzeroth/core/vault/vault_status.dart';
+import 'package:dzeroth/features/notifications/presentation/bloc/push_cubit.dart';
+import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+void main() {
+  group('resumeE2ee (gate items 35-37)', () {
+    test('engine, then one non-confirming session retry, then the device '
+        'keys, then the pipeline', () {
+      final calls = <String>[];
+      resumeE2ee(
+        engineResumed: () => calls.add('engine'),
+        retryVault: ({required bool allowConfirmedWipe}) async {
+          calls.add('retry:$allowConfirmedWipe');
+        },
+        deviceKeysResumed: () async => calls.add('deviceKeys'),
+        pipelineResumed: () => calls.add('pipeline'),
+      );
+      expect(calls, ['engine', 'retry:false', 'deviceKeys', 'pipeline']);
+    });
+
+    test('no pipeline (unsupported platform): the other three still run', () {
+      final calls = <String>[];
+      resumeE2ee(
+        engineResumed: () => calls.add('engine'),
+        retryVault: ({required bool allowConfirmedWipe}) async {
+          calls.add('retry');
+        },
+        deviceKeysResumed: () async => calls.add('deviceKeys'),
+      );
+      expect(calls, ['engine', 'retry', 'deviceKeys']);
+    });
+
+    test(
+      'a failing retry or device-keys run is reported, never thrown',
+      () async {
+        final reported = <Object>[];
+        runZonedGuarded(
+          () => resumeE2ee(
+            engineResumed: () {},
+            retryVault: ({required bool allowConfirmedWipe}) =>
+                Future.error(StateError('x')),
+            deviceKeysResumed: () => Future.error(ArgumentError('y')),
+            onUnexpectedError: (e, _) => reported.add(e),
+          ),
+          (e, _) => fail('escaped: $e'),
+        );
+        await pumpEventQueue();
+        // Fix wave ruling 8 (SA L5): a step name only, never the raw error.
+        expect(reported.map((e) => '$e'), [
+          'E2eePipelineError(wiring.retry)',
+          'E2eePipelineError(wiring.deviceKeys)',
+        ]);
+      },
+    );
+  });
+
+  group('the resume throttle (fix wave ruling 3: CR I2, SA L1)', () {
+    late DateTime now;
+    late List<String> calls;
+    late VaultStatus status;
+
+    setUp(() {
+      // Only durations matter to the throttle: any start will do.
+      now = DateTime.now();
+      calls = [];
+      status = VaultStatus.off;
+    });
+
+    void resume(E2eeResumeThrottle throttle) => resumeE2ee(
+      engineResumed: () => calls.add('engine'),
+      retryVault: ({required bool allowConfirmedWipe}) async {
+        calls.add('retry');
+      },
+      deviceKeysResumed: () async => calls.add('deviceKeys'),
+      pipelineResumed: () => calls.add('pipeline'),
+      throttle: throttle,
+      vaultStatus: () => status,
+    );
+
+    test('two resumes within the floor (a web focus, a shade pull): the '
+        'engine twice, the retry and the pipeline once', () {
+      final t = E2eeResumeThrottle(isWeb: true, now: () => now);
+      resume(t);
+      now = now.add(kE2eeResumeFloor - const Duration(seconds: 1));
+      resume(t);
+      expect(calls, [
+        'engine',
+        'retry',
+        'deviceKeys',
+        'pipeline',
+        'engine',
+        'deviceKeys',
+      ]);
+    });
+
+    test('a resume after the floor runs again', () {
+      final t = E2eeResumeThrottle(isWeb: true, now: () => now);
+      resume(t);
+      now = now.add(kE2eeResumeFloor);
+      calls.clear();
+      resume(t);
+      expect(calls, ['engine', 'retry', 'deviceKeys', 'pipeline']);
+    });
+
+    test('a resume after a real pause runs at once (the pipeline is never '
+        'left paused)', () {
+      final t = E2eeResumeThrottle(isWeb: false, now: () => now);
+      resume(t);
+      t.notePaused();
+      calls.clear();
+      resume(t);
+      expect(calls, ['engine', 'retry', 'deviceKeys', 'pipeline']);
+    });
+
+    for (final s in [VaultStatus.storageChanged, VaultStatus.unsupported]) {
+      test('never an automatic retry while $s; the rest still runs', () {
+        final t = E2eeResumeThrottle(isWeb: false, now: () => now);
+        status = s;
+        resume(t);
+        expect(calls, ['engine', 'deviceKeys', 'pipeline']);
+      });
+    }
+
+    test('web: after a refused open (unavailable) no automatic retry for '
+        'the rest of the process', () {
+      final t = E2eeResumeThrottle(isWeb: true, now: () => now)
+        ..noteStatus(VaultStatus.unavailable)
+        ..noteStatus(VaultStatus.off);
+      resume(t);
+      expect(calls, ['engine', 'deviceKeys', 'pipeline']);
+    });
+
+    test('Android: an unavailable vault is retried (a key store failure)', () {
+      final t = E2eeResumeThrottle(isWeb: false, now: () => now)
+        ..noteStatus(VaultStatus.unavailable);
+      status = VaultStatus.unavailable;
+      resume(t);
+      expect(calls, ['engine', 'retry', 'deviceKeys', 'pipeline']);
+    });
+  });
+
+  group('flagTurnedOnWithOpenVault (gate item 29)', () {
+    test('the device keys first, the pipeline start after them', () async {
+      final calls = <String>[];
+      final keys = Completer<void>();
+      final done = flagTurnedOnWithOpenVault(
+        ensureDeviceReady: () {
+          calls.add('deviceKeys');
+          return keys.future;
+        },
+        startPipeline: () async => calls.add('pipeline'),
+      );
+      await pumpEventQueue();
+      expect(calls, ['deviceKeys'], reason: 'the pipeline waits');
+      keys.complete();
+      await done;
+      expect(calls, ['deviceKeys', 'pipeline']);
+    });
+
+    test('a failed device run still starts the pipeline (it gates itself) '
+        'and is reported', () async {
+      final calls = <String>[];
+      final reported = <Object>[];
+      await flagTurnedOnWithOpenVault(
+        ensureDeviceReady: () => Future.error(StateError('x')),
+        startPipeline: () async => calls.add('pipeline'),
+        onUnexpectedError: (e, _) => reported.add(e),
+      );
+      expect(calls, ['pipeline']);
+      expect(reported.map((e) => '$e'), [
+        'E2eePipelineError(wiring.flagOn.deviceKeys)',
+      ]);
+    });
+  });
+
+  group('forwardMessagePushes (gate item 67)', () {
+    late StreamController<PushState> states;
+    late List<String?> pushes;
+
+    setUp(() {
+      states = StreamController<PushState>.broadcast();
+      pushes = [];
+    });
+    tearDown(() => states.close());
+
+    test(
+      'only a grown messagePushes forwards, with its conversation id',
+      () async {
+        final sub = forwardMessagePushes(
+          states: states.stream,
+          initial: const PushState(messagePushes: 2),
+          onPush: pushes.add,
+        );
+        states
+          ..add(
+            const PushState(messagePushes: 2, lastMessageConversationId: 'a'),
+          )
+          ..add(
+            const PushState(messagePushes: 3, lastMessageConversationId: 'b'),
+          )
+          ..add(
+            const PushState(messagePushes: 3, lastMessageConversationId: 'b'),
+          )
+          ..add(
+            const PushState(messagePushes: 4, lastMessageConversationId: 'b'),
+          );
+        await pumpEventQueue();
+        await sub.cancel();
+        expect(pushes, ['b', 'b']);
+      },
+    );
+
+    test('CR I1: a count reset by a sign-out (3, then 0) forwards the next '
+        'session\'s first push', () async {
+      final sub = forwardMessagePushes(
+        states: states.stream,
+        initial: const PushState(messagePushes: 3),
+        onPush: pushes.add,
+      );
+      states
+        ..add(const PushState())
+        ..add(
+          const PushState(messagePushes: 1, lastMessageConversationId: 'c'),
+        );
+      await pumpEventQueue();
+      await sub.cancel();
+      expect(pushes, ['c']);
+    });
+
+    test(
+      'a push without a conversation id forwards null (welcomes only)',
+      () async {
+        final sub = forwardMessagePushes(
+          states: states.stream,
+          initial: const PushState(),
+          onPush: pushes.add,
+        );
+        states.add(const PushState(messagePushes: 1));
+        await pumpEventQueue();
+        await sub.cancel();
+        expect(pushes, [null]);
+      },
+    );
+  });
+
+  group('publicIdsKnownOff (gate item 9)', () {
+    test('only a ready, fully answered state without public_ids is off', () {
+      expect(
+        publicIdsKnownOff(
+          const OnboardingState(status: OnboardingStatus.ready),
+        ),
+        isTrue,
+      );
+      expect(
+        publicIdsKnownOff(
+          const OnboardingState(
+            status: OnboardingStatus.ready,
+            enabledFeatures: {kFeaturePublicIds},
+          ),
+        ),
+        isFalse,
+      );
+      expect(
+        publicIdsKnownOff(
+          const OnboardingState(
+            status: OnboardingStatus.ready,
+            flagsPending: true,
+          ),
+        ),
+        isFalse,
+        reason: 'not answered yet is not off',
+      );
+      expect(publicIdsKnownOff(const OnboardingState()), isFalse);
+    });
+  });
+}

@@ -326,6 +326,17 @@ extension _WelcomeJoin on ConversationCrypto {
     final counts = await _readSkew(v);
     final n = counts[w.id] ?? 0;
     if (n >= kWelcomeSkewRetries) return const _Join(_Outcome.permanent);
+    // Task 13, gate item 13: the map is capped. A new id makes room by
+    // dropping the oldest counters (insertion order, as stored). Why: a
+    // server that answers ever new welcome ids could otherwise grow the
+    // sealed setting without bound; a dropped counter only lets that old
+    // welcome be retried again, and every retry is still one join attempt
+    // of a poll, which polls bound.
+    if (!counts.containsKey(w.id)) {
+      while (counts.length >= kWelcomeSkewEntriesMax) {
+        counts.remove(counts.keys.first);
+      }
+    }
     counts[w.id] = n + 1;
     await v.transaction(
       (tx) => tx.putSetting(kVaultSettingWelcomeSkew, _encodeSkew(counts)),

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:fixnum/fixnum.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../../../../core/crypto/crypto_engine.dart';
 import '../../../../core/crypto/crypto_types.dart';
@@ -48,6 +49,10 @@ const String kVaultSettingWelcomeSkew = 'messages.e2ee.welcomeSkew';
 /// is behind the welcome's `created_at`, per welcome id; the next one is
 /// permanent (security read L1, owner-approved).
 const int kWelcomeSkewRetries = 3;
+
+/// The most welcome ids the clock-skew counters hold (Task 13, gate item
+/// 13): a full map drops its oldest counter for a new id.
+const int kWelcomeSkewEntriesMax = 256;
 
 /// The most ids one `AckWelcomes` call carries (the contract's 1-50).
 const int kAckWelcomesMaxIds = 50;
@@ -304,9 +309,17 @@ class ConversationCrypto {
   /// (the runner discarded it): its remembered sides go too.
   void forgetOwnAdds(String conversationId) => _ownAdds.remove(conversationId);
 
+  int _ownCommitForgets = 0;
+
+  /// How many times [forgetOwnCommits] ran (Task 13's set-up-again test). A
+  /// count only.
+  @visibleForTesting
+  int get ownCommitForgets => _ownCommitForgets;
+
   /// Sign-out or a new vault: forgets what this run remembered about this
   /// device's own commits (called by `CommitRunner.reset`).
   void forgetOwnCommits() {
+    _ownCommitForgets++;
     _ownAdds.clear();
     _ownConfirmed.clear();
     _initHandedOver.clear();

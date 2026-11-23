@@ -122,6 +122,7 @@ class ConversationSync {
     this.lastSelfUpdateAtMicros,
     this.sinceToken = '',
     this.clearedAtMicros,
+    this.localClearedAtMicros,
     this.completedEpochs = const [],
     this.commitCallsDay = '',
     this.commitCallsToday = 0,
@@ -134,6 +135,12 @@ class ConversationSync {
   final int? lastSelfUpdateAtMicros;
   final String sinceToken;
   final int? clearedAtMicros;
+
+  /// Plan 5a Task 13 final round, ruling 1: the device time of THIS
+  /// device's own delete-for-me (written only by the pipeline's local
+  /// delete, never from the server's `cleared_at`). The starter compares a
+  /// pending init row's device time with it, so both are on one clock.
+  final int? localClearedAtMicros;
   final List<MlsPair> completedEpochs;
 
   /// The server's day, `YYYY-MM-DD` in IST (UTC+05:30); see [istDay].
@@ -150,6 +157,7 @@ class ConversationSync {
     Object? lastSelfUpdateAtMicros = _keep,
     String? sinceToken,
     Object? clearedAtMicros = _keep,
+    Object? localClearedAtMicros = _keep,
     List<MlsPair>? completedEpochs,
     String? commitCallsDay,
     int? commitCallsToday,
@@ -169,6 +177,9 @@ class ConversationSync {
     clearedAtMicros: identical(clearedAtMicros, _keep)
         ? this.clearedAtMicros
         : clearedAtMicros as int?,
+    localClearedAtMicros: identical(localClearedAtMicros, _keep)
+        ? this.localClearedAtMicros
+        : localClearedAtMicros as int?,
     completedEpochs: completedEpochs ?? this.completedEpochs,
     commitCallsDay: commitCallsDay ?? this.commitCallsDay,
     commitCallsToday: commitCallsToday ?? this.commitCallsToday,
@@ -184,6 +195,8 @@ class ConversationSync {
       'lastSelfUpdateAtMicros': lastSelfUpdateAtMicros,
     'sinceToken': sinceToken,
     if (clearedAtMicros != null) 'clearedAtMicros': clearedAtMicros,
+    if (localClearedAtMicros != null)
+      'localClearedAtMicros': localClearedAtMicros,
     'completedEpochs': [for (final p in completedEpochs) _pairJson(p)],
     'commitCallsDay': commitCallsDay,
     'commitCallsToday': commitCallsToday,
@@ -201,6 +214,7 @@ class ConversationSync {
           lastSelfUpdateAtMicros: _optInt(m['lastSelfUpdateAtMicros']),
           sinceToken: _string(m['sinceToken']),
           clearedAtMicros: _optInt(m['clearedAtMicros']),
+          localClearedAtMicros: _optInt(m['localClearedAtMicros']),
           completedEpochs: [
             for (final p in _list(m['completedEpochs'])) _pairFrom(p),
           ],

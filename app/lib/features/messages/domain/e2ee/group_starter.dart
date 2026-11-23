@@ -380,6 +380,13 @@ class GroupStarter {
   /// nothing.
   int _runSerial = 0;
 
+  /// How many times [reset] ran (Task 13's sign-out test). Review n3: this
+  /// reads [_runSerial], which ONLY [reset] bumps today. If anything else
+  /// ever bumps it, give this getter its own counter, or the sign-out test
+  /// passes without a reset.
+  @visibleForTesting
+  int get resets => _runSerial;
+
   /// Task 10 amendment 1: the call rules of a reset's `CommitConversation`
   /// calls, the commit runner's ([CommitCallTracker]).
   final CommitCallTracker _resetCalls;
@@ -433,6 +440,14 @@ class GroupStarter {
     _resetHeld.clear();
     _runSerial++;
   }
+
+  /// Plan 5a Task 13 (gate item 20, Task 11 follow-up SA L6): called,
+  /// synchronously and with [conversationId]'s lock held, when this class
+  /// settled this device's own reset (the server stored it). A removal
+  /// queued while the reset was provisional waited for it (the runner's
+  /// provisional wait arms no timer), so the pipeline starts a removal
+  /// pass then. It must not wait for anything.
+  void Function(String conversationId)? onResetSettled;
 
   /// [id]'s provisional reset is gone (settled or discarded, here or by the
   /// join path, audit L6): what this run remembered for it goes.

@@ -127,10 +127,17 @@ Future<void> wipeSessionData({
   await database.clearAll();
 }
 
+/// Whether [s] carries a known flag set: ready, and this session's GetMe
+/// answered (not a cached profile's flags). The one "known" rule for every
+/// flag read off the onboarding state (Plan 5a Task 13 fix wave, ruling 11
+/// N6: `e2ee_dm` here, `public_ids` in `publicIdsKnownOff`).
+bool flagsKnown(OnboardingState s) =>
+    s.status == OnboardingStatus.ready && !s.flagsPending;
+
 /// The `e2ee_dm` answer a ready, fully answered state carries; null until
 /// then (flags pending, not ready): no answer is not "off".
 E2eeFlag? knownE2eeFlag(OnboardingState s) {
-  if (s.status != OnboardingStatus.ready || s.flagsPending) return null;
+  if (!flagsKnown(s)) return null;
   return s.enabledFeatures.contains(kFeatureE2eeDm)
       ? E2eeFlag.on
       : E2eeFlag.off;
@@ -182,7 +189,10 @@ StreamSubscription<OnboardingState> wireE2eeFlag({
 ///
 /// - A user going to null or to a different uid (a direct A to B switch counts)
 ///   dispatches [OnboardingUserSignedOut], ends the session epoch and wipes the
-///   cache ([wipeSessionData]), and calls the optional [onSignedOut]. The
+///   cache ([wipeSessionData]), and calls the optional [onSignedOut], then
+///   the optional [onSessionEnd] with the same end the vault gets (Plan 5a
+///   Task 13 fix wave, ruling 7: the pipeline keeps a delete only for
+///   [SessionEnd.sessionLost]). The
 ///   in-memory caches are not reset here: `AppWidget` runs the one
 ///   `AccountSessionReset` for a sign-out and for a switch.
 /// - A new uid claims the cache ([AppDatabase.claimCacheFor]: owner stamp, wipe
@@ -220,6 +230,7 @@ StreamSubscription<AuthState> wireAuthSession({
   required AppDatabase database,
   required TimelineRepository timelineRepository,
   void Function()? onSignedOut,
+  void Function(SessionEnd end)? onSessionEnd,
   NotificationsRepository? notificationsRepository,
   MessagingRepository? messagingRepository,
   AppUser? initialUser,
@@ -272,14 +283,10 @@ StreamSubscription<AuthState> wireAuthSession({
     lastStatus = state.status;
     if (previous != null && (user == null || user.uid != previous.uid)) {
       // Only a transition to no user can be explicit; a switch never is.
-      unawaited(
-        vaultSession?.onSessionEnded(
-          previous.uid,
-          user == null
-              ? state.lastSessionEnd ?? SessionEnd.sessionLost
-              : SessionEnd.sessionLost,
-        ),
-      );
+      final end = user == null
+          ? state.lastSessionEnd ?? SessionEnd.sessionLost
+          : SessionEnd.sessionLost;
+      unawaited(vaultSession?.onSessionEnded(previous.uid, end));
       onboardingBloc.add(const OnboardingUserSignedOut());
       // Privacy: the privacy rule. The epoch ends now (late writes of the
       // old session are dropped); the wipe is awaited by the next step.
@@ -291,6 +298,7 @@ StreamSubscription<AuthState> wireAuthSession({
       );
       chain(() => wipe);
       onSignedOut?.call();
+      onSessionEnd?.call(end);
     }
     if (user != null && user.uid != previous?.uid) {
       final uid = user.uid;

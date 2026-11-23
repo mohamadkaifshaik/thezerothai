@@ -401,22 +401,28 @@ class VaultSession {
   /// open of the signed-in user and tries once more, under the same open rule
   /// as [onSignedIn] (flag on, or a vault already on this device). Never call
   /// it in a loop: each refused web open can leave an idle worker.
-  Future<void> retry() => _enqueue('retry', () async {
-    final uid = _uid;
-    if (!_supported || uid == null) return;
-    _unblock(uid);
-    if (_vault != null) return;
-    if (_flag != E2eeFlag.on) {
-      final known = await _readKnown(uid);
-      if (known != null) _vaultKnown = known;
-      if (known != true) {
-        // Nothing to open and nothing may start: not a stale failure.
-        if (known == false) _setStatus(VaultStatus.off);
-        return;
-      }
-    }
-    await _open(uid);
-  });
+  ///
+  /// Plan 5a Task 13 (gate item 36): the app-resume retry passes
+  /// [allowConfirmedWipe] false, so a resume never becomes the trigger of a
+  /// confirmed key-loss wipe in the same launch (a confirmable loss stays
+  /// `keyLost`, and the next launch's sign-in confirms it).
+  Future<void> retry({bool allowConfirmedWipe = true}) =>
+      _enqueue('retry', () async {
+        final uid = _uid;
+        if (!_supported || uid == null) return;
+        _unblock(uid);
+        if (_vault != null) return;
+        if (_flag != E2eeFlag.on) {
+          final known = await _readKnown(uid);
+          if (known != null) _vaultKnown = known;
+          if (known != true) {
+            // Nothing to open and nothing may start: not a stale failure.
+            if (known == false) _setStatus(VaultStatus.off);
+            return;
+          }
+        }
+        await _open(uid, allowConfirmedWipe: allowConfirmedWipe);
+      });
 
   /// The auth bloc's explicit-sign-out step for [uid] (its 3 s budget, only
   /// when the intent was armed for [uid]). When this device has a vault for

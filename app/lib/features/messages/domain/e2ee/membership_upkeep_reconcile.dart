@@ -11,13 +11,15 @@ extension _Reconcile on MembershipUpkeep {
   /// between two holds, before the ONE more pass (plan step 4). A re-check
   /// exists to make a change, so it pulls first when not synced. [depth]:
   /// the re-check's place in a chain (0 for an outside trigger and a
-  /// re-check that waits on a clock; see [kMaxChainedRechecks]). Never
-  /// throws.
+  /// re-check that waits on a clock; see [kMaxChainedRechecks]).
+  /// [renewLeaf] false: no self-update in either pass (Task 13, gate item
+  /// 51). Never throws.
   Future<void> _reconcileUnheld(
     String id,
     BudgetPriority priority, {
     required bool recheck,
     int depth = 0,
+    bool renewLeaf = true,
   }) async {
     try {
       if (recheck && !_contexts.of(id).syncedSinceStart) {
@@ -31,6 +33,7 @@ extension _Reconcile on MembershipUpkeep {
           recheck: recheck,
           depth: depth,
           mayRunAgain: true,
+          renewLeaf: renewLeaf,
         ),
       );
       if (first != CommitOutcome.applied && first != CommitOutcome.superseded) {
@@ -51,6 +54,7 @@ extension _Reconcile on MembershipUpkeep {
           recheck: recheck,
           depth: depth,
           mayRunAgain: false,
+          renewLeaf: renewLeaf,
         ),
       );
     } on Object catch (e, s) {
@@ -118,13 +122,16 @@ extension _Reconcile on MembershipUpkeep {
   /// this pass that does not land arms one re-check through [_armRetry].
   /// [mayRunAgain]: this is the unheld entry's first pass, which pulls and
   /// runs one more pass after an `applied` or `superseded` answer.
+  /// [renewLeaf] false: no self-update (Task 13, gate item 51).
   Future<CommitOutcome?> _reconcileOnce(
     String id,
     BudgetPriority priority, {
     required bool recheck,
     required int depth,
     required bool mayRunAgain,
+    bool renewLeaf = true,
   }) async {
+    final selfUpdate = !recheck && renewLeaf;
     final vault = _session.vault;
     if (vault == null || _removedElsewhere()) return null;
     // R10 and pilot gate 5.3: before any list call.
@@ -473,7 +480,7 @@ extension _Reconcile on MembershipUpkeep {
                   )).wanted.isNotEmpty))) {
         _armRetry(id, depth, _now().add(kPeerRemovalFetchGap));
       }
-      if (removes.isEmpty && !recheck) {
+      if (removes.isEmpty && selfUpdate) {
         await _selfUpdateLocked(id, priority, caughtUp: true);
       }
       return resumed;
@@ -495,7 +502,7 @@ extension _Reconcile on MembershipUpkeep {
 
     // Step 4.
     if (removes.isEmpty && adds.isEmpty) {
-      if (!recheck) await _selfUpdateLocked(id, priority, caughtUp: true);
+      if (selfUpdate) await _selfUpdateLocked(id, priority, caughtUp: true);
       return resumed;
     }
     final limitBefore = _commits.lastRateLimitIn(id);
