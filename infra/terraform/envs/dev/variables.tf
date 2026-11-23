@@ -1540,6 +1540,34 @@ variable "feature_e2ee_dm_percent" {
   }
 }
 
+variable "feature_device_sign_out" {
+  description = "FEATURE_DEVICE_SIGN_OUT rollout mode for the session cut (security audit H2): on for the remover, removing another device with reason REMOTE signs out every other session of the account; any mode other than off makes every RPC of every user check the account's stored cut (off = the emergency lever, nothing checked): off | allowlist | percent | on. Default off in every environment. Ceiling in scripts/promotion/flag-ceiling.json: dev allowlist of at most 6, prod off. Rollback floor: the image must be at or after the PR that added this flag while it is not off."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_device_sign_out)
+    error_message = "feature_device_sign_out must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_device_sign_out_allowlist" {
+  description = "FEATURE_DEVICE_SIGN_OUT_ALLOWLIST: comma-separated Firebase uids (not a secret), at most 6 under the dev ceiling. Applies in allowlist and percent modes."
+  type        = string
+  default     = ""
+}
+
+variable "feature_device_sign_out_percent" {
+  description = "FEATURE_DEVICE_SIGN_OUT_PERCENT: 0-100, only meaningful when feature_device_sign_out = percent. The dev ceiling allows no percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_device_sign_out_percent >= 0 && var.feature_device_sign_out_percent <= 100 && floor(var.feature_device_sign_out_percent) == var.feature_device_sign_out_percent
+    error_message = "feature_device_sign_out_percent must be an integer 0-100."
+  }
+}
+
 variable "feature_share_count" {
   description = "FEATURE_SHARE_COUNT rollout mode for EngagementService.RecordPostShare (on for the caller) and the direct-message share record of Post.share_count (while not globally off); clients show the count only when it is on for the viewer: off | allowlist | percent | on. Default off in every environment; ramp deliberately."
   type        = string
