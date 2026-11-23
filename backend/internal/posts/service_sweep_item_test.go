@@ -41,8 +41,8 @@ func TestSweepItem_ChecksBeforeTheTransaction(t *testing.T) {
 		{"empty text without an image", func(_ *sweepEnv, p *ScheduledPost) { p.Draft.Text = "  " }, FailureInvalidContent},
 		{"a reply policy this revision does not know", func(_ *sweepEnv, p *ScheduledPost) { p.Draft.ReplyPolicy = "FOLLOWING_OF_FOLLOWING" }, FailureInvalidContent},
 		{"a media id that is not a media id", func(_ *sweepEnv, p *ScheduledPost) { p.Draft.Media = []MediaRef{{ID: "m1"}} }, FailureInvalidContent},
-		{"more than four images", func(_ *sweepEnv, p *ScheduledPost) {
-			for i := 1; i <= 5; i++ {
+		{"more than twenty images", func(_ *sweepEnv, p *ScheduledPost) {
+			for i := 1; i <= 21; i++ {
 				p.Draft.Media = append(p.Draft.Media, MediaRef{ID: sweepMediaID(i)})
 			}
 		}, FailureInvalidContent},

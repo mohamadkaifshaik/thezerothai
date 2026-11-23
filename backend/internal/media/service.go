@@ -148,6 +148,8 @@ func New(d Deps) (Service, error) {
 // extension maps an accepted content type to the object extension.
 func extension(contentType string) string {
 	switch contentType {
+	case ContentTypeMP4:
+		return "mp4"
 	case ContentTypeWebP:
 		return "webp"
 	case ContentTypeGIF:
@@ -222,22 +224,25 @@ func idemKeyIssue(key string) error {
 	return nil
 }
 
-// capsFor returns the signed-URL and verification byte caps of a purpose (the same for POST and AVATAR).
-func capsFor(Purpose) (full, thumb int64) {
+// capsFor returns the same byte limits for signing and for verification.
+func capsFor(contentType string) (full, thumb int64) {
+	if contentType == ContentTypeMP4 {
+		return MaxVideoBytes, MaxThumbBytes
+	}
 	return MaxFullBytes, MaxThumbBytes
 }
 
 func (s *service) validateUploadItem(i int, p Purpose, it UploadItem) error {
 	field := func(name string) string { return fmt.Sprintf("items[%d].%s", i, name) }
-	maxFull, maxThumb := capsFor(p)
+	maxFull, maxThumb := capsFor(it.ContentType)
 	switch it.ContentType {
 	case ContentTypeWebP, ContentTypeJPEG:
-	case ContentTypeGIF:
+	case ContentTypeGIF, ContentTypeMP4:
 		if p != PurposePost { // AVATAR refuses
-			return apierr.Validation(field("content_type"), "a GIF can only be used in a post")
+			return apierr.Validation(field("content_type"), "animated media can only be used in a post")
 		}
 	default:
-		return apierr.Validation(field("content_type"), "content_type must be image/webp, image/jpeg or image/gif")
+		return apierr.Validation(field("content_type"), "content_type must be image/webp, image/jpeg, image/gif or video/mp4")
 	}
 	if err := validateThumbType(field("thumb_content_type"), it); err != nil {
 		return err
@@ -249,6 +254,8 @@ func (s *service) validateUploadItem(i int, p Purpose, it UploadItem) error {
 		return apierr.Validation(field("thumb_size_bytes"), fmt.Sprintf("the thumbnail must be at most %s", byteSize(maxThumb)))
 	case it.Width <= 0 || it.Width > MaxDimension || it.Height <= 0 || it.Height > MaxDimension:
 		return apierr.Validation(field("width"), "width and height must be between 1 and 4096")
+	case it.ContentType == ContentTypeMP4 && (it.Width > 1920 || it.Height > 1920):
+		return apierr.Validation(field("width"), "videos can be up to 1920 pixels on each side")
 	case it.ContentType == ContentTypeGIF && (it.Width > s.gifMaxEdge() || it.Height > s.gifMaxEdge()):
 		return apierr.Validation(field("width"), fmt.Sprintf("a GIF can be at most %d pixels on each side", s.gifMaxEdge()))
 	case !md5b64Pattern.MatchString(it.FullMD5):
@@ -263,9 +270,9 @@ func (s *service) validateUploadItem(i int, p Purpose, it UploadItem) error {
 // WebP); for JPEG and WebP it must be empty or equal to content_type, so an older client is unchanged.
 func validateThumbType(field string, it UploadItem) error {
 	t := it.ThumbContentType
-	if it.ContentType == ContentTypeGIF {
+	if it.ContentType == ContentTypeGIF || it.ContentType == ContentTypeMP4 {
 		if t != ContentTypeJPEG && t != ContentTypeWebP {
-			return apierr.Validation(field, "a GIF thumbnail must be image/jpeg or image/webp")
+			return apierr.Validation(field, "the thumbnail must be image/jpeg or image/webp")
 		}
 		return nil
 	}
@@ -323,13 +330,13 @@ func (s *service) CreateUpload(ctx context.Context, uid string, in CreateUploadI
 	switch {
 	case n == 0:
 		return nil, apierr.Validation("items", "at least one image is required")
-	case n > MaxPerPost:
+	case n > MaxUploadBatch:
 		return nil, apierr.Validation("items", "at most 4 images per upload")
 	case in.Purpose == PurposeAvatar && n != 1:
 		return nil, apierr.Validation("items", "an avatar is exactly one image")
 	}
-	if hasGIF(in.Items) && n != 1 { // One GIF per upload, never mixed with other items
-		return nil, apierr.Validation("items", "a GIF is uploaded on its own")
+	if hasMotionMedia(in.Items) && n != 1 { // One GIF per upload, never mixed with other items
+		return nil, apierr.Validation("items", "upload a GIF or video on its own")
 	}
 	for i, it := range in.Items {
 		if err := s.validateUploadItem(i, in.Purpose, it); err != nil {
@@ -340,7 +347,7 @@ func (s *service) CreateUpload(ctx context.Context, uid string, in CreateUploadI
 	logger.SetRequestField(ctx, fieldImages, n)
 
 	now := s.Now().UTC()
-	maxFull, maxThumb := capsFor(in.Purpose)
+	maxFull, maxThumb := capsFor(in.Items[0].ContentType)
 
 	expire := now.Add(PendingTTL)
 	docs := make([]Doc, n)
@@ -436,6 +443,8 @@ func notFound() error {
 // sniffImage returns the content type the first bytes of an image file claim, or "".
 func sniffImage(head []byte) string {
 	switch {
+	case len(head) >= 12 && string(head[4:8]) == "ftyp":
+		return ContentTypeMP4
 	case len(head) >= 3 && head[0] == 0xFF && head[1] == 0xD8 && head[2] == 0xFF:
 		return "image/jpeg"
 	case len(head) >= 12 && string(head[0:4]) == "RIFF" && string(head[8:12]) == "WEBP":
@@ -446,10 +455,10 @@ func sniffImage(head []byte) string {
 	return ""
 }
 
-// hasGIF reports whether any item is a GIF.
-func hasGIF(items []UploadItem) bool {
+// Motion media is reserved one item per upload.
+func hasMotionMedia(items []UploadItem) bool {
 	for _, it := range items {
-		if it.ContentType == ContentTypeGIF {
+		if it.ContentType == ContentTypeGIF || it.ContentType == ContentTypeMP4 {
 			return true
 		}
 	}

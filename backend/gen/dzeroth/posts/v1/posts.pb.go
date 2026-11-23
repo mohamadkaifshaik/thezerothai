@@ -1519,7 +1519,7 @@ type CreatePostRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	IdempotencyKey string                 `protobuf:"bytes,1,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
 	Text           string                 `protobuf:"bytes,2,opt,name=text,proto3" json:"text,omitempty"`
-	// 0-4 media ids from dzeroth.media.v1 FinalizeUpload (status READY or READY_UNSCREENED).
+	// 0-20 media ids from dzeroth.media.v1 FinalizeUpload (status READY or READY_UNSCREENED).
 	MediaIds      []string `protobuf:"bytes,3,rep,name=media_ids,json=mediaIds,proto3" json:"media_ids,omitempty"`
 	ReplyToPostId string   `protobuf:"bytes,4,opt,name=reply_to_post_id,json=replyToPostId,proto3" json:"reply_to_post_id,omitempty"`
 	QuoteOfPostId string   `protobuf:"bytes,5,opt,name=quote_of_post_id,json=quoteOfPostId,proto3" json:"quote_of_post_id,omitempty"`
@@ -2170,7 +2170,7 @@ type SchedulePostRequest struct {
 	IdempotencyKey string                 `protobuf:"bytes,1,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
 	// CreatePost text rules.
 	Text string `protobuf:"bytes,2,opt,name=text,proto3" json:"text,omitempty"`
-	// 0-4 media ids, as CreatePost.
+	// 0-20 media ids, as CreatePost.
 	MediaIds []string `protobuf:"bytes,3,rep,name=media_ids,json=mediaIds,proto3" json:"media_ids,omitempty"`
 	// Parallel to media_ids, as CreatePost.
 	MediaAltTexts   []string    `protobuf:"bytes,4,rep,name=media_alt_texts,json=mediaAltTexts,proto3" json:"media_alt_texts,omitempty"`

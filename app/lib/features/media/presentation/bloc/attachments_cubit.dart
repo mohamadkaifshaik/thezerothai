@@ -8,6 +8,7 @@ import '../../../../core/network/app_exception.dart';
 import '../../../../gen/dzeroth/media/v1/media.pb.dart' as pb;
 import '../../../posts/domain/composer_attachment_rules.dart';
 import '../../data/gif_source.dart';
+import '../../data/video_source.dart';
 import '../../data/image_picker_service.dart';
 import '../../data/media_uploader.dart';
 import '../../domain/image_processor.dart';
@@ -27,7 +28,7 @@ bool looksLikeGif(Uint8List bytes) =>
 
 /// What an attachment is. A post has up to [kMaxPostImages] photos, or one
 /// GIF, never both (the rule lives in `ComposerAttachmentRules`).
-enum AttachmentKind { photo, gif }
+enum AttachmentKind { photo, gif, video }
 
 enum AttachmentStatus {
   /// Being resized/compressed on the device.
@@ -83,7 +84,7 @@ class Attachment {
   /// second decode.
   UnusualShape? get unusualShape {
     final i = image;
-    if (i == null) return null;
+    if (i == null || kind == AttachmentKind.video) return null;
     return unusualShapeOf(width: i.width, height: i.height, isGif: isGif);
   }
 
@@ -136,8 +137,10 @@ class AttachmentsState {
 
   bool get isEmpty => items.isEmpty;
   int get count => items.length;
+  bool get hasVideo => items.any((a) => a.kind == AttachmentKind.video);
   bool get hasGif => items.any((a) => a.isGif);
-  int get photoCount => items.where((a) => !a.isGif).length;
+  int get photoCount =>
+      items.where((a) => a.kind == AttachmentKind.photo).length;
   bool get isFull => photoCount >= kMaxPostImages;
 
   /// True while any image is being processed or uploaded (Post waits).
@@ -209,7 +212,7 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
 
   /// Opens the picker for the remaining slots and processes each choice.
   Future<void> pick() async {
-    if (_picking || state.hasGif) return;
+    if (_picking || state.hasGif || state.hasVideo) return;
     final room = kMaxPostImages - state.photoCount;
     if (room <= 0) return;
     _picking = true;
@@ -260,6 +263,41 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
       }
       if (isClosed || bytes == null) return;
       await _attachGif(bytes);
+    } finally {
+      _picking = false;
+    }
+  }
+
+  Future<void> pickVideo() async {
+    if (_picking || !state.isEmpty) return;
+    _picking = true;
+    final id = _uuid.v4();
+    emit(
+      AttachmentsState(
+        items: [Attachment(id: id, kind: AttachmentKind.video)],
+      ),
+    );
+    try {
+      final video = await pickPostVideo(_processor);
+      if (isClosed || !state.items.any((a) => a.id == id)) return;
+      if (video == null) {
+        remove(id);
+      } else {
+        _update(
+          id,
+          (a) => a.copyWith(status: AttachmentStatus.ready, image: video),
+        );
+      }
+    } catch (error) {
+      if (!isClosed && state.items.any((a) => a.id == id)) {
+        emit(
+          AttachmentsState(
+            refusal: error is FormatException
+                ? error.message
+                : 'Could not read this clip. Choose an H.264 MP4 video.',
+          ),
+        );
+      }
     } finally {
       _picking = false;
     }
@@ -360,6 +398,7 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
 
   /// Adds already-read image bytes (the picker result; also used by tests).
   Future<void> addImages(List<Uint8List> files) async {
+    if (state.hasVideo || state.hasGif) return;
     final room = kMaxPostImages - state.photoCount;
     final accepted = files.take(room).toList();
     final ids = [for (final _ in accepted) _uuid.v4()];
@@ -758,7 +797,11 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
           for (final p in photos)
             Attachment(
               id: _uuid.v4(),
-              kind: gif ? AttachmentKind.gif : AttachmentKind.photo,
+              kind: p.image.contentType == kVideoContentType
+                  ? AttachmentKind.video
+                  : gif
+                  ? AttachmentKind.gif
+                  : AttachmentKind.photo,
               status: p.mediaId.isEmpty
                   ? AttachmentStatus.ready
                   : AttachmentStatus.uploaded,

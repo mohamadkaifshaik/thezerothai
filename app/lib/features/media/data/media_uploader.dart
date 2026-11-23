@@ -250,12 +250,20 @@ class MediaUploader {
     }
 
     try {
-      return await _upload(
-        purpose: purpose,
-        jobs: jobs,
-        onProgress: onProgress,
-        check: check,
-      );
+      // Each reservation and finalization RPC accepts at most four items.
+      const batchSize = 4;
+      final outcomes = <UploadOutcome>[];
+      for (var start = 0; start < jobs.length; start += batchSize) {
+        outcomes.addAll(
+          await _upload(
+            purpose: purpose,
+            jobs: jobs.sublist(start, math.min(start + batchSize, jobs.length)),
+            onProgress: onProgress,
+            check: check,
+          ),
+        );
+      }
+      return outcomes;
     } on _Stopped {
       throw const UploadInterruptedException('The upload was stopped.');
     }
@@ -406,7 +414,9 @@ class MediaUploader {
           // The server's one GIF slot may be busy (MEDIA_NOT_READY, retry):
           // for a lone GIF that is waited out, not treated as a lost object.
           waitForGifSlot:
-              toFinalize.length == 1 && toFinalize.single.image.isGif,
+              toFinalize.length == 1 &&
+              (toFinalize.single.image.isGif ||
+                  toFinalize.single.image.contentType == kVideoContentType),
         );
       } on MediaNotReadyException catch (error) {
         // The server did not find the object: PUT it again (re-signed).

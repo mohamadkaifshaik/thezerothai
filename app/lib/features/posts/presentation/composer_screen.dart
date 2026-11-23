@@ -1191,6 +1191,22 @@ class _ComposerViewState extends State<_ComposerView> {
                                         tooltip: rules.schedule.scheduleTooltip,
                                         onPressed: () => _openSchedule(context),
                                       ),
+                                    if (widget.mediaEnabled)
+                                      IconButton(
+                                        tooltip: 'Add video',
+                                        icon: const Icon(
+                                          Icons.video_library_outlined,
+                                        ),
+                                        onPressed:
+                                            state.isSubmitting ||
+                                                attachBusy ||
+                                                state.hasAttachments ||
+                                                state.hasPoll
+                                            ? null
+                                            : context
+                                                  .read<AttachmentsCubit>()
+                                                  .pickVideo,
+                                      ),
                                   ],
                                 ),
                               ),
@@ -1323,7 +1339,7 @@ class _ScheduleImagesNoteBox extends StatelessWidget {
 }
 
 /// The "Add photos" action in the composer's bottom bar. Disabled while the
-/// post is sending or when four photos are attached.
+/// post is sending or when the photo limit is reached.
 class AddPhotoButton extends StatelessWidget {
   const AddPhotoButton({super.key, required this.block});
 
@@ -1345,7 +1361,7 @@ class AddPhotoButton extends StatelessWidget {
           tooltip: block != ComposerBlock.none
               ? block.photoTooltip
               : full
-              ? 'Four photos is the limit'
+              ? '$kMaxPostImages photos is the limit'
               : 'Add photos',
           icon: const Icon(Icons.image_outlined),
           onPressed: submitting || full || busy || block != ComposerBlock.none

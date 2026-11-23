@@ -357,6 +357,7 @@ class ComposerCubit extends Cubit<ComposerState>
     isReply: replyToPostId.isNotEmpty,
     isQuote: quoteOfPostId.isNotEmpty,
     hasPhotos: state.hasAttachments && !_gifHeld,
+    hasVideo: _attachments?.state.hasVideo ?? false,
     hasGif: _gifHeld,
     hasPoll: state.hasPoll,
     // A time is only in force while the composer can still schedule.

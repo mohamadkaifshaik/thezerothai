@@ -430,11 +430,11 @@ type MediaRef struct {
 	// BlurHash placeholder computed on device, <= 64 chars.
 	Blurhash string `protobuf:"bytes,6,opt,name=blurhash,proto3" json:"blurhash,omitempty"`
 	AltText  string `protobuf:"bytes,7,opt,name=alt_text,json=altText,proto3" json:"alt_text,omitempty"`
-	// The full object's content type: "image/jpeg", "image/webp" or "image/gif" (POST media only, behind
+	// The full object's content type: "image/jpeg", "image/webp", "video/mp4" (POST only) or "image/gif" (POST only, behind
 	// FEATURE_GIF). Empty on refs stored before W6, which are still JPEG or WebP images. A client badges and plays a GIF
 	// from this field, never from the URL. thumb_url is always a still image (JPEG or WebP): lists show it, and the full
 	// url is fetched only when the user taps to play (F10). Set in FinalizeUpload's MediaResult.media, copied into posts
-	// from the media doc at CreatePost, and into embeds with them. A later rung may add other types (e.g. a short video); treat unknown values as a still image
+	// from the media doc at CreatePost, and into embeds with them. Treat unknown values as a still image
 	// that cannot play.
 	ContentType   string `protobuf:"bytes,8,opt,name=content_type,json=contentType,proto3" json:"content_type,omitempty"`
 	unknownFields protoimpl.UnknownFields

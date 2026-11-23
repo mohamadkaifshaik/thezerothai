@@ -4,7 +4,7 @@
 // 	protoc        (unknown)
 // source: dzeroth/media/v1/media.proto
 
-// Media: images only at Stage 0 (animated GIF for post media behind FEATURE_GIF). Owner module:
+// Media: still images, post videos and animated post GIFs (FEATURE_GIF). Owner module:
 // backend/internal/media.
 // Collections owned: media/{mediaId} (TTL on expireAt while PENDING), admin/vision-{yyyymm} (SafeSearch usage counter: a cost meter, it never limits screening).
 // Bytes never pass through the API: clients PUT to a private upload bucket with V4 signed URLs; approved
@@ -144,7 +144,7 @@ func (MediaStatus) EnumDescriptor() ([]byte, []int) {
 type UploadItem struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// image/webp or image/jpeg (client re-encodes everything else on device); or image/gif for MEDIA_PURPOSE_POST behind
-	// FEATURE_GIF, uploaded unchanged so it keeps its animation.
+	// FEATURE_GIF, or video/mp4 for a post clip.
 	ContentType    string `protobuf:"bytes,1,opt,name=content_type,json=contentType,proto3" json:"content_type,omitempty"`
 	FullSizeBytes  int64  `protobuf:"varint,2,opt,name=full_size_bytes,json=fullSizeBytes,proto3" json:"full_size_bytes,omitempty"`
 	ThumbSizeBytes int64  `protobuf:"varint,3,opt,name=thumb_size_bytes,json=thumbSizeBytes,proto3" json:"thumb_size_bytes,omitempty"`
