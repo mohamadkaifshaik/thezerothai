@@ -193,6 +193,11 @@ test-int-cover:
 	@echo "==> internal/ coverage gate (combined unit + integration, all shards, $(COVERAGE_THRESHOLD)%)"
 	@bash scripts/ci/cover.sh gate $(BACKEND_DIR)/cover-internal.out $(COVERAGE_THRESHOLD) internal/
 
+## e2ee-smoke: the encrypted-messaging pipeline (two users, three devices) against the real API on the emulators.
+e2ee-smoke:
+	$(EMULATOR_TMP) $(FIREBASE) emulators:exec --project $(EMULATOR_PROJECT) --only firestore,auth,pubsub,storage \
+		'bash scripts/e2ee-smoke.sh'
+
 ## dev: emulators + API + Flutter web, all torn down together (Ctrl+C in the flutter run session).
 ## Same reasoning as test-int for FIREBASE_PROJECT_ID; FIRESTORE_EMULATOR_HOST etc. are read by the
 ## Firebase/Firestore client libraries themselves without needing to be set at all when they're already in
