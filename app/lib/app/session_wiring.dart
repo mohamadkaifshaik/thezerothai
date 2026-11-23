@@ -127,10 +127,17 @@ Future<void> wipeSessionData({
   await database.clearAll();
 }
 
+/// Whether [s] carries a known flag set: ready, and this session's GetMe
+/// answered (not a cached profile's flags). The one "known" rule for every
+/// flag read off the onboarding state (Plan 5a Task 13 fix wave, ruling 11
+/// N6: `e2ee_dm` here, `public_ids` in `publicIdsKnownOff`).
+bool flagsKnown(OnboardingState s) =>
+    s.status == OnboardingStatus.ready && !s.flagsPending;
+
 /// The `e2ee_dm` answer a ready, fully answered state carries; null until
 /// then (flags pending, not ready): no answer is not "off".
 E2eeFlag? knownE2eeFlag(OnboardingState s) {
-  if (s.status != OnboardingStatus.ready || s.flagsPending) return null;
+  if (!flagsKnown(s)) return null;
   return s.enabledFeatures.contains(kFeatureE2eeDm)
       ? E2eeFlag.on
       : E2eeFlag.off;

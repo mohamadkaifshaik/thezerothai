@@ -631,14 +631,13 @@ Future<void> bootstrap() async {
   );
 
   // Plan 5a Task 13: the E2EE message pipeline (one for the app's
-  // lifetime), where the vault is supported (the same rule as
-  // _buildVaultSession). Inert for a user with no vault on this device and
-  // e2ee_dm off or unknown (the pinned inertness test). Its ready hook runs
-  // AFTER the device keys' (registered above, gate item 21), so the device
-  // exists first. Task 13b builds the EncryptedMessaging port over it.
-  final e2eeSupported =
-      kIsWeb || defaultTargetPlatform == TargetPlatform.android;
-  e2eePipeline = e2eeSupported
+  // lifetime), where the vault is supported (e2eeVaultSupported, the one
+  // rule _buildVaultSession uses too). Inert for a user with no vault on this
+  // device and e2ee_dm off or unknown (the pinned inertness test). Its ready
+  // hook runs AFTER the device keys' (registered above, gate item 21), so
+  // the device exists first. Task 13b builds the EncryptedMessaging port
+  // over it, in e2ee_wiring.dart (this file is near the split size).
+  e2eePipeline = e2eeVaultSupported
       ? E2eePipeline(
           session: vaultSession,
           deviceKeys: deviceKeys,
@@ -850,7 +849,7 @@ VaultSession _buildVaultSession({
         StackTrace.current,
       ),
     ),
-    supported: kIsWeb || defaultTargetPlatform == TargetPlatform.android,
+    supported: e2eeVaultSupported,
     launchId: const Uuid().v4(),
     onUnexpectedError: onUnexpectedError,
   );

@@ -1,11 +1,15 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, kIsWeb;
+
 import '../core/feature_flags/public_ids_feature_flag.dart';
 import '../core/vault/vault_status.dart';
 import '../features/messages/domain/e2ee/e2ee_types.dart'
     show E2eePipelineError;
 import '../features/notifications/presentation/bloc/push_cubit.dart';
 import '../features/onboarding/presentation/bloc/onboarding_state.dart';
+import 'session_wiring.dart' show flagsKnown;
 
 /// Reports an unexpected failure (bootstrap's `reportUnexpectedError`).
 typedef E2eeWiringErrorReporter = void Function(Object error, StackTrace stack);
@@ -166,11 +170,16 @@ StreamSubscription<PushState> forwardMessagePushes({
 
 /// Plan 5a Task 13 (gate item 9): `public_ids` is KNOWN off for the
 /// signed-in account: a ready state whose flags this session's GetMe
-/// answered, without the flag. Not answered yet is not off.
+/// answered, without the flag. Not answered yet is not off. The "known"
+/// rule is the one `e2ee_dm` uses ([flagsKnown], ruling 11 N6).
 bool publicIdsKnownOff(OnboardingState s) =>
-    s.status == OnboardingStatus.ready &&
-    !s.flagsPending &&
-    !s.enabledFeatures.contains(kFeaturePublicIds);
+    flagsKnown(s) && !s.enabledFeatures.contains(kFeaturePublicIds);
+
+/// Plan 5a Task 13 fix wave, ruling 11 (N3): the platforms with a vault,
+/// the ONE rule for the vault session's `supported:` and for building the
+/// E2EE pipeline (and, in 13b, its port): Android and the web.
+bool get e2eeVaultSupported =>
+    kIsWeb || defaultTargetPlatform == TargetPlatform.android;
 
 /// Awaits [run]; a failure is reported as `E2eePipelineError('wiring.<step>')`
 /// with its stack, never the raw error object (fix wave ruling 8, security

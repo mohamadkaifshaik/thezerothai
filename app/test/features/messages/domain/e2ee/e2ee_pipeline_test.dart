@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:dzeroth/core/crypto/guarded_crypto_engine.dart';
 import 'package:dzeroth/core/crypto/mls_pair.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
+import 'package:dzeroth/core/session/session_end.dart';
 import 'package:dzeroth/core/vault/secure_vault.dart';
 import 'package:dzeroth/core/vault/vault_status.dart';
 import 'package:dzeroth/features/keys/data/keys_repository.dart';
@@ -122,7 +123,10 @@ void main() {
         ..noteEncrypted(_c1)
         ..noteAccepted(_c1)
         ..noteDeleted(_c1)
-        ..closed(_c1);
+        ..closed(_c1)
+        // Fix wave ruling 11 (N7): bootstrap wires it at every session end.
+        ..forgetNotes(SessionEnd.sessionLost)
+        ..forgetNotes(SessionEnd.userSignedOut);
       await pipeline.opened(_c1);
       messaging.changed.add(null);
       await expectLater(pipeline.setUpAgain(), throwsStateError);
