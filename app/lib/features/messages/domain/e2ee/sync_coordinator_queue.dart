@@ -115,8 +115,11 @@ extension _Queue on SyncCoordinator {
         _enqueue(id, now.add(_nextWait(_backoff, id)));
       case ReceiveOutcomeKind.held:
         _chained.add(id);
+        // Review m2: at least [kHeldMinWait] (a `Retry-After: 0` answers
+        // `held(now)`), never a spin on the read budget.
         final until = o.until;
-        _enqueue(id, until != null && until.isAfter(now) ? until : now);
+        final min = now.add(kHeldMinWait);
+        _enqueue(id, until != null && until.isAfter(min) ? until : min);
       case ReceiveOutcomeKind.stopped:
         final has = await _value('hasGroup', () => _work.hasGroup(id), true);
         if (!has) {
