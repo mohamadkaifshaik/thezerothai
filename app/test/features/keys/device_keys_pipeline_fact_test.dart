@@ -107,10 +107,13 @@ void main() {
     expect(steps(), contains('removedElsewhereWrite'));
 
     rig.advance(_hour);
+    final calls = rig.server.calls.length;
     await rig.service.ensureReady();
     expect(rig.service.removedElsewhere, isTrue);
     expect(rig.service.stopsPipeline, isTrue);
     expect(rig.setting(kVaultSettingRemovedElsewhere), '');
+    // Still read only: the absent marker cleared nothing, so no Register.
+    expect(rig.rpcs(calls), ['list']);
 
     rig.world.settingWriteFails.clear();
     rig.advance(_hour);
