@@ -24,11 +24,11 @@ extension _Rows on EncryptedSender {
   }
 
   /// The body of [EncryptedSender.discard] (its contract is written there).
-  Future<bool> _discardRow(String localId) async {
+  Future<bool?> _discardRow(String localId) async {
     final row = await _find(localId);
     final id = row?.conversationId;
     if (row == null || id == null || row.init != null) return false;
-    var deleted = false;
+    bool? deleted = false;
     try {
       // The pull proves "no echo" only for the send calls made before it.
       int? calls;
@@ -49,6 +49,8 @@ extension _Rows on EncryptedSender {
       deleted = await _locks.run(id, () => _discardLocked(id, localId, calls));
     } on Object catch (e, s) {
       _reportIfBug(e, s, 'send.discard');
+      // Port additions, CR n1: failed, so nothing is known of the row.
+      deleted = null;
     }
     _onChanged(id);
     return deleted;

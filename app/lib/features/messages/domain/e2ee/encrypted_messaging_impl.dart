@@ -557,7 +557,11 @@ class EncryptedMessagingImpl implements EncryptedMessaging {
       // A row with no conversation id yet is not the sender's to discard;
       // it goes once its start names the conversation.
       if (id == null) return UnsentDiscard.notDecided;
-      if (!await parts.sender.discard(localId)) {
+      final deleted = await parts.sender.discard(localId);
+      // CR n1: the discard failed (a write that did not go through): what
+      // happened to the row is not known, so nothing is claimed.
+      if (deleted == null) return UnsentDiscard.notDecided;
+      if (!deleted) {
         // Kept (it may have been accepted, or a send of it is running), or
         // gone meanwhile (delivered, or deleted with its conversation).
         return await _outboxRow(parts, localId) == null

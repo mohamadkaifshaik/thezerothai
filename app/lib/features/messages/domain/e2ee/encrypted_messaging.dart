@@ -402,7 +402,8 @@ abstract interface class EncryptedMessaging {
   /// Gate items 14 and 15: the user discards the own unsent row [localId] (offer it on every own row that is not
   /// delivered). The first message of a new encrypted conversation, while its start is not answered, goes through the
   /// pipeline's init discard with its rules (`stopped`, `delivered`, `held`, `notDecided`); any other row is deleted
-  /// when the server has not accepted it as far as this device knows (`discarded`; else `held`), and the
+  /// when the server has not accepted it as far as this device knows (`discarded`; else `held`; `notDecided` when the
+  /// deletion itself failed), and the
   /// conversation's next waiting row is then started again (F1). Never throws; an unknown id, and no ready vault,
   /// answer `none`. Makes network calls only for the checks the answer needs, and for the next row's start.
   Future<UnsentDiscard> discardUnsent(String localId);

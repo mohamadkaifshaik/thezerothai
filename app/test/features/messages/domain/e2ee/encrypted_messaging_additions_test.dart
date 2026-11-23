@@ -124,6 +124,35 @@ void main() {
       expect((await h.rig.device.vault.outbox()).items, isEmpty);
     });
 
+    test('a discard whose write fails answers notDecided, never held, and '
+        'keeps the row (CR n1)', () async {
+      await joined();
+      h.rig.server.sendScript.add((
+        error: const FeatureDisabledException('off'),
+        stored: false,
+      ));
+      await port.send(
+        to: const ThreadRef.conversation(_c1),
+        localId: 'local-1',
+        text: 'one',
+      );
+      await h.pipeline.sender.settled(_c1);
+      // A stage-plain row behind the failed head: never sent.
+      await port.send(
+        to: const ThreadRef.conversation(_c1),
+        localId: 'local-2',
+        text: 'two',
+      );
+      await h.pipeline.sender.settled(_c1);
+      await h.settle();
+
+      h.rig.device.failNextWriteAsked = true;
+      expect(await port.discardUnsent('local-2'), UnsentDiscard.notDecided);
+      expect(h.rig.device.writesRefused, 1);
+      final rows = (await h.rig.device.vault.outbox()).items;
+      expect(rows.map((r) => r.localId), contains('local-2'));
+    });
+
     test('an unknown id, an empty id, and a row already gone answer '
         'none', () async {
       await joined();

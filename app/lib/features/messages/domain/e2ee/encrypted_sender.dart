@@ -346,9 +346,10 @@ class EncryptedSender {
   /// The body is in the part `encrypted_sender_rows.dart`.
   ///
   /// Port additions (gate item 14): true only when this call deleted the
-  /// row; false when it is kept (it may have been accepted), was not found,
-  /// carries an init (the starter's), or the discard failed.
-  Future<bool> discard(String localId) => _discardRow(localId);
+  /// row; false when it is kept by the rule above (it may have been
+  /// accepted), was not found, or carries an init (the starter's); null
+  /// when the discard failed (CR n1: nothing is known of the row then).
+  Future<bool?> discard(String localId) => _discardRow(localId);
 
   /// Gate item 18 (port additions): the keys of [conversationId]'s outbox
   /// rows that no longer open (the drain stops at them, so the
