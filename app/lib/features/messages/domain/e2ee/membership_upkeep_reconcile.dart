@@ -429,7 +429,13 @@ extension _Reconcile on MembershipUpkeep {
           (removes.isNotEmpty ||
               (mayAdd &&
                   (await _wanted(
-                    own,
+                    await _ownForAdds(
+                      own,
+                      staying,
+                      thisDevice,
+                      priority,
+                      mayReadFresh: false,
+                    ),
                     peer,
                     staying,
                     thisDevice,
@@ -581,12 +587,57 @@ extension _Reconcile on MembershipUpkeep {
     }
   }
 
-  /// `devicesToAdd`, without the ids the key history would refuse and the
-  /// devices tried today (a claim that came back empty, a package the
-  /// checks dropped, an add the engine or the server refused; audit M1).
+  /// Task 11 follow-up (CR2 M-6; fix round 4, ruling 8; review ruling 4;
+  /// a flag-on gate): the own list step 3 adds from, and which own devices
+  /// on it the user removed ([MembershipUpkeep._wasRemovedByUser], asked
+  /// for each own device [devicesToAdd] could add: active, not this device,
+  /// not a member). Why: a kept or reused list may still show a device the
+  /// user removed, and reconcile must not undo that removal.
+  ///
+  /// When the answer is unknown (StateError: the removal queue cannot be
+  /// read), the pass adds own devices only from a FRESH own list: one
+  /// `ListMyKeyDevices` when [mayReadFresh] (it then serves step 3 whole),
+  /// else, or when that read is not readable, no own device this pass
+  /// (fail closed; nothing new is reported). Only then is a list read, so
+  /// a readable queue costs no call. Own-list devices only (fix round 5,
+  /// R2): the peer's devices are never asked about. Never throws a
+  /// StateError of the seam.
+  Future<_OwnAdds> _ownForAdds(
+    DeviceList own,
+    List<MemberRecord> members,
+    Uint8List thisDevice,
+    BudgetPriority priority, {
+    required bool mayReadFresh,
+  }) async {
+    if (!own.readable) return _OwnAdds(own);
+    final removed = <String>{};
+    for (final d in own.devices) {
+      if (d.inactive || _same(d.deviceId, thisDevice)) continue;
+      if (members.any((m) => _same(m.deviceId, d.deviceId))) continue;
+      try {
+        if (await _wasRemovedByUser(d.deviceId)) {
+          removed.add(vaultDeviceIdHex(d.deviceId));
+        }
+      } on StateError {
+        if (!mayReadFresh) return _OwnAdds(own, noOwnDevice: true);
+        final vault = _session.vault;
+        final fresh = await _directory.own(fresh: true, priority: priority);
+        if (!fresh.readable || !identical(_session.vault, vault)) {
+          return _OwnAdds(own, noOwnDevice: true);
+        }
+        return _OwnAdds(fresh);
+      }
+    }
+    return _OwnAdds(own, removed: removed);
+  }
+
+  /// `devicesToAdd` over [own]'s list, without the ids the key history
+  /// would refuse, the devices tried today (a claim that came back empty, a
+  /// package the checks dropped, an add the engine or the server refused;
+  /// audit M1) and the own devices [own] keeps out (Task 11 follow-up).
   /// Reads only.
   Future<List<DeviceToAdd>> _wanted(
-    DeviceList own,
+    _OwnAdds own,
     DeviceList peer,
     List<MemberRecord> members,
     Uint8List thisDevice,
@@ -595,12 +646,13 @@ extension _Reconcile on MembershipUpkeep {
     if (history.unreadable) return const [];
     final wanted = <DeviceToAdd>[];
     for (final d in devicesToAdd(
-      ownList: own,
+      ownList: own.list,
       peerList: peer,
       members: members,
       thisDeviceId: thisDevice,
       admissible: history.admissible,
     )) {
+      if (d.side == ClaimSide.mine && own.keepsOut(d.deviceId)) continue;
       if (!await _ledger.emptyClaimTried(d.deviceId)) wanted.add(d);
     }
     return wanted;
@@ -612,17 +664,30 @@ extension _Reconcile on MembershipUpkeep {
   /// of step 1. An empty claim, and a claimed package the checks dropped
   /// (audit M1), is recorded for the IST day after the claims, outside any
   /// write body.
+  ///
+  /// Task 11 follow-up: [_ownForAdds] decides the own list of this step (a
+  /// fresh one replaces step 1's while the removal answer is unknown) and
+  /// the own devices it keeps out.
   Future<List<UsableClaim>> _claimAdds(
     String id,
     String? ref,
-    DeviceList own,
+    DeviceList stepOneOwn,
     DeviceList peer,
     List<MemberRecord> members,
     Uint8List thisDevice,
     KeyHistory history,
     BudgetPriority priority,
   ) async {
-    final wanted = await _wanted(own, peer, members, thisDevice, history);
+    if (history.unreadable) return const [];
+    final ownAdds = await _ownForAdds(
+      stepOneOwn,
+      members,
+      thisDevice,
+      priority,
+      mayReadFresh: true,
+    );
+    final own = ownAdds.list;
+    final wanted = await _wanted(ownAdds, peer, members, thisDevice, history);
     if (wanted.isEmpty) return const [];
     final empty = <Uint8List>[];
     Future<List<UsableClaim>> side(ClaimSide side) async {
@@ -834,4 +899,20 @@ extension _Reconcile on MembershipUpkeep {
 
   bool _lists(DeviceList list, Uint8List deviceId) =>
       list.devices.any((d) => _same(d.deviceId, deviceId));
+}
+
+/// What [_Reconcile._ownForAdds] decided (Task 11 follow-up): the own
+/// [list] step 3 adds from, and the own devices it keeps out: the user
+/// removed them ([removed], hex ids), or every own device while that is
+/// unknown and no fresh own list could be read ([noOwnDevice]). Memory
+/// only; no `toString` (it holds device ids).
+class _OwnAdds {
+  _OwnAdds(this.list, {this.removed = const {}, this.noOwnDevice = false});
+
+  final DeviceList list;
+  final Set<String> removed;
+  final bool noOwnDevice;
+
+  bool keepsOut(Uint8List deviceId) =>
+      noOwnDevice || removed.contains(vaultDeviceIdHex(deviceId));
 }
