@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging_impl.dart';
