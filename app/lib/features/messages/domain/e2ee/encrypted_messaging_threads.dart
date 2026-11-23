@@ -250,7 +250,24 @@ class _Thread {
       entries: _newestFirst(entries),
       hasMore: hasMore,
       security: security,
+      unreadableUnsent: await _unreadable(parts, id),
     );
+  }
+
+  /// Gate item 18 (port additions): the keys of [id]'s outbox rows that do
+  /// not open, which hold the conversation's sends. Not at or before
+  /// `cleared_at` filtered: their time cannot be read, and they block all
+  /// the same. A failed read keeps the last emission's (as item 17 does
+  /// for the unsent rows).
+  Future<List<String>> _unreadable(PipelineParts parts, String id) async {
+    try {
+      return List.unmodifiable(await parts.sender.unreadableKeys(id));
+    } on Object catch (e, s) {
+      if (EncryptedMessagingImpl._isBug(e)) {
+        _impl._pipeline.reportPortError('port.watchThread.unreadable', s);
+      }
+      return _latest?.unreadableUnsent ?? const [];
+    }
   }
 
   /// The unsent rows of the last emission (gate item 17: a failed read of

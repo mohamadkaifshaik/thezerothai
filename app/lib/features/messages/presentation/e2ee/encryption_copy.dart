@@ -2,6 +2,8 @@
 // section; fixed strings come from the addendum, the spec or the contract and are never reworded. Nothing here
 // claims more than the design allows.
 
+import '../../domain/e2ee/encrypted_messaging.dart' show UnsentDiscard;
+
 // ---------------------------------------------------------------------------------------------------------------
 // Notes and help
 // ---------------------------------------------------------------------------------------------------------------
@@ -179,6 +181,18 @@ const kInitDiscardNotDecidedText =
 const kInitDiscardedText =
     'Stopped. This message may wait and go out once the conversation is '
     'ready, or you can try again.';
+
+/// The line for the port's `discardUnsent` answer (port additions, gate items
+/// 14, 15, 23); null where the thread itself shows the result (the row is
+/// gone, shown delivered, or was not there).
+String? unsentDiscardText(UnsentDiscard result) => switch (result) {
+  UnsentDiscard.stopped => kInitDiscardedText,
+  UnsentDiscard.held => kInitDiscardHeldText,
+  UnsentDiscard.notDecided => kInitDiscardNotDecidedText,
+  UnsentDiscard.discarded ||
+  UnsentDiscard.delivered ||
+  UnsentDiscard.none => null,
+};
 
 // ---------------------------------------------------------------------------------------------------------------
 // Conversation states

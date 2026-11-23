@@ -280,17 +280,39 @@ class E2eePipeline {
   final ValueNotifier<int> _removals = ValueNotifier(0);
   void Function()? _unwatchRemovals;
 
+  /// Port additions (lane D): the open vault's removal runner's
+  /// `needsReauth` and `parkedRefs`, followed as [removalsPending] is;
+  /// false and empty with no parts.
+  ValueListenable<bool> get removalNeedsReauth => _needsReauth;
+  ValueListenable<List<String>> get parkedRemovals => _parked;
+  final ValueNotifier<bool> _needsReauth = ValueNotifier(false);
+  final ValueNotifier<List<String>> _parked = ValueNotifier(const []);
+
   void _watchRemovals(_Parts? parts) {
     _unwatchRemovals?.call();
     _unwatchRemovals = null;
     if (parts == null) {
       _removals.value = 0;
+      _parked.value = const [];
+      _needsReauth.value = false;
       return;
     }
-    final pending = parts.runner.pending;
-    void copy() => _removals.value = pending.value;
-    pending.addListener(copy);
-    _unwatchRemovals = () => pending.removeListener(copy);
+    final runner = parts.runner;
+    void copy() {
+      _removals.value = runner.pending.value;
+      _parked.value = runner.parkedRefs.value;
+      _needsReauth.value = runner.needsReauth.value;
+    }
+
+    final followed = [runner.pending, runner.parkedRefs, runner.needsReauth];
+    for (final l in followed) {
+      l.addListener(copy);
+    }
+    _unwatchRemovals = () {
+      for (final l in followed) {
+        l.removeListener(copy);
+      }
+    };
     copy();
   }
 

@@ -271,6 +271,33 @@ void main() {
       expect((bad.check, bad.text), (MessageCheck.undecodable, ''));
     });
 
+    test('checkDetail tells a bad report key from a real mismatch, and always '
+        'agrees with check (item 26, owner decision b)', () {
+      final details = {
+        StoredMessageCheck.ok: MessageCheckDetail.ok,
+        StoredMessageCheck.unverified: MessageCheckDetail.mismatch,
+        StoredMessageCheck.badReportKey: MessageCheckDetail.badReportKey,
+        StoredMessageCheck.undecodable: MessageCheckDetail.undecodable,
+      };
+      details.forEach((stored, detail) {
+        final e = entryOfStored(_row(check: stored));
+        expect(e.checkDetail, detail, reason: stored);
+        expect(e.checkDetail!.check, e.check, reason: stored);
+      });
+      // Bytes that do not decode under an ok check: undecodable, both.
+      final bad = entryOfStored(
+        _row(content: Uint8List.fromList(const [0xff, 0xff])),
+      );
+      expect(bad.checkDetail, MessageCheckDetail.undecodable);
+      // A stored name this build does not know: unverified, as a mismatch
+      // (the report sheet then keeps its sentence).
+      final unknown = entryOfStored(_row(check: 'later'));
+      expect(
+        (unknown.check, unknown.checkDetail),
+        (MessageCheck.unverified, MessageCheckDetail.mismatch),
+      );
+    });
+
     test('my own rows cannot be reported', () {
       expect(entryOfStored(_row(mine: true)).canReport, isFalse);
     });

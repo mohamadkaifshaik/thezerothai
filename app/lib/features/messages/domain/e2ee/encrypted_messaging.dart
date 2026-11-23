@@ -119,7 +119,15 @@ final class DecryptedMessage extends ThreadEntry {
     this.error,
     this.canReport = false,
     this.waitingToDecrypt = false,
+    this.checkDetail,
   });
+
+  /// Gate item 26 (owner decision b of 2026-11-20): [check] with its detail, so the report sheet can tell a real
+  /// commitment mismatch (`mismatch`) from a report key of the wrong length (`badReportKey`, which the server can
+  /// still verify); both are [MessageCheck.unverified]. When set, `checkDetail.check == check`. The pipeline sets it on
+  /// every stored row; null only from a source that does not know it, which a reader treats as [check] alone (an
+  /// unverified row without a detail counts as a mismatch).
+  final MessageCheckDetail? checkDetail;
 
   /// True only with state == undecryptable: this device still holds the message and will try to decrypt it again
   /// (it is not stored yet). It has no text, no side (mine == false), no report and no preview or search hit.
@@ -157,11 +165,18 @@ final class EncryptedThread {
     this.entries = const [],
     this.hasMore = false,
     required this.security,
+    this.unreadableUnsent = const [],
   });
   final String? conversationId; // null for a draft whose conversation id is not known yet (K2 gives it)
   final List<ThreadEntry> entries; // newest first; own unsent rows included; nothing at or before cleared_at
   final bool hasMore; // older rows exist in the vault
   final ConversationSecurity security;
+
+  /// Gate item 18 (a flag-on gate): own unsent rows of this conversation that no longer open on this device (their
+  /// text, time and state are not known). Nothing of the conversation is sent past them, so its sends wait until each
+  /// is deleted with [EncryptedMessaging.deleteUnreadableUnsent]. Opaque refs: never displayed, logged or sent.
+  /// Empty for a draft whose conversation id is not known yet.
+  final List<String> unreadableUnsent;
 }
 
 enum SendOutcomeKind { queued, notEncrypted, refused }
@@ -283,6 +298,30 @@ final class OwnDeviceList {
   final bool directoryKnown; // false: ListMyKeyDevices could not be read; the list is vault membership only
 }
 
+/// What `discardUnsent` did (gate items 14, 15, 23). Screens show the line `unsentDiscardText` gives (none for
+/// `discarded`, `delivered` and `none`: the thread shows the result).
+enum UnsentDiscard {
+  discarded, // the row is deleted; it was not delivered, as far as this device knows
+  stopped, // the first message of a new encrypted conversation was stopped: its group is gone and the row is a
+  // failed, retryable row; or another device's start came first and the row may wait and go out there
+  // ("may wait", never "the conversation is gone")
+  delivered, // the server held the first message: nothing to discard (the thread shows it delivered)
+  held, // nothing changed: the server may hold it, or a send of it may still land ("may still be delivered", never a
+  // promise of delivery)
+  notDecided, // nothing changed: what the server holds could not be checked now ("try again")
+  none, // no unsent row with that id (unknown, already delivered or deleted, or no ready vault)
+}
+
+/// What `removeDevice` returned once RemoveKeyDevice answered (lane D, removal design section 4).
+final class DeviceRemoval {
+  const DeviceRemoval({this.otherSessionsEnded});
+
+  /// The server's `other_sessions_ended`: true when it also ended the account's other sessions (`device_sign_out` on
+  /// for the caller), false when it did not; null when no answer of this call says (a removal an earlier call
+  /// already carried out, finished now). Screens key the removed text on it only with `device_sign_out` on.
+  final bool? otherSessionsEnded;
+}
+
 /// Why `resetConversation` refused for a reason the server's typed errors do not cover.
 enum ResetRefusal {
   notAccepted, // the conversation is not accepted yet (a request): there is nothing to reset
@@ -330,6 +369,10 @@ abstract interface class EncryptedMessaging {
   /// a conversation is encrypted is decided by the caller (the header's `encryption`, local rows, `hasLocal`), never
   /// by this stream. A `ThreadRef.recipientOf` stream keeps emitting after the conversation id becomes known, with
   /// `conversationId` set.
+  ///
+  /// The stream ENDS (done, no error) when the vault it reads changes: sign-out, another user, a lost lock, a new
+  /// vault (memory across accounts, gate item 30). A screen still showing the thread then calls [watchThread] again
+  /// and listens to the new stream (5b Task 14; branch review CR m3).
   Stream<EncryptedThread> watchThread(ThreadRef ref);
 
   /// Widens the window of [watchThread] by one page (50 rows) from the vault; the stream re-emits.
@@ -354,6 +397,21 @@ abstract interface class EncryptedMessaging {
 
   /// The user tapped a "Not sent. Tap to retry" row. An unknown id is a no-op.
   Future<void> retrySend(String localId);
+
+  /// Gate items 14 and 15: the user discards the own unsent row [localId] (offer it on every own row that is not
+  /// delivered). The first message of a new encrypted conversation, while its start is not answered, goes through the
+  /// pipeline's init discard with its rules (`stopped`, `delivered`, `held`, `notDecided`); any other row is deleted
+  /// when the server has not accepted it as far as this device knows (`discarded`; else `held`), and the
+  /// conversation's next waiting row is then started again (F1). Never throws; an unknown id, and no ready vault,
+  /// answer `none`. Makes network calls only for the checks the answer needs, and for the next row's start.
+  Future<UnsentDiscard> discardUnsent(String localId);
+
+  /// Gate item 18 (a flag-on gate): deletes the unreadable unsent row [ref] of [conversationId] (one of
+  /// [EncryptedThread.unreadableUnsent]), by its key, on this device only. No network call and no plaintext: nothing
+  /// of the row can be read. True when it was deleted; false for a ref that is not an unreadable row of that
+  /// conversation (a readable row is never deleted here), and with no ready vault. Never throws. The thread
+  /// re-emits; the rows that waited behind it go out with the next send or the user's [retrySend] of one of them.
+  Future<bool> deleteUnreadableUnsent(String conversationId, String ref);
 
   /// R6 step 5 / M5 / stuck member: replaces the conversation's group. Throws FeatureDisabledException with the flag
   /// not on, RateLimitedException at a daily cap (reset, commit or claim), the server's typed AppException for any
@@ -389,10 +447,26 @@ abstract interface class EncryptedMessaging {
   Future<OwnDeviceList> ownDevices();
 
   /// RemoveKeyDevice, then the removal commits in the background (the persisted queue). Completes when the
-  /// directory removal answered; rethrows its failure and queues nothing then. Works with the flag off (R1).
-  /// ArgumentError for this device's own ref (the screen never offers it).
-  Future<void> removeDevice(String ref);
+  /// directory removal answered, with the server's `other_sessions_ended` ([DeviceRemoval]); rethrows its failure and
+  /// queues nothing then. Works with the flag off (R1). [ref] is one of the last [ownDevices] answer or of
+  /// [parkedRemovals]; anything else, and this device's own ref (the screen never offers it), is an ArgumentError.
+  /// REAUTH_REQUIRED (ReauthRequiredException) parks the removal: it is kept, [needsReauth] turns true and the ref is
+  /// in [parkedRemovals]; after the user confirmed it is them, call this again for the ref (it is sent at once).
+  Future<DeviceRemoval> removeDevice(String ref);
 
   /// Conversations still waiting for a removal commit (parked ones included).
   ValueListenable<int> get removalsPending;
+
+  /// Lane D (removal design section 4, "Task 11 queue"): true while a removal waits for the user to sign in again
+  /// ([parkedRemovals] is not empty). The screen then asks "Confirm it's you" and calls [removeDevice] for each parked
+  /// ref, or [dropRemoval] when the user gives one up. Not gated on `device_sign_out` (every REMOTE removal needs the
+  /// sign-in). False with no ready vault.
+  ValueListenable<bool> get needsReauth;
+
+  /// The refs (as [OwnDevice.ref]) of the removals waiting for a re-sign-in; empty with no ready vault.
+  ValueListenable<List<String>> get parkedRemovals;
+
+  /// The user gives up the parked removal [ref]: it is dropped with no call. StateError for a ref that is not in
+  /// [parkedRemovals], while its call is in flight, and with no ready vault (nothing is dropped then).
+  Future<void> dropRemoval(String ref);
 }

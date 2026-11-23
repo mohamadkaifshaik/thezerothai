@@ -244,7 +244,7 @@ class RemovalQueueRunner {
 
   /// Fix round 4, CR2 Nit: the [removeDevice] call in progress per id; a
   /// second call for the id joins it.
-  final Map<String, Future<void>> _removing = {};
+  final Map<String, Future<bool?>> _removing = {};
 
   /// The vault whose stored queue could not be read (reported once).
   SecureVault? _unreadableFor;
@@ -306,6 +306,7 @@ class RemovalQueueRunner {
   final Set<String> _reauthParked = {};
   final Set<String> _rebuildReauth = {}; // no intent stored (fix wave 10)
   final ValueNotifier<bool> _needsReauth = ValueNotifier(false);
+  final ValueNotifier<List<String>> _parkedRefs = ValueNotifier(const []);
 
   Future<void>? _running;
   bool _again = false;
@@ -338,6 +339,11 @@ class RemovalQueueRunner {
   /// path), no intent is stored, but the ask is raised the same way (fix
   /// round 1, M3).
   ValueListenable<bool> get needsReauth => _needsReauth;
+
+  /// The device ids [needsReauth] is raised for, sorted (port additions:
+  /// the port's `parkedRemovals`). Each one is cleared by its successful
+  /// [removeDevice], by [dropRemoval] and by [reset].
+  ValueListenable<List<String>> get parkedRefs => _parkedRefs;
 
   /// The device ids queued for [conversationId], parked ones included (the
   /// upkeep's `queuedRemovals`, amendment 4). Empty while the queue is not
@@ -433,7 +439,12 @@ class RemovalQueueRunner {
   ///
   /// A call for an id whose removal is already being made joins it (fix
   /// round 4, CR2 Nit): it answers that call's outcome and sends nothing.
-  Future<void> removeDevice(String deviceId) {
+  ///
+  /// Port additions (lane D): completes with the server's
+  /// `other_sessions_ended` of this call's RemoveKeyDevice; null when no
+  /// answer says it (a stored intent the first call carried out, finished
+  /// although its retry was refused).
+  Future<bool?> removeDevice(String deviceId) {
     final joined = _removing[deviceId];
     if (joined != null) return joined;
     final run = _removeDevice(deviceId);
@@ -444,7 +455,7 @@ class RemovalQueueRunner {
     return run;
   }
 
-  Future<void> _removeDevice(String deviceId) async {
+  Future<bool?> _removeDevice(String deviceId) async {
     // Fix wave 2 (SA M2): a device the account removed elsewhere removes no
     // other device: no own-list read, no RemoveKeyDevice, no intent stored
     // (a stored one would go out once the fact clears).
@@ -521,6 +532,7 @@ class RemovalQueueRunner {
     // intent's write, and until it is queued, so a pass that starts while
     // either is in flight never sends the same intent a second time.
     _sending.add(deviceId);
+    bool? ended;
     try {
       if (waiting == null && !rebuild) {
         // Review M1: the intent is stored BEFORE the call, so a crash or a
@@ -540,7 +552,7 @@ class RemovalQueueRunner {
       Object? failure;
       StackTrace? failureStack;
       try {
-        await _sendRemove(deviceId);
+        ended = await _sendRemove(deviceId);
       } on Object catch (e, s) {
         failure = e;
         failureStack = s;
@@ -583,8 +595,9 @@ class RemovalQueueRunner {
         }
         if (!settled) Error.throwWithStackTrace(failure, failureStack!);
         // Removed by the first call, and queued: the user's ask is done.
+        // No answer of this call says whether other sessions ended.
         _startPass(BudgetPriority.live);
-        return;
+        return null;
       }
       _unparkReauth(deviceId);
       if (!identical(_session.vault, vault)) {
@@ -614,6 +627,7 @@ class RemovalQueueRunner {
       _sending.remove(deviceId);
     }
     _startPass(BudgetPriority.live);
+    return ended;
   }
 
   /// One pass: one attempt per queued conversation, then stop. Joins a
@@ -662,7 +676,7 @@ class RemovalQueueRunner {
     _removing.clear();
     _reauthParked.clear();
     _rebuildReauth.clear();
-    _needsReauth.value = false;
+    _publishReauth();
     _publish();
   }
 
