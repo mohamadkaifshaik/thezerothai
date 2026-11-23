@@ -86,21 +86,48 @@ class PipelineStopped implements Exception {
   const PipelineStopped();
 }
 
+/// Task 12 fix round 1 (review I2): the device generation of each open vault,
+/// in memory. "Set up again" (`DeviceReset`) bumps it inside its own
+/// `runWrite` body, before its transaction. Every operation captures it
+/// when it starts, and every write body checks it first ([PipelineOp.check]
+/// and the crypto's and the receiver's own checks): an operation that
+/// started before the reset (a welcome on the wire for the old device id, a
+/// listing in flight) writes nothing after it, whatever it holds, because
+/// its body runs after the reset's body in the session's write order. A
+/// new vault object starts at 0. Never logs.
+final Expando<int> _deviceGenerations = Expando('deviceGeneration');
+
+/// [vault]'s device generation (0 until a reset bumps it).
+int deviceGenerationOf(SecureVault vault) => _deviceGenerations[vault] ?? 0;
+
+/// Bumps [vault]'s device generation. Call only inside a `runWrite` body
+/// of [vault] (the reset's).
+void bumpDeviceGeneration(SecureVault vault) =>
+    _deviceGenerations[vault] = deviceGenerationOf(vault) + 1;
+
 /// One operation's vault, user and device; no `toString`.
 class PipelineOp {
-  PipelineOp(this.session, this.vault, this.uid, this.deviceId);
+  PipelineOp(this.session, this.vault, this.uid, this.deviceId)
+    : deviceGeneration = deviceGenerationOf(vault);
 
   final VaultSession session;
   final SecureVault vault;
   final String uid;
   final Uint8List deviceId;
 
+  /// The vault's device generation when the operation started (I2).
+  final int deviceGeneration;
+
   bool get live {
     final v = session.vault;
     return identical(v, vault) && v?.uid == uid;
   }
 
-  bool owns(SecureVault v) => identical(v, vault) && v.uid == uid && live;
+  bool owns(SecureVault v) =>
+      identical(v, vault) &&
+      v.uid == uid &&
+      live &&
+      deviceGenerationOf(v) == deviceGeneration;
 
   /// The first thing every runWrite body does.
   void check(SecureVault v) {

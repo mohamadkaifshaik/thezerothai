@@ -22,6 +22,7 @@ import 'daily_ledger.dart';
 import 'deferred_record.dart';
 import 'e2ee_types.dart';
 import 'message_content_codec.dart';
+import 'pipeline_support.dart' show deviceGenerationOf;
 import 'receive_record.dart';
 import 'sync_budget.dart';
 
@@ -1075,12 +1076,17 @@ class _Stopped implements Exception {
 
 /// One operation's vault, user and device; no `toString`.
 class _Pass {
-  _Pass(this.session, this.vault, this.uid, this.deviceId);
+  _Pass(this.session, this.vault, this.uid, this.deviceId)
+    : deviceGeneration = deviceGenerationOf(vault);
 
   final VaultSession session;
   final SecureVault vault;
   final String uid;
   final Uint8List deviceId;
+
+  /// The vault's device generation when the pass started (Task 12 fix
+  /// round 1, I2: a body after "set up again" writes nothing).
+  final int deviceGeneration;
 
   bool get live {
     final v = session.vault;
@@ -1089,7 +1095,12 @@ class _Pass {
 
   /// The first thing every runWrite body does.
   void check(SecureVault v) {
-    if (!identical(v, vault) || v.uid != uid || !live) throw const _Stopped();
+    if (!identical(v, vault) ||
+        v.uid != uid ||
+        !live ||
+        deviceGenerationOf(v) != deviceGeneration) {
+      throw const _Stopped();
+    }
   }
 }
 

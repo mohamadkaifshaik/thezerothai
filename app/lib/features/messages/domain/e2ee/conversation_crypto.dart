@@ -22,6 +22,7 @@ import 'join_baselines.dart';
 import 'device_key_history.dart';
 import 'known_conversations.dart';
 import 'membership_rules.dart';
+import 'pipeline_support.dart' show deviceGenerationOf;
 import 'sync_budget.dart';
 
 // The service's private steps, one concern per part (private extensions on
@@ -730,7 +731,12 @@ class _Operation {
     Set<String>? handled,
     this.fromSwitch = false,
   }) : serverPairs = serverPairs ?? {},
-       handled = handled ?? {};
+       handled = handled ?? {},
+       deviceGeneration = deviceGenerationOf(vault);
+
+  /// The vault's device generation when the operation started (Task 12
+  /// fix round 1, I2: a body after "set up again" writes nothing).
+  final int deviceGeneration;
 
   /// The poll of catch-up's generation switch (the held conversation was
   /// just walked): its welcome never starts another walk (I-1's gate is
@@ -765,6 +771,11 @@ class _Operation {
 
   /// The first thing every runWrite body of the operation does.
   void check(SecureVault v) {
-    if (!identical(v, vault) || v.uid != uid || !live) throw const _Stopped();
+    if (!identical(v, vault) ||
+        v.uid != uid ||
+        !live ||
+        deviceGenerationOf(v) != deviceGeneration) {
+      throw const _Stopped();
+    }
   }
 }

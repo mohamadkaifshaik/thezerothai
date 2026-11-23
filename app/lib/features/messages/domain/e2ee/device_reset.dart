@@ -8,6 +8,7 @@ import '../../../keys/domain/device_keys_service.dart';
 import 'conversation_context.dart';
 import 'device_key_history.dart';
 import 'former_pins.dart';
+import 'pipeline_support.dart' show bumpDeviceGeneration;
 
 /// The highest pair the vault takes (2^53 - 1 in both parts): the sent log
 /// cleared "before" it is the whole sent log.
@@ -91,6 +92,10 @@ class DeviceReset {
     if (vault == null) throw StateError('The vault is not ready.');
     final cleared = await _session.runWrite((v) async {
       if (!identical(v, vault)) throw StateError('The vault changed.');
+      // Fix round 1, I2: every operation that started before this body
+      // (a join of a welcome for the old id, a listing in flight) finds
+      // the generation changed in its own body and writes nothing.
+      bumpDeviceGeneration(v);
       return _clearIn(v);
     });
     for (final id in cleared) {

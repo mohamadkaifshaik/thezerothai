@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -36,8 +37,12 @@ class _FakeDeviceKeys implements DeviceKeysService {
   @override
   bool get removedElsewhere => removed;
 
+  /// Awaited before the new device row is written (a race in between).
+  Future<void> Function()? beforeRecreate;
+
   @override
   Future<void> recreateDevice() async {
+    await beforeRecreate?.call();
     recreated++;
     final id = '${'ab' * 15}${recreated.toString().padLeft(2, '0')}';
     final bytes = Uint8List.fromList(utf8.encode(id));
@@ -219,6 +224,40 @@ void main() {
     expect(rig.device.engine.calls, isNot(contains('joinFromWelcome')));
     expect(await rig.device.vault.groups(_c1), isEmpty);
     expect(rig.server.acks.expand((a) => a.ids), contains(again));
+  });
+
+  test('a join already in flight when setUpAgain runs stores nothing; the '
+      'conversation waits for a welcome (fix round 1, I2)', () async {
+    await rig.accept(_c1);
+    rig.header(_c1, 'ref-bob');
+    await rig.offer(_c1, bob);
+    // The poll took its sync unit and its ListWelcomes is on the wire for
+    // the OLD device id when the device is found removed and set up again.
+    // The join's body runs after the reset's transaction and before the
+    // new device row is written (the old device state still opens it).
+    // The pipeline's own removed-elsewhere gates are left open here on
+    // purpose (its fact is not set): what must stop the join is the
+    // device generation the reset bumped, which no unit-take can miss.
+    final newRow = Completer<void>();
+    keys.beforeRecreate = () => newRow.future;
+    Future<void>? setUp;
+    rig.server.onCall = (call) async {
+      if (call != 'listWelcomes' || setUp != null) return;
+      keys.removed = true;
+      setUp = reset.setUpAgain();
+    };
+
+    final joined = await rig.crypto.processWelcomes();
+    rig.server.onCall = null;
+    newRow.complete();
+    await setUp;
+
+    expect(keys.recreated, 1);
+    expect(joined, isEmpty);
+    expect(await rig.device.vault.groups(_c1), isEmpty);
+    expect(await rig.device.vault.members(_c1), isEmpty);
+    final state = await rig.crypto.describeState(_c1);
+    expect(state.phase, ConversationPhase.waitingForWelcome);
   });
 
   test("setUpAgain keeps every conversation's pins as former pins", () async {
