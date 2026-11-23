@@ -58,7 +58,15 @@ extension _PipelineNotes on E2eePipeline {
 
   /// Inside the start window (device usable, not stopped), BEFORE the
   /// coordinator's sequence: its `resumeProvisional` would otherwise resend
-  /// the init of a conversation the user deleted.
+  /// the init of a conversation the user deleted. Also at resume (r2-m1).
+  ///
+  /// Re-review r2-n1, why these run at USER budget priority (inside
+  /// `GroupStarter.discardInit`, which takes no priority) although they are
+  /// automatic work (gate item 49 says background): each comes from the
+  /// user's own delete, runs at most once per owed conversation, and must
+  /// win the race against the coordinator's `resumeProvisional`, which would
+  /// otherwise resend a first message the user deleted. A priority parameter
+  /// on `discardInit` is a starter API change, left for later.
   Future<void> _applyOwedDiscards(_Parts parts) async {
     _dropOtherAccountsNotes(parts.vault);
     final owed = [..._owedDiscards];
