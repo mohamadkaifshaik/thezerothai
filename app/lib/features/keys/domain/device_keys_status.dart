@@ -16,14 +16,19 @@ enum DeviceKeysPhase {
 /// device is registered with a full pool; [deviceLimitReached]: the user
 /// has 5 devices and must remove one (UI in a later plan); failed: the last
 /// attempt failed, [retryable] when a later attempt (hourly or on resume)
-/// may succeed; `removedElsewhere`: this device is missing from the
-/// account's key-device list (removed from another device); its behaviour
-/// arrives in Task 12, and nothing is deleted until the user chooses.
+/// may succeed; [removedElsewhere]: the key directory answered
+/// DEVICE_REMOVED to this device's Register or Upload (the user removed it
+/// from another device, Plan 5a Task 12): runs are read only from then on,
+/// and nothing is deleted until the user chooses "set up again".
 @immutable
 class DeviceKeysStatus {
-  const DeviceKeysStatus._(this.phase) : retryable = false;
-  const DeviceKeysStatus.failed({required this.retryable})
-    : phase = DeviceKeysPhase.failed;
+  const DeviceKeysStatus._(this.phase)
+    : retryable = false,
+      localRecordUnusable = false;
+  const DeviceKeysStatus.failed({
+    required this.retryable,
+    this.localRecordUnusable = false,
+  }) : phase = DeviceKeysPhase.failed;
 
   static const idle = DeviceKeysStatus._(DeviceKeysPhase.idle);
   static const ready = DeviceKeysStatus._(DeviceKeysPhase.ready);
@@ -31,22 +36,34 @@ class DeviceKeysStatus {
   static const deviceLimitReached = DeviceKeysStatus._(
     DeviceKeysPhase.deviceLimitReached,
   );
+  static const removedElsewhere = DeviceKeysStatus._(
+    DeviceKeysPhase.removedElsewhere,
+  );
 
   final DeviceKeysPhase phase;
   final bool retryable;
+
+  /// Security read M5: true ONLY when the vault's own device record cannot
+  /// be used (a device row of another shape, no state or no key) or does
+  /// not open (`VaultCorruptException`): a local fact. False for every
+  /// server answer (a VALIDATION refusal is `failed(retryable: false)` with
+  /// this false), so 5b offers the vault reset only for a local fact.
+  final bool localRecordUnusable;
 
   @override
   bool operator ==(Object other) =>
       other is DeviceKeysStatus &&
       other.phase == phase &&
-      other.retryable == retryable;
+      other.retryable == retryable &&
+      other.localRecordUnusable == localRecordUnusable;
 
   @override
-  int get hashCode => Object.hash(phase, retryable);
+  int get hashCode => Object.hash(phase, retryable, localRecordUnusable);
 
   @override
   String toString() => phase == DeviceKeysPhase.failed
-      ? 'DeviceKeysStatus.failed(retryable: $retryable)'
+      ? 'DeviceKeysStatus.failed(retryable: $retryable'
+            '${localRecordUnusable ? ', localRecordUnusable: true' : ''})'
       : 'DeviceKeysStatus.${phase.name}';
 }
 

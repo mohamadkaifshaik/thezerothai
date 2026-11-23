@@ -22,6 +22,7 @@ import 'pending_upload.dart';
 export 'device_keys_status.dart';
 export 'key_limits.dart';
 
+part 'device_keys_elsewhere.dart';
 part 'key_package_batches.dart';
 
 /// The last-resort package is replaced once it is this old.
@@ -86,6 +87,20 @@ const String kVaultSettingLastResortAt = 'keys.device.lastResortMicros';
 /// A record with no packages = none saved. The private parts of its
 /// packages are already in the device state ([PendingUpload]).
 const String kVaultSettingPendingUpload = 'keys.device.pendingUpload';
+
+/// Plan 5a Task 12 (R17): one byte, 0x01 = this device was removed from the
+/// account on another device (the key directory answered DEVICE_REMOVED to
+/// its RegisterKeyDevice or UploadKeyPackages), 0x00 or absent = not. Set
+/// only by that answer (brief amendment 1: an absence from a list is never
+/// proof). Cleared by [kRemovedElsewhereListedAgain] listed answers or by
+/// "set up again" ([DeviceKeysService.recreateDevice]).
+const String kVaultSettingRemovedElsewhere = 'keys.device.removedElsewhere';
+
+/// Security read M5: consecutive successful ListMyKeyDevices answers that
+/// list this device with its key, while removed elsewhere, that clear
+/// [kVaultSettingRemovedElsewhere]. An answer that lacks it resets the
+/// count; a failed call neither counts nor resets. Memory only.
+const int kRemovedElsewhereListedAgain = 2;
 
 /// Builds the periodic check (injected so tests drive it by hand).
 typedef DeviceKeysTimerFactory = Timer Function(
@@ -225,6 +240,17 @@ class DeviceKeysService {
   /// The vault for which nothing is retried (device limit, key mismatch)
   /// until a new vault opens.
   SecureVault? _latchedVault;
+
+  /// The latch was set for the device limit (LIMIT_REACHED `key_devices`),
+  /// the only one [retryNow] clears.
+  bool _latchedForLimit = false;
+
+  /// Task 12: the vault whose device was removed elsewhere (its
+  /// [kVaultSettingRemovedElsewhere] reads 0x01), and the listed answers
+  /// counted toward clearing it (M5).
+  SecureVault? _removedVault;
+  int _listedAgain = 0;
+  final ValueNotifier<bool> _removedFact = ValueNotifier(false);
   final _reportedPending = Expando<bool>();
 
   /// A sign-out removal started (and for which vault); every run stops
@@ -246,11 +272,67 @@ class DeviceKeysService {
 
   ValueListenable<DeviceKeysStatus> get status => _status;
 
+  /// Task 12 (R17): true once the key directory answered DEVICE_REMOVED to
+  /// this device's Register or Upload, for the open vault (persisted in
+  /// [kVaultSettingRemovedElsewhere], so it survives a restart). While it
+  /// holds every run is read only (one ListMyKeyDevices, no register, no
+  /// upload) and the pipeline stops: pass this getter, as the same fact, to
+  /// every `removedElsewhere` seam (crypto, receiver, starter, sender,
+  /// commit runner, upkeep, removal queue). Nothing is deleted until the
+  /// user chooses "set up again" ([recreateDevice], through
+  /// `DeviceReset.setUpAgain`). Synchronous after [onVaultReady]; false with
+  /// no vault.
+  bool get removedElsewhere =>
+      _removedVault != null && identical(_removedVault, _session.vault);
+
+  /// [removedElsewhere] as a listenable (the port's `removedElsewhere`):
+  /// the value for the last vault this service saw.
+  ValueListenable<bool> get removedElsewhereFact => _removedFact;
+
+  /// Security read M5, the port's `checkRemovedAgain`: while removed
+  /// elsewhere, one ListMyKeyDevices read now, counted toward the
+  /// [kRemovedElsewhereListedAgain] consecutive listed answers that clear
+  /// it; no register, no upload, nothing deleted. No-op otherwise. While
+  /// the server keeps its removed mark the id is never listed, so in
+  /// practice "set up again" is the way out. Never throws.
+  Future<void> checkAgainNow() async {
+    if (_disposed || !removedElsewhere) return;
+    await _start(force: true);
+  }
+
+  /// The port's `retryDeviceSetup` (5b's A7): clears the latch for the
+  /// open vault only when it was set for the device limit (LIMIT_REACHED
+  /// `key_devices`) and starts a forced run now. A latch for a key
+  /// mismatch or an unusable device stays, and nothing is sent; so does
+  /// a device removed elsewhere. Without a latch it is a forced run. Never
+  /// throws.
+  Future<void> retryNow() async {
+    final vault = _session.vault;
+    if (_disposed || vault == null || removedElsewhere) return;
+    if (identical(_latchedVault, vault)) {
+      if (!_latchedForLimit) return;
+      _latchedVault = null;
+      _latchedForLimit = false;
+    }
+    await _start(force: true);
+  }
+
+  /// R17 "set up again" (called by `DeviceReset.setUpAgain` after its own
+  /// transaction): a NEW device id, state and key in the vault, in ONE
+  /// transaction with the last-seen and last-resort times "0", the
+  /// registered-once and removed-elsewhere markers 0x00 and no pending
+  /// upload; then a normal run registers the new id with a fresh pool
+  /// (completes when that run ends; its outcome is in [status]). Needs the
+  /// flag on (creating a device, R1) and [removedElsewhere]: a
+  /// [StateError] otherwise, with nothing written.
+  Future<void> recreateDevice() => _recreateDevice();
+
   /// A [VaultSession.addVaultReadyHook] hook: a vault was opened and
-  /// published. Runs
-  /// at once (not throttled). Starts the periodic check on first use.
-  Future<void> onVaultReady(SecureVault vault) {
-    if (_disposed || !identical(_session.vault, vault)) return Future.value();
+  /// published. Reads the vault's removed-elsewhere marker first (so
+  /// [removedElsewhere] is set when this returns), then runs at once (not
+  /// throttled). Starts the periodic check on first use.
+  Future<void> onVaultReady(SecureVault vault) async {
+    if (_disposed || !identical(_session.vault, vault)) return;
     if (_readyUid != vault.uid) {
       // Another user's vault: the previous user's RATE_LIMITED back-off and
       // forced registration do not carry over.
@@ -264,6 +346,7 @@ class DeviceKeysService {
       _removingVault = null;
     }
     _timer ??= _periodic(kDeviceKeysTickPeriod, _onTick);
+    await _loadRemoved(vault);
     return ensureReady();
   }
 
@@ -418,7 +501,12 @@ class DeviceKeysService {
     if (!_repo.enabled) {
       // The flag is not on: nothing is generated, written or sent, whatever
       // the vault holds. A device already in the vault is dormant (upkeep
-      // resumes under the same id when the flag turns on).
+      // resumes under the same id when the flag turns on); one removed
+      // elsewhere stays so.
+      if (removedElsewhere) {
+        _status.value = DeviceKeysStatus.removedElsewhere;
+        return;
+      }
       final dormant = await _hasUsableDevice(vault);
       _status.value = dormant && live()
           ? DeviceKeysStatus.dormant
@@ -430,18 +518,30 @@ class DeviceKeysService {
     _lastAttempt = _now();
     final epoch = _removalEpoch;
     try {
+      // Task 12: a device removed elsewhere is read only (a list, nothing
+      // else) until the marker clears or the user sets it up again.
+      if (await _syncRemoved(vault)) {
+        await _checkListed(vault, uid, live);
+        return;
+      }
       await _upkeep(vault, uid, live, epoch);
       _successVault = vault;
       _lastSuccess = _now();
       _status.value = DeviceKeysStatus.ready;
     } on _Cancelled {
       _status.value = DeviceKeysStatus.idle;
+    } on DeviceRemovedException {
+      // Brief amendment 1: the server's own statement, on the FIRST such
+      // answer to Register or Upload. No retry, no upload; later runs are
+      // read only. Nothing is deleted.
+      await _markRemoved(vault, uid, live);
     } on FeatureDisabledException {
       // The gate remembers it until the flag set changes.
       _status.value = DeviceKeysStatus.idle;
     } on LimitReachedException catch (e) {
       if (e.quota == 'key_devices') {
         _latchedVault = vault;
+        _latchedForLimit = true;
         _status.value = DeviceKeysStatus.deviceLimitReached;
       } else {
         _status.value = const DeviceKeysStatus.failed(retryable: true);
@@ -449,8 +549,10 @@ class DeviceKeysService {
     } on ValidationException catch (e, stack) {
       // `signature_public_key`: the server holds another key for this id,
       // which random ids make impossible short of a bug. Not rotated
-      // automatically; reported. Any other field is a bug too.
+      // automatically; reported. Any other field is a bug too. A server
+      // answer: localRecordUnusable stays false (M5).
       _latchedVault = vault;
+      _latchedForLimit = false;
       _status.value = const DeviceKeysStatus.failed(retryable: false);
       _report(
         e.field == 'signature_public_key' ? 'keyMismatch' : 'validation',
@@ -460,7 +562,9 @@ class DeviceKeysService {
       _notBefore = _now().add(e.retryAfter ?? kDeviceKeysRateLimitFallback);
       _status.value = const DeviceKeysStatus.failed(retryable: true);
     } on NotFoundException {
-      // The device vanished between list and upload: register next time.
+      // The device vanished between list and upload: register next time
+      // (same id and key). Not a removal: a really removed id answers that
+      // Register with DEVICE_REMOVED (brief amendment 1).
       _forceRegister = true;
       _status.value = const DeviceKeysStatus.failed(retryable: true);
     } on UnauthenticatedException {
@@ -482,15 +586,24 @@ class DeviceKeysService {
       _status.value = const DeviceKeysStatus.failed(retryable: true);
       _report('poolCount', stack);
     } on _DeviceUnusable catch (_, stack) {
-      // Fail closed: nothing written, nothing sent, no new id; latched.
+      // Fail closed: nothing written, nothing sent, no new id; latched. A
+      // local fact (M5): 5b may offer the vault reset.
       _latchedVault = vault;
-      _status.value = const DeviceKeysStatus.failed(retryable: false);
+      _latchedForLimit = false;
+      _status.value = const DeviceKeysStatus.failed(
+        retryable: false,
+        localRecordUnusable: true,
+      );
       _report('deviceUnusable', stack);
     } on VaultCorruptException catch (_, stack) {
       // A device row that does not open under the vault key: never
-      // overwritten here; latched.
+      // overwritten here; latched. A local fact (M5).
       _latchedVault = vault;
-      _status.value = const DeviceKeysStatus.failed(retryable: false);
+      _latchedForLimit = false;
+      _status.value = const DeviceKeysStatus.failed(
+        retryable: false,
+        localRecordUnusable: true,
+      );
       _report('vaultCorrupt', stack);
     } on MlsException catch (_, stack) {
       _status.value = const DeviceKeysStatus.failed(retryable: true);
@@ -726,7 +839,9 @@ class DeviceKeysService {
     if (!identical(v, vault) || _currentUid() != uid) {
       throw const _Cancelled();
     }
-    final once = await v.setting(kVaultSettingRegisteredOnce) != null;
+    // Task 12: 0x00 (written by "set up again" for a new id) reads as absent.
+    final marker = await v.setting(kVaultSettingRegisteredOnce);
+    final once = marker != null && marker.length == 1 && marker[0] == 0x01;
     await v.transaction((tx) async {
       await tx.putSetting(kVaultSettingDeviceLastSeen, _micros(nowMicros));
       if (!once) {
