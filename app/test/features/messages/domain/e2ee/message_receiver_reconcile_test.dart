@@ -688,6 +688,8 @@ void main() {
     test('an empty tombstone page whose next token is the one it was listed '
         'with is discarded and counted', () async {
       await setUpJoined();
+      // An older since token stays valid after the takedown (Task 13).
+      rig.server.takedownRetiresSince = false;
       await say(1);
       await pull();
       takeDownUnseen(1);
@@ -746,6 +748,8 @@ void main() {
     test('a takedown of a stored message seen only on a probe page that is '
         'not processed removes the row', () async {
       await setUpJoined();
+      // An older since token stays valid after the takedown (Task 13).
+      rig.server.takedownRetiresSince = false;
       await say(1);
       await pull();
       expect((await row(1))!.state, StoredMessageState.visible);
@@ -810,6 +814,8 @@ void main() {
     test('a listing longer than the page bound is counted and begun again '
         'from the top', () async {
       await setUpJoined();
+      // An older since token stays valid after the takedown (Task 13).
+      rig.server.takedownRetiresSince = false;
       await say(1);
       await pull();
       takeDownUnseen(1);
@@ -836,6 +842,8 @@ void main() {
     test('a refused tombstone page token begins the listing again from the '
         'top and is counted', () async {
       await setUpJoined();
+      // An older since token stays valid after the takedown (Task 13).
+      rig.server.takedownRetiresSince = false;
       await say(1);
       await say(2, at: _seconds(1));
       await pull();
@@ -907,6 +915,8 @@ void main() {
     test('a failed tombstone call is counted in a pass whose probe was '
         'answered, and not without that witness', () async {
       await setUpJoined();
+      // An older since token stays valid after the takedown (Task 13).
+      rig.server.takedownRetiresSince = false;
       await say(1);
       await pull();
       takeDownUnseen(1);
@@ -950,6 +960,8 @@ void main() {
     test('reconcile failures are counted at most once per doubling minute, '
         'whatever the app run, and the fifth is reported once', () async {
       await setUpJoined();
+      // An older since token stays valid after the takedown (Task 13).
+      rig.server.takedownRetiresSince = false;
       await say(1);
       await pull();
       takeDownUnseen(1);
@@ -1010,6 +1022,8 @@ void main() {
         'reconcile: the listing runs from the top and clears the '
         'row', () async {
       await setUpJoined();
+      // An older since token stays valid after the takedown (Task 13).
+      rig.server.takedownRetiresSince = false;
       await say(1);
       await pull();
       expect((await sync()).sinceToken, isNotEmpty);
@@ -1182,6 +1196,8 @@ void main() {
 
     test('a pass whose budget is paused is held and makes no call', () async {
       await setUpJoined();
+      // An older since token stays valid after the takedown (Task 13).
+      rig.server.takedownRetiresSince = false;
       await say(1);
       await pull();
       takeDownUnseen(1);

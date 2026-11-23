@@ -568,9 +568,10 @@ class RigServer {
 
   /// The server's thread-revision rule (`service_messages.go`, "Thread
   /// revision"): a takedown or an erasure makes every since token issued
-  /// before it invalid (VALIDATION `since_token`). Off by default: a
-  /// takedown then leaves older since tokens valid, as this rig always did.
-  bool takedownRetiresSince = false;
+  /// before it invalid (VALIDATION `since_token`). On by default, as the
+  /// real server (Task 13, gate item 64); a test that needs older since
+  /// tokens to stay valid after a takedown turns it off.
+  bool takedownRetiresSince = true;
 
   /// conversationId -> the change sequence of its last takedown made while
   /// [takedownRetiresSince] was on: a since token below it is refused.
