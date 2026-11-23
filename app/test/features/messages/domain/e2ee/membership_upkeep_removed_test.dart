@@ -42,6 +42,7 @@ void main() {
   Future<void> setUpJoined({
     List<RigPeer> alsoListed = const [],
     List<RigPeer> ownListed = const [],
+    List<RigPeer> others = const [],
   }) async {
     rig = await RigCrypto.create();
     bob = await RigPeer.create('bob');
@@ -59,7 +60,11 @@ void main() {
       state: ConversationState.CONVERSATION_STATE_ACCEPTED,
       canReply: true,
     );
-    offer = await rig.offer(_c1, bob);
+    offer = await rig.offer(
+      _c1,
+      bob,
+      others: [for (final o in others) await o.keyPackage()],
+    );
     expect(await rig.crypto.processWelcomes(), [_c1]);
     expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
     await rig.receiver.pullLive(_c1);
@@ -301,6 +306,37 @@ void main() {
       expect(ownClaimCalls(), isEmpty);
     },
   );
+
+  test('a seam failure other than StateError is reported, adds no own '
+      'device, and the pass still commits its removal and peer add (fix '
+      'round 1, ruling 8, CR M-5)', () async {
+    final lost = await RigPeer.create('lost');
+    final sibling = await RigPeer.create('sibling');
+    final bob2 = await RigPeer.create('bob2');
+    await setUpJoined(
+      others: [lost],
+      ownListed: [lost, sibling],
+      alsoListed: [bob2],
+    );
+    expect((await pin(lost))!.side, MemberSide.mine);
+    // The lost phone leaves the own list (M3 removes it).
+    rig.keys.own.removeWhere((d) => d.deviceId == lost.idString);
+    expect((await rig.directory.own(fresh: true)).readable, isTrue);
+    ownClaims([sibling]);
+    peerClaims([bob, bob2]);
+    rig.wasRemovedByUser = (id) async => throw UnsupportedError('a bug');
+
+    await rig.upkeep.reconcile(_c1);
+
+    expect(ownClaimCalls(), isEmpty);
+    expect(rig.server.commitRequests.single.welcomeDeviceIds, [bob2.idString]);
+    expect(await pin(lost), isNull);
+    expect(await pin(sibling), isNull);
+    expect([
+      for (final e in rig.unexpected) (e as E2eePipelineError).step,
+    ], contains('upkeep.wasRemovedByUser'));
+    rig.unexpected.clear();
+  });
 
   test('an unreadable removal queue and no fresh own list: reconcile adds '
       'no own device this pass, and still adds the peer\'s', () async {

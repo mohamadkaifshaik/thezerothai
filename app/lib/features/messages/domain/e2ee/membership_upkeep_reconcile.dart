@@ -662,6 +662,13 @@ extension _Reconcile on MembershipUpkeep {
         }
         final again = await _wanted(fresh, peer, members, thisDevice, history);
         return _OwnAdds(fresh, without(again, removed));
+      } on Object catch (e, s) {
+        // Fix round 1, ruling 8 (CR M-5): any other failure of the seam is
+        // reported and adds no own device; the rest of the pass (its
+        // removals, the peer's adds) goes on (audit M1: removals are never
+        // held back for adds).
+        _reportIfBug(e, s, 'upkeep.wasRemovedByUser');
+        return _OwnAdds(own, without(wanted, null));
       }
     }
     return _OwnAdds(own, without(wanted, removed));
