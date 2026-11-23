@@ -131,6 +131,9 @@ extension _RemovalStore on RemovalQueueRunner {
     final now = _now();
     final before = _intents.length;
     _intents.removeWhere((i) => _older(i, now, kRemovalIntentLimit));
+    for (final id in List.of(_reauthParked)) {
+      if (!_intents.any((i) => i.deviceId == id)) _unparkReauth(id);
+    }
     if (_intents.length != before) await _save(vault, queue: false);
     final held = _intentsNotBefore;
     if (held != null) {
@@ -145,9 +148,16 @@ extension _RemovalStore on RemovalQueueRunner {
     DeviceList? shared;
     for (final intent in List.of(_intents)) {
       if (_sending.contains(intent.deviceId)) continue;
+      // Brief amendment 3: parked until the user signs in again and asks.
+      if (_reauthParked.contains(intent.deviceId)) continue;
       if (!_current(vault, resets)) return;
       try {
         await _sendRemove(intent.deviceId);
+      } on ReauthRequiredException {
+        // Never settled by a list: the refusal says nothing about the
+        // device, only about this sign-in. Kept and parked.
+        if (_current(vault, resets)) _parkForReauth(intent.deviceId);
+        continue;
       } on RateLimitedException catch (e) {
         // Ruling 7: nothing is held or armed after a reset().
         if (!_current(vault, resets)) return;

@@ -281,6 +281,13 @@ class RemovalQueueRunner {
 
   final ValueNotifier<int> _pending = ValueNotifier(0);
 
+  /// Brief amendment 3: the intents whose RemoveKeyDevice answered
+  /// REAUTH_REQUIRED, parked until the user signs in again and asks again
+  /// ([removeDevice]). Memory only: after a restart such an intent is sent
+  /// once more (one call) and parks again.
+  final Set<String> _reauthParked = {};
+  final ValueNotifier<bool> _needsReauth = ValueNotifier(false);
+
   Future<void>? _running;
   bool _again = false;
   BudgetPriority _againPriority = BudgetPriority.background;
@@ -296,6 +303,18 @@ class RemovalQueueRunner {
   /// than about 400 conversations the queue takes more than a day (500
   /// commit calls per user per day, shared by all own devices).
   ValueListenable<int> get pending => _pending;
+
+  /// Brief amendment 3 (removal design section 4, "Task 11 queue"): true
+  /// while a removal waits for a re-sign-in. A REMOTE RemoveKeyDevice of
+  /// an id the server has not marked yet needs a recent sign-in; when it
+  /// answers REAUTH_REQUIRED (the first call did not reach the server in
+  /// time) its intent is PARKED, never dropped: it stays stored (so
+  /// [wasRemovedByUser] still answers true), no pass sends it again, and
+  /// this turns true. The UI (lane D PR 4 / 5b) then asks the user to sign
+  /// in again and calls [removeDevice] for the same id, which sends it at
+  /// once; its success clears the ask. [reset] clears it too (the intent
+  /// stays stored and is sent once more by the next run's first pass).
+  ValueListenable<bool> get needsReauth => _needsReauth;
 
   /// The device ids queued for [conversationId], parked ones included (the
   /// upkeep's `queuedRemovals`, amendment 4). Empty while the queue is not
@@ -497,6 +516,12 @@ class RemovalQueueRunner {
         failureStack = s;
       }
       if (failure != null) {
+        if (failure is ReauthRequiredException) {
+          // Brief amendment 3: parked, never dropped (the intent stored
+          // above stays; a rebuild stored none and keeps nothing).
+          if (!rebuild) _parkForReauth(deviceId);
+          Error.throwWithStackTrace(failure, failureStack!);
+        }
         var settled = false;
         if (_definiteRefusal(failure) && identical(_loadedFor, vault)) {
           if (waiting == null) {
@@ -525,6 +550,7 @@ class RemovalQueueRunner {
         _startPass(BudgetPriority.live);
         return;
       }
+      _unparkReauth(deviceId);
       if (!identical(_session.vault, vault)) {
         throw StateError('The vault changed.');
       }
@@ -598,7 +624,21 @@ class RemovalQueueRunner {
     // Fix round 5, ruling 5 (m5): a removal of the old run is not joined
     // by the next run's call for the same id (its own call, sent again).
     _removing.clear();
+    _reauthParked.clear();
+    _needsReauth.value = false;
     _publish();
+  }
+
+  /// Brief amendment 3: [deviceId]'s intent waits for a re-sign-in.
+  void _parkForReauth(String deviceId) {
+    _reauthParked.add(deviceId);
+    _needsReauth.value = true;
+  }
+
+  /// [deviceId]'s RemoveKeyDevice went through, or its intent is gone.
+  void _unparkReauth(String deviceId) {
+    if (!_reauthParked.remove(deviceId)) return;
+    _needsReauth.value = _reauthParked.isNotEmpty;
   }
 
   /// A conversation header or inbox row was taken
