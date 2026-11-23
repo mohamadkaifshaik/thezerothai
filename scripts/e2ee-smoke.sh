@@ -56,7 +56,11 @@ cleanup() {
 	fi
 	rm -rf "$tmp"
 }
-trap cleanup EXIT INT TERM
+# Cleanup runs once, on exit; an interrupt or a termination ends the script (with the usual status) instead of
+# continuing after the cleanup.
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # A server already answering on the port (a stale API from an earlier run) would take the test's calls with other
 # flags: refuse to start rather than test it.
