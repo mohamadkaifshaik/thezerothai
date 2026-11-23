@@ -1814,7 +1814,7 @@ class Other { void notAMember() {} }
       }
       for (final ok in [
         '${imp}final p = pb.MessagePreview(encrypted: true);',
-        '${imp}// pb.Message(text: t)',
+        '$imp// pb.Message(text: t)',
         'final m = Message(id: i);', // not the messaging proto
         '${imp}List<pb.Message> list = [];',
         '${imp}pb.Message(\n  id: entry.messageId,\n'
