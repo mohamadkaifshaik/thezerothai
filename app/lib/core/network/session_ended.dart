@@ -30,9 +30,11 @@ bool isSessionEndedFailure(connect.ConnectException error) =>
 ///   too: the server refuses before the rate limiter and every handler, so
 ///   nothing of the call ran;
 /// - only a second SESSION_ENDED reports the end
-///   ([AuthTokenProvider.reportSessionEnded], once per burst: later calls
-///   refused for the same account are not retried or reported again). A
-///   successful call, or a call bound to another account, ends the burst.
+///   ([AuthTokenProvider.reportSessionEnded]). Later calls refused for the
+///   same account are not refreshed or retried, but report again, so a
+///   sign-out that failed gets another try (the auth bloc drops duplicates
+///   while one runs). A successful call, or a call bound to another account,
+///   ends the burst.
 ///
 /// The retry keeps the request-session binding: the call is bound to the
 /// account signed in when it entered (read synchronously); if the session
@@ -68,8 +70,14 @@ final class SessionEndedInterceptor {
         response = await next(request);
       } on connect.ConnectException catch (e) {
         if (uid == null || !isSessionEndedFailure(e)) rethrow;
-        // Already reported for this account: no refresh, no retry.
-        if (_endedUid == uid) rethrow;
+        // Already reported for this account: no refresh, no retry, but report
+        // again (fix round ruling 3): if that sign-out failed, the user is
+        // still signed in and this is its next try; the bloc drops the
+        // duplicates while one runs.
+        if (_endedUid == uid) {
+          _tokens.reportSessionEnded(uid);
+          rethrow;
+        }
         if (seen == _refreshes) await _refresh();
         if (_sessionUid() != uid) throw const RequestSessionChangedException();
         return _retry(next, request, uid);

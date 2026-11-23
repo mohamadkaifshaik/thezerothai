@@ -604,6 +604,55 @@ void main() {
       await bloc.close();
     });
 
+    // Fix round rulings 3 and 5 (CR M1, N8; SA L1): a cut sign-out that
+    // throws leaves the user signed in; the interceptor reports again on the
+    // next refusal, and that report signs out.
+    var signOutCalls = 0;
+    blocTest<AuthBloc, AuthState>(
+      'a cut sign-out that throws, then a later report signs out',
+      setUp: () {
+        signOutCalls = 0;
+        when(() => authRepository.currentUser).thenReturn(verifiedUser);
+        when(() => authRepository.signOut()).thenAnswer((_) async {
+          signOutCalls++;
+          if (signOutCalls == 1) throw StateError('platform');
+        });
+      },
+      build: () => AuthBloc(authRepository: authRepository),
+      seed: () =>
+          const AuthState(status: AuthStatus.authenticated, user: verifiedUser),
+      act: (bloc) async {
+        // Listens to the group's user stream (its tearDown closes it).
+        bloc.add(const AuthSubscriptionRequested());
+        bloc.add(const AuthSessionEndedByServer('uid-1'));
+        await pumpEventQueue();
+        bloc.add(const AuthSessionEndedByServer('uid-1'));
+        await pumpEventQueue();
+      },
+      errors: () => [isA<StateError>()],
+      verify: (_) => expect(signOutCalls, 2),
+    );
+
+    blocTest<AuthBloc, AuthState>(
+      'an explicit sign-out racing a cut wins: userSignedOut, no '
+      'device-removal copy',
+      build: () => AuthBloc(authRepository: authRepository),
+      act: (bloc) async {
+        bloc.add(const AuthSubscriptionRequested());
+        users.add(verifiedUser);
+        await pumpEventQueue();
+        bloc
+          ..add(const AuthSignOutRequested(uid: 'uid-1'))
+          ..add(const AuthSessionEndedByServer('uid-1'));
+        await pumpEventQueue();
+      },
+      verify: (bloc) {
+        expect(bloc.state.user, isNull);
+        expect(bloc.state.lastSessionEnd, SessionEnd.userSignedOut);
+        expect(bloc.state.signedOutByDeviceRemoval, isFalse);
+      },
+    );
+
     test('a burst of reports signs out once', () async {
       final bloc = await signedIn();
       final hook = hookOf();

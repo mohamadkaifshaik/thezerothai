@@ -110,7 +110,8 @@ void main() {
   });
 
   test('a call refused after the burst was reported is not retried or '
-      'reported again', () async {
+      'refreshed, but reports again (a failed sign-out gets another try; '
+      'the bloc drops duplicates)', () async {
     for (var i = 0; i < 4; i++) {
       auth.answer(idTokenFor(_a, iat: i));
     }
@@ -121,7 +122,7 @@ void main() {
 
     expect(http.sent, hasLength(3));
     expect(auth.refreshes, 1);
-    expect(auth.ended, [_a]);
+    expect(auth.ended, [_a, _a]);
   });
 
   test('a call sent before the refresh finished is retried without a second '
