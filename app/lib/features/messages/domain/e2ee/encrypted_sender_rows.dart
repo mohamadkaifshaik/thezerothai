@@ -103,6 +103,7 @@ extension _Rows on EncryptedSender {
       tryTomorrow:
           (error is RateLimitedException && error.isDaily) ||
           error is QuotaExceededException,
+      errorName: failed ? r.lastError : null,
     );
   }
 

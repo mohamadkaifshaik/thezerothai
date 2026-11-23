@@ -197,6 +197,7 @@ class VaultSession {
   String? _uid;
   E2eeFlag _flag = E2eeFlag.unknown;
   bool _vaultKnown = false;
+  bool _signInStepDone = false;
   bool _started = false;
   SecureVault? _vault;
   bool _historyLost = false;
@@ -236,6 +237,14 @@ class VaultSession {
   /// open). False when signed out. A field the queue sets (sign-in after the
   /// marker read, open, wipe, session end), never an awaited read.
   bool get vaultKnown => _vaultKnown;
+
+  /// Plan 5a Task 13b (13b-i review M4, Task 8 review N2): true once the
+  /// signed-in user's [onSignedIn] step has finished (whatever it ended
+  /// in); false before the first one and again from the session's end
+  /// ([onSessionEnded] of that user) or another user's sign-in. Before it
+  /// the status is the initial `off`, which cannot be told from "no vault
+  /// on this device": the port answers "try again", never plaintext.
+  bool get signInStepDone => _signInStepDone;
 
   /// The open vault while it is ready and writable; null otherwise. Write
   /// through [runWrite] so writes are serialised and stop on a lost lock.
@@ -288,11 +297,17 @@ class VaultSession {
   /// flag is [E2eeFlag.on] or this device already has one (its known-vault
   /// marker). With neither, the status is [VaultStatus.off], nothing is opened
   /// and no marker is written.
-  Future<void> onSignedIn(String uid, {required E2eeFlag flag}) =>
+  ///
+  /// [signInStepDone] turns true once this step has finished for [uid]
+  /// (whatever it ended in), in a queued step right after it.
+  Future<void> onSignedIn(String uid, {required E2eeFlag flag}) {
+    // Awaited through the step queued right behind it (below).
+    unawaited(
       _enqueue('signIn', () async {
         if (_uid != uid) {
           _hookRanFor = null;
           _vaultKnown = false;
+          _signInStepDone = false;
         }
         _uid = uid;
         _flag = flag;
@@ -334,7 +349,15 @@ class VaultSession {
           if (!known) return _setStatus(VaultStatus.off);
         }
         await _open(uid);
-      });
+      }),
+    );
+    // Queued right behind the step (nothing runs between them; `_enqueue`
+    // never lets a failed step stop the queue): done, also when the step
+    // failed, since its status then says why.
+    return _enqueue('signInDone', () async {
+      if (_uid == uid) _signInStepDone = true;
+    });
+  }
 
   /// [previousUid]'s session ended. [SessionEnd.userSignedOut] and
   /// [SessionEnd.accountDeleted] wipe that user's vault and key (when this
@@ -344,7 +367,10 @@ class VaultSession {
   Future<void> onSessionEnded(String previousUid, SessionEnd reason) =>
       _enqueue('sessionEnd', () async {
         final wasCurrent = _uid == previousUid;
-        if (wasCurrent) _uid = null;
+        if (wasCurrent) {
+          _uid = null;
+          _signInStepDone = false;
+        }
         if (!_supported) return;
         if (reason == SessionEnd.sessionLost) {
           if (_vault?.uid == previousUid ||

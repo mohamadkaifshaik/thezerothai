@@ -29,6 +29,12 @@ String messagingErrorMessage(AppException error) {
     // Fixed text from common.proto; never the server's.
     EncryptionRequiredException() => 'Update the app to keep messaging',
     StaleEpochException() => "Couldn't send that. Please try again.",
+    // Plan 5a Task 13b (13b-i review M2): an account check is a lasting
+    // answer, so a failed row says why instead of "Tap to retry".
+    AccountRestrictedException() =>
+      "Your account can't send messages right now.",
+    EmailNotVerifiedException() =>
+      'Verify your email address to send messages.',
     _ => "Couldn't complete that. Please try again.",
   };
 }

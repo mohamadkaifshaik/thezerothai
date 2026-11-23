@@ -233,9 +233,66 @@ class E2eePipeline {
   /// delete made here). Never carries content.
   Stream<String> get changes => _changes.stream;
 
+  /// 13b-i review M3: an event (synchronous, no payload) each time the
+  /// parts of a vault are built in [onVaultReady]; the port's `send` waits
+  /// on it, bounded, while the vault is ready and the parts are not yet.
+  Stream<void> get partsBuilt => _partsBuilt.stream;
+  final StreamController<void> _partsBuilt = StreamController.broadcast(
+    sync: true,
+  );
+
   /// The coordinator of the open vault (Task 13b's `watchThread` calls
   /// [opened], [closed] and [refresh] through the pipeline); null before.
   SyncCoordinator? get coordinator => _parts?.sync;
+
+  /// Plan 5a Task 13b: what the port (`EncryptedMessagingImpl`) reads: the
+  /// same collaborators this pipeline was built with.
+  VaultSession get session => _session;
+  DeviceKeysService get deviceKeys => _deviceKeys;
+  MessagingRepository get messaging => _messaging;
+
+  /// The AUTHENTICATED uid now (the `currentUid` this pipeline was built
+  /// with); the port binds a no-vault send to it (branch audit L1).
+  String? get authenticatedUid => _currentUid();
+
+  /// Plan 5a Task 13b: the parts of the open vault, for the port; null
+  /// before [onVaultReady] built them, and once that vault closed or
+  /// changed (sign-out, another user, a lost lock).
+  ///
+  /// 13b-i review M5: these are the mutating parts, public only because the
+  /// port is its own library. `test/guards/e2ee_port_parts_guard_test.dart`
+  /// allows [parts] and [reportPortError] only in the port's files under
+  /// lib/ (`@internal` would not stop a reader in the same package).
+  PipelineParts? get parts {
+    final p = _parts;
+    return p != null && p.live ? PipelineParts._(p) : null;
+  }
+
+  /// Plan 5a Task 13b: the port's unexpected failure, reported as
+  /// [E2eePipelineError] with the step name only.
+  void reportPortError(String step, StackTrace stack) => _report(step, stack);
+
+  /// Plan 5a Task 13b (the port's `removalsPending`): the open vault's
+  /// removal queue count, parked conversations included; 0 with no parts.
+  /// One listenable for the app's lifetime: it follows the parts of each
+  /// vault ([_watchRemovals]).
+  ValueListenable<int> get removalsPending => _removals;
+  final ValueNotifier<int> _removals = ValueNotifier(0);
+  void Function()? _unwatchRemovals;
+
+  void _watchRemovals(_Parts? parts) {
+    _unwatchRemovals?.call();
+    _unwatchRemovals = null;
+    if (parts == null) {
+      _removals.value = 0;
+      return;
+    }
+    final pending = parts.runner.pending;
+    void copy() => _removals.value = pending.value;
+    pending.addListener(copy);
+    _unwatchRemovals = () => pending.removeListener(copy);
+    copy();
+  }
 
   /// The pipeline started for the open vault (parts built, device usable,
   /// not removed elsewhere) and its coordinator runs. Review I3: false while
@@ -275,6 +332,8 @@ class E2eePipeline {
       parts?.dispose();
       parts = _parts = _Parts(this, vault);
       _startedFor = null;
+      _watchRemovals(parts);
+      if (!_partsBuilt.isClosed) _partsBuilt.add(null);
     }
     try {
       if (!parts.known.isLoadedFor(vault)) await parts.known.load(vault);
@@ -443,6 +502,7 @@ class E2eePipeline {
     _wasRemoved = false;
     _inboxOwed = false;
     _owedWhilePaused.clear();
+    _watchRemovals(null);
     if (parts == null) return;
     if (identical(_owners[parts.vault], this)) _owners[parts.vault] = null;
     parts.dispose();
@@ -691,6 +751,7 @@ class E2eePipeline {
     _teardown();
     forgetNotes(SessionEnd.sessionLost);
     unawaited(_changes.close());
+    unawaited(_partsBuilt.close());
   }
 
   // -------------------------------------------------------------------------

@@ -389,8 +389,13 @@ final RegExp _reportErrorCall = RegExp(r'(?<![\w$])report\w*Error\s*\(');
 
 /// Report helper calls that forward a step their own caller named, by file
 /// (the finding as `_reportCallViolations` prints it). Each needs a why; the
-/// forwarder's callers are checked like any other report call. Empty today.
-const Map<String, List<String>> _pinnedReportForwards = {};
+/// forwarder's callers are checked like any other report call.
+const Map<String, List<String>> _pinnedReportForwards = {
+  // Task 13b: `reportPortError(step, stack)` is the port's one door into the
+  // pipeline's reporter; every caller (`_pipeline.reportPortError(`) passes a
+  // step literal, which `_reportErrorCall` checks.
+  'lib/features/messages/domain/e2ee/e2ee_pipeline.dart': ['_report*(step)'],
+};
 
 /// Report calls in [source] that pass anything but, position by position,
 /// what the helper's declaration takes there (SA R2): a step literal for a

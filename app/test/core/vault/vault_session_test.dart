@@ -43,6 +43,41 @@ void main() {
     return s;
   }
 
+  group('signInStepDone (Task 13b, 13b-i review M4)', () {
+    test('false until the sign-in step finished, false again from the '
+        'session end and while another user signs in', () async {
+      final during = <bool>[];
+      late VaultSession s;
+      s = world.launch(onVaultReady: (_) async => during.add(s.signInStepDone));
+      expect(s.signInStepDone, isFalse);
+      await s.start(restoredUid: _a, restoreDefinitive: true);
+      expect(s.signInStepDone, isFalse);
+      final signIn = s.onSignedIn(_a, flag: E2eeFlag.on);
+      expect(s.signInStepDone, isFalse);
+      await signIn;
+      expect(during, [false], reason: 'inside the step (the ready hook)');
+      expect((s.status.value, s.signInStepDone), (VaultStatus.ready, true));
+      await s.onSessionEnded(_a, SessionEnd.sessionLost);
+      expect(s.signInStepDone, isFalse);
+      await s.onSignedIn(_a, flag: E2eeFlag.off);
+      expect(s.signInStepDone, isTrue);
+      // Another user: false inside its step (its ready hook), true after.
+      await s.onSignedIn(_b, flag: E2eeFlag.on);
+      // (The second: _a's flag-off sign-in reopened its known vault.)
+      expect(during, [false, false, false]);
+      expect(s.signInStepDone, isTrue);
+    });
+
+    test('true after a step that ended unsupported or off', () async {
+      final unsupported = world.launch(supported: false);
+      await unsupported.onSignedIn(_a, flag: E2eeFlag.on);
+      expect(unsupported.status.value, VaultStatus.unsupported);
+      expect(unsupported.signInStepDone, isTrue);
+      final off = await signIn(_a, flag: E2eeFlag.unknown);
+      expect((off.status.value, off.signInStepDone), (VaultStatus.off, true));
+    });
+  });
+
   group('open', () {
     test('flag on: owner -> cipher -> open -> marker -> ready -> hook, and '
         'the marker names the storage and the alias only', () async {

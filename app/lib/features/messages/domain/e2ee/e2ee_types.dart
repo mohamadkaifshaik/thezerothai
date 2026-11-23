@@ -169,6 +169,7 @@ class OutgoingRow {
     required this.error,
     required this.retryable,
     required this.tryTomorrow,
+    this.errorName,
   });
 
   final String localId;
@@ -180,6 +181,13 @@ class OutgoingRow {
   final AppException? error;
   final bool retryable;
   final bool tryTomorrow;
+
+  /// Plan 5a Task 13b: the stored error name of a `failed` row (a type
+  /// name such as `CannotMessageException`, or one of the starter's
+  /// `kStartError*` names; never server text), null otherwise. Unlike
+  /// [error] it survives a restart, so the port can still tell "the peer has
+  /// no device" from a failure that may be retried.
+  final String? errorName;
 }
 
 enum E2eeRefusal {

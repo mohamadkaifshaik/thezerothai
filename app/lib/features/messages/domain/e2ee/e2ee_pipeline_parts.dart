@@ -1,5 +1,36 @@
 part of 'e2ee_pipeline.dart';
 
+/// Plan 5a Task 13b: the parts of ONE open vault as the port reads them
+/// ([E2eePipeline.parts]). A view, not a copy: [live] turns false once the
+/// vault closes or changes, and the port then answers as with no vault.
+/// Defines no `toString`.
+class PipelineParts {
+  PipelineParts._(this._p);
+
+  final _Parts _p;
+
+  SecureVault get vault => _p.vault;
+  bool get live => _p.live;
+  ConversationCrypto get crypto => _p.crypto;
+  EncryptedSender get sender => _p.sender;
+  GroupStarter get starter => _p.starter;
+  KnownConversations get known => _p.known;
+  RemovalQueueRunner get runner => _p.runner;
+  MessageReceiver get receiver => _p.receiver;
+  KeysRepository get keys => _p._p._keys;
+  CryptoEngine engine() => _p._p._engine();
+
+  /// An incoming request the user has not accepted, by the rule
+  /// [ConversationCrypto.describeState] uses for `incomingRequest` (the
+  /// context's sight, else "not accepted" reads as incoming: fail closed),
+  /// without its other reads. Throws as the vault's read does.
+  Future<bool> unacceptedIncoming(String conversationId) async {
+    final record = await vault.conversation(conversationId);
+    if (record?.sync.requestAccepted ?? false) return false;
+    return _p.contexts.of(conversationId).incomingRequest ?? true;
+  }
+}
+
 /// The pipeline's parts for ONE vault: one of each per session (gate items
 /// 1-14), built in the order each needs the others, with every seam a gate
 /// names wired here (15-20, 44, 45, 48, 67). See [E2eePipeline].

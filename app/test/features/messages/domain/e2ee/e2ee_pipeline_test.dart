@@ -12,6 +12,8 @@ import 'package:dzeroth/features/keys/domain/device_keys_service.dart';
 import 'package:dzeroth/features/messages/data/messaging_repository.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/deferred_record.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/e2ee_pipeline.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging_impl.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/sync_budget.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
@@ -44,15 +46,42 @@ const Set<String> _mlsMethods = {
   'commitConversation',
 };
 
-/// Records every member touched; only `conversationsChanged` answers.
+/// The cache reads the port's inert `send` may make (plan Task 13b order
+/// step (2)): nothing else of the repository.
+const Set<String> _inertCacheReads = {
+  'cachedEverEncrypted',
+  'cachedConversationWith',
+};
+
+/// Records every member touched; only `conversationsChanged` and the two
+/// cache reads answer.
 class _RecordingMessaging implements MessagingRepository {
   final List<String> touched = [];
   final StreamController<void> changed = StreamController.broadcast();
+
+  /// The cache's ever-encrypted marks, and its rows (by id).
+  final Set<String> everEncrypted = {};
+  final Map<String, pb.Conversation> rows = {};
 
   @override
   Stream<void> get conversationsChanged {
     touched.add('conversationsChanged');
     return changed.stream;
+  }
+
+  @override
+  Future<bool> cachedEverEncrypted(String conversationId) async {
+    touched.add('cachedEverEncrypted');
+    return everEncrypted.contains(conversationId);
+  }
+
+  @override
+  Future<pb.Conversation?> cachedConversationWith(String peerUserId) async {
+    touched.add('cachedConversationWith');
+    for (final row in rows.values) {
+      if (row.peer.userId == peerUserId) return row;
+    }
+    return null;
   }
 
   @override
@@ -137,6 +166,90 @@ void main() {
       await pipeline.start();
       await Future<void>.delayed(Duration.zero);
 
+      // Plan 5a Task 13b (controller ruling 2): every member of the port.
+      // `send` answers notEncrypted, or refused(blocked) for a conversation
+      // (or a recipient) whose cached row was ever marked encrypted; reads
+      // answer empty; nothing but those cache reads is called.
+      messaging
+        ..everEncrypted.add(_c2)
+        ..rows[_c2] = pb.Conversation(
+          id: _c2,
+          peer: common.AuthorSnapshot(userId: 'ref-carol'),
+        );
+      // 13b-i review N1: only `send` may read the cache; every other member
+      // touches nothing of the repository (snapshots around them).
+      var mark = messaging.touched.length;
+      void expectUntouched(String where) {
+        expect(
+          messaging.touched.sublist(mark),
+          isEmpty,
+          reason: '$flag: $where',
+        );
+      }
+
+      final port = EncryptedMessagingImpl(pipeline);
+      final previewIds = <String>[];
+      final previewSub = port.previewChanged.listen(previewIds.add);
+      expect(port.removedElsewhere.value, isFalse);
+      await port.checkRemovedAgain();
+      await expectLater(
+        port.setUpDeviceAgain(),
+        throwsA(isA<FeatureDisabledException>()),
+      );
+      await port.retryDeviceSetup();
+      expect(port.hasLocal(_c1), isFalse);
+      final thread = await port
+          .watchThread(const ThreadRef.conversation(_c1))
+          .first;
+      expect(thread.entries, isEmpty);
+      expect(thread.security.state, ConversationEncryptionState.ready);
+      expect(thread.security.canSend, isTrue);
+      await port.loadOlder(const ThreadRef.conversation(_c1));
+      expectUntouched('the members before send');
+      for (final to in [
+        const ThreadRef.conversation(_c1),
+        ThreadRef.recipientOf(common.AuthorSnapshot(userId: 'ref-bob')),
+      ]) {
+        final out = await port.send(to: to, localId: 'local-1', text: 'hi');
+        expect(out.kind, SendOutcomeKind.notEncrypted, reason: '$flag');
+      }
+      for (final to in [
+        const ThreadRef.conversation(_c2),
+        ThreadRef.recipientOf(common.AuthorSnapshot(userId: 'ref-carol')),
+      ]) {
+        final out = await port.send(to: to, localId: 'local-2', text: 'hi');
+        expect(
+          (out.kind, out.problem),
+          (SendOutcomeKind.refused, SendProblem.blocked),
+          reason: '$flag: ever encrypted',
+        );
+      }
+      expect(
+        messaging.touched.sublist(mark).toSet(),
+        _inertCacheReads,
+        reason: '$flag: send',
+      );
+      mark = messaging.touched.length;
+      await port.retrySend('local-1');
+      await expectLater(
+        port.resetConversation(_c1),
+        throwsA(isA<FeatureDisabledException>()),
+      );
+      final code = await port.securityCode(_c1);
+      expect((code.digits, code.reason), (null, NoCodeReason.unavailable));
+      expect(await port.previews([_c1, _c2]), isEmpty);
+      expect(await port.search('hi'), isEmpty);
+      expect(await port.reportPayload(_c1, 'm' * 32), isNull);
+      final devices = await port.ownDevices();
+      expect(devices.devices, isEmpty);
+      expect(devices.directoryKnown, isFalse);
+      await expectLater(port.removeDevice('d' * 32), throwsArgumentError);
+      expect(port.removalsPending.value, 0);
+      await Future<void>.delayed(Duration.zero);
+      await previewSub.cancel();
+      expect(previewIds, isEmpty);
+      expectUntouched('the members after send');
+
       expect(engineAsked, 0, reason: '$flag: the engine factory');
       expect(world.calls, isEmpty, reason: '$flag: the vault openers');
       expect(world.ciphers, isEmpty);
@@ -146,7 +259,10 @@ void main() {
         isEmpty,
         reason: '$flag: the MLS methods',
       );
-      expect(messaging.touched.toSet(), {'conversationsChanged'});
+      expect(messaging.touched.toSet(), {
+        'conversationsChanged',
+        ..._inertCacheReads,
+      });
       expect(pipeline.started, isFalse);
       expect(pipeline.hasParts, isFalse);
       expect(pipeline.coordinator, isNull);

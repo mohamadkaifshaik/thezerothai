@@ -108,6 +108,18 @@ void main() {
     );
   });
 
+  test('an account check has its own messaging line, never the server text '
+      '(13b-i review M2)', () {
+    expect(
+      messagingErrorMessage(const AccountRestrictedException('secret')),
+      "Your account can't send messages right now.",
+    );
+    expect(
+      messagingErrorMessage(const EmailNotVerifiedException('secret')),
+      'Verify your email address to send messages.',
+    );
+  });
+
   test('STALE_EPOCH is a retry message, never the server text', () {
     final text = messagingErrorMessage(
       const StaleEpochException('secret', generation: 1, epoch: 2),

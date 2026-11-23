@@ -5,8 +5,11 @@ import 'package:flutter/foundation.dart'
 
 import '../core/feature_flags/public_ids_feature_flag.dart';
 import '../core/vault/vault_status.dart';
+import '../features/messages/domain/e2ee/e2ee_pipeline.dart';
 import '../features/messages/domain/e2ee/e2ee_types.dart'
     show E2eePipelineError;
+import '../features/messages/domain/e2ee/encrypted_messaging.dart';
+import '../features/messages/domain/e2ee/encrypted_messaging_impl.dart';
 import '../features/notifications/presentation/bloc/push_cubit.dart';
 import '../features/onboarding/presentation/bloc/onboarding_state.dart';
 import 'session_wiring.dart' show flagsKnown;
@@ -180,6 +183,13 @@ bool publicIdsKnownOff(OnboardingState s) =>
 /// E2EE pipeline (and, in 13b, its port): Android and the web.
 bool get e2eeVaultSupported =>
     kIsWeb || defaultTargetPlatform == TargetPlatform.android;
+
+/// Plan 5a Task 13b (controller ruling 1, gate item 69): the screens' port
+/// over [pipeline], one for the app's lifetime; null where no pipeline is
+/// built (a platform with no vault: the access is then `unsupported`, R11).
+/// Bootstrap holds it; 5b's Task 14 hands it to the widget tree.
+EncryptedMessaging? encryptedMessagingOver(E2eePipeline? pipeline) =>
+    pipeline == null ? null : EncryptedMessagingImpl(pipeline);
 
 /// Awaits [run]; a failure is reported as `E2eePipelineError('wiring.<step>')`
 /// with its stack, never the raw error object (fix wave ruling 8, security

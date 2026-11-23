@@ -652,6 +652,8 @@ Future<void> bootstrap() async {
           onUnexpectedError: reportUnexpectedError,
         )
       : null;
+  // ignore: unused_local_variable, 5b Task 14 passes it to AppWidget (13b).
+  final encryptedMessaging = encryptedMessagingOver(e2eePipeline);
   final pipeline = e2eePipeline;
   if (pipeline != null) {
     vaultSession.addVaultReadyHook(pipeline.onVaultReady);
