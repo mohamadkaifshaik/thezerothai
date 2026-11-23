@@ -312,10 +312,12 @@ class RemovalQueueRunner {
   /// [wasRemovedByUser] still answers true), no pass sends it again, and
   /// this turns true. The UI (lane D PR 4 / 5b) then asks the user to sign
   /// in again and calls [removeDevice] for the same id, which sends it at
-  /// once; its success clears the ask. [reset] clears it too (the intent
-  /// stays stored and is sent once more by the next run's first pass).
-  /// While the stored record cannot be read (the rebuild path), no intent
-  /// is stored, but the ask is raised the same way (fix round 1, M3).
+  /// once; its success clears the ask, and so does [dropRemoval]. The
+  /// intent is stored marked as waiting (fix wave 9, SA L5): never dropped
+  /// for its age, and the next run parks it again on load. [reset] clears
+  /// the memory only. While the stored record cannot be read (the rebuild
+  /// path), no intent is stored, but the ask is raised the same way (fix
+  /// round 1, M3).
   ValueListenable<bool> get needsReauth => _needsReauth;
 
   /// The device ids queued for [conversationId], parked ones included (the
@@ -527,10 +529,14 @@ class RemovalQueueRunner {
       if (failure != null) {
         if (failure is ReauthRequiredException) {
           // Brief amendment 3: parked, never dropped (the intent stored
-          // above stays). Fix round 1, M3: a rebuild stored no intent, but
-          // the ask is raised all the same; the user's next call for the
-          // id sends it and clears it.
-          _parkForReauth(deviceId);
+          // above stays, now marked so: fix wave 9). Fix round 1, M3: a
+          // rebuild stored no intent, but the ask is raised all the same;
+          // the user's next call for the id sends it and clears it.
+          if (rebuild) {
+            _parkForReauth(deviceId);
+          } else {
+            await _parkStored(vault, deviceId);
+          }
           Error.throwWithStackTrace(failure, failureStack!);
         }
         var settled = false;
@@ -640,17 +646,11 @@ class RemovalQueueRunner {
     _publish();
   }
 
-  /// Brief amendment 3: [deviceId]'s intent waits for a re-sign-in.
-  void _parkForReauth(String deviceId) {
-    _reauthParked.add(deviceId);
-    _needsReauth.value = true;
-  }
-
-  /// [deviceId]'s RemoveKeyDevice went through, or its intent is gone.
-  void _unparkReauth(String deviceId) {
-    if (!_reauthParked.remove(deviceId)) return;
-    _needsReauth.value = _reauthParked.isNotEmpty;
-  }
+  /// Fix wave 9 (SA L5): the user gives up a removal that waits for a
+  /// re-sign-in: its intent goes (stored) and its ask clears. No call is
+  /// made. A [StateError] when no vault is open or the record cannot be
+  /// read.
+  Future<void> dropRemoval(String deviceId) => _dropRemoval(deviceId);
 
   /// A conversation header or inbox row was taken
   /// (`ConversationContexts.note`; Task 13 wires it): when [conversationId]

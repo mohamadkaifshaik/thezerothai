@@ -130,7 +130,11 @@ extension _RemovalStore on RemovalQueueRunner {
   ) async {
     final now = _now();
     final before = _intents.length;
-    _intents.removeWhere((i) => _older(i, now, kRemovalIntentLimit));
+    // Fix wave 9 (SA L5): one waiting for a re-sign-in is never dropped
+    // for its age (a silent drop would lose the user's removal).
+    _intents.removeWhere(
+      (i) => !i.reauth && _older(i, now, kRemovalIntentLimit),
+    );
     for (final id in List.of(_reauthParked)) {
       if (!_intents.any((i) => i.deviceId == id)) _unparkReauth(id);
     }
@@ -155,8 +159,8 @@ extension _RemovalStore on RemovalQueueRunner {
         await _sendRemove(intent.deviceId);
       } on ReauthRequiredException {
         // Never settled by a list: the refusal says nothing about the
-        // device, only about this sign-in. Kept and parked.
-        if (_current(vault, resets)) _parkForReauth(intent.deviceId);
+        // device, only about this sign-in. Kept and parked (stored so).
+        if (_current(vault, resets)) await _parkStored(vault, intent.deviceId);
         continue;
       } on RateLimitedException catch (e) {
         // Ruling 7: nothing is held or armed after a reset().
@@ -404,6 +408,10 @@ extension _RemovalStore on RemovalQueueRunner {
       _intents
         ..clear()
         ..addAll(record?.intents ?? const []);
+      // Fix wave 9 (SA L5): a stored re-sign-in wait is parked again.
+      for (final i in _intents) {
+        if (i.reauth) _parkForReauth(i.deviceId);
+      }
       // SA L4 (ruling 6): expired marks go on load; the next pass writes it.
       final now = _now();
       final live = [
@@ -477,6 +485,51 @@ extension _RemovalStore on RemovalQueueRunner {
   void _publish() {
     final ids = <String>{for (final e in _entries) e.conversationId};
     _pending.value = _loaded ? ids.length : 0;
+  }
+
+  /// Brief amendment 3: [deviceId]'s intent waits for a re-sign-in.
+  void _parkForReauth(String deviceId) {
+    _reauthParked.add(deviceId);
+    _needsReauth.value = true;
+  }
+
+  /// [deviceId]'s RemoveKeyDevice went through, or its intent is gone.
+  void _unparkReauth(String deviceId) {
+    if (!_reauthParked.remove(deviceId)) return;
+    _needsReauth.value = _reauthParked.isNotEmpty;
+  }
+
+  /// Fix wave 9 (SA L5): parks [deviceId] and marks its stored intent as
+  /// waiting for a re-sign-in (never dropped for its age, parked again
+  /// after a restart). A failed write is reported if it is a bug; the
+  /// park in memory holds anyway.
+  Future<void> _parkStored(SecureVault vault, String deviceId) async {
+    _parkForReauth(deviceId);
+    var changed = false;
+    for (var i = 0; i < _intents.length; i++) {
+      final intent = _intents[i];
+      if (intent.deviceId != deviceId || intent.reauth) continue;
+      _intents[i] = intent.withReauth();
+      changed = true;
+    }
+    if (!changed || !identical(_loadedFor, vault)) return;
+    try {
+      await _save(vault, queue: false);
+    } on Object catch (e, s) {
+      _reportIfBug(e, s, 'removalQueue.intentWrite');
+    }
+  }
+
+  Future<void> _dropRemoval(String deviceId) async {
+    final vault = _session.vault;
+    if (vault == null) throw StateError('The vault is not ready.');
+    if (!await _ensureLoaded(vault) || !identical(_loadedFor, vault)) {
+      throw StateError('The removal record cannot be read.');
+    }
+    final before = _intents.length;
+    _intents.removeWhere((i) => i.deviceId == deviceId);
+    _unparkReauth(deviceId);
+    if (_intents.length != before) await _save(vault, queue: false);
   }
 }
 

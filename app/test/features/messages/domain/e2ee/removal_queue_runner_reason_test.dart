@@ -223,6 +223,56 @@ void main() {
       expect(await runner.wasRemovedByUser(sibling.id), isTrue);
     });
 
+    test('a parked intent is never dropped for its age and keeps the ask, '
+        'also after a restart (fix wave 9, SA L5)', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await join(_c1, others: [sibling]);
+      await synced();
+      rig.keys.removeError = const ReauthRequiredException('rig: sign in');
+      await expectLater(
+        runner.removeDevice(sibling.idString),
+        throwsA(isA<ReauthRequiredException>()),
+      );
+      await runner.idle();
+      expect((await storedRecord())!.intents.single.reauth, isTrue);
+
+      // Past the intent limit, and a new run (the app restarted).
+      rig.clock.advance(kRemovalIntentLimit + const Duration(days: 1));
+      runner.reset();
+      runner = build();
+      await runner.runPass();
+      await runner.idle();
+
+      expect((await storedRecord())!.intents.map((i) => i.deviceId), [
+        sibling.idString,
+      ]);
+      expect(runner.needsReauth.value, isTrue);
+      // Parked from the stored record: not sent again before the sign-in.
+      expect(rig.keys.removeCalls, hasLength(1));
+    });
+
+    test('the user drops a parked removal: the intent goes and the ask '
+        'clears (fix wave 9, SA L5)', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await join(_c1, others: [sibling]);
+      rig.keys.removeError = const ReauthRequiredException('rig: sign in');
+      await expectLater(
+        runner.removeDevice(sibling.idString),
+        throwsA(isA<ReauthRequiredException>()),
+      );
+      expect(runner.needsReauth.value, isTrue);
+
+      await runner.dropRemoval(sibling.idString);
+
+      expect(runner.needsReauth.value, isFalse);
+      expect((await storedRecord())!.intents, isEmpty);
+      await runner.runPass();
+      await runner.idle();
+      expect(rig.keys.removeCalls, hasLength(1));
+    });
+
     test('the ask is cleared by a reset', () async {
       final sibling = await RigPeer.create('sibling');
       await setUpRig(ownListed: [sibling]);

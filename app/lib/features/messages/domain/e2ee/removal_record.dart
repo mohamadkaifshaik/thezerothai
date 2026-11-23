@@ -5,8 +5,9 @@ import '../../../../core/vault/vault_status.dart';
 
 /// Vault setting: the removal queue runner's own record (Task 11 review M1
 /// and concern 1), next to the F-7 queue (`kVaultSettingRemovalQueue`).
-/// Sealed `{"v":1,"intents":[{"id":deviceId,"at":micros,"key":b64}],
-/// "removed":[{"id":deviceId,"at":micros,"key":b64}]}`; `key` is optional.
+/// Sealed `{"v":1,"intents":[{"id":deviceId,"at":micros,"key":b64,
+/// "reauth":true}],"removed":[{"id":deviceId,"at":micros,"key":b64}]}`;
+/// `key` and `reauth` are optional.
 const String kVaultSettingRemovalRecord = 'messages.e2ee.removalRecord';
 
 /// The most intents kept, and the most removed devices remembered (the
@@ -17,7 +18,8 @@ const String kVaultSettingRemovalRecord = 'messages.e2ee.removalRecord';
 /// round 4, ruling 10).
 const int kMaxRemovalIntents = 20;
 
-/// An intent older than this is dropped (it was retried at every pass).
+/// An intent older than this is dropped (it was retried at every pass);
+/// never one waiting for a re-sign-in ([RemovalMark.reauth]).
 const Duration kRemovalIntentLimit = Duration(days: 30);
 
 /// How long a device removed by the user is remembered as such (Task 11
@@ -38,11 +40,25 @@ class RemovalMark {
     required this.deviceId,
     required this.atMicros,
     this.signatureKey,
+    this.reauth = false,
   });
 
   final String deviceId;
   final int atMicros;
   final Uint8List? signatureKey;
+
+  /// Intents only (Task 12 fix wave 9, SA L5): the server answered
+  /// REAUTH_REQUIRED. Such an intent waits for a re-sign-in, is never
+  /// dropped for its age (the intent cap still bounds it) and keeps the
+  /// runner's `needsReauth` raised, also after a restart.
+  final bool reauth;
+
+  RemovalMark withReauth() => RemovalMark(
+    deviceId: deviceId,
+    atMicros: atMicros,
+    signatureKey: signatureKey,
+    reauth: true,
+  );
 }
 
 /// The runner's record. Values only; no `toString` (it holds device ids).
@@ -82,6 +98,7 @@ class RemovalRecord {
     'id': m.deviceId,
     'at': m.atMicros,
     if (m.signatureKey case final key?) 'key': base64Encode(key),
+    if (m.reauth) 'reauth': true,
   };
 
   static List<Object?> _list(Object? v) {
@@ -94,17 +111,20 @@ class RemovalRecord {
     final id = v['id'];
     final at = v['at'];
     final key = v['key'];
+    final reauth = v['reauth'];
     if (id is! String ||
         id.isEmpty ||
         at is! int ||
         at < 0 ||
-        (key != null && key is! String)) {
+        (key != null && key is! String) ||
+        (reauth != null && reauth != true)) {
       throw const FormatException('mark');
     }
     return RemovalMark(
       deviceId: id,
       atMicros: at,
       signatureKey: key == null ? null : base64Decode(key as String),
+      reauth: reauth == true,
     );
   }
 }
