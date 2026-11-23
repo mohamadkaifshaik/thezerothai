@@ -135,6 +135,8 @@ class PipelineOp {
         deviceGenerationOf(vault) == deviceGeneration;
   }
 
+  /// Also false after "set up again" (the generation): even a plain-row
+  /// enqueue of an operation started before it is refused (fix wave 11).
   bool owns(SecureVault v) =>
       identical(v, vault) &&
       v.uid == uid &&
