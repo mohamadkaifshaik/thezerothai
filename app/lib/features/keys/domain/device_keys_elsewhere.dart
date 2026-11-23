@@ -119,6 +119,10 @@ extension _Elsewhere on DeviceKeysService {
       return true;
     }
     if (identical(_removedVault, vault)) {
+      // Final round 2 (CR Minor D / SA L7): while "set up again" holds its
+      // latch the clear marker is recreateDevice's own 0x00; never write
+      // 0x01 over the new device's.
+      if (identical(_settingUpVault, vault)) return true;
       try {
         await _persist(
           vault,
@@ -290,9 +294,12 @@ extension _Elsewhere on DeviceKeysService {
           PendingUpload.empty.encode(),
         );
       });
+      // Final round 2 (CR Minor D / SA L7): the memory follows the commit
+      // in this body, with no await between, so no marker read sees 0x00
+      // while the memory still says removed. The latch goes with it.
+      _setClear(vault);
+      if (identical(_settingUpVault, vault)) _settingUpVault = null;
     });
-    _setClear(vault);
-    if (identical(_settingUpVault, vault)) _settingUpVault = null;
     _forceRegister = false;
     _successVault = null;
     _lastSuccess = null;

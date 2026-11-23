@@ -99,6 +99,21 @@ void main() {
     rig.reported.clear();
   });
 
+  test('while set up again holds its latch, a run that reads the cleared '
+      'marker does not write 0x01 again (final round 2, CR Minor D / SA '
+      'L7)', () async {
+    await removedElsewhere();
+    expect(rig.service.beginSetUpAgain(), isTrue);
+    // The state between recreateDevice's commit (0x00) and its memory
+    // update: the stored marker is clear, the memory still says removed.
+    rig.file()!.rows[kVaultSettingRemovedElsewhere] = '\u0000';
+
+    rig.advance(_hour);
+    await rig.service.ensureReady();
+
+    expect(rig.setting(kVaultSettingRemovedElsewhere), '\u0000');
+  });
+
   test('a failed marker write is never undone by the next run; that run '
       'writes the marker again', () async {
     rig.world.settingWriteFails.add(kVaultSettingRemovedElsewhere);
