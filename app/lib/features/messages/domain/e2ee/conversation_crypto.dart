@@ -662,7 +662,8 @@ class ConversationCrypto {
     if (_removedElsewhere() || _syncBudget.paused) return false;
     try {
       await _syncBudget.take(priority);
-      return true;
+      // Fix round 1, M5: detection may have come while the take waited.
+      return !_removedElsewhere();
     } on BudgetPaused {
       return false;
     } on StateError {

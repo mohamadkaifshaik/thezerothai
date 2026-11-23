@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_crypto.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/message_receiver.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/sync_budget.dart';
@@ -16,6 +18,24 @@ import '../../../../support/e2ee_pipeline_rig.dart';
 // Task 13 hands them `DeviceKeysService.removedElsewhere`.
 
 const _c1 = '11111111111111111111111111111111';
+
+/// A sync budget whose first take waits for [release].
+class _HeldBudget extends SyncBudget {
+  _HeldBudget(RigClock clock)
+    : super(perMinute: 100000, ownDeviceCount: () => 1, now: clock.now);
+
+  final Completer<void> release = Completer<void>();
+  bool waiting = false;
+
+  @override
+  Future<void> take(BudgetPriority priority, {Object? lane}) async {
+    if (!release.isCompleted) {
+      waiting = true;
+      await release.future;
+    }
+    return super.take(priority, lane: lane);
+  }
+}
 
 void main() {
   late RigCrypto rig;
@@ -85,6 +105,31 @@ void main() {
     expect(await rig.crypto.processWelcomes(), [c2]);
     expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
     expect(rig.server.calls.sublist(calls), isNotEmpty);
+  });
+
+  test('found removed while a sync unit was awaited: the call does not go '
+      'out (fix round 1, M5)', () async {
+    await rig.dispose();
+    late _HeldBudget budget;
+    rig = await RigCrypto.create(
+      syncBudget: (clock) => budget = _HeldBudget(clock),
+    );
+    await rig.accept(_c1);
+    rig.header(_c1, 'ref-bob');
+    await rig.offer(_c1, bob);
+    final calls = rig.server.calls.length;
+
+    final poll = rig.crypto.processWelcomes();
+    for (var i = 0; i < 50 && !budget.waiting; i++) {
+      await Future<void>.delayed(Duration.zero);
+    }
+    expect(budget.waiting, isTrue);
+    // Detection happens while the take waits in the budget's queue.
+    rig.removedElsewhere = true;
+    budget.release.complete();
+
+    expect(await poll, isEmpty);
+    expect(rig.server.calls.sublist(calls), isEmpty);
   });
 
   test('removed elsewhere: attribution reads no device list while a member '
