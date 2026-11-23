@@ -367,9 +367,16 @@ class _Parts {
     }
   }
 
-  static Future<int> _newestIn(SecureVault v, String id) async {
+  /// -1 when nothing is stored. Final round, ruling 2 (code review n1):
+  /// null (no bound: every stored message goes) when the newest row reads
+  /// time 0, which only a damaged sort key gives; a bound of 0 would turn
+  /// the user's delete into "delete nothing". [newestStoredAt] then answers
+  /// null too, so the delete reads it again under the lock.
+  static Future<int?> _newestIn(SecureVault v, String id) async {
     final newest = await v.messages(id, limit: 1);
-    return newest.isEmpty ? -1 : newest.first.createdAtMicros;
+    if (newest.isEmpty) return -1;
+    final at = newest.first.createdAtMicros;
+    return at <= 0 ? null : at;
   }
 
   /// The starter's discard of [conversationId]'s pending init (outside the

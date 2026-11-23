@@ -143,6 +143,25 @@ void main() {
       });
     }
 
+    test('final round ruling 2: a damaged newest row (time 0) never turns '
+        'the delete into "delete nothing"', () async {
+      final v = h.rig.device.vault;
+      await _storeMessage(v, _c1);
+      await _storeMessage(v, _c1, messageId: 'm-2', createdAtMicros: 5);
+      await h.rig.device.db.customStatement(
+        "UPDATE vault_messages SET sort_key = 'zz-damaged' "
+        "WHERE message_id = 'm-2'",
+      );
+      expect((await v.messages(_c1, limit: 1)).single.createdAtMicros, 0);
+      await h.ready();
+
+      final done = h.pipeline.changes.firstWhere((id) => id == _c1);
+      h.pipeline.noteDeleted(_c1);
+      await done;
+
+      expect(await v.messages(_c1), isEmpty);
+    });
+
     test('forgetting the hints (sign-out of the same account) keeps its '
         'deletes', () async {
       final v = h.rig.device.vault;
