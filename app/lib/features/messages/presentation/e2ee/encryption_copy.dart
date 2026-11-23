@@ -485,6 +485,56 @@ const kDeviceRemoveFailedText =
     'conversations. In a conversation, you can still block the person or reset '
     'encryption.';
 
+// With `device_sign_out` on (lane D PR 4, removal design §4; the owner may
+// edit). A REMOTE removal then also signs out every other session.
+
+/// Remove: dialog title naming the device by its added date (the only name a
+/// device has), or this device's generic title without one.
+String deviceRemoveTitleNamed(String? date) =>
+    date == null ? kDeviceRemoveTitle : 'Remove the device added $date?';
+
+/// Remove: dialog message. The design's sentences, then R17's fixed
+/// sentence (the queue needs time to update each conversation).
+const kDeviceRemoveSignOutMessage =
+    'It will stop receiving your encrypted messages. You\'ll also be signed '
+    'out on all your other devices, and they\'ll need to sign in again.\n\n'
+    'Until each conversation has been updated, that device may still receive '
+    'and send messages.';
+
+/// The re-sign-in before a removal: title.
+const kConfirmItsYouTitle = "Confirm it's you";
+
+/// The re-sign-in before a removal: body.
+const kConfirmItsYouBody = 'Sign in again to remove this device.';
+
+/// The re-sign-in before a removal: the button that opens the sign-in.
+const kConfirmItsYouAction = 'Continue';
+
+/// The removal missed the sign-in window and waits: the body of the same
+/// prompt, asked again.
+const kConfirmItsYouAgainBody =
+    'Your sign-in has expired. Sign in again to finish removing this device.';
+
+/// Removed, `other_sessions_ended` false.
+const kDeviceRemovedSessionsKept =
+    'Removed. If this device was lost or stolen, change your password too.';
+
+/// Removed, `other_sessions_ended` true.
+const kDeviceRemovedSessionsEnded =
+    'Removed. Your other devices were signed out.';
+
+/// The removed result: keyed on `other_sessions_ended` when it is known;
+/// null (the port does not pass it on yet, Task 13-ii) keeps the plain text.
+String deviceRemovedText({bool? otherSessionsEnded}) =>
+    switch (otherSessionsEnded) {
+      true => kDeviceRemovedSessionsEnded,
+      false => kDeviceRemovedSessionsKept,
+      null => kDeviceRemovedText,
+    };
+
+/// Device list footer.
+const kDevicesUnrecognisedFooter = "Don't recognise a device? Remove it.";
+
 /// Conversations still to update.
 String removalsPendingText(int n) => n == 1
     ? '1 conversation still to update'

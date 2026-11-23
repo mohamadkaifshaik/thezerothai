@@ -212,4 +212,98 @@ void main() {
     port.removalsPending.value = 5;
     expect(c.state.removalsPending, 0);
   });
+
+  // Ruling 3 (lane D PR 4; removal design §4 "Task 11 queue"): the
+  // re-sign-in comes BEFORE the removal is sent and queued, so the first
+  // REMOTE call goes out inside the server's recent-sign-in window.
+  group('confirm it is you', () {
+    Future<bool> Function() confirm(bool answer) => () async {
+      port.calls.add('confirmItsYou');
+      return answer;
+    };
+
+    test('the re-sign-in runs before the port is called', () async {
+      final c = make();
+      addTearDown(c.close);
+      await c.load();
+      port.calls.clear();
+      final outcome = await c.remove('ref-other', confirmItsYou: confirm(true));
+      expect(outcome, RemoveOutcome.removed);
+      expect(port.calls.take(2), ['confirmItsYou', 'removeDevice']);
+      expect(port.removedDevices, ['ref-other']);
+    });
+
+    test('a declined re-sign-in sends nothing and keeps the list', () async {
+      final c = make();
+      addTearDown(c.close);
+      await c.load();
+      final before = c.state.list;
+      port.calls.clear();
+      final outcome = await c.remove(
+        'ref-other',
+        confirmItsYou: confirm(false),
+      );
+      expect(outcome, RemoveOutcome.cancelled);
+      expect(port.calls, ['confirmItsYou']);
+      expect(port.removedDevices, isEmpty);
+      expect(c.state.removing, isNull);
+      expect(c.state.error, isNull);
+      expect(c.state.list, same(before));
+    });
+
+    test('no spinner while the re-sign-in is open, and a second removal '
+        'is not attempted meanwhile', () async {
+      final c = make();
+      addTearDown(c.close);
+      await c.load();
+      final open = Completer<bool>();
+      final first = c.remove('ref-other', confirmItsYou: () => open.future);
+      await pumpEventQueue();
+      expect(c.state.removing, isNull);
+      expect(await c.remove('ref-other'), RemoveOutcome.notAttempted);
+      expect(port.removedDevices, isEmpty);
+      open.complete(true);
+      expect(await first, RemoveOutcome.removed);
+      expect(port.removedDevices, ['ref-other']);
+    });
+
+    test('a re-sign-in that throws is a cancel, reported', () async {
+      final c = make();
+      addTearDown(c.close);
+      await c.load();
+      final outcome = await c.remove(
+        'ref-other',
+        confirmItsYou: () async => throw StateError('plugin'),
+      );
+      expect(outcome, RemoveOutcome.cancelled);
+      expect(port.removedDevices, isEmpty);
+      expect(reported.single, isA<StateError>());
+    });
+
+    test('REAUTH_REQUIRED from the removal asks again: needsReauth, the '
+        'list kept, no error shown', () async {
+      final c = make();
+      addTearDown(c.close);
+      await c.load();
+      port.failNextOn(
+        'removeDevice',
+        const ReauthRequiredException('Please sign in again.'),
+      );
+      final outcome = await c.remove('ref-other', confirmItsYou: confirm(true));
+      expect(outcome, RemoveOutcome.needsReauth);
+      expect(c.state.removing, isNull);
+      expect(c.state.error, isNull);
+      expect(c.state.list, isNotNull);
+    });
+
+    test('without confirmItsYou (device_sign_out off) the port is called '
+        'directly, as before', () async {
+      final c = make();
+      addTearDown(c.close);
+      await c.load();
+      port.calls.clear();
+      expect(await c.remove('ref-other'), RemoveOutcome.removed);
+      expect(port.calls.first, 'removeDevice');
+    });
+  });
 }
