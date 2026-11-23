@@ -649,7 +649,8 @@ class RemovalQueueRunner {
 
   /// Fix wave 9 (SA L5): the user gives up a removal waiting for a
   /// re-sign-in: its intent goes and its ask clears, with no call; a
-  /// [StateError] with no vault or an unreadable record.
+  /// [StateError] for any other id, while its call is in flight, with no
+  /// vault or an unreadable record (final round 4).
   Future<void> dropRemoval(String deviceId) => _dropRemoval(deviceId);
 
   /// A conversation header or inbox row was taken

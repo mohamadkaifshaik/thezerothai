@@ -542,6 +542,17 @@ extension _RemovalStore on RemovalQueueRunner {
     if (!await _ensureLoaded(vault) || !identical(_loadedFor, vault)) {
       throw StateError('The removal record cannot be read.');
     }
+    // Final round 4 (CR Nit 6): only a removal waiting for a re-sign-in is
+    // given up (an ordinary intent's outcome is unknown, and dropping it
+    // would make wasRemovedByUser false for a device the server may have
+    // removed), and never while its call is in flight.
+    if (!_reauthParked.contains(deviceId) &&
+        !_rebuildReauth.contains(deviceId)) {
+      throw StateError('This removal does not wait for a re-sign-in.');
+    }
+    if (_sending.contains(deviceId)) {
+      throw StateError('This removal is being sent.');
+    }
     final before = _intents.length;
     _intents.removeWhere((i) => i.deviceId == deviceId);
     _unparkReauth(deviceId);

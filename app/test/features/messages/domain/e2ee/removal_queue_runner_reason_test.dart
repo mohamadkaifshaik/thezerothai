@@ -223,6 +223,47 @@ void main() {
       expect(await runner.wasRemovedByUser(sibling.id), isTrue);
     });
 
+    test('dropRemoval refuses an intent that is not waiting for a re-sign-in, '
+        'and one whose call is in flight (final round 4, CR Nit 6)', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await join(_c1, others: [sibling]);
+      await synced();
+      // An ordinary intent: its outcome is unknown, no re-sign-in asked.
+      rig.keys.removeError = const NetworkException('rig: offline');
+      await expectLater(
+        runner.removeDevice(sibling.idString),
+        throwsA(isA<NetworkException>()),
+      );
+      await runner.idle();
+      await expectLater(
+        runner.dropRemoval(sibling.idString),
+        throwsA(isA<StateError>()),
+      );
+      expect((await storedRecord())!.intents, hasLength(1));
+
+      // Parked now; the user signs in again and asks: while that call is
+      // in flight the removal cannot be dropped.
+      rig.keys.removeError = const ReauthRequiredException('rig: sign in');
+      await runner.runPass();
+      await runner.idle();
+      expect(runner.needsReauth.value, isTrue);
+      rig.keys.removeError = null;
+      Object? inFlight;
+      rig.keys.onRemoved = () async {
+        try {
+          await runner.dropRemoval(sibling.idString);
+        } on Object catch (e) {
+          inFlight = e;
+        }
+      };
+      await removeAndSettle(sibling);
+      rig.keys.onRemoved = null;
+
+      expect(inFlight, isA<StateError>());
+      expect(await runner.wasRemovedByUser(sibling.id), isTrue);
+    });
+
     test('a rebuild-path ask survives a later pass that loads a readable '
         'record (fix wave 10, CR Nit 3)', () async {
       final sibling = await RigPeer.create('sibling');
