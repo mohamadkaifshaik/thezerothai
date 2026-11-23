@@ -76,7 +76,25 @@ class SmokeSend {
   bool get stored => status == 200;
 }
 
-/// The device's HTTP client: the platform client, with SendMessage recorded.
+/// One RPC as the wire saw it: the method name, the HTTP status (null while
+/// it runs, or offline) and the `ErrorDetail.reason` of a refusal.
+class SmokeCall {
+  SmokeCall(this.method);
+
+  final String method;
+  int? status;
+  ErrorReason? reason;
+  bool offline = false;
+
+  @override
+  String toString() => offline
+      ? '$method:offline'
+      : '$method:$status${reason == null ? '' : '/${reason!.name}'}';
+}
+
+/// The device's HTTP client: the platform client, with every RPC counted
+/// ([calls]), every SendMessage's request kept ([sends]) and every answer
+/// that is not 200 kept with its reason ([refusals], review I2).
 class SmokeWire {
   SmokeWire() : _inner = createPlatformHttpClient();
 
@@ -87,14 +105,38 @@ class SmokeWire {
   bool sendsOffline = false;
 
   final List<SmokeSend> sends = [];
+  final List<SmokeCall> calls = [];
+
+  /// Every call not answered 200 (offline sends included).
+  Iterable<SmokeCall> get refusals =>
+      calls.where((c) => c.offline || (c.status != null && c.status != 200));
+
+  /// Calls of [methods] from index [from] of [calls] on.
+  Iterable<SmokeCall> callsOf(Set<String> methods, {int from = 0}) =>
+      calls.skip(from).where((c) => methods.contains(c.method));
 
   Future<connect.HttpResponse> call(connect.HttpRequest req) async {
-    if (!req.url.endsWith('/SendMessage')) return _inner(req);
+    final call = SmokeCall(req.url.substring(req.url.lastIndexOf('/') + 1));
+    calls.add(call);
+    if (call.method != 'SendMessage') {
+      final res = await _inner(req);
+      call.status = res.status;
+      if (res.status == 200) return res;
+      final raw = await _bytes(res.body);
+      call.reason = _reasonOf(raw);
+      return connect.HttpResponse(
+        res.status,
+        res.header,
+        Stream.value(raw),
+        res.trailer,
+      );
+    }
     final body = await _bytes(req.body);
     final send = SmokeSend(pb.SendMessageRequest.fromBuffer(body));
     sends.add(send);
     if (sendsOffline) {
       send.offline = true;
+      call.offline = true;
       final header = connect.Headers();
       header['content-type'] = 'application/json';
       return connect.HttpResponse(
@@ -118,9 +160,11 @@ class SmokeWire {
       ),
     );
     send.status = res.status;
+    call.status = res.status;
     if (res.status == 200) return res;
     final raw = await _bytes(res.body);
     send.reason = _reasonOf(raw);
+    call.reason = send.reason;
     return connect.HttpResponse(
       res.status,
       res.header,
@@ -157,7 +201,10 @@ class SmokeWire {
 }
 
 /// The clients' clock: the real time plus an offset every device shares
-/// ("time passes" on the clients; the server keeps the real time).
+/// ("time passes" on the clients; the server keeps the real time). Review
+/// M5: the offset only grows (step 3 moves it on by kDeviceListReuse plus a
+/// minute), so every later step runs with the clients that far ahead of the
+/// server; failure reasons print it.
 class SmokeClock {
   Duration offset = Duration.zero;
   DateTime now() => DateTime.now().add(offset);
@@ -202,13 +249,43 @@ class SmokeAuth {
       }, admin: true);
 
   /// A fresh sign-in: a new ID token whose auth_time is now.
-  Future<({String idToken, String uid})> signIn(String email) async {
+  Future<({String idToken, String refreshToken, String uid})> signIn(
+    String email,
+  ) async {
     final out = await _post('accounts:signInWithPassword?key=fake-api-key', {
       'email': email,
       'password': _password,
       'returnSecureToken': true,
     });
-    return (idToken: '${out['idToken']}', uid: '${out['localId']}');
+    return (
+      idToken: '${out['idToken']}',
+      refreshToken: '${out['refreshToken']}',
+      uid: '${out['localId']}',
+    );
+  }
+
+  /// A token refresh (review M3), as the auth SDK's `getIdToken(true)` does:
+  /// the securetoken endpoint, which keeps the session's auth_time (a
+  /// refresh is not a new sign-in).
+  Future<({String idToken, String refreshToken, String uid})> refresh(
+    String refreshToken,
+  ) async {
+    final res = await _http.post(
+      Uri.parse(
+        'http://$host/securetoken.googleapis.com/v1/token?key=fake-api-key',
+      ),
+      headers: {'content-type': 'application/x-www-form-urlencoded'},
+      body: {'grant_type': 'refresh_token', 'refresh_token': refreshToken},
+    );
+    if (res.statusCode != 200) {
+      throw StateError('Auth emulator token refresh: ${res.statusCode}');
+    }
+    final out = jsonDecode(res.body) as Map<String, dynamic>;
+    return (
+      idToken: '${out['id_token']}',
+      refreshToken: '${out['refresh_token']}',
+      uid: '${out['user_id']}',
+    );
   }
 
   void close() => _http.close();
@@ -238,24 +315,36 @@ class SmokeTokens implements AuthTokenProvider {
   final SmokeAuth _auth;
   final SmokeUser user;
   String? _idToken;
+  String? _refreshToken;
 
   /// SESSION_ENDED reports (none expected: device_sign_out is off).
   int sessionEnded = 0;
 
+  /// A new sign-in (a new auth_time): the device's first, and step 7's
+  /// "recent sign-in" before a REMOTE removal.
   Future<void> signIn() async {
     final out = await _auth.signIn(user.email);
     if (out.uid != user.uid) {
       throw StateError('signed in as another uid than ${user.label}');
     }
     _idToken = out.idToken;
+    _refreshToken = out.refreshToken;
   }
 
   @override
   Future<String?> getIdToken() async => _idToken;
 
+  /// The interceptor's forced refresh: the same session's auth_time.
   @override
   Future<String?> refreshIdToken() async {
-    await signIn();
+    final token = _refreshToken;
+    if (token == null) return _idToken;
+    final out = await _auth.refresh(token);
+    if (out.uid != user.uid) {
+      throw StateError('refreshed as another uid than ${user.label}');
+    }
+    _idToken = out.idToken;
+    _refreshToken = out.refreshToken;
     return _idToken;
   }
 
@@ -594,13 +683,17 @@ class SmokeDevice {
   ];
 
   String describe() {
+    if (_launches == 0) {
+      return '  $name (${user.label}): not launched; not 200: ${wire.refusals.toList()}';
+    }
     final threadLines = [
       for (final t in threads.values)
         '    ${t.conversationId.substring(0, 8)}: ${t.describe()}',
     ];
     return '  $name (${user.label}): running=$_running keys=${deviceKeys.status.value} '
         'started=${_running && pipeline.started} removedElsewhere=${port.removedElsewhere.value} '
-        'sends=${wire.sends.length} reported=$reported\n${threadLines.join('\n')}';
+        'sends=${wire.sends.length} sessionEnded=${tokens.sessionEnded} reported=$reported\n'
+        '    not 200: ${wire.refusals.toList()}\n${threadLines.join('\n')}';
   }
 
   /// Every cache table's rows whose text or bytes hold one of [texts]:
@@ -734,7 +827,10 @@ class SmokeWorld {
     }
   }
 
-  String describe() => [for (final d in devices) d.describe()].join('\n');
+  String describe() => [
+    '  client clock offset: ${clock.offset}',
+    for (final d in devices) d.describe(),
+  ].join('\n');
 
   Future<void> close() async {
     for (final d in devices) {

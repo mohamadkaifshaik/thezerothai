@@ -1,10 +1,15 @@
 import 'dart:convert';
+import 'dart:io' show Process;
+
+import 'package:fixnum/fixnum.dart' show Int64;
 
 import 'package:dzeroth/core/vault/secure_vault.dart';
 import 'package:dzeroth/features/messages/domain/conversation_id.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/commit_runner.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/device_directory.dart'
     show kDeviceListReuse;
+import 'package:dzeroth/features/messages/domain/e2ee/e2ee_types.dart'
+    show E2eeActionException;
 import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/message_content_codec.dart';
 import 'package:dzeroth/features/messages/presentation/report_conversation.dart'
@@ -41,6 +46,9 @@ const _project = String.fromEnvironment(
 );
 const _run = String.fromEnvironment('E2EE_SMOKE_RUN');
 
+/// The opsctl binary the script built (step 10a's takedown).
+const _opsctl = String.fromEnvironment('E2EE_SMOKE_OPSCTL');
+
 void main() {
   group(
     'E2EE smoke: two users, three devices, the real API',
@@ -74,6 +82,8 @@ void _scenario() {
   final shareAb = text('share-ab');
   final firstCd = text('first-cd');
   final shareCd = text('share-cd');
+  final walkOne = text('walk-one');
+  final walkTwo = text('walk-two');
   final all = [
     one,
     two,
@@ -88,6 +98,8 @@ void _scenario() {
     shareAb,
     firstCd,
     shareCd,
+    walkOne,
+    walkTwo,
   ];
 
   void step(
@@ -100,7 +112,21 @@ void _scenario() {
       for (final n in needs) {
         if (!passed.contains(n)) fail('not run: step $n did not pass');
       }
-      await body();
+      try {
+        await body();
+      } on TestFailure catch (e) {
+        // Review I2 / M5: every failure says what the wire refused and how
+        // far the client clock runs ahead.
+        if (e.message?.contains('timed out:') ?? false) rethrow;
+        fail('${e.message}\n${w.describe()}');
+      } on E2eeActionException catch (e) {
+        fail(
+          'E2eeActionException(${e.refusal.name}, cause: ${e.cause.runtimeType})'
+          '\n${w.describe()}',
+        );
+      } on Object catch (e) {
+        fail('$e\n${w.describe()}');
+      }
       passed.add(id);
     }, timeout: const Timeout(Duration(minutes: 8)));
   }
@@ -114,6 +140,17 @@ void _scenario() {
 
   Future<SecurityCode> codeOf(SmokeDevice dev, String id) =>
       dev.port.securityCode(id);
+
+  /// The (generation, epoch) of [dev]'s current stored group of [conv]
+  /// (the highest generation, not provisional).
+  Future<(int, int)> currentPair(SmokeDevice dev) async {
+    final groups = [
+      for (final g in await dev.vault.groups(conv))
+        if (!g.provisional) g,
+    ]..sort((x, y) => y.generation.compareTo(x.generation));
+    if (groups.isEmpty) fail('${dev.name} holds no group');
+    return (groups.first.generation, groups.first.epoch);
+  }
 
   bool counts(SecurityCode s, int mine, int theirs) =>
       s.digits != null && s.myDevices == mine && s.theirDevices == theirs;
@@ -251,6 +288,8 @@ void _scenario() {
       a2 = await start('A2', a);
       // The device lists the others hold are reused for kDeviceListReuse; the
       // clients' time moves past it, so A2 shows up in the next lookups.
+      // Review M5: the offset is never taken back; from here on the
+      // clients run 31 minutes ahead of the server (failures print it).
       w.clock.advance(kDeviceListReuse + const Duration(minutes: 1));
       final ta2 = a2.watch(conv);
 
@@ -356,9 +395,20 @@ void _scenario() {
     ['4'],
     () async {
       final before = b1.wire.sends.length;
+      final a1Before = await currentPair(a1);
       // A1's commit lands; B1 has not seen it (no push reaches B1 here).
       final committed = await a1.pipeline.commits.selfUpdate(conv);
       expect(committed, CommitOutcome.applied);
+      final a1After = await currentPair(a1);
+      // Review M1: the precondition, from the vault pairs. A1 moved one
+      // epoch on; B1 still holds the pair before A1's commit, so its send
+      // below is built on the old epoch.
+      expect(a1After, (a1Before.$1, a1Before.$2 + 1));
+      expect(
+        await currentPair(b1),
+        a1Before,
+        reason: 'precondition: B1 has not caught up with A1\'s commit',
+      );
       final outs = await Future.wait([
         a1.port.send(
           to: ThreadRef.conversation(conv),
@@ -382,6 +432,7 @@ void _scenario() {
             b1.thread(conv).showsOnce(fiveB, mine: true) &&
             a1.thread(conv).showsOnce(fiveB, mine: false) &&
             a2.thread(conv).showsOnce(fiveB, mine: false) &&
+            a2.thread(conv).showsOnce(fiveA, mine: true) &&
             b1.thread(conv).showsOnce(fiveA, mine: false),
         nudge: () async {
           a1.push(conv);
@@ -402,6 +453,12 @@ void _scenario() {
         (await a1.storedWithText(conv, fiveB)).length,
         1,
         reason: 'the loser\'s message arrives once',
+      );
+      final stored = (await a1.storedWithText(conv, fiveB)).single;
+      expect(
+        (stored.generation, stored.epoch),
+        a1After,
+        reason: 'the loser re-encrypted at the epoch of A1\'s commit',
       );
     },
   );
@@ -485,6 +542,7 @@ void _scenario() {
       ];
       expect(others, hasLength(1), reason: 'A1 lists A2');
       final a2SendsBefore = a2.wire.sends.length;
+      final a2CallsBefore = a2.wire.calls.length;
       await a1.port.removeDevice(others.single.ref);
 
       await w.eventually(
@@ -517,6 +575,38 @@ void _scenario() {
         () async => a2.port.removedElsewhere.value,
         nudge: () => a2.port.retryDeviceSetup(),
       );
+      // Review M2: from here A2 makes no write of any kind. The detection
+      // itself was a refused RegisterKeyDevice or UploadKeyPackages
+      // (DEVICE_REMOVED), and nothing A2 wrote after the removal was stored.
+      final a2Detected = a2.wire.calls.length;
+      const writes = {
+        'SendMessage',
+        'CommitConversation',
+        'UploadKeyPackages',
+        'RegisterKeyDevice',
+        'AckWelcomes',
+      };
+      expect(
+        a2.wire
+            .callsOf({
+              'RegisterKeyDevice',
+              'UploadKeyPackages',
+            }, from: a2CallsBefore)
+            .where((c) => c.reason == ErrorReason.ERROR_REASON_DEVICE_REMOVED),
+        isNotEmpty,
+        reason: 'A2 learned of its removal from DEVICE_REMOVED',
+      );
+      expect(
+        a2.wire
+            .callsOf({
+              'SendMessage',
+              'CommitConversation',
+              'UploadKeyPackages',
+            }, from: a2CallsBefore)
+            .where((c) => c.status == 200),
+        isEmpty,
+        reason: 'nothing A2 wrote after the removal was stored',
+      );
       try {
         await a2.port.send(
           to: ThreadRef.conversation(conv),
@@ -540,6 +630,11 @@ void _scenario() {
         a2SendsBefore,
         reason: 'A2 sends nothing after its removal',
       );
+      expect(
+        a2.wire.callsOf(writes, from: a2Detected).toList(),
+        isEmpty,
+        reason: 'A2 makes no write once it knows it was removed',
+      );
       expect(b1.thread(conv).withText(seven), isEmpty);
       expect(a1.thread(conv).withText(seven), isEmpty);
       expect(a2.tokens.sessionEnded, 0, reason: 'device_sign_out is off');
@@ -551,6 +646,20 @@ void _scenario() {
     'B1 resets: generation 2 on both, one reset row each',
     ['7'],
     () async {
+      // Fix round ruling 1: the port offers a reset only when the state
+      // does (`canReset`: stuck, waiting 24 h for a welcome, or the M5
+      // pause; conversation_describe.dart, group_starter_reset.dart:87-94).
+      // A healthy conversation is refused `unavailable` by design. Checked
+      // first so a failure names the precondition, not the refusal.
+      final security = b1.thread(conv).latest?.security;
+      expect(
+        security?.canReset,
+        isTrue,
+        reason:
+            'precondition: B1 is offered a reset (state '
+            '${security?.state.name}); the plan\'s reset of a healthy '
+            'conversation is refused by the port by design',
+      );
       await b1.port.resetConversation(conv);
       bool hasGen2(List<GroupRecord> groups) =>
           groups.any((g) => g.generation == 2);
@@ -598,6 +707,15 @@ void _scenario() {
         },
       );
       expect((await a1.storedWithText(conv, eightB)).single.generation, 2);
+      // Review M6: both directions, and generation 1 kept on both.
+      expect((await b1.storedWithText(conv, eightA)).single.generation, 2);
+      for (final dev in [a1, b1]) {
+        expect(
+          (await dev.storedWithText(conv, one)).single.generation,
+          1,
+          reason: '${dev.name} keeps "one" of generation 1',
+        );
+      }
       expect(a1.thread(conv).showsOnce(one, mine: true), isTrue);
       expect(b1.thread(conv).showsOnce(one, mine: false), isTrue);
       expect(resets(a1), 1);
@@ -720,5 +838,128 @@ void _scenario() {
       hits.addAll(await dev.cacheHits(all));
     }
     expect(hits, isEmpty, reason: 'plaintext in the cache database');
+    // Review M3: no device's session was ended (device_sign_out is off, and
+    // token refreshes keep their session's auth_time).
+    expect(
+      {for (final dev in launched) dev.name: dev.tokens.sessionEnded},
+      {for (final dev in launched) dev.name: 0},
+    );
+  });
+
+  // Fix round ruling 4: receive-walks Part D, the server contract the
+  // receive walks rest on, checked against the local API with B1's real
+  // ApiClient: (1) a CREATED_AT listing answers order CREATED_AT; (2) its
+  // last page carries a resume_page_token; (3) a message stored after the
+  // listing is returned from that token; (4) ListMessageTombstones lists a
+  // fresh takedown (`opsctl messages takedown`, the operators' tool, against
+  // the Firestore emulator).
+  step('10a', 'receive-walk contract (receive-walks Part D)', ['1'], () async {
+    final api = b1.api.messaging;
+    Future<void> sendAndWait(String t) async {
+      final out = await a1.port.send(
+        to: ThreadRef.conversation(conv),
+        localId: SmokeWorld.newKey(),
+        text: t,
+      );
+      expect(out.kind, SendOutcomeKind.queued);
+      await w.eventually(
+        'A1 delivered a walk message',
+        () async => a1.thread(conv).showsOnce(t, mine: true),
+      );
+    }
+
+    // A message at the current pair, so the listing below is not empty.
+    await sendAndWait(walkOne);
+    final first = (await a1.storedWithText(conv, walkOne)).single;
+    final pair = (first.generation, first.epoch);
+
+    pb.ListEpochMessagesRequest request(String token) =>
+        pb.ListEpochMessagesRequest(
+          conversationId: conv,
+          mlsGeneration: Int64(pair.$1),
+          mlsEpoch: Int64(pair.$2),
+          pageSize: 50,
+          pageToken: token,
+          order: EpochMessageOrder.EPOCH_MESSAGE_ORDER_CREATED_AT,
+        );
+    Future<(List<String>, String)> walk(String from) async {
+      final ids = <String>[];
+      var page = await api.listEpochMessages(request(from));
+      for (var i = 0; ; i++) {
+        expect(
+          page.order,
+          EpochMessageOrder.EPOCH_MESSAGE_ORDER_CREATED_AT,
+          reason: 'Part D (1): every page is served in CREATED_AT order',
+        );
+        ids.addAll([for (final m in page.messages) m.id]);
+        if (page.nextPageToken.isEmpty) break;
+        if (i >= 20) fail('the listing did not end in 20 pages');
+        page = await api.listEpochMessages(request(page.nextPageToken));
+      }
+      return (ids, page.resumePageToken);
+    }
+
+    final (listed, resume) = await walk('');
+    expect(listed, contains(first.messageId));
+    expect(
+      resume,
+      isNotEmpty,
+      reason: 'Part D (2): the last page carries a resume_page_token',
+    );
+
+    await sendAndWait(walkTwo);
+    final later = (await a1.storedWithText(conv, walkTwo)).single;
+    expect(
+      (later.generation, later.epoch),
+      pair,
+      reason: 'precondition: the later message is at the listed pair',
+    );
+    final (resumed, _) = await walk(resume);
+    expect(
+      resumed,
+      contains(later.messageId),
+      reason:
+          'Part D (3): a message stored after the listing comes back '
+          'from the resume token',
+    );
+
+    expect(
+      _opsctl,
+      isNotEmpty,
+      reason: 'E2EE_SMOKE_OPSCTL is empty: scripts/e2ee-smoke.sh builds it',
+    );
+    final takedown = await Process.run(_opsctl, [
+      'messages',
+      'takedown',
+      '$conv:${later.messageId}',
+      '--project',
+      _project,
+    ]);
+    expect(
+      takedown.exitCode,
+      0,
+      reason: 'opsctl messages takedown: ${takedown.stderr}',
+    );
+    final tombstones = <String, MessageState>{};
+    var token = '';
+    for (var i = 0; i < 20; i++) {
+      final page = await api.listMessageTombstones(
+        pb.ListMessageTombstonesRequest(
+          conversationId: conv,
+          pageSize: 100,
+          pageToken: token,
+        ),
+      );
+      for (final t in page.tombstones) {
+        tombstones[t.id] = t.state;
+      }
+      token = page.nextPageToken;
+      if (token.isEmpty) break;
+    }
+    expect(
+      tombstones[later.messageId],
+      MessageState.MESSAGE_STATE_REMOVED,
+      reason: 'Part D (4): ListMessageTombstones lists the fresh takedown',
+    );
   });
 }
