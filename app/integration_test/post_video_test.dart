@@ -4,6 +4,11 @@ import 'package:crypto/crypto.dart';
 import 'package:dzeroth/features/media/data/video_source.dart';
 import 'package:dzeroth/features/media/domain/image_processor.dart';
 import 'package:dzeroth/features/media/domain/processing_cancellation.dart';
+import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
+import 'package:dzeroth/shared/widgets/post/post_media.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:material_ui/material_ui.dart';
+import 'package:video_player/video_player.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:integration_test/integration_test.dart';
@@ -45,4 +50,43 @@ void main() {
       expect(clip.thumbMd5, base64Encode(md5.convert(clip.thumbBytes).bytes));
     });
   });
+
+  testWidgets('a tap on the feed poster plays the published MP4 inline', (
+    tester,
+  ) async {
+    const port = int.fromEnvironment('MLS_VECTORS_PORT', defaultValue: 8089);
+    var openedPost = false;
+    final clip = common.MediaRef(
+      url: 'http://127.0.0.1:$port/feed-clip.mp4',
+      width: 64,
+      height: 48,
+      contentType: 'video/mp4',
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: InkWell(
+            onTap: () => openedPost = true,
+            child: PostMedia(media: [clip]),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final poster = find.byTooltip('Play video');
+    expect(find.byType(VideoPlayer), findsNothing);
+    await tester.tapAt(tester.getTopLeft(poster) + const Offset(20, 20));
+    final until = DateTime.now().add(const Duration(seconds: 15));
+    VideoPlayerController? controller;
+    while (DateTime.now().isBefore(until)) {
+      await tester.pump(const Duration(milliseconds: 100));
+      final player = find.byType(VideoPlayer);
+      if (player.evaluate().isEmpty) continue;
+      controller = tester.widget<VideoPlayer>(player).controller;
+      if (controller.value.position > Duration.zero) break;
+    }
+    expect(openedPost, isFalse);
+    expect(controller?.dataSource, clip.url);
+    expect(controller!.value.position, greaterThan(Duration.zero));
+  }, skip: !kIsWeb);
 }
