@@ -8,7 +8,7 @@ import 'package:dzeroth/features/keys/domain/device_keys_service.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/e2ee_types.dart'
     show OutgoingStatus5a;
 import 'package:dzeroth/features/messages/domain/e2ee/group_starter.dart'
-    show kInitResendMargin;
+    show InitDiscard, kInitResendMargin;
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/keys/v1/keys.pb.dart' as kpb;
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
@@ -506,6 +506,11 @@ void main() {
     expect((await v.group(_c1, 1))!.provisional, isTrue);
     expect((await v.outbox()).items.single.init, isNotNull);
     expect(h.pipeline.notedCount, 0, reason: 'decided: nothing owed');
+    // Task 13b ruling 4 (optional item 5 of 13-ii): the answer the delete
+    // got, asked again: still held, nothing changed.
+    expect(await h.pipeline.starter.discardInit(_c1), InitDiscard.held);
+    expect((await v.group(_c1, 1))!.provisional, isTrue);
+    expect((await v.outbox()).items.single.init, isNotNull);
   });
 
   test('I3: a push and an open during the start window run after the '
