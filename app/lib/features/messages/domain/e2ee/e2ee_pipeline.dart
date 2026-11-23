@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import '../../../../core/crypto/crypto_engine.dart';
 import '../../../../core/crypto/guarded_crypto_engine.dart';
 import '../../../../core/crypto/mls_pair.dart';
+import '../../../../core/session/session_end.dart';
 import '../../../../core/vault/secure_vault.dart';
 import '../../../../core/vault/vault_session.dart';
 import '../../../../core/vault/vault_status.dart';
@@ -429,9 +430,10 @@ class E2eePipeline {
       return;
     }
     // Sign-out, a user change, a lost lock: everything this run remembered
-    // goes (gate items 41, 42).
+    // goes (gate items 41, 42). The reason is not known here, so deletes
+    // stay (bootstrap's end-of-session call drops them for an explicit end).
     _teardown();
-    forgetNotes();
+    forgetNotes(SessionEnd.sessionLost);
   }
 
   void _teardown() {
@@ -446,11 +448,21 @@ class E2eePipeline {
     parts.dispose();
   }
 
-  /// Drops the remembered hints (sign-out; bootstrap may call it for a
-  /// session that never had a vault). Remembered DELETES are kept (review
-  /// I2, controller ruling 2): a delete-for-me the user made is never lost
-  /// to a sign-out of the same account; it is dropped only once made.
-  void forgetNotes() {
+  /// Drops the remembered hints (sign-out; bootstrap calls it at every end
+  /// of a session, with its [end]). For [SessionEnd.sessionLost] (the vault
+  /// is kept) remembered DELETES and owed discards are kept (review I2,
+  /// controller ruling 2): a delete-for-me the user made is never lost to a
+  /// lost session of the same account; it is dropped only once made.
+  ///
+  /// Fix wave ruling 7 (security audit L4): an explicit end
+  /// ([SessionEnd.userSignedOut], [SessionEnd.accountDeleted]) wipes the
+  /// vault they target, so they are dropped with the account tag: no
+  /// conversation id of that account stays in memory.
+  void forgetNotes(SessionEnd end) {
+    if (end != SessionEnd.sessionLost) {
+      _dropAllNotes();
+      return;
+    }
     _notedEncrypted.clear();
     _notedAccepted.clear();
     _notedPushes.clear();
@@ -646,7 +658,7 @@ class E2eePipeline {
     unawaited(_changed?.cancel());
     _changed = null;
     _teardown();
-    forgetNotes();
+    forgetNotes(SessionEnd.sessionLost);
     unawaited(_changes.close());
   }
 

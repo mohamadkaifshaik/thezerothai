@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:dzeroth/core/network/app_exception.dart';
+import 'package:dzeroth/core/session/session_end.dart';
 import 'package:dzeroth/core/vault/secure_vault.dart';
 import 'package:dzeroth/features/keys/domain/device_keys_service.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/group_starter.dart'
@@ -129,6 +130,17 @@ void main() {
       expect((await v.messages(_c1)).map((m) => m.messageId), ['m-2']);
     });
 
+    for (final end in [SessionEnd.userSignedOut, SessionEnd.accountDeleted]) {
+      test('SA L4: an explicit end ($end, the vault is wiped) drops the '
+          'remembered deletes and owed discards too', () async {
+        h.pipeline
+          ..noteDeleted(_c1)
+          ..noteEncrypted(_c2)
+          ..forgetNotes(end);
+        expect(h.pipeline.notedCount, 0);
+      });
+    }
+
     test('forgetting the hints (sign-out of the same account) keeps its '
         'deletes', () async {
       final v = h.rig.device.vault;
@@ -136,7 +148,7 @@ void main() {
       h.pipeline
         ..noteDeleted(_c1)
         ..noteEncrypted(_c2)
-        ..forgetNotes();
+        ..forgetNotes(SessionEnd.sessionLost);
       expect(h.pipeline.notedCount, 1);
 
       await h.ready();

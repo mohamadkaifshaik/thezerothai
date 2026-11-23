@@ -70,8 +70,8 @@ final _required = <String, RegExp>{
   'publicIdsOff: () => publicIdsKnownOff(...) (in E2eePipeline)': RegExp(
     r'E2eePipeline\([^;]*?\bpublicIdsOff:\s*\(\)\s*=>\s*publicIdsKnownOff\(',
   ),
-  'onSignedOut: () => e2eePipeline?.forgetNotes()': RegExp(
-    r'onSignedOut:\s*\(\)\s*=>\s*e2eePipeline\?\.forgetNotes\(\)',
+  'onSessionEnd: (end) => e2eePipeline?.forgetNotes(end)': RegExp(
+    r'onSessionEnd:\s*\((\w+)\)\s*=>\s*e2eePipeline\?\.forgetNotes\(\s*\1\s*\)',
   ),
 };
 
@@ -172,11 +172,12 @@ void main() {
       expect(
         missingE2eeWiring(
           source.replaceFirst(
-            'onSignedOut: () => e2eePipeline?.forgetNotes(),',
-            '',
+            'onSessionEnd: (end) => e2eePipeline?.forgetNotes(end),',
+            'onSessionEnd: (end) => '
+                'e2eePipeline?.forgetNotes(SessionEnd.sessionLost),',
           ),
         ),
-        ['onSignedOut: () => e2eePipeline?.forgetNotes()'],
+        ['onSessionEnd: (end) => e2eePipeline?.forgetNotes(end)'],
       );
     });
   });

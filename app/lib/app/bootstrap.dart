@@ -699,8 +699,9 @@ Future<void> bootstrap() async {
     readE2eeFlag: readE2eeFlag,
     // Hints remembered for a session that never had a ready vault are
     // dropped here (a closing ready vault drops its own); remembered deletes
-    // and owed discards are kept, tagged with their account.
-    onSignedOut: () => e2eePipeline?.forgetNotes(),
+    // and owed discards are kept, tagged with their account, only for a
+    // lost session (fix wave ruling 7: an explicit end wipes their vault).
+    onSessionEnd: (end) => e2eePipeline?.forgetNotes(end),
   );
 
   runApp(

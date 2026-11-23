@@ -247,6 +247,32 @@ void main() {
       });
     }
 
+    test('fix wave ruling 7: onSessionEnd gets the same end the vault gets '
+        '(the reason at a sign-out; a lost session at a switch)', () async {
+      final ends = <SessionEnd>[];
+      subscription = wireAuthSession(
+        authStates: auth.stream,
+        onboardingBloc: onboarding,
+        database: database,
+        timelineRepository: _MockTimeline(),
+        onSessionEnd: ends.add,
+        onUnexpectedError: (e, s) => log.add('error:$e'),
+        vaultSession: vault,
+        readE2eeFlag: () => E2eeFlag.on,
+      );
+      auth.add(signedIn('a'));
+      await settle();
+      auth.add(ended(SessionEnd.userSignedOut));
+      await settle();
+      auth.add(signedIn('a'));
+      await settle();
+      auth.add(
+        signedIn('b').copyWith(lastSessionEnd: SessionEnd.accountDeleted),
+      );
+      await settle();
+      expect(ends, [SessionEnd.userSignedOut, SessionEnd.sessionLost]);
+    });
+
     test('a state without a reason (older emitter) is a lost session: '
         'nothing wiped', () async {
       wireVault();
