@@ -126,7 +126,9 @@ type backends struct {
 	publicIDBackfill identity.PublicIDBackfillStore
 	// publicIDLookup serves public-id: identity's repo reads of users/{uid} and publicIds/{id} (read-only).
 	publicIDLookup publicIDStore
-	close          func()
+	// sessionCuts serves `identity sessions clear-cut`: identity's field-level delete of users/{uid}.sessionsValidAfter.
+	sessionCuts sessionCutClearer
+	close       func()
 }
 
 type opener func(ctx context.Context, project string) (*backends, error)
@@ -235,6 +237,7 @@ func openFirestore(ctx context.Context, project string) (*backends, error) {
 		communityNameKeys: communitiesRepo,
 		publicIDBackfill:  identityRepo,
 		publicIDLookup:    identityRepo,
+		sessionCuts:       identityRepo,
 		close:             func() { _ = client.Close() },
 	}, nil
 }
@@ -255,7 +258,7 @@ const usage = `usage:
   opsctl media-orphan-sweep --project P --profile-retire off|all [--dry-run]   (drains the daily orphan sweep's
                           backlog in delete mode whatever MEDIA_ORPHAN_SWEEP says; --profile-retire has no default and the
                           shell's PROFILE_MEDIA_RETIRE is not read; --dry-run computes one page and writes nothing)
-` + backfillPublicIDsUsage + publicIDUsage + recountSharesUsage + recountListFollowsUsage + recountChildrenUsage + recountChildrenBulkUsage + nameKeysUsage + modUsage + trendsUsage + listsUsage + beaconUsage + communityUsage + communityHiddenUsage
+` + backfillPublicIDsUsage + publicIDUsage + recountSharesUsage + recountListFollowsUsage + recountChildrenUsage + recountChildrenBulkUsage + nameKeysUsage + modUsage + trendsUsage + listsUsage + beaconUsage + communityUsage + communityHiddenUsage + identitySessionsUsage
 
 // run returns the process exit code: 0 ok, 1 runtime failure, 2 usage error.
 func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer, open opener, now func() time.Time) int {
@@ -264,6 +267,10 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		return 2
 	}
 	cmd, rest := args[0], args[1:]
+	if cmd == "identity" {
+		// `opsctl identity sessions clear-cut --project P --user U`: its own flags, validated before anything is opened.
+		return identityCommand(ctx, rest, in, out, errOut, open, now)
+	}
 	fs := flag.NewFlagSet(cmd, flag.ContinueOnError)
 	fs.SetOutput(errOut)
 	project := fs.String("project", "", "GCP project id (required)")
