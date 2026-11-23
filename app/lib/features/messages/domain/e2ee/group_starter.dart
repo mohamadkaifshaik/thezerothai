@@ -380,7 +380,10 @@ class GroupStarter {
   /// nothing.
   int _runSerial = 0;
 
-  /// How many times [reset] ran (Task 13's sign-out test).
+  /// How many times [reset] ran (Task 13's sign-out test). Review n3: this
+  /// reads [_runSerial], which ONLY [reset] bumps today. If anything else
+  /// ever bumps it, give this getter its own counter, or the sign-out test
+  /// passes without a reset.
   @visibleForTesting
   int get resets => _runSerial;
 
