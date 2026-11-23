@@ -214,6 +214,9 @@ class SearchQuery {
   @override
   int get hashCode => Object.hash(kind, body, issue);
 
+  /// The kind and the issue only, never the typed text (plan 5a Task 15,
+  /// security read L7): a printed query can reach a log. Pinned by
+  /// `test/guards/pipeline_guard_test.dart`.
   @override
-  String toString() => 'SearchQuery($kind, "$body", $issue)';
+  String toString() => 'SearchQuery(${kind.name}, ${issue.name})';
 }

@@ -310,7 +310,8 @@ secret-named values (in the vault and keys code, `app/lib/core/crypto/` without 
 `DecodedContent`, `PendingCommit`, `MemberRecord`, `ConversationSync`, `ConversationRecord`, `SystemLineContent` and
 `RemovalQueue*` define none); no `setUint64`, `getUint64`, `setInt64` or `getInt64` under `app/lib/` outside the
 generated code (a web `int` is a double); the schema version (2) and the ten tables; no app code assigns the vault's
-`debug*` test hooks; and the three flag-off inertness tests by name. The accepted
+`debug*` test hooks; and the four flag-off inertness tests by name (the fourth is the pipeline's). The rules for
+the message pipeline are listed under "Message pipeline" below. The accepted
 web storages (and the refusal of `inMemory` and `unsafeIndexedDb`) are pinned by `app/test/core/vault/vault_open_test.dart`.
 
 **Durability on the web.** No vault transaction is durable at the instant `transaction()` returns (on IndexedDB,
@@ -325,6 +326,180 @@ otherwise). The 2.35.0 worker lost writes made in transactions; see `app/web/DRI
 **Not yet proven:** iOS (no binding); Firefox and Safari; Safari storage eviction; StrongBox on a device that has it;
 the Android 13+ branch of the key-loss classification; durability across an OS crash or power loss on the web (the
 browser's default IndexedDB durability applies to the database file).
+
+## Message pipeline
+
+The pipeline (`app/lib/features/messages/domain/e2ee/`, Plan 5a) joins conversations, applies commits, decrypts,
+sends and keeps membership up to date. Screens reach it only through the port `EncryptedMessaging`
+(`encrypted_messaging.dart`). The server is treated as the adversary: a device trusts what it pinned in its own vault.
+
+**Lock order.** One rule for every part:
+
+1. The conversation lock first (`ConversationLocks`, one `KeyedMutex` keyed by conversation id).
+2. Then `VaultSession.runWrite` inside it. Never the reverse.
+3. Inside one `runWrite` body: read the device state fresh, make the engine call, and write the result in ONE
+   `vault.transaction`.
+
+Never hold two conversation locks at once; a pass over many conversations takes them one at a time. RPCs run under
+the conversation lock and outside `runWrite`. `KeyedMutex` is not re-entrant (a release build deadlocks), so code that
+holds a conversation's lock calls only the `...Locked` variants for it. Nothing that opens its own `runWrite` or
+transaction (`DailyLedger`, `DeviceKeysService`) is called from inside a `runWrite` body. The welcome list call takes
+no lock; each welcome takes its own conversation's lock. `EncryptedSender.enqueue` takes no conversation lock, so a new
+message never waits behind a send in flight.
+
+**Engine results stay in their body.** An engine result is never carried out of the `runWrite` body it was computed
+in: the device state is shared by every conversation, and a join rewrites it. No guard can check this; every PR's
+review checklist does.
+
+**The stages of an outgoing row.**
+
+1. `plain`: the text is saved in the vault's outbox (sealed, not yet MLS-encrypted) under the caller's local id. The
+   content bytes and the report key are fixed once, here.
+2. The row is encrypted only when every gate holds: the pipeline is usable, the group is ready and not provisional, no
+   own commit is pending, the conversation synced since the start (commits applied to the server's pair and one live
+   pull done), no member is unattributed, the epoch need not advance, a reply is allowed, and the request is accepted.
+   Otherwise it waits, and the port says why.
+3. `encrypted`: the group state after `encrypt`, the row (ciphertext, a new idempotency key, its expected message id)
+   and the sent digest are saved in one transaction. Every ciphertext gets a key made for it; the key a plain row was
+   stored with is never sent.
+4. `confirmStored`, then the send. An unknown outcome resends the identical request once, then the row waits and is
+   resent byte for byte at the next trigger. A refusal fails the row and keeps its bytes.
+5. Sent: one transaction stores the message (with the server's id) and deletes the row.
+
+A stage-`encrypted` row goes back to `plain` only after a `STALE_EPOCH` whose catch-up moved this device's pair. Rows
+are sent in order; a failed head row holds the ones behind it. The first message of a provisional group carries an
+`init` and belongs to the group starter.
+
+**What is kept where.**
+
+- Vault tables: group states per generation and the pending commit record (`vault_group_states`); the after-pair and
+  join marks (`vault_conversations`); the sync record (`ConversationSync`); pinned members (`vault_members`); sent
+  digests of the current epoch (`vault_sent`); outgoing rows (`vault_outbox`); decrypted messages.
+- Sealed vault settings (no schema change): the daily counters (`messages.e2ee.daily`), former pins, first-join
+  baselines, the device key history (one setting per conversation, whose key holds the conversation id in clear),
+  welcome clock-skew retries, the known conversations with their peer refs (`messages.e2ee.known`), the removal queue,
+  "registered once", "removed elsewhere" and an unconfirmed key-package batch.
+- The plaintext cache database keeps the server's rows as they came (an encrypted message's row carries its
+  `encrypted` marker, not its text) and one pipeline record: the set of conversation ids ever seen encrypted, whose
+  conversation rows are shown with the marker set and an empty snippet. No code writes decrypted text into it; the
+  guards below check the `pb.Message` paths that could.
+- Memory only: device lists and fetch times, budgets, "synced since start", and the removal and warning clocks. After a
+  restart a clock starts again, so a removal or a warning comes later, never earlier.
+- Decrypted text lives only in the vault and in memory. It never reaches the cache, a log, a URL, a route or a
+  `toString`.
+
+**The web barrier (Task 7): a stated limit.** R7 asks that, on the web, the stage-`encrypted` write is confirmed
+through a second, independent connection before the network call. drift 2.35.4 cannot do this. Its worker protocol has
+no read-only mode. A second worker for a `sharedIndexedDb` vault could only open it as `unsafeIndexedDb`. An
+`opfsShared` file is held by an exclusive access handle. So `confirmStored` is a same-connection check of the row's
+stage, and persistence before send is not proven on the web. Android has a durable commit when the transaction
+returns. A later route (a read-only open in the repo's own drift worker) is possible and needs the owner's approval.
+
+**Stated limits of R7 (own messages).** The core's own-leaf result is not authenticated. A server, alone or with the
+peer, can make a device take a message for a lost send of its own. The device then sends nothing in that conversation
+until a commit advances the epoch; it makes at most one self-update of its own per conversation per day. After that it
+cannot send there until any commit or the next day. Accepted: the server can already drop every message.
+
+**Stated limits of R17 (device removal).** Until each conversation has committed the removal, a removed device may
+still receive and send messages there. With more than about 400 conversations the removal queue takes more than a day
+(500 commit calls per user per day, shared by all own devices). In a blocked conversation or an unaccepted request the
+removed device stays a member. "Removed elsewhere" rests on the server's answer (two consecutive successful answers
+that miss this device): a lying server can make a device stop. Nothing is deleted until the user chooses.
+
+**Limits the security read accepted for the pilot.**
+
+- L4: a message from an unattributed member is drawn on the peer's side while the unknown-device notice shows.
+- L7: an own device is removed on one list answer.
+- M6: the server's `cleared_at` and message states are not authenticated, so they can remove local copies.
+- M11: a ghost device that the server keeps listing and refuses to remove stays a member.
+- N7 (owner approved 2026-11-20): the boundary of M12 and the earlier plaintext rows carry times the server chose. So
+  a backdated plaintext message in a conversation known as encrypted can be cached and drawn above the separator,
+  labelled "not end-to-end encrypted".
+- R4 (owner approved 2026-11-20): a vault that stays `unavailable` blocks every send on this device, plaintext
+  included, for as long as it stays so. The only exit is then sign-out, which deletes the encrypted messages on this
+  device. 5b names it after 24 hours.
+- A recipient with no cached row and no stored ref of the same id kind is not caught by R1's check. The server's
+  ENCRYPTION_REQUIRED is the only backstop.
+- `opening` has no deadline on Android, because the Keystore cipher open is unbounded.
+
+**Stated limits and records from Task 13 (#1103).**
+
+- Every signed-in Android or web user now gets one unblock and one known-marker read per resume, throttled.
+- Turning `e2ee_dm` off does not stop the pipeline on a device that already has a vault. The rollback lever is the
+  server's global-off (runbook).
+- A web vault in `keyLost` or `heldElsewhere` still gets one automatic retry per minute.
+- A delete that lands between a resume's rebuild decision and the rebuild can be resent, but only after a restart. The
+  window is milliseconds wide.
+- A device clock moved back can make a later start's row look older than the delete. That row is then discarded but
+  stays visible as failed.
+- A device stuck in `failed(retryable: false)` receives nothing until it is set up again.
+
+**Key packages under a hostile server (Task 14 audit M1, code M-3).** There is no core prune of key packages yet (an
+open question of the plan). A server that keeps answering "too few packages" or "no last-resort package" makes a
+device publish about 4 batches per IST day: about 204 packages, at most 228 (each `!hasLastResort` answer can add one
+counted package even at the cap, about 24 a day). The daily cap is never reset by a clock moved back; a clock set
+back a day keeps the forward day's count (fail closed, like `DailyLedger`). The other way round, about 10 accounts
+starting conversations can drain a device's one-time pool in a day, leaving only the last-resort package until the
+next IST day.
+
+**Other accepted limits.**
+
+- Task 11 follow-up: removed device ids are remembered 30 days on the client and 90 days on the server. A device that
+  comes back under a new id is stopped only by the session cut. While the removal queue cannot be read, each pass
+  makes one extra `ListMyKeyDevices` call.
+- Task 11 L5: the 30-day limits are measured with the device clock.
+- Task 9 L4: the `GetKeyDevices` answer is trusted to list every registered device (the K5 limit; closing it needs a
+  contract field).
+- Task 8 gate 11: "sent" and a readable empty device list are the server's word, and the report commitment is shared
+  (Task 8 audit L10).
+- Pre-flag L-a: the init-discard margin lives in memory only. After a restart, a discard of a row an earlier run sent
+  is held until one margin after the new run began (pre-flag fix 2), not one margin after that call's start.
+
+**What the guards check** (`app/test/guards/vault_guard_test.dart` and `app/test/guards/pipeline_guard_test.dart`;
+every rule has a planted-violation self-test, except the meta-test that checks the flag-off inertness tests still
+exist. Each rule covers a directory (the pipeline's, or all hand-written `lib/`), so a new file is checked without a
+list change. These are text scans of the source, so they cover the spellings below, not every way Dart can write
+them):
+
+- No print, log or report names a secret: the names also include `text`, `sharedPostId`, `conversationId`,
+  `messageId`, `deviceId`, `peerUserId`, `signatureKey` and `keyPackage`, in the vault, keys, crypto and pipeline
+  code, the encrypted presentation, message search and `lib/app/e2ee_wiring.dart`. Sinks: the error reporters
+  (`_report...`, `report...Error`, the injected `onUnexpectedError`), `dart:developer`'s `log`, any logger
+  (`package:logging`, `package:logger`, `Logger.root`, a local `Logger`), `FlutterError.reportError` and
+  Crashlytics.
+- Errors and reports carry fixed names only: the error callback receives only `E2eePipelineError`, also when it is
+  called on a receiver; the step names forwarded into it, and the callback's one alias, are pinned. Each report
+  helper's argument is checked against the helper's declared parameter in that position: a step literal for a
+  `String`, the caught error's name for an `Object`, the stack's name for a `StackTrace`.
+- Error constructors in the pipeline (`...Error(` / `...Exception(`, bare ones included) take only fixed arguments:
+  a string literal with no `$` and no `+`, an expression ending in `.length`, a number, `null`, `true`, `false`, or a
+  value of an enum declared in `lib/` (another type's static field is refused). A `throw`, `completeError`,
+  `addError` or `Future.error` must start with a constructor call whose arguments follow the same rule (or be
+  `rethrow`); the stack passed after it must be a stack name. Allowed by name, each with a reason in the guard: the
+  coordinator's step name, two codec texts that interpolate constants, the reset refusal's typed cause, the commit
+  limit's name, the reset's rethrow of its own typed refusal, and the receive walk's field-less pending signal.
+- Every `toString` in the vault layer and the pipeline is pinned, with or without a return type (`E2eePipelineError`,
+  `ConversationCryptoState`, `ReceiveOutcome`, `BudgetPaused`, ...). The pipeline's content types, every type of the
+  port file and every `ThreadEntry` subtype define none, hand-written or generated by freezed. Every freezed class
+  under `lib/features/messages` opts out of the generated `toString` (`@unfreezed` included); `MessageSearchState`
+  (which printed the typed search query) is pinned. `SearchQuery.toString` prints the kind and the issue only. No
+  record typedef in the pipeline has a field named like content, an id or a key (a record prints every field).
+- R14: no pipeline file imports `messaging_store.dart`, `message_outbox.dart`, `core/storage/`, drift, `dart:io`,
+  `dart:html`, `dart:js*`, `package:web`, `universal_html`, `shared_preferences`, `path_provider`, secure storage,
+  hive, sqflite, sqlite3, `package:http`, dio, `api_client.dart` or a generated Connect client. Pipeline code uses
+  only the allowed `MessagingRepository` members, on any receiver, chained or aliased (`=`, a `=>` getter, `!`,
+  `as`, `??`); the two names it shares with the vault are allowed only in their vault shapes (`vault.outbox(`,
+  `tx.deleteConversation(`). So `sendMessage`, `refreshThread`, `pollThread` and `cachedThread` cannot be reached
+  under the names the guard reads.
+- No `Uuid` in the pipeline. In all of hand-written `lib/`, only the commit runner, membership rules, membership
+  upkeep and the removal queue runner (and their part files), plus the two engine forwarders, pass
+  `removeDeviceIds:`. The removal entry points (`change`, `changeLocked`) are pinned, and so is every public pipeline
+  function that reaches them (directly or through a private function of its library). No file outside the pipeline
+  imports a door library, and no file anywhere exports one.
+- No `BlocObserver` in the app. No `pb.Message` is built except the id-only one that opens an encrypted search hit;
+  outside the pinned data layer, no file importing `messaging.pb` writes `text` or a snippet into a message, rebuilds
+  one or decodes one. Under `lib/features/messages`, whatever a file imports, a `snippet` or `lastMessage` write is
+  pinned by file (the data layer's encrypted marker and cache merge).
 
 ## Key package and leaf lifetime
 

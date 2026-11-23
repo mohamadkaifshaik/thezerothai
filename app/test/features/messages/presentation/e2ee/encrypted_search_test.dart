@@ -393,6 +393,10 @@ void main() {
       final printed = cubit.state.toString();
       expect(printed, isNot(contains('CANARY')));
       expect(printed, isNot(contains(secret)));
+      // Not even the query: the state has no generated toString (Task 15,
+      // gate item 12).
+      expect(printed, startsWith('Instance of'));
+      expect(printed, isNot(contains('needle')));
       expect(cubit.state.groups, isEmpty);
       expect(cubit.state.hitCount, 0);
     });
