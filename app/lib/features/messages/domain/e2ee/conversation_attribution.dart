@@ -43,6 +43,19 @@ extension _Attribution on ConversationCrypto {
       return;
     }
     final ref = await _peerRef(id, priority);
+    // Plan 5a Task 12, brief amendment 8 (pre-flag fix round 3): the peer
+    // ref the vault stored for this conversation binds attribution. A
+    // header or first page naming another user decides nothing: no list
+    // is fetched and nothing is attributed; the list reads as
+    // unverifiable until the refs agree again.
+    final stored = _known.peerOf(id);
+    if (ref != null && stored != null && ref != stored) {
+      context
+        ..listUnverifiable = true
+        ..attributionPending = false
+        ..attributionConcluded = false;
+      return;
+    }
     final own = await _directory.own(fresh: true, priority: priority);
     final peer = ref == null
         ? const DeviceList.unreadable()
