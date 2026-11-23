@@ -13,7 +13,8 @@ import 'package:flutter_test/flutter_test.dart';
 // (`entryOfOutgoing`). The stored-row, line, preview and security mappings
 // are step 13b-ii's.
 
-final _at = DateTime.utc(2026, 11, 23, 10);
+// Any instant: the mapping copies it and compares it with nothing.
+final _at = DateTime.fromMicrosecondsSinceEpoch(1700000000000000, isUtc: true);
 
 Uint8List _content(String text, {String shared = ''}) => encodeMessageContent(
   text: text,

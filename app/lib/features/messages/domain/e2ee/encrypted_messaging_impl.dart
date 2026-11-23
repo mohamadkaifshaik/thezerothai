@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../../../../core/network/app_exception.dart';
-import '../../../../core/vault/vault_cipher.dart' show VaultKeyException;
 import '../../../../core/vault/vault_session.dart';
 import '../../../../core/vault/vault_status.dart';
 import '../conversation_id.dart';
@@ -403,7 +402,9 @@ class EncryptedMessagingImpl implements EncryptedMessaging {
           if (r.localId != init?.localId) entryOfOutgoing(r, state),
       ];
     } on Object catch (e, s) {
-      if (e is! StateError && e is! VaultKeyException) {
+      // A closed vault (StateError) or a vault whose cipher cannot run (an
+      // Exception) is quiet; only a programming error is reported.
+      if (e is Error && e is! StateError) {
         _pipeline.reportPortError('port.unsent', s);
       }
       return null;
