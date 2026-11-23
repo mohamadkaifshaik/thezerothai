@@ -993,6 +993,9 @@ void main() {
       'test/features/keys/keys_repository_test.dart':
           'flag off and no vault on this device: nothing is sent and '
           'FeatureDisabled is thrown',
+      // Plan 5a Task 13 (gate item 30): the pipeline's inertness test.
+      'test/features/messages/domain/e2ee/e2ee_pipeline_test.dart':
+          'no vault on this device, flag off or unknown: no MLS call',
     };
 
     for (final e in pinned.entries) {
