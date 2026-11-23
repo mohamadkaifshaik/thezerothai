@@ -289,6 +289,37 @@ void main() {
     expect(state.canReset, isFalse);
   });
 
+  test('a history closed at its allowance holds the old own pin, which is '
+      'kept unattributed (fix round 1, N3)', () async {
+    await join(_c1);
+    final v = rig.device.vault;
+    final oldHex = vaultDeviceIdHex(ownId());
+    final own = (await v.members(_c1))
+        .singleWhere((m) => vaultDeviceIdHex(m.deviceId) == oldHex);
+    expect(own.side, isNot(MemberSide.unattributed));
+    // Bob is recorded; the history is closed, so the old own id can only
+    // be held (unrecorded), never recorded.
+    await rig.putKeyHistory(_c1, ids: [(bob.id, bob.key)], closed: true);
+    rig.removedElsewhere = true;
+
+    await reset.setUpAgain();
+
+    final former = await const FormerPins().of(v, _c1);
+    final kept = former.singleWhere(
+      (m) => vaultDeviceIdHex(m.deviceId) == oldHex,
+    );
+    expect(kept.side, MemberSide.unattributed);
+    expect(base64Encode(kept.signatureKey), base64Encode(own.signatureKey));
+    final bobKept = former.singleWhere((m) => rigEq(m.deviceId, bob.id));
+    expect(bobKept.side, MemberSide.theirs);
+    // The old id is not recorded (held only), and the history still reads.
+    expect(await rig.keyHistoryIds(_c1), isNot(contains(oldHex)));
+    expect(
+      (await rig.keyHistoryHeld(_c1))[oldHex],
+      base64Encode(own.signatureKey),
+    );
+  });
+
   test("setUpAgain keeps every conversation's pins as former pins", () async {
     await join(_c1);
     await join(_c2);
