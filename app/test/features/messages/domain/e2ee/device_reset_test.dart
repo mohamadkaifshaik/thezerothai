@@ -260,6 +260,35 @@ void main() {
     expect(state.phase, ConversationPhase.waitingForWelcome);
   });
 
+  test('after setUpAgain the first-saw times start again, so no manual '
+      'reset is offered at once (fix round 1, M1)', () async {
+    await join(_c1);
+    final v = rig.device.vault;
+    // This generation was first seen more than a day ago.
+    final sync = (await v.conversation(_c1))!.sync;
+    final seen = rig.clock.now().subtract(const Duration(hours: 25));
+    await v.transaction(
+      (tx) => tx.putConversationSync(
+        _c1,
+        sync.copyWith(
+          firstSawGeneration: 1,
+          firstSawGenerationAtMicros: seen.microsecondsSinceEpoch,
+        ),
+      ),
+    );
+    rig.removedElsewhere = true;
+
+    await reset.setUpAgain();
+
+    final after = (await v.conversation(_c1))!.sync;
+    expect(after.firstSawGeneration, isNull);
+    expect(after.firstSawGenerationAtMicros, isNull);
+    expect(after.requestAccepted, isTrue);
+    final state = await rig.crypto.describeState(_c1);
+    expect(state.phase, ConversationPhase.waitingForWelcome);
+    expect(state.canReset, isFalse);
+  });
+
   test("setUpAgain keeps every conversation's pins as former pins", () async {
     await join(_c1);
     await join(_c2);

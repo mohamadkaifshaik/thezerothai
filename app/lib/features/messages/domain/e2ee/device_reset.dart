@@ -28,7 +28,10 @@ const FormerPins _formerPins = FormerPins();
 ///
 /// **What stays.** Every stored message (owner choice), the marks (after
 /// pairs, join high-water marks: a replayed old welcome is still refused),
-/// the sync records (accepted, first-saw times), the known set and peer
+/// the sync records (accepted, cleared_at, the commit counts; only the
+/// first-saw pair is cleared, so the next catch-up records a new sighting
+/// and the 24 h wait before a manual reset starts again), the known set
+/// and peer
 /// refs, the removal queue and the daily ledger.
 ///
 /// **The pins are kept as former pins (security read H2).** Each
@@ -136,7 +139,16 @@ class DeviceReset {
         currentPins: pins,
         formerPins: former,
       );
-      plans.add(_Clear(id, await v.groups(id), pins, former, history));
+      plans.add(
+        _Clear(
+          id,
+          await v.groups(id),
+          pins,
+          former,
+          history,
+          (await v.conversation(id))?.sync,
+        ),
+      );
     }
     await v.transaction((tx) async {
       for (final p in plans) {
@@ -172,6 +184,22 @@ class DeviceReset {
           await tx.deleteMember(p.id, m.deviceId);
         }
         await tx.clearSentBefore(p.id, _kEndOfLog);
+        // Fix round 1, M1 (plan: "first-saw times are recorded as new
+        // sightings"): the new device id gets the same welcome window as
+        // any new device; the next catch-up records a fresh sighting, so
+        // the 24 h wait before a manual reset starts again.
+        final sync = p.sync;
+        if (sync != null &&
+            (sync.firstSawGeneration != null ||
+                sync.firstSawGenerationAtMicros != null)) {
+          await tx.putConversationSync(
+            p.id,
+            sync.copyWith(
+              firstSawGeneration: null,
+              firstSawGenerationAtMicros: null,
+            ),
+          );
+        }
         await _keyHistory.writeIn(tx, p.id, p.history);
       }
       for (final item in outbox.items) {
@@ -203,11 +231,12 @@ class DeviceReset {
 /// One conversation's reads for the transaction. No `toString` (it holds
 /// device ids).
 class _Clear {
-  _Clear(this.id, this.groups, this.pins, this.former, this.history);
+  _Clear(this.id, this.groups, this.pins, this.former, this.history, this.sync);
 
   final String id;
   final List<GroupRecord> groups;
   final List<MemberRecord> pins;
   final List<MemberRecord> former;
   final KeyHistory history;
+  final ConversationSync? sync;
 }
