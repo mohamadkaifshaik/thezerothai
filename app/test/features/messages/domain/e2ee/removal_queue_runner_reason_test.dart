@@ -114,5 +114,45 @@ void main() {
       runner.reset();
       expect(runner.needsReauth.value, isFalse);
     });
+
+    test('REAUTH_REQUIRED while the record cannot be read (the rebuild path, '
+        'no intent stored) still asks for a re-sign-in (fix round 1, '
+        'M3)', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await stateOnly(_c1, accepted: false, mine: [sibling]);
+      await rig.device.vault.transaction(
+        (tx) => tx.putSetting(kVaultSettingRemovalRecord, rigBytes('not json')),
+      );
+      expectedErrors = ['removalQueue.read', 'removalQueue.rebuilt'];
+      rig.keys.removeError = const ReauthRequiredException('rig: sign in');
+
+      await expectLater(
+        runner.removeDevice(sibling.idString),
+        throwsA(isA<ReauthRequiredException>()),
+      );
+      expect(runner.needsReauth.value, isTrue);
+      expect(runner.unreadable, isTrue);
+
+      // The user signs in again and asks again: sent, rebuilt, cleared.
+      rig.keys.removeError = null;
+      await removeAndSettle(sibling);
+      expect(runner.needsReauth.value, isFalse);
+      expect(await runner.wasRemovedByUser(sibling.id), isTrue);
+    });
+
+    test('the ask is cleared by a reset', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await join(_c1, others: [sibling]);
+      rig.keys.removeError = const ReauthRequiredException('rig: sign in');
+      await expectLater(
+        runner.removeDevice(sibling.idString),
+        throwsA(isA<ReauthRequiredException>()),
+      );
+      expect(runner.needsReauth.value, isTrue);
+      runner.reset();
+      expect(runner.needsReauth.value, isFalse);
+    });
   });
 }

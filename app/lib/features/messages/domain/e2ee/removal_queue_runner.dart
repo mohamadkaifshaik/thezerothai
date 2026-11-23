@@ -314,6 +314,8 @@ class RemovalQueueRunner {
   /// in again and calls [removeDevice] for the same id, which sends it at
   /// once; its success clears the ask. [reset] clears it too (the intent
   /// stays stored and is sent once more by the next run's first pass).
+  /// While the stored record cannot be read (the rebuild path), no intent
+  /// is stored, but the ask is raised the same way (fix round 1, M3).
   ValueListenable<bool> get needsReauth => _needsReauth;
 
   /// The device ids queued for [conversationId], parked ones included (the
@@ -518,8 +520,10 @@ class RemovalQueueRunner {
       if (failure != null) {
         if (failure is ReauthRequiredException) {
           // Brief amendment 3: parked, never dropped (the intent stored
-          // above stays; a rebuild stored none and keeps nothing).
-          if (!rebuild) _parkForReauth(deviceId);
+          // above stays). Fix round 1, M3: a rebuild stored no intent, but
+          // the ask is raised all the same; the user's next call for the
+          // id sends it and clears it.
+          _parkForReauth(deviceId);
           Error.throwWithStackTrace(failure, failureStack!);
         }
         var settled = false;
