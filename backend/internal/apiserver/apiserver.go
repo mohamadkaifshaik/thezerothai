@@ -56,7 +56,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/timeline"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/degraded"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/fsclient"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/health"
@@ -64,7 +63,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/limits"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
-	"github.com/dzeroth/dzeroth/backend/pkg/platform/mw"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/objstore"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/pubsubpublish"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/pubsubpush"
@@ -657,21 +655,24 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	if err != nil {
 		return nil, nil, err
 	}
-	interceptors := connect.WithInterceptors(
-		mw.Logging(log, cfg.ProjectID),
-		mw.Recover(log),
-		authn.AppCheckInterceptor(appCheckVerifier, authn.Mode(cfg.AppCheck)),
-		authn.IDTokenInterceptor(idVerifier),
-		// 0-read verified-identity gate (sign-in provider allowlist). Callers outside it never
-		// reach the rate limiter, so a minted uid creates no limiter key and no Firestore read. Anonymous passes
-		// only against the Auth emulator.
-		authn.VerifiedIdentityInterceptor(profileExempt, cfg.AuthEmulator),
-		ratelimit.Interceptor(rlCfg),
-		degraded.Interceptor(cfg.Degraded, mediaProcedures()),
-		authn.AccountStatusInterceptor(accountStatusProvider, profileExempt, authn.AllowRestricted(RestrictedAllowedProcedures()...)),
-		mw.ErrorMapping(log),
-		publicIDs,
-	)
+	// The session cut (security audit H2): identity's cached users/{uid}.sessionsValidAfter, enforced unless
+	// device_sign_out is globally off (dropping one user from an allowlist must not reopen that user's thief).
+	sessionCuts, ok := identitySvc.(identity.SessionCuts)
+	if !ok {
+		return nil, nil, errors.New("session cut: the identity service does not implement identity.SessionCuts")
+	}
+	interceptors := connect.WithInterceptors(chainInterceptors(chainDeps{
+		log: log, projectID: cfg.ProjectID,
+		appCheck: appCheckVerifier, appCheckMode: authn.Mode(cfg.AppCheck),
+		idVerifier:    idVerifier,
+		profileExempt: profileExempt, allowAnonymous: cfg.AuthEmulator,
+		sessionCuts:  sessionCuts,
+		sessionCutOn: func() bool { return !featureFlags.GloballyOff(keys.DeviceSignOutFlag) },
+		rateLimit:    rlCfg,
+		degradedMode: cfg.Degraded, media: mediaProcedures(),
+		accountStatus: accountStatusProvider, restricted: RestrictedAllowedProcedures(),
+		publicIDs: publicIDs,
+	})...)
 
 	// M8: outside ENV=local, config.Load already refuses to start unless both InternalOIDCAudience and
 	// InternalOIDCAllowedEmails are set (fail closed), so /internal/* is only ever unauthenticated here
@@ -982,7 +983,9 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// keys_claims_per_target_daily): the interceptor cannot see the target.
 	keysClaimCap := ratelimit.NewDailyCap(cfg.RateLimit.KeysClaimsPerTargetPerDay)
 	lookupCap := keysLookupCap(cfg.RateLimit.KeysDeviceLookupsPerDay, cfg.RateLimit.KeysNewAccountDeviceLookupsPerDay, isNewActor)
-	keysMod, err := newKeysModule(keysRepo, featureFlags, messagingPermission, messaging.ConversationID, keysClaimCap, lookupCap, cfg.AccountDeleteReauthMaxAge, log)
+	// A REMOTE removal with device_sign_out on for the remover writes the session cut through identity (keys.SessionCutter,
+	// the same identity.SessionCuts the cut interceptor reads).
+	keysMod, err := newKeysModule(keysRepo, featureFlags, messagingPermission, messaging.ConversationID, keysClaimCap, lookupCap, cfg.AccountDeleteReauthMaxAge, sessionCuts, log)
 	if err != nil {
 		return nil, nil, err
 	}
