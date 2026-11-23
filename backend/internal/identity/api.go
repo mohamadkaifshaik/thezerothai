@@ -214,6 +214,10 @@ type Service interface {
 	// AccountStatus backs pkg/platform/authn.AccountStatusProvider (wired in main.go): whether uid has a
 	// profile yet, and its current status, read from the same 60s instance cache as GetMe/GetProfile.
 	AccountStatus(ctx context.Context, uid string) (exists bool, status AccountStatus, err error)
+
+	// SessionCuts is part of Service so the composition root gets it at compile time, not from a type assertion that
+	// could fail at Build (CR N4).
+	SessionCuts
 }
 
 // Counters lets other modules atomically adjust denormalized counters on users/{uid} inside their own

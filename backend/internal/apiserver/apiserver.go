@@ -657,10 +657,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	}
 	// The session cut (security audit H2): identity's cached users/{uid}.sessionsValidAfter, enforced unless
 	// device_sign_out is globally off (dropping one user from an allowlist must not reopen that user's thief).
-	sessionCuts, ok := identitySvc.(identity.SessionCuts)
-	if !ok {
-		return nil, nil, errors.New("session cut: the identity service does not implement identity.SessionCuts")
-	}
+	// identity.Service embeds SessionCuts, so this is checked at compile time (CR N4).
+	var sessionCuts identity.SessionCuts = identitySvc
 	interceptors := connect.WithInterceptors(chainInterceptors(chainDeps{
 		log: log, projectID: cfg.ProjectID,
 		appCheck: appCheckVerifier, appCheckMode: authn.Mode(cfg.AppCheck),
