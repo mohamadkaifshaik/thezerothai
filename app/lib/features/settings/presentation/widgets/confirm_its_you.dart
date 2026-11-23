@@ -1,11 +1,9 @@
-import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../../../shared/widgets/primitives/app_dialog.dart';
 import '../../../account/presentation/widgets/password_prompt_dialog.dart';
 import '../../../auth/data/auth_repository.dart';
 import '../../../auth/domain/auth_failure.dart';
-import '../../../auth/presentation/bloc/auth_bloc.dart';
 import '../../../messages/presentation/e2ee/encryption_copy.dart';
 
 /// "Confirm it's you" before a REMOTE device removal (lane D PR 4, ruling 3;
@@ -16,10 +14,12 @@ import '../../../messages/presentation/e2ee/encryption_copy.dart';
 /// (Google, Apple or password; it force-refreshes the ID token, so the next
 /// call carries the new `auth_time`) and [showPasswordPromptDialog].
 ///
-/// - A password account goes straight to the password prompt (it is the
-///   "Confirm it's you" prompt; nothing opens a popup).
-/// - Other accounts first see this prompt; its Continue starts the provider
-///   sign-in inside the tap, so a web popup is not blocked.
+/// - A password-only account ([AuthRepository.reauthUsesPassword]) goes
+///   straight to the password prompt (it is the "Confirm it's you" prompt;
+///   nothing opens a popup).
+/// - Other accounts, a password linked next to Google or Apple included,
+///   first see this prompt; its Continue starts the provider sign-in inside
+///   the tap, so a web popup is not blocked.
 ///
 /// [again]: the removal answered REAUTH_REQUIRED (it missed the window) and
 /// the same prompt is asked again. True only when the sign-in succeeded; a
@@ -30,8 +30,8 @@ Future<bool> confirmItsYou(
   bool again = false,
 }) async {
   final messenger = ScaffoldMessenger.maybeOf(context);
-  final password =
-      context.read<AuthBloc?>()?.state.user?.isPasswordProvider ?? false;
+  // Fix round ruling 4: decided by reauthenticate's own provider order.
+  final password = auth.reauthUsesPassword;
 
   Future<String?> promptPassword() => context.mounted
       ? showPasswordPromptDialog(context)

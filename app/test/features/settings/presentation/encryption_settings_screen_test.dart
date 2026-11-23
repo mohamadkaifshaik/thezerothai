@@ -140,7 +140,12 @@ void main() {
     bool deviceSignOut = false,
     AuthRepository? authRepository,
     AppUser? user = _passwordUser,
+    bool? passwordOnly,
   }) async {
+    // What the repository says its re-sign-in uses (by default: the user's
+    // password flag; a mixed account sets it apart).
+    when(() => defaultAuth.reauthUsesPassword)
+        .thenReturn(passwordOnly ?? user?.isPasswordProvider ?? false);
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = Size(width, 2400);
     addTearDown(tester.view.reset);
@@ -588,6 +593,17 @@ void main() {
       await openAndConfirmRemove(tester);
       expect(find.text(kConfirmItsYouBody), findsNothing);
       expect(port.calls.where((c) => c == 'reauthenticate'), hasLength(1));
+      expect(port.removedDevices, ['ref-older']);
+    });
+
+    testWidgets('a mixed account (Google and a password) gets the Continue '
+        'step, so the Google popup opens on a tap', (tester) async {
+      await pump(tester, user: _passwordUser, passwordOnly: false);
+      await openAndConfirmRemove(tester);
+      expect(find.text(kConfirmItsYouBody), findsOneWidget);
+      expect(port.calls, isNot(contains('reauthenticate')));
+      await tester.tap(find.text(kConfirmItsYouAction));
+      await tester.pumpAndSettle();
       expect(port.removedDevices, ['ref-older']);
     });
 

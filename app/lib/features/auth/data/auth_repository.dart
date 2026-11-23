@@ -121,6 +121,19 @@ class AuthRepository implements AuthTokenProvider {
     return !age.isNegative && age <= kRecentSignInWindow;
   }
 
+  /// True when [reauthenticate] would ask for the password: the same order it
+  /// uses (Google, then Apple, then password), so an account with Google or
+  /// Apple linked next to a password is NOT a password re-auth (its provider
+  /// popup must open inside a tap). False when signed out.
+  bool get reauthUsesPassword {
+    final user = _firebaseAuth.currentUser;
+    if (user == null) return false;
+    final providers = user.providerData.map((p) => p.providerId).toSet();
+    return providers.contains('password') &&
+        !providers.contains('google.com') &&
+        !providers.contains('apple.com');
+  }
+
   /// Emits the current [AppUser], or null when signed out. Uses
   /// `userChanges()` (not `authStateChanges()`) so profile reloads —
   /// e.g. after the user confirms email verification — are reflected too.
