@@ -4,24 +4,29 @@ import 'telemetry_scan.dart' show readTree;
 import 'vault_scan.dart' show stripSource;
 
 /// Plan 5a Task 12, removal design section 4 (security audit L3): every
-/// `KeysRepository.removeDevice` call names its reason. SIGN_OUT for this
-/// device's own sign-out, REMOTE for the removal of another device (which
-/// the server remembers). UNSPECIFIED is what shipped builds send and the
-/// server reads it as SIGN_OUT, so new code must never send it: a REMOTE
-/// removal sent without its reason would leave no mark.
+/// RemoveKeyDevice names its reason. SIGN_OUT for this device's own
+/// sign-out, REMOTE for the removal of another device (which the server
+/// remembers). UNSPECIFIED is what shipped builds send and the server reads
+/// it as SIGN_OUT, so new code must never send it: a REMOTE removal sent
+/// without its reason would leave no mark.
 ///
-/// A repository call is told from the other `removeDevice(` methods (the
-/// port's and the removal queue's take one positional id) by its named
-/// `deviceId:` argument.
+/// `KeysRepository.removeDevice` takes the reason as a required parameter,
+/// so the compiler already refuses a call without one. What the compiler
+/// does not see (review M2, fix round 1): a `RemoveKeyDeviceRequest` built
+/// anywhere else (its `reason` defaults to UNSPECIFIED), or the UNSPECIFIED
+/// value named. So the request is built in [_repository] only, there with a
+/// `reason:`, and UNSPECIFIED is named nowhere outside `lib/gen`.
 ///
 /// Run from app/ (like the other guards).
 
-/// The argument text of every `removeDevice(...)` call or declaration in
+const _repository = 'lib/features/keys/data/keys_repository.dart';
+
+/// The argument text of every `RemoveKeyDeviceRequest(...)` construction in
 /// [source] (comments and strings stripped), parentheses matched.
-List<String> removeDeviceArguments(String source) {
+List<String> requestConstructions(String source) {
   final code = stripSource(source, keepStrings: false);
   final out = <String>[];
-  for (final m in RegExp(r'\bremoveDevice\s*\(').allMatches(code)) {
+  for (final m in RegExp(r'\bRemoveKeyDeviceRequest\s*\(').allMatches(code)) {
     var depth = 1;
     var i = m.end;
     while (i < code.length && depth > 0) {
@@ -35,99 +40,108 @@ List<String> removeDeviceArguments(String source) {
   return out;
 }
 
-/// The repository calls among [removeDeviceArguments] that send no reason or
-/// UNSPECIFIED. A declaration (`required String deviceId`) is not a call.
-List<String> findCallsWithoutReason(String source) => [
-  for (final args in removeDeviceArguments(source))
-    if (RegExp(r'\bdeviceId\s*:').hasMatch(args) &&
-        !RegExp(r'\brequired\b').hasMatch(args) &&
-        (!RegExp(r'\breason\s*:').hasMatch(args) ||
-            args.contains('REMOVE_REASON_UNSPECIFIED')))
+/// The constructions of [source] at [path] that break the rule: any one
+/// outside [_repository], and one there without a `reason:` or with
+/// UNSPECIFIED.
+List<String> findBadRequests(String path, String source) => [
+  for (final args in requestConstructions(source))
+    if (path != _repository ||
+        !RegExp(r'\breason\s*:').hasMatch(args) ||
+        args.contains('REMOVE_REASON_UNSPECIFIED'))
       args.trim(),
 ];
 
-/// The repository calls among [removeDeviceArguments] (declarations left
-/// out).
-int countRepositoryCalls(String source) => [
-  for (final args in removeDeviceArguments(source))
-    if (RegExp(r'\bdeviceId\s*:').hasMatch(args) &&
-        !RegExp(r'\brequired\b').hasMatch(args))
-      args,
-].length;
+/// Whether [source] names the UNSPECIFIED reason in code.
+bool namesUnspecified(String source) => stripSource(
+  source,
+  keepStrings: false,
+).contains('REMOVE_REASON_UNSPECIFIED');
 
 void main() {
   final files = readTree('lib', {'.dart'});
 
-  test('every KeysRepository.removeDevice call names a reason other than '
-      'UNSPECIFIED', () {
+  test('a RemoveKeyDeviceRequest is built only in the repository, with a '
+      'reason', () {
     final found = <String>[];
-    var calls = 0;
+    var built = 0;
     for (final e in files.entries) {
       if (e.key.startsWith('lib/gen/')) continue;
-      calls += countRepositoryCalls(e.value);
-      for (final hit in findCallsWithoutReason(e.value)) {
-        found.add('${e.key}: removeDevice($hit)');
+      built += requestConstructions(e.value).length;
+      for (final hit in findBadRequests(e.key, e.value)) {
+        found.add('${e.key}: RemoveKeyDeviceRequest($hit)');
       }
     }
     expect(found, isEmpty);
-    // The sign-out removal and the removal queue: a guard that matches
-    // nothing proves nothing.
-    expect(calls, greaterThanOrEqualTo(2), reason: 'the scan found no calls');
+    // A guard that matches nothing proves nothing.
+    expect(built, greaterThanOrEqualTo(1), reason: 'the scan found none');
   });
 
   test('no code outside lib/gen names REMOVE_REASON_UNSPECIFIED', () {
     final found = <String>[
       for (final e in files.entries)
-        if (!e.key.startsWith('lib/gen/') &&
-            stripSource(
-              e.value,
-              keepStrings: false,
-            ).contains('REMOVE_REASON_UNSPECIFIED'))
-          e.key,
+        if (!e.key.startsWith('lib/gen/') && namesUnspecified(e.value)) e.key,
     ];
     expect(found, isEmpty);
   });
 
   group('self-tests', () {
-    test('a call without a reason, or with UNSPECIFIED, is flagged', () {
+    test('a request built outside the repository is flagged, with or without '
+        'a reason', () {
+      const outside = 'lib/features/messages/domain/e2ee/x.dart';
       expect(
-        findCallsWithoutReason(
-          'await _repo.removeDevice(deviceId: id, idempotencyKey: k());',
+        findBadRequests(
+          outside,
+          '_api.keys.removeKeyDevice(pb.RemoveKeyDeviceRequest(deviceId: id));',
         ),
         hasLength(1),
       );
       expect(
-        findCallsWithoutReason(
-          'await _repo.removeDevice(deviceId: id, idempotencyKey: k(), '
-          'reason: pb.RemoveReason.REMOVE_REASON_UNSPECIFIED);',
+        findBadRequests(
+          outside,
+          'pb.RemoveKeyDeviceRequest(deviceId: id, '
+          'reason: pb.RemoveReason.REMOVE_REASON_REMOTE)',
         ),
         hasLength(1),
       );
     });
 
-    test('a call with a reason, a declaration and the positional methods '
-        'pass', () {
+    test('in the repository, a request needs a reason other than '
+        'UNSPECIFIED', () {
       expect(
-        findCallsWithoutReason(
-          'await _keys.removeDevice(deviceId: f(id), idempotencyKey: k, '
-          'reason: pb.RemoveReason.REMOVE_REASON_REMOTE);',
+        findBadRequests(_repository, 'pb.RemoveKeyDeviceRequest(deviceId: id)'),
+        hasLength(1),
+      );
+      expect(
+        findBadRequests(
+          _repository,
+          'pb.RemoveKeyDeviceRequest(deviceId: id, '
+          'reason: pb.RemoveReason.REMOVE_REASON_UNSPECIFIED)',
+        ),
+        hasLength(1),
+      );
+      expect(
+        findBadRequests(
+          _repository,
+          'pb.RemoveKeyDeviceRequest(idempotencyKey: k, deviceId: id, '
+          'reason: reason)',
         ),
         isEmpty,
       );
       expect(
-        findCallsWithoutReason(
-          'Future<X> removeDevice({required String deviceId, '
-          'required String idempotencyKey}) => y;',
+        findBadRequests(
+          'lib/x.dart',
+          '// pb.RemoveKeyDeviceRequest(deviceId: id)\n',
         ),
         isEmpty,
       );
-      expect(findCallsWithoutReason('await runner.removeDevice(id);'), isEmpty);
+    });
+
+    test('the UNSPECIFIED value is seen in code, not in a comment', () {
       expect(
-        findCallsWithoutReason(
-          '// _repo.removeDevice(deviceId: id, idempotencyKey: k)\n',
-        ),
-        isEmpty,
+        namesUnspecified('final r = RemoveReason.REMOVE_REASON_UNSPECIFIED;'),
+        isTrue,
       );
+      expect(namesUnspecified('// REMOVE_REASON_UNSPECIFIED\n'), isFalse);
     });
   });
 }
