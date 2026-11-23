@@ -7,6 +7,8 @@ import 'dart:typed_data';
 import 'package:dzeroth/core/vault/secure_vault.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/commit_runner.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_crypto.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/e2ee_pipeline.dart'
+    show wasRemovedByUserOf;
 import 'package:dzeroth/features/messages/domain/e2ee/e2ee_types.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/removal_queue_runner.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/removal_record.dart';
@@ -337,6 +339,36 @@ void main() {
       for (final e in rig.unexpected) (e as E2eePipelineError).step,
     ], contains('upkeep.wasRemovedByUser'));
     rig.unexpected.clear();
+  });
+
+  test('Task 13 item 18 (SA L5): the pipeline\'s late-bound seam with no '
+      'runner yet answers StateError, and reconcile still commits its '
+      'removal and peer add, quietly', () async {
+    final lost = await RigPeer.create('lost');
+    final sibling = await RigPeer.create('sibling');
+    final bob2 = await RigPeer.create('bob2');
+    await setUpJoined(
+      others: [lost],
+      ownListed: [lost, sibling],
+      alsoListed: [bob2],
+    );
+    rig.keys.own.removeWhere((d) => d.deviceId == lost.idString);
+    expect((await rig.directory.own(fresh: true)).readable, isTrue);
+    ownClaims([sibling]);
+    peerClaims([bob, bob2]);
+    // The seam E2eePipeline wires before its runner exists.
+    rig.wasRemovedByUser = wasRemovedByUserOf(() => null);
+
+    await rig.upkeep.reconcile(_c1);
+
+    // "Not known" means own devices from a fresh list only: the sibling is
+    // on the list read fresh above, so it is added with bob2.
+    expect(rig.server.commitRequests.single.welcomeDeviceIds.toSet(), {
+      sibling.idString,
+      bob2.idString,
+    });
+    expect(await pin(lost), isNull, reason: 'the lost phone is removed');
+    // tearDown: nothing reported (a StateError is not a bug).
   });
 
   test('an unreadable removal queue and no fresh own list: reconcile adds '
