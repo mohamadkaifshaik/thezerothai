@@ -199,6 +199,7 @@ void main() {
       contexts: rig.contexts,
       now: rig.clock.now,
       removedElsewhere: () => rig.removedElsewhere,
+      removedDefinitely: () => rig.removedDefinitely ?? rig.removedElsewhere,
       schedule: (delay, run) => () {},
       onUnexpectedError: (e, _) => rig.unexpected.add(e),
     );
@@ -250,6 +251,7 @@ void main() {
       contexts: rig.contexts,
       now: rig.clock.now,
       removedElsewhere: () => rig.removedElsewhere,
+      removedDefinitely: () => rig.removedDefinitely ?? rig.removedElsewhere,
       schedule: (delay, run) => () {},
       onUnexpectedError: (e, _) => rig.unexpected.add(e),
     );
