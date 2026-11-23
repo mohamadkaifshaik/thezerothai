@@ -144,6 +144,11 @@ extension _Queue on SyncCoordinator {
       case CatchUpResult.interrupted:
         _chained.add(id);
         _enqueue(id, _now().add(_nextWait(_catchUpWaits, id)));
+        // Review I4 (gate item 57): a catch-up interrupted before its own
+        // welcome poll (that poll failed, or the walk stopped first) must
+        // not leave a newer generation's welcome unread until the next
+        // resume or push. An other reason: floored.
+        await _pollWelcomes(BudgetPriority.background, floor: true);
       case CatchUpResult.waitingForWelcome:
         _catchUpWaits.remove(id);
         await _pollWelcomes(BudgetPriority.background, floor: true);
