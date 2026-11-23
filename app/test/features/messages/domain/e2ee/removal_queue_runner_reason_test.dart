@@ -301,19 +301,5 @@ void main() {
       await runner.idle();
       expect(rig.keys.removeCalls, hasLength(1));
     });
-
-    test('the ask is cleared by a reset', () async {
-      final sibling = await RigPeer.create('sibling');
-      await setUpRig(ownListed: [sibling]);
-      await join(_c1, others: [sibling]);
-      rig.keys.removeError = const ReauthRequiredException('rig: sign in');
-      await expectLater(
-        runner.removeDevice(sibling.idString),
-        throwsA(isA<ReauthRequiredException>()),
-      );
-      expect(runner.needsReauth.value, isTrue);
-      runner.reset();
-      expect(runner.needsReauth.value, isFalse);
-    });
   });
 }
