@@ -1,6 +1,5 @@
 import 'package:dzeroth/core/crypto/crypto_types.dart';
 import 'package:dzeroth/core/session/session_end.dart';
-import 'package:dzeroth/core/vault/vault_session.dart';
 import 'package:dzeroth/core/vault/vault_status.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/e2ee_pipeline.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_crypto.dart';
