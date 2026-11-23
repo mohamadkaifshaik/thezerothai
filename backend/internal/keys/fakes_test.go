@@ -3,6 +3,7 @@ package keys
 import (
 	"bytes"
 	"context"
+	"errors"
 	"sync"
 	"time"
 )
@@ -24,7 +25,10 @@ type fakeRepo struct {
 	removing map[string]bool
 	// removedAt is uid|deviceID -> the removing document's removedAt; absent reads as long ago.
 	removedAt map[string]time.Time
-	err       error
+	// cuts is uid|deviceID -> the mark's session-cut state (cutAt, cutDone); cutDoneErr fails MarkCutDone only.
+	cuts       map[string]MarkState
+	cutDoneErr error
+	err        error
 	// markErr fails MarkRemoved only; removeErr fails Remove only.
 	markErr   error
 	removeErr error
@@ -40,32 +44,56 @@ type fakeRepo struct {
 
 func newFakeRepo() *fakeRepo {
 	return &fakeRepo{devices: map[string][]Device{}, pool: map[string][][]byte{}, lastResort: map[string][]byte{},
-		marks: map[string]RemovalMark{}, removing: map[string]bool{}, removedAt: map[string]time.Time{}}
+		marks: map[string]RemovalMark{}, removing: map[string]bool{}, removedAt: map[string]time.Time{}, cuts: map[string]MarkState{}}
 }
 
-// MarkRemoved mirrors FirestoreRepo.MarkRemoved: without a recent sign-in only a retry (a mark, and no device document
-// or one already carrying removedAt) goes on, else ErrReauthRequired with nothing written; the mark is created once (a
-// second call keeps the first time) and a present device document gets removedAt.
-func (f *fakeRepo) MarkRemoved(_ context.Context, uid, deviceID string, now time.Time, recent bool) error {
+// MarkRemovedCut mirrors FirestoreRepo.MarkRemovedCut (recorded as op "MarkRemoved"): without a recent sign-in only a
+// retry (a mark, and no device document or one already carrying removedAt) goes on, else ErrReauthRequired with nothing
+// written; the mark is created once (a second call keeps the first time), a present device document gets removedAt, and a
+// non-zero cut is recorded only on a mark without one. It returns the mark's cut state.
+func (f *fakeRepo) MarkRemovedCut(_ context.Context, uid, deviceID string, now time.Time, recent bool, cut time.Time) (MarkState, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.ops = append(f.ops, "MarkRemoved")
 	if f.markErr != nil {
-		return f.markErr
+		return MarkState{}, f.markErr
 	}
 	k := devKey(uid, deviceID)
 	_, marked := f.marks[k]
 	retry := marked && (f.find(uid, deviceID) < 0 || !f.live(uid, deviceID))
 	if !recent && !retry {
-		return ErrReauthRequired
+		return MarkState{}, ErrReauthRequired
 	}
 	if !marked {
 		f.marks[k] = RemovalMark{DeviceID: deviceID, RemovedAt: now, ExpireAt: now.Add(RemovalMarkTTL)}
+	}
+	st := f.cuts[k]
+	if st.CutAt.IsZero() && !cut.IsZero() {
+		st = MarkState{CutAt: cut}
+		f.cuts[k] = st
 	}
 	if f.find(uid, deviceID) >= 0 && f.live(uid, deviceID) {
 		f.removing[k] = true
 		f.removedAt[k] = now
 	}
+	return st, nil
+}
+
+// MarkCutDone mirrors FirestoreRepo.MarkCutDone: the mark's cutDone becomes true; a missing mark is an error.
+func (f *fakeRepo) MarkCutDone(_ context.Context, uid, deviceID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.ops = append(f.ops, "MarkCutDone")
+	if f.cutDoneErr != nil {
+		return f.cutDoneErr
+	}
+	k := devKey(uid, deviceID)
+	if _, ok := f.marks[k]; !ok {
+		return errors.New("keys: no mark")
+	}
+	st := f.cuts[k]
+	st.CutDone = true
+	f.cuts[k] = st
 	return nil
 }
 

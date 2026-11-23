@@ -124,10 +124,11 @@ func (s *Server) RemoveKeyDevice(ctx context.Context, req *connect.Request[keysv
 	default:
 		return nil, invalid(ctx, "reason", "reason must be a known RemoveReason")
 	}
-	if err := s.svc.Remove(ctx, uid, m.GetDeviceId(), reason); err != nil {
+	res, err := s.svc.RemoveDevice(ctx, uid, m.GetDeviceId(), reason)
+	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&keysv1.RemoveKeyDeviceResponse{}), nil
+	return connect.NewResponse(&keysv1.RemoveKeyDeviceResponse{OtherSessionsEnded: res.OtherSessionsEnded}), nil
 }
 
 // UploadKeyPackages needs the flag on for the caller.

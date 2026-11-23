@@ -71,6 +71,9 @@ type Deps struct {
 	// ReauthMaxAge is ACCOUNT_DELETE_REAUTH_MAX_AGE (config.AccountDeleteReauthMaxAge): how recent the caller's sign-in
 	// must be for a REMOTE removal of an id not yet marked. Zero refuses every such removal (fail closed).
 	ReauthMaxAge time.Duration
+	// Sessions is identity's session cut (SessionCutter), injected by the composition root; newKeysModule fails when nil.
+	// A cut that is due with no Sessions wired is an error, never a silent success.
+	Sessions SessionCutter
 }
 
 type service struct {
@@ -83,6 +86,7 @@ type service struct {
 	convID        func(callerUID, targetUID string) string
 	log           *slog.Logger
 	reauthMaxAge  time.Duration
+	sessions      SessionCutter
 }
 
 // New builds the service.
@@ -96,7 +100,7 @@ func New(d Deps) Service {
 		log = slog.Default()
 	}
 	return &service{repo: d.Repo, now: now, perm: d.Permission, flags: d.Flags, claimCap: d.ClaimCap, chargeLookups: d.ChargeLookups,
-		convID: d.ConversationID, log: log, reauthMaxAge: d.ReauthMaxAge}
+		convID: d.ConversationID, log: log, reauthMaxAge: d.ReauthMaxAge, sessions: d.Sessions}
 }
 
 var _ Service = (*service)(nil)
@@ -194,14 +198,30 @@ func (s *service) ListMine(ctx context.Context, uid string) ([]Device, error) {
 // delete. A REMOTE removal of an id that was never registered still writes a mark, so the answer tells nothing about
 // whether the id existed.
 func (s *service) Remove(ctx context.Context, uid, deviceID string, reason RemoveReason) error {
+	_, err := s.RemoveDevice(ctx, uid, deviceID, reason)
+	return err
+}
+
+// fieldSessionsEnded is the request-line field of a REMOTE removal: whether the account's other sessions are cut
+// (other_sessions_ended). A bool, never the cut time.
+const fieldSessionsEnded = "other_sessions_ended"
+
+// RemoveDevice implements Service. REMOTE, after the reauth decision (see Remove): (3) the mark transaction also records
+// the session cut when device_sign_out is on for the caller and the sign-in is recent (cut = the caller's auth_time, so
+// the caller's own session passes the cut; a retry without a recent sign-in never asks for one, it only finishes a cut
+// already on the mark); (4) a cut on the mark that is not done is written through SessionCutter, then noted done on the
+// mark; both before the sweep, so a failure leaves the device for the retry, which needs no sign-in and writes the same
+// cut; (5) the sweep and delete.
+func (s *service) RemoveDevice(ctx context.Context, uid, deviceID string, reason RemoveReason) (RemoveResult, error) {
 	begin(ctx, "remove")
 	if err := validDeviceID(ctx, deviceID); err != nil {
-		return err
+		return RemoveResult{}, err
 	}
 	if reason != RemoveSignOut && reason != RemoveRemote {
-		return invalid(ctx, "reason", "reason must be a known RemoveReason")
+		return RemoveResult{}, invalid(ctx, "reason", "reason must be a known RemoveReason")
 	}
 	logger.SetRequestField(ctx, fieldReason, reason.String())
+	var res RemoveResult
 	if reason == RemoveRemote {
 		now := s.now()
 		// A zero window is refused here too: authn.IsRecentSignIn with maxAge 0 still accepts an auth_time equal to now.
@@ -210,20 +230,53 @@ func (s *service) Remove(ctx context.Context, uid, deviceID string, reason Remov
 			maxAge = -time.Hour
 		}
 		recent := authn.IsRecentSignIn(ctx, maxAge, now)
-		err := s.repo.MarkRemoved(ctx, uid, deviceID, now, recent)
+		var cut time.Time
+		if recent && s.flags != nil && s.flags.Enabled(uid, DeviceSignOutFlag) {
+			claims, _ := authn.ClaimsFromContext(ctx)
+			cut = claims.AuthTime.UTC() // non-zero: IsRecentSignIn refuses a zero auth_time
+		}
+		st, err := s.repo.MarkRemovedCut(ctx, uid, deviceID, now, recent, cut)
 		if errors.Is(err, ErrReauthRequired) {
 			logger.SetRequestField(ctx, fieldOutcome, outcomeRejected+"reauth_required")
-			return reauthRequired(ctx, uid, maxAge, now)
+			return RemoveResult{}, reauthRequired(ctx, uid, maxAge, now)
 		}
 		if err != nil {
-			return s.mapErr(ctx, "remove", uid, err)
+			return RemoveResult{}, s.mapErr(ctx, "remove", uid, err)
 		}
+		if !st.CutAt.IsZero() && !st.CutDone {
+			if err := s.cutSessions(ctx, uid, deviceID, st.CutAt); err != nil {
+				return RemoveResult{}, err
+			}
+			st.CutDone = true
+		}
+		res.OtherSessionsEnded = st.CutDone
+		logger.SetRequestField(ctx, fieldSessionsEnded, res.OtherSessionsEnded)
 	}
 	if err := s.repo.Remove(ctx, uid, deviceID); err != nil {
-		return s.mapErr(ctx, "remove", uid, err)
+		return RemoveResult{}, s.mapErr(ctx, "remove", uid, err)
 	}
 	logger.SetRequestField(ctx, fieldOutcome, outcomeDone)
-	return nil
+	return res, nil
+}
+
+// cutSessions writes the mark's cut on the account and notes it done on the mark. Either failure is a retryable
+// UNAVAILABLE (outcome session_cut_failed, a WARN with the uid hashed and the ids redacted): the retry writes the same cut
+// again (identity keeps the maximum) and needs no sign-in, the id being marked.
+func (s *service) cutSessions(ctx context.Context, uid, deviceID string, at time.Time) error {
+	var err error
+	if s.sessions == nil {
+		err = errors.New("keys: remove: no session cutter wired")
+	} else if err = s.sessions.EndSessionsBefore(ctx, uid, at); err == nil {
+		err = s.repo.MarkCutDone(ctx, uid, deviceID)
+	}
+	if err == nil {
+		return nil
+	}
+	logger.SetRequestField(ctx, fieldOutcome, "session_cut_failed")
+	slog.WarnContext(ctx, "keys_session_cut_failed", "uid_hash", logger.HashUID(uid),
+		"err", logger.RedactErr(err, uid, deviceID).Error())
+	return apierr.New(connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "temporarily busy, please retry").
+		WithRetryAfter(time.Second)
 }
 
 // fieldReauthRequired is the request-line field authn.RequireRecentSignIn sets on its refusal.

@@ -33,6 +33,7 @@ type fakeService struct {
 	packages                       [][]byte
 	userIDs                        []string
 	reason                         RemoveReason
+	removeResult                   RemoveResult // what RemoveDevice answers
 
 	device   Device
 	devices  []Device
@@ -65,9 +66,14 @@ func (f *fakeService) ListMine(ctx context.Context, uid string) ([]Device, error
 }
 
 func (f *fakeService) Remove(ctx context.Context, uid, deviceID string, reason RemoveReason) error {
+	_, err := f.RemoveDevice(ctx, uid, deviceID, reason)
+	return err
+}
+
+func (f *fakeService) RemoveDevice(ctx context.Context, uid, deviceID string, reason RemoveReason) (RemoveResult, error) {
 	f.note(ctx, "remove", uid)
 	f.deviceID, f.reason = deviceID, reason
-	return f.err
+	return f.removeResult, f.err
 }
 
 func (f *fakeService) Upload(ctx context.Context, uid, deviceID string, packages [][]byte, lastResort []byte) (int, bool, error) {
