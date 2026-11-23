@@ -182,6 +182,14 @@ const kInitDiscardedText =
     'Stopped. This message may wait and go out once the conversation is '
     'ready, or you can try again.';
 
+/// An own unsent row that no longer opens on this device (the port's
+/// `EncryptedThread.unreadableUnsent`, gate item 18), with its delete
+/// action (`deleteUnreadableUnsent`). Controller copy of 2026-11-23; the
+/// owner may edit it.
+const kUnsentUnreadableText =
+    "This message couldn't be read on this device, so it won't be sent. "
+    'Delete it?';
+
 /// The line for the port's `discardUnsent` answer (port additions, gate items
 /// 14, 15, 23); null where the thread itself shows the result (the row is
 /// gone, shown delivered, or was not there).

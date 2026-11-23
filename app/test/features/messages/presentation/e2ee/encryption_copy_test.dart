@@ -163,6 +163,14 @@ void main() {
     expect(kInitDiscardedText.toLowerCase(), contains('may'));
   });
 
+  test('the unreadable unsent row line (gate item 18, controller copy)', () {
+    expect(
+      kUnsentUnreadableText,
+      "This message couldn't be read on this device, so it won't be sent. "
+      'Delete it?',
+    );
+  });
+
   test('each discardUnsent answer has the line gate items 15 and 23 name, '
       'or none where the thread itself shows the result (port '
       'additions)', () {
