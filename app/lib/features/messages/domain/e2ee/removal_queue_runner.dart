@@ -843,25 +843,6 @@ class RemovalQueueRunner {
     }
   }
 
-  /// The conversations with group state, most recently active first (the
-  /// newest stored message; none counts as oldest; a tie keeps the vault's
-  /// ascending order).
-  Future<List<String>> _byRecentActivity(SecureVault vault) async {
-    _rankingReads++;
-    final ids = await vault.groupConversationIds();
-    final at = <String, int>{};
-    for (final id in ids) {
-      final newest = await vault.messages(id, limit: 1);
-      at[id] = newest.isEmpty ? 0 : newest.first.createdAtMicros;
-    }
-    final indexed = [for (var i = 0; i < ids.length; i++) (i, ids[i])];
-    indexed.sort((a, b) {
-      final c = at[b.$2]!.compareTo(at[a.$2]!);
-      return c != 0 ? c : a.$1.compareTo(b.$1);
-    });
-    return [for (final e in indexed) e.$2];
-  }
-
   /// One timer for the pass at [at] (the queue's `notBeforeMicros`, a
   /// per-conversation hold, or the intents' hold), running a background
   /// pass. An armed timer that runs no later is kept (ruling 4: one timer;
