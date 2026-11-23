@@ -4,7 +4,8 @@
   "rollback_floors": {
     "_comment": "resolve-rollback.sh refuses a last-good image built from a commit that is not at or after the floor commit (git merge-base --is-ancestor <floor> <image commit>) whenever the flag's effective mode on the rollback target is not off. The image commit comes from the 40-hex Artifact Registry tag (the github.sha IMAGE_TAG). Fail closed: no commit tag, an unreadable floor, or a commit missing from the checkout all refuse. Raising a floor is a reviewed PR, and only once the new floor is on last-good.",
     "PRIVATE_ACCOUNTS": {"commit": "e94014c67d6ad8dd376d7606fc74d6aa94150435", "pr": 418, "reason": "W3-36 M-1(b), raised for M-2: W3-39 (#418) on top of the Part B read paths (first floor 061395a0a2ef3202482ffcd34273c032069865bf, #395)"},
-    "LOCATION": {"commit": "18e514af101fd2b551bae6f6391df87ffcd71792", "pr": 956, "reason": "plan areas and Explore Nearby (#956): an older image would not keep a plan's area fields or answer ListNearbyBeacons while the chosen-area feature is on"}
+    "LOCATION": {"commit": "18e514af101fd2b551bae6f6391df87ffcd71792", "pr": 956, "reason": "plan areas and Explore Nearby (#956): an older image would not keep a plan's area fields or answer ListNearbyBeacons while the chosen-area feature is on"},
+    "E2EE_DM": {"commit": "011e8d833a2d594cfb1018ca0be099e45356f136", "pr": 1089, "reason": "removed device marks (security audit H1, #1089): an older image ignores users/{uid}/keyDeviceRemovals and the device removedAt, so a REMOTE-removed device could register and upload again while encrypted DMs are on"}
   },
   "unset_default": {
     "_comment": "Mode when FEATURE_<N> is unset, from backend/pkg/platform/config/config.go (graph/posts: on in dev, off in prod; all others off). check-flag-registry.sh re-derives this from config.go.",
