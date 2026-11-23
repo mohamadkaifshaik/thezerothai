@@ -14,6 +14,11 @@ import (
 const identitySessionsUsage = `  opsctl identity sessions clear-cut --project P --user U   (removes the account's session cut, users/{uid}.sessionsValidAfter,
                           after a lockout bug: sessions that signed in before it work again within 60 s on every server;
                           the global lever is FEATURE_DEVICE_SIGN_OUT=off)
+                          WARNING: this lets EVERY session that signed in before the cut back in, the removed device's
+                          (the thief's) included. Use it only for a confirmed lockout bug, and have the user redo the
+                          removal afterwards. A REMOTE removal the client is still retrying may write the cut again;
+                          turn device_sign_out globally off if that matters. The audit line goes to stdout only: paste
+                          it into the incident record.
 `
 
 // sessionCutClearer is identity.FirestoreRepo's ClearSessionCut (the identity module owns users/{uid}; opsctl never writes
