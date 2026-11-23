@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:dzeroth/core/network/app_exception.dart'
+    show ReauthRequiredException;
 import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/message_content_codec.dart';
 import 'package:flutter/foundation.dart';
@@ -353,21 +355,32 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
     _throwIfFailing();
   }
 
+  /// Never throws, as the port promises (CR m2): a scripted failure
+  /// answers `notDecided`.
   @override
   Future<UnsentDiscard> discardUnsent(String localId) async {
     calls.add('discardUnsent');
     discardedUnsent.add(localId);
-    _throwIfFailing();
+    try {
+      _throwIfFailing();
+    } on Object {
+      return UnsentDiscard.notDecided;
+    }
     return nextDiscard;
   }
 
   /// True only for a ref the scripted thread of [conversationId] lists in
-  /// `unreadableUnsent`; that thread is then emitted without it.
+  /// `unreadableUnsent`; that thread is then emitted without it. Never
+  /// throws, as the port promises (CR m2): a scripted failure answers false.
   @override
   Future<bool> deleteUnreadableUnsent(String conversationId, String ref) async {
     calls.add('deleteUnreadableUnsent');
     deletedUnreadable.add((conversationId, ref));
-    _throwIfFailing();
+    try {
+      _throwIfFailing();
+    } on Object {
+      return false;
+    }
     final key = ThreadRef.conversation(conversationId);
     final t = _threads[key];
     if (t == null || !t.unreadableUnsent.contains(ref)) return false;
@@ -460,8 +473,25 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
     removedDevices.add(ref);
     final hold = holdRemoveDevice;
     if (hold != null) await hold.future;
-    _throwIfFailing();
+    try {
+      _throwIfFailing();
+    } on ReauthRequiredException {
+      // As the port (CR m1): REAUTH_REQUIRED parks the removal first.
+      park([ref]);
+      rethrow;
+    }
+    // As the port (CR m1): a removal that went through is no longer parked.
+    _unpark(ref);
     return nextRemoval;
+  }
+
+  void _unpark(String ref) {
+    if (!parkedRemovals.value.contains(ref)) return;
+    parkedRemovals.value = List.unmodifiable([
+      for (final r in parkedRemovals.value)
+        if (r != ref) r,
+    ]);
+    needsReauth.value = parkedRemovals.value.isNotEmpty;
   }
 
   /// StateError for a ref that is not parked (the port's rule).
@@ -473,11 +503,7 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
       throw StateError('Not a parked removal.');
     }
     _throwIfFailing();
-    parkedRemovals.value = List.unmodifiable([
-      for (final r in parkedRemovals.value)
-        if (r != ref) r,
-    ]);
-    needsReauth.value = parkedRemovals.value.isNotEmpty;
+    _unpark(ref);
   }
 }
 
