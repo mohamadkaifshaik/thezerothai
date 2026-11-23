@@ -4,18 +4,36 @@ import 'dart:typed_data';
 const maxClipBytes = 96 * 1024 * 1024;
 const unreadableClip = 'Could not decode this video. Choose another clip.';
 
-typedef ConvertedClip = ({Uint8List video, Uint8List poster, String metadata});
+typedef ConvertedClip = ({
+  Uint8List video,
+  Uint8List poster,
+  String metadata,
+  String fullMd5,
+});
 
 // Only self-contained media containers. In particular, never open playlists,
 // network URLs, or external tracks referenced by an input.
-List<String> encodeClip(String input, String output) => [
+List<String> encodeClip(String input, String output, {required bool web}) => [
   '-v', 'error', '-protocol_whitelist', 'file', '-format_whitelist',
   'mov,matroska,webm,avi,asf,flv,mpeg,mpegts,ogg,3gp,m4v,h264,hevc',
   '-i', input, '-map', '0:V:0', '-map', '0:a:0?', '-map_metadata', '-1',
   '-map_chapters', '-1', '-vf',
   "scale='min(1920,iw)':'min(1920,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2,setsar=1",
-  '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p',
-  '-threads', '2', '-crf', '23', '-maxrate', '2350k', '-bufsize', '4700k',
+  if (web) ...[
+    '-c:v',
+    'libx264',
+    '-preset',
+    'ultrafast',
+    '-crf',
+    '23',
+  ] else ...[
+    '-c:v',
+    'libopenh264',
+    '-b:v',
+    '2100k',
+  ],
+  '-pix_fmt', 'yuv420p',
+  '-threads', '2', '-maxrate', '2350k', '-bufsize', '4700k',
   // Frequent keyframes keep server-side frame sampling and feed seeking cheap.
   '-force_key_frames',
   'expr:gte(t,n_forced*2)',

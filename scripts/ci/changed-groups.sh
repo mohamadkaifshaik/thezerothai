@@ -11,7 +11,7 @@
 #   crypto     MLS core (Rust): the crypto job (in make-ci)  crypto, app/rust, app/lib/core/crypto, app/integration_test,
 #                                                            app/web
 #                                                            (testdata/mls and scripts/crypto are shared paths: everything runs)
-#   crypto_web the advisory web integration job (not in make-ci)  whenever crypto is on, and app/lib/core/vault,
+#   crypto_web the required browser integration job  whenever crypto is on, and app/lib/core/vault,
 #                                                            app/lib/features/keys (Dart only: no Rust job for them)
 #   android    Android debug build on Linux (Rust via cargo-ndk)  crypto, app/rust, app/rust_builder, app/android,
 #                                                            app/pubspec.yaml, app/pubspec.lock (not other app code; .github is shared: everything runs)
@@ -43,9 +43,12 @@ while IFS= read -r p || [ -n "$p" ]; do
 	backend/*) backend=1 ;;
 	crypto/*) crypto=1 android=1 ;;
 	app/rust/*) app=1 crypto=1 android=1 ;;
+	app/integration_test/post_video_test.dart | app/integration_test/fixtures/feed-clip.mp4) app=1 android=1 crypto_web=1 ;;
 	app/lib/core/crypto/* | app/integration_test/* | app/web/*) app=1 crypto=1 ;;
-	app/lib/core/vault/* | app/lib/features/keys/*) app=1 crypto_web=1 ;;
-	app/rust_builder/* | app/android/* | app/pubspec.yaml | app/pubspec.lock) app=1 android=1 ;;
+	app/lib/features/media/*) app=1 android=1 crypto_web=1 ;;
+	app/lib/core/vault/* | app/lib/core/storage/* | app/lib/features/keys/* | app/lib/features/messages/* | app/lib/features/posts/* | app/lib/shared/widgets/post/* | app/test_driver/*) app=1 crypto_web=1 ;;
+	app/pubspec.yaml | app/pubspec.lock) app=1 android=1 crypto_web=1 ;;
+	app/rust_builder/* | app/android/*) app=1 android=1 ;;
 	app/*) app=1 ;;
 	infra/terraform/*) infra=1 ;;
 	*) other=1 ;;

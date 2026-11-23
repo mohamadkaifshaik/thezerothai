@@ -11,7 +11,7 @@ cd "$root" || exit 1
 logs=$(mktemp -d)
 trap 'rm -rf "$logs"' EXIT
 
-suites=(scripts/promotion/test/run.sh scripts/promotion/test/promote-test.sh scripts/ci/test/run.sh)
+suites=(scripts/promotion/test/run.sh scripts/promotion/test/promote-test.sh scripts/promotion/test/prod-canary-test.sh scripts/ci/test/run.sh)
 pids=()
 for i in "${!suites[@]}"; do
 	bash "${suites[$i]}" >"$logs/$i.log" 2>&1 &

@@ -17,7 +17,7 @@ import (
 
 const (
 	// purgeOrganisedPage is the most organised beacons one eraser call touches; each beacon is its own batch.
-	purgeOrganisedPage = 100
+	purgeOrganisedPage = 4 // at most four child queries and four commits per invocation
 	// purgeMembershipPage is the most membership rows one eraser call processes: two deletes each, one batch of <= 500.
 	purgeMembershipPage = 250
 	// participantsPage is the most participant docs deleted under one beacon per batch: with the beacon and the

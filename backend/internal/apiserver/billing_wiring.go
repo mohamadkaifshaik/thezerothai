@@ -2,12 +2,17 @@ package apiserver
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
 
+	"connectrpc.com/connect"
+
+	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/billing/v1/billingv1connect"
 	"github.com/dzeroth/dzeroth/backend/internal/billing"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/mw"
 )
 
@@ -71,4 +76,101 @@ func billingRecoveryHandler(step trendsStep, log *slog.Logger, projectID string)
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}))
+}
+
+type billingModule struct {
+	postLimit      func(context.Context, string) (int, error)
+	publishArticle func(context.Context, string) error
+	recover        trendsStep
+}
+
+func wireBilling(cfg config.Config, log *slog.Logger, routes *routeTable, billingBindings *billing.FirestoreBindings) (billingModule, error) {
+	var m billingModule
+	billingServer := billing.NewServer(nil, nil, nil)
+	if cfg.BillingWebhook.PurchasesEnabled && (!cfg.BillingWebhook.Enabled || (cfg.Env != "dev" && cfg.Env != "prod") || cfg.AuthEmulator || cfg.BillingSandbox.Enabled) {
+		return billingModule{}, fmt.Errorf("real purchase rollout requires dev/prod, configured webhooks, and no emulators")
+	}
+	if cfg.BillingWebhook.Enabled {
+		if (cfg.Env != "dev" && cfg.Env != "prod") || cfg.AuthEmulator || cfg.BillingSandbox.Enabled {
+			return billingModule{}, fmt.Errorf("production billing webhooks require dev/prod without emulators or sandbox checkout")
+		}
+		products := map[string]billing.Product{}
+		for id, product := range cfg.BillingWebhook.Products {
+			products[id] = billing.Product{Store: product.Store, Entitlement: product.Entitlement}
+		}
+		provider, e := billing.NewRevenueCatProvider(cfg.BillingWebhook.SecretAPIKey, products, nil)
+		if e != nil {
+			return billingModule{}, fmt.Errorf("billing webhook provider configuration invalid")
+		}
+		reconciler, e := billing.NewReconciler(billingBindings, provider, nil)
+		if e != nil {
+			return billingModule{}, fmt.Errorf("billing webhook reconciliation configuration invalid")
+		}
+		environment := billing.Production
+		if cfg.BillingWebhook.Environment == "SANDBOX" && cfg.Env == "dev" {
+			environment = billing.Sandbox
+		} else if cfg.BillingWebhook.Environment != "" && cfg.BillingWebhook.Environment != "PRODUCTION" {
+			return billingModule{}, fmt.Errorf("billing receipt environment invalid")
+		}
+		identities, e := billing.NewIdentityService(billingBindings, environment, nil)
+		if e != nil {
+			return billingModule{}, fmt.Errorf("production billing identity configuration invalid")
+		}
+		server := billing.NewServer(identities, billingBindings, reconciler)
+		if cfg.BillingWebhook.PurchasesEnabled {
+			server.EnableStorePurchases(products)
+		}
+		billingServer = server
+		access := verifiedBillingAccess{bindings: billingBindings, verifier: reconciler, now: time.Now, environment: environment}
+		m.postLimit = access.postTextLimit
+		m.publishArticle = access.publishArticle
+		processor, e := billing.NewWebhookProcessor(billingBindings, reconciler)
+		if e != nil {
+			return billingModule{}, e
+		}
+		processor.ReadOnly = cfg.Degraded == config.DegradedReadonly
+		if e = routes.revenuecat(processor, cfg.BillingWebhook.Authorization, cfg.BillingWebhook.SigningSecret, cfg.BillingWebhook.AppIDs, environment); e != nil {
+			return billingModule{}, fmt.Errorf("billing webhook authentication configuration invalid")
+		}
+		m.recover = processor
+		routes.internal("/internal/cron/billing-webhooks", billingRecoveryHandler(processor, log, cfg.ProjectID))
+	}
+	// Without configured billing, new article publication remains unavailable.
+	if cfg.BillingSandbox.Enabled {
+		if cfg.Env != "local" || cfg.ProjectID != "demo-dzeroth-local" || !cfg.AuthEmulator {
+			return billingModule{}, fmt.Errorf("billing sandbox requires local demo project and Auth emulator")
+		}
+		bindings := billingBindings
+		provider, e := billing.NewRevenueCatProvider(cfg.BillingSandbox.SecretAPIKey,
+			map[string]billing.Product{
+				"plus_monthly": {Store: "test_store", Entitlement: billing.PlusEntitlement},
+				"monthly":      {Store: "test_store", Entitlement: billing.ProEntitlement},
+			}, nil)
+		if e != nil {
+			return billingModule{}, fmt.Errorf("billing provider configuration invalid")
+		}
+		identities, e := billing.NewIdentityService(bindings, billing.Sandbox, nil)
+		if e != nil {
+			return billingModule{}, fmt.Errorf("billing identity configuration invalid")
+		}
+		reconciler, e := billing.NewReconciler(bindings, provider, nil)
+		if e != nil {
+			return billingModule{}, fmt.Errorf("billing reconciliation configuration invalid")
+		}
+		server := billing.NewServer(identities, bindings, reconciler)
+		access := verifiedBillingAccess{bindings: bindings, verifier: reconciler, now: time.Now, environment: billing.Sandbox}
+		m.postLimit = access.postTextLimit
+		m.publishArticle = access.publishArticle
+		server.EnableSandboxPurchases()
+		billingServer = server
+	}
+	// Read-only operation must neither advertise checkout nor write verification
+	// metadata through a status read. Existing account reads remain protected.
+	if cfg.Degraded == config.DegradedReadonly {
+		billingServer = billing.NewServer(nil, billingBindings, nil)
+	}
+	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
+		return billingv1connect.NewBillingServiceHandler(billingServer, o...)
+	})
+	return m, nil
 }

@@ -1,11 +1,14 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 
-import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit.dart';
-import 'package:ffmpeg_kit_flutter_new/ffprobe_kit.dart';
-import 'package:ffmpeg_kit_flutter_new/ffmpeg_session.dart';
-import 'package:ffmpeg_kit_flutter_new/return_code.dart';
+import 'package:crypto/crypto.dart';
+import 'package:ffmpeg_kit_flutter_new_full/ffmpeg_kit.dart';
+import 'package:ffmpeg_kit_flutter_new_full/ffprobe_kit.dart';
+import 'package:ffmpeg_kit_flutter_new_full/ffmpeg_session.dart';
+import 'package:ffmpeg_kit_flutter_new_full/return_code.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../domain/processing_cancellation.dart';
@@ -29,7 +32,7 @@ Future<ConvertedClip> convertClip(
     cancellation.throwIfCancelled();
     final finished = Completer<FFmpegSession>();
     final running = await FFmpegKit.executeWithArgumentsAsync(
-      encodeClip(input, video.path),
+      encodeClip(input, video.path, web: false),
       finished.complete,
     );
     final FFmpegSession session;
@@ -65,11 +68,17 @@ Future<ConvertedClip> convertClip(
       video: await video.readAsBytes(),
       poster: await poster.readAsBytes(),
       metadata: info,
+      fullMd5: await _checksum(video.path),
     );
   } finally {
     await directory.delete(recursive: true);
   }
 }
+
+Future<String> _checksum(String path) => Isolate.run(
+  () async =>
+      base64Encode((await md5.bind(File(path).openRead()).single).bytes),
+);
 
 Future<void> withVideoPreview(
   Uint8List video,

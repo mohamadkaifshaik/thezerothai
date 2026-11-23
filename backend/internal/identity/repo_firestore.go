@@ -203,8 +203,9 @@ type handleDoc struct {
 
 // FirestoreRepo is the Firestore implementation of Repo.
 type FirestoreRepo struct {
-	client *firestore.Client
-	graph  GraphInitializer
+	client                *firestore.Client
+	graph                 GraphInitializer
+	stageAvatarRetirement func(store.Batch, Profile, Profile) error
 }
 
 // NewFirestoreRepo builds a Repo. graphInit is the seam used only by CreateProfile (see api.go).
@@ -458,6 +459,25 @@ func (r *FirestoreRepo) EnsurePublicID(ctx context.Context, uid, publicID string
 	return Profile{}, fmt.Errorf("identity: ensure public id: %w", err)
 }
 
+// SetAvatarRetirement installs the transaction-side retirement writer during server setup.
+func (r *FirestoreRepo) SetAvatarRetirement(stage func(store.Batch, Profile, Profile) error) {
+	r.stageAvatarRetirement = stage
+}
+
+func (r *FirestoreRepo) writeProfileChange(b *store.FirestoreTxBatch, before, after Profile) error {
+	b.Set(r.userRef(after.UserID), profileToDoc(after))
+	if err := b.Err(); err != nil {
+		return err
+	}
+	if r.stageAvatarRetirement != nil && (before.AvatarURL != after.AvatarURL || before.AvatarThumbURL != after.AvatarThumbURL) && before.AvatarURL != "" {
+		if err := r.stageAvatarRetirement(b, before, after); err != nil {
+			return err
+		}
+		return b.Err()
+	}
+	return nil
+}
+
 // UpdateProfile reads and rewrites the whole document in one transaction (the extras are in userDoc, so they survive
 // it), or writes nothing when mutate leaves the profile exactly as it was read (L-4: a save of unchanged values must
 // not rewrite the document, so the service moves UpdatedAt only when something changed).
@@ -484,9 +504,8 @@ func (r *FirestoreRepo) UpdateProfile(ctx context.Context, uid string, mutate fu
 		}
 
 		b := store.NewFirestoreTxBatch(tx)
-		b.Set(r.userRef(uid), profileToDoc(profile))
-		if b.Err() != nil {
-			return b.Err()
+		if err := r.writeProfileChange(b, before, profile); err != nil {
+			return err
 		}
 		result = profile
 		return nil

@@ -116,8 +116,7 @@ func (r *FirestoreRepo) UpdateProfileWithPrivacy(ctx context.Context, uid string
 		}
 		b := store.NewFirestoreTxBatch(tx)
 		if profile.IsPrivate == before.IsPrivate {
-			b.Set(r.userRef(uid), profileToDoc(profile))
-			return b.Err()
+			return r.writeProfileChange(b, before, profile)
 		}
 
 		// is_private changes: all reads first (the set doc for a protect), then the checks, then the writes.
@@ -138,7 +137,9 @@ func (r *FirestoreRepo) UpdateProfileWithPrivacy(ctx context.Context, uid string
 			}
 		}
 		now := time.Now().UTC()
-		b.Set(r.userRef(uid), profileToDoc(profile))
+		if err := r.writeProfileChange(b, before, profile); err != nil {
+			return err
+		}
 		if profile.IsPrivate {
 			if !slices.Contains(uids, uid) && len(uids) >= lim.SetMax {
 				return ErrProtectedSetFull

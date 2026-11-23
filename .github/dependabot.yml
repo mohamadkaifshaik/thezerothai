@@ -79,3 +79,10 @@ updates:
     groups:
       terraform-minor-patch:
         update-types: [minor, patch]
+  - package-ecosystem: cargo
+    directories:
+      - /crypto
+      - /app/rust
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

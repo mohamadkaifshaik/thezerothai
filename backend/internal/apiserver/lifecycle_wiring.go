@@ -9,9 +9,13 @@ import (
 	"fmt"
 	"io"
 
+	"cloud.google.com/go/firestore"
+
+	"github.com/dzeroth/dzeroth/backend/internal/engagement"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/media"
+	"github.com/dzeroth/dzeroth/backend/internal/moderation"
 	"github.com/dzeroth/dzeroth/backend/internal/notifications"
 	"github.com/dzeroth/dzeroth/backend/internal/posts"
 )
@@ -155,4 +159,36 @@ func registerFollowRequestsLifecycle(l *identity.Lifecycle, repo *graph.Firestor
 		return err
 	}
 	return l.RegisterExportSection(followRequestsSection{repo})
+}
+
+// Registration order is persisted in account-erasure checkpoints.
+func registerContentLifecycle(lifecycle *identity.Lifecycle, fsClient *firestore.Client, postsRepo *posts.FirestoreRepo, graphRepo *graph.FirestoreRepo, mediaPurger *media.Purger, notifRepo *notifications.FirestoreRepo, engagementRepo *engagement.FirestoreRepo, moderationRepo *moderation.FirestoreRepo, identityRepo *identity.FirestoreRepo) error {
+	if err := registerLifecycleModules(lifecycle, postsRepo, graphRepo, mediaPurger, notifRepo); err != nil {
+		return fmt.Errorf("account lifecycle registry: %w", err)
+	}
+	if err := registerEngagementLifecycle(lifecycle, engagementRepo); err != nil {
+		return fmt.Errorf("engagement lifecycle registry: %w", err)
+	}
+	if err := registerArticleLifecycle(lifecycle, fsClient); err != nil {
+		return fmt.Errorf("articles lifecycle registry: %w", err)
+	}
+	if err := registerModerationLifecycle(lifecycle, moderationRepo, identityRepo); err != nil {
+		return fmt.Errorf("moderation lifecycle registry: %w", err)
+	}
+	// scheduled posts: the erase step and export section are registered whether or not
+	// FEATURE_SCHEDULED_POSTS is on, because documents outlive the flag; the step runs after reports, before identity.
+	if err := registerScheduledLifecycle(lifecycle, postsRepo); err != nil {
+		return fmt.Errorf("scheduled lifecycle registry: %w", err)
+	}
+	// bookmarks: the erase step and export section are registered whether or not FEATURE_BOOKMARKS is
+	// on; the step runs after scheduled, before identity.
+	if err := registerBookmarkLifecycle(lifecycle, engagementRepo); err != nil {
+		return fmt.Errorf("bookmarks lifecycle registry: %w", err)
+	}
+	// follow_requests: the erase step and export section are registered whether or not
+	// FEATURE_PRIVATE_ACCOUNTS is on; the step runs after bookmarks, before identity.
+	if err := registerFollowRequestsLifecycle(lifecycle, graphRepo); err != nil {
+		return fmt.Errorf("follow_requests lifecycle registry: %w", err)
+	}
+	return nil
 }

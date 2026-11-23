@@ -244,12 +244,15 @@ for shared in proto/dzeroth/a/v1/a.proto testdata/x.json scripts/ci/shard.sh Mak
 done
 expect_out groups-crypto-only "go_checks=false go_unit=false int=false flutter=false promotion=false crypto=true crypto_web=true android=true" groups_of crypto/dzmls/src/lib.rs crypto/Cargo.lock docs/x.md
 expect_out groups-app-rust "go_checks=true go_unit=false int=false flutter=true promotion=false crypto=true crypto_web=true android=true" groups_of app/rust/src/lib.rs
+expect_out groups-app-video "go_checks=true go_unit=false int=false flutter=true promotion=false crypto=false crypto_web=true android=true" groups_of app/lib/features/media/data/video_conversion_native.dart
+expect_out groups-video-fixture "go_checks=true go_unit=false int=false flutter=true promotion=false crypto=false crypto_web=true android=true" groups_of app/integration_test/post_video_test.dart
+expect_out groups-app-storage "go_checks=true go_unit=false int=false flutter=true promotion=false crypto=false crypto_web=true android=false" groups_of app/lib/core/storage/database.dart
 expect_out groups-app-crypto-dart "go_checks=true go_unit=false int=false flutter=true promotion=false crypto=true crypto_web=true android=false" groups_of app/lib/core/crypto/web_crypto_engine.dart
 expect_out groups-app-vault-dart "go_checks=true go_unit=false int=false flutter=true promotion=false crypto=false crypto_web=true android=false" groups_of app/lib/core/vault/secure_vault.dart
 expect_out groups-app-keys-dart "go_checks=true go_unit=false int=false flutter=true promotion=false crypto=false crypto_web=true android=false" groups_of app/lib/features/keys/domain/device_keys_service.dart
 expect_out groups-app-web-worker "go_checks=true go_unit=false int=false flutter=true promotion=false crypto=true crypto_web=true android=false" groups_of app/web/mls_worker.js
-expect_out groups-app-pubspec "go_checks=true go_unit=false int=false flutter=true promotion=false crypto=false crypto_web=false android=true" groups_of app/pubspec.lock docs/x.md
-expect_out groups-app-pubspec-yaml "go_checks=true go_unit=false int=false flutter=true promotion=false crypto=false crypto_web=false android=true" groups_of app/pubspec.yaml
+expect_out groups-app-pubspec "go_checks=true go_unit=false int=false flutter=true promotion=false crypto=false crypto_web=true android=true" groups_of app/pubspec.lock docs/x.md
+expect_out groups-app-pubspec-yaml "go_checks=true go_unit=false int=false flutter=true promotion=false crypto=false crypto_web=true android=true" groups_of app/pubspec.yaml
 expect_out groups-app-android "go_checks=true go_unit=false int=false flutter=true promotion=false crypto=false crypto_web=false android=true" groups_of app/android/app/build.gradle.kts
 expect_out groups-app-rust-builder "go_checks=true go_unit=false int=false flutter=true promotion=false crypto=false crypto_web=false android=true" groups_of app/rust_builder/android/build.gradle
 expect_out groups-app-rust-builder-not-rust "go_checks=true go_unit=false int=false flutter=true promotion=false crypto=false crypto_web=false android=false" groups_of app/rust_builderx/a app/lib/main.dart

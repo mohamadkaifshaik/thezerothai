@@ -6,6 +6,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../../../features/posts/data/posts_repository.dart';
 import '../../../features/media/domain/media_feature_flag.dart'
     show kMaxPostImages;
 import '../../../features/media/domain/image_processor.dart'
@@ -69,6 +70,7 @@ class PostMedia extends StatelessWidget {
   const PostMedia({
     super.key,
     required this.media,
+    this.postId,
     this.useFullImage = false,
     this.onOpenImage,
     this.showPageIndicator = false,
@@ -85,6 +87,7 @@ class PostMedia extends StatelessWidget {
   final double insetEnd;
 
   final List<common.MediaRef> media;
+  final String? postId;
   final ValueChanged<int>? onOpenImage;
 
   /// Dots under the row with "Image 2 of 4" for screen readers. Callers
@@ -206,7 +209,23 @@ class PostMedia extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final items = media.take(kMaxPostImages).toList();
+    final id = postId;
+    if (id != null &&
+        media.any(
+          (ref) => _needsFreshLink(ref.url) || _needsFreshLink(ref.thumbUrl),
+        )) {
+      return _RefreshPostMedia(
+        key: ValueKey(id),
+        load: () async =>
+            (await context.read<PostsRepository>().getPost(id)).post.media,
+        render: (refs) => _buildMedia(context, refs),
+      );
+    }
+    return _buildMedia(context, media);
+  }
+
+  Widget _buildMedia(BuildContext context, List<common.MediaRef> refs) {
+    final items = refs.take(kMaxPostImages).toList();
     if (items.isEmpty) return const SizedBox.shrink();
     final wide = MediaQuery.sizeOf(context).width >= AppBreakpoints.mobile;
     final colors = Theme.of(context).colorScheme;
@@ -262,6 +281,59 @@ class PostMedia extends StatelessWidget {
       },
     );
   }
+}
+
+// Offline feed rows can outlive a signed URL or predate private storage.
+bool _needsFreshLink(String raw) {
+  final uri = Uri.tryParse(raw);
+  if (uri == null || uri.host != 'storage.googleapis.com') return false;
+  final stamp = uri.queryParameters['X-Goog-Date'];
+  if (stamp == null) {
+    return uri.pathSegments.length == 3 &&
+        uri.pathSegments.first.endsWith('-media') &&
+        uri.pathSegments[1] == 'm';
+  }
+  final issued = DateTime.tryParse(stamp);
+  final seconds = int.tryParse(uri.queryParameters['X-Goog-Expires'] ?? '');
+  return issued != null &&
+      seconds != null &&
+      !DateTime.now().isBefore(issued.add(Duration(seconds: seconds)));
+}
+
+class _RefreshPostMedia extends StatefulWidget {
+  const _RefreshPostMedia({
+    super.key,
+    required this.load,
+    required this.render,
+  });
+  final Future<List<common.MediaRef>> Function() load;
+  final Widget Function(List<common.MediaRef>) render;
+
+  @override
+  State<_RefreshPostMedia> createState() => _RefreshPostMediaState();
+}
+
+class _RefreshPostMediaState extends State<_RefreshPostMedia> {
+  late Future<List<common.MediaRef>> request;
+  @override
+  void initState() {
+    super.initState();
+    request = widget.load();
+  }
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<List<common.MediaRef>>(
+    future: request,
+    builder: (context, snapshot) {
+      if (snapshot.hasError) {
+        return TextButton(
+          onPressed: () => setState(() => request = widget.load()),
+          child: const Text('Reload media'),
+        );
+      }
+      return widget.render(snapshot.data ?? const []);
+    },
+  );
 }
 
 /// Several images: tiles of one height in a lazy horizontal list spanning the

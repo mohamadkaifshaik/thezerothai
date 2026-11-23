@@ -122,7 +122,7 @@ func (p *RevenueCatProvider) GetCustomer(ctx context.Context, b Binding) (Snapsh
 		if !known || product.Entitlement != entitlement {
 			continue
 		}
-		if !ok || s.Sandbox == nil || *s.Sandbox != (b.Environment == Sandbox) || s.Store != product.Store || s.Refunded != nil {
+		if s.Sandbox == nil || *s.Sandbox != (b.Environment == Sandbox) || s.Store != product.Store || s.Refunded != nil {
 			continue
 		}
 		end, subscriptionEnd := intervalEnd(e.rcInterval), intervalEnd(s.rcInterval)

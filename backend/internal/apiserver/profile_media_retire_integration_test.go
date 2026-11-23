@@ -25,6 +25,7 @@ import (
 	identityv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1"
 	"github.com/dzeroth/dzeroth/backend/internal/media"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/outbox"
 )
 
 func retireOn(mode config.ProfileMediaRetire) func(*config.Config) {
@@ -239,4 +240,30 @@ func TestProfileMediaRetire_SwitchModes(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Discard the inline notification and recover solely from the committed intent.
+func TestProfileMediaRetire_SweepAfterLostDelivery(t *testing.T) {
+	clock := &atomicClock{}
+	clock.ns.Store(time.Now().UnixNano())
+	e := newLifecycleEnvCfg(t, nil, retireOn(config.ProfileMediaRetireAll), func(o *buildOpts) { o.outboxNow = clock.now })
+	u := e.newUser(t)
+	old := e.seedMedia(t, u.uid, media.PurposeAvatar)
+	current := e.seedMedia(t, u.uid, media.PurposeAvatar)
+	e.updateImages(t, u, "retire-sweep-first-01", &old)
+	e.updateImages(t, u, "retire-sweep-second-1", &current)
+	e.pull(t)
+	clock.advance(outbox.DefaultInitialDelay)
+	for i := 0; i < maxSweepsForOwnItem; i++ {
+		if code := e.cron(t, "/internal/cron/outbox-sweep"); code != http.StatusNoContent {
+			t.Fatalf("sweep returned %d", code)
+		}
+		if _, _, retired := e.mediaDocFields(t, old); retired {
+			if _, _, retired := e.mediaDocFields(t, current); retired {
+				t.Fatal("retired current avatar")
+			}
+			return
+		}
+	}
+	t.Fatal("lost avatar delivery was never recovered")
 }

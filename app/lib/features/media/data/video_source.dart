@@ -1,7 +1,5 @@
-import 'dart:convert';
 import 'dart:io';
 
-import 'package:crypto/crypto.dart';
 import 'package:file_selector/file_selector.dart' show openFile;
 import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
@@ -58,7 +56,7 @@ Future<ProcessedImage> preparePostVideo(
     thumbBytes: preview.thumbBytes,
     width: size.width,
     height: size.height,
-    fullMd5: base64Encode(md5.convert(clip.video).bytes),
+    fullMd5: clip.fullMd5,
     thumbMd5: preview.thumbMd5,
     blurhash: preview.blurhash,
     contentType: kVideoContentType,

@@ -1,0 +1,14 @@
+name: Install verified Firebase CLI
+description: Install the standalone Linux release without resolving npm dependencies
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set -euo pipefail
+        dir=$(mktemp -d "$RUNNER_TEMP/firebase.XXXXXX")
+        curl --fail --silent --show-error --location --retry 3 \
+          https://github.com/firebase/firebase-tools/releases/download/v15.32.0/firebase-tools-linux -o "$dir/firebase"
+        echo "7984dc1a85d39447d19ad0eb16ebc5d1cc680e0c94e7f6293a02a61423972ace  $dir/firebase" | sha256sum --check -
+        chmod 0755 "$dir/firebase"
+        echo "$dir" >> "$GITHUB_PATH"

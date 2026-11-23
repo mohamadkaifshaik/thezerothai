@@ -151,9 +151,9 @@ void main() {
         for (final point in kProtectConfirmPoints) {
           expect(find.text(point), findsOneWidget, reason: point);
         }
-        // Founder answer B1: shared images may still open from their link.
+        // Explain how long an already-issued link continues to work.
         expect(
-          find.textContaining('may still open for anyone who has their link'),
+          find.textContaining('for up to five minutes'),
           findsOneWidget,
         );
         expect(tester.takeException(), isNull);
