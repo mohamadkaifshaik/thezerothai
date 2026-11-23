@@ -18,7 +18,11 @@ enum MessageSearchStatus {
 
 /// What the message search shows: the query and its hits, grouped by
 /// conversation. Lives only as long as the search UI (never persisted).
-@freezed
+///
+/// No generated toString (plan 5a Task 15, gate item 12): it printed the typed
+/// query and every hit, and a state can reach a log. Pinned by
+/// `test/guards/vault_guard_test.dart`.
+@Freezed(toStringOverride: false)
 abstract class MessageSearchState with _$MessageSearchState {
   const factory MessageSearchState({
     @Default('') String query,

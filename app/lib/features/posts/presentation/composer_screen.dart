@@ -3,6 +3,7 @@ import 'post_subscription_policy.dart';
 import 'dart:async';
 
 import 'package:material_ui/material_ui.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
@@ -1192,20 +1193,12 @@ class _ComposerViewState extends State<_ComposerView> {
                                         onPressed: () => _openSchedule(context),
                                       ),
                                     if (widget.mediaEnabled)
-                                      IconButton(
-                                        tooltip: 'Add video',
-                                        icon: const Icon(
-                                          Icons.video_library_outlined,
-                                        ),
-                                        onPressed:
-                                            state.isSubmitting ||
-                                                attachBusy ||
-                                                state.hasAttachments ||
-                                                state.hasPoll
-                                            ? null
-                                            : context
-                                                  .read<AttachmentsCubit>()
-                                                  .pickVideo,
+                                      _AddVideoButton(
+                                        enabled:
+                                            !state.isSubmitting &&
+                                            !attachBusy &&
+                                            !state.hasAttachments &&
+                                            !state.hasPoll,
                                       ),
                                   ],
                                 ),
@@ -1526,6 +1519,37 @@ class _QuotePreview extends StatelessWidget {
               ),
             )
           : EmbeddedPostCard(embedded: quoted, maxTextLines: 4),
+    );
+  }
+}
+
+class _AddVideoButton extends StatelessWidget {
+  const _AddVideoButton({required this.enabled});
+
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    final attachments = context.read<AttachmentsCubit>();
+    const icon = Icon(Icons.video_library_outlined);
+    if (kIsWeb) {
+      return IconButton(
+        tooltip: 'Add video',
+        icon: icon,
+        onPressed: enabled
+            ? () => attachments.pickVideo(fromFiles: true)
+            : null,
+      );
+    }
+    return PopupMenuButton<bool>(
+      tooltip: 'Add video',
+      icon: icon,
+      enabled: enabled,
+      onSelected: (fromFiles) => attachments.pickVideo(fromFiles: fromFiles),
+      itemBuilder: (_) => const [
+        PopupMenuItem(value: false, child: Text('Photo library')),
+        PopupMenuItem(value: true, child: Text('Browse files')),
+      ],
     );
   }
 }

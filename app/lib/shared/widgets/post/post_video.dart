@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:material_ui/material_ui.dart';
 import 'package:video_player/video_player.dart';
 
@@ -8,8 +9,10 @@ class PostVideo extends StatefulWidget {
     required this.url,
     required this.poster,
     this.previewController,
+    this.startOnOpen = false,
   });
   final VideoPlayerController Function()? previewController;
+  final bool startOnOpen;
   final String url;
   final Widget poster;
   @override
@@ -23,11 +26,12 @@ class _PostVideoState extends State<PostVideo> {
   @override
   void initState() {
     super.initState();
-    if (widget.previewController != null) _start();
+    if (widget.startOnOpen || widget.previewController != null) _start();
   }
 
   Future<void> _start() async {
-    if (_player != null) return;
+    final previous = _player;
+    if (previous != null && !previous.value.hasError) return;
     final player =
         widget.previewController?.call() ??
         VideoPlayerController.networkUrl(Uri.parse(widget.url));
@@ -36,7 +40,13 @@ class _PostVideoState extends State<PostVideo> {
       _failed = false;
     });
     try {
-      await player.initialize();
+      if (previous != null) await previous.dispose();
+      if (!mounted || player != _player) return;
+      await player.initialize().timeout(const Duration(seconds: 30));
+      if (!mounted || player != _player) return;
+      // Network initialization may outlast the browser's tap activation.
+      // Start inline playback muted and let the sound button unmute it.
+      if (kIsWeb) await player.setVolume(0);
       if (!mounted || player != _player) return;
       await player.play();
     } catch (_) {
@@ -60,18 +70,29 @@ class _PostVideoState extends State<PostVideo> {
     final colors = Theme.of(context).colorScheme;
     final player = _player;
     if (player == null) {
-      return Stack(
-        fit: StackFit.expand,
-        children: [
-          widget.poster,
-          Center(
-            child: IconButton.filled(
-              tooltip: _failed ? 'Retry video' : 'Play video',
-              onPressed: _start,
-              icon: Icon(_failed ? Icons.refresh : Icons.play_arrow),
+      final label = _failed ? 'Retry video' : 'Play video';
+      return Tooltip(
+        message: label,
+        child: Semantics(
+          button: true,
+          label: label,
+          child: InkWell(
+            onTap: _start,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                widget.poster,
+                Center(
+                  child: CircleAvatar(
+                    backgroundColor: colors.primary,
+                    foregroundColor: colors.onPrimary,
+                    child: Icon(_failed ? Icons.refresh : Icons.play_arrow),
+                  ),
+                ),
+              ],
             ),
           ),
-        ],
+        ),
       );
     }
     return ValueListenableBuilder<VideoPlayerValue>(
@@ -80,19 +101,19 @@ class _PostVideoState extends State<PostVideo> {
         if (value.hasError) {
           return Center(
             child: TextButton(
-              onPressed: () async {
-                setState(() {
-                  _player = null;
-                  _failed = true;
-                });
-                await player.dispose();
-              },
+              onPressed: _start,
               child: const Text('Video unavailable. Try again'),
             ),
           );
         }
         if (!value.isInitialized) {
-          return const Center(child: CircularProgressIndicator());
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              widget.poster,
+              const Center(child: CircularProgressIndicator()),
+            ],
+          );
         }
         return ColoredBox(
           color: colors.surface,

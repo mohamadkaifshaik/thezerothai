@@ -678,7 +678,7 @@ func (s *service) reject(ctx context.Context, d *Doc, reason string) (Result, er
 	if d.ContentType == ContentTypeMP4 {
 		switch reason {
 		case reasonInvalid:
-			reason = "Choose an H.264 MP4 video up to 5 minutes, with AAC audio or no audio."
+			reason = "This clip could not be verified. Choose another video up to 5 minutes."
 		case reasonPolicy:
 			reason = "This video may break the community rules."
 		case reasonAttempts:
