@@ -569,6 +569,13 @@ func Load() (Config, error) {
 			"config: CACHE_TTL %v exceeds the maximum of %.0fs: the account-deletion start gate is 120s and the instance cache TTL must stay below it so PurgeUser cannot race stale caches (ADR-0009)",
 			cacheTTL, MaxCacheTTL.Seconds())
 	}
+	// The instance caches treat a TTL <= 0 as "never expires" (cache/lru.go): a session cut or a status change written
+	// on one instance would then stay hidden from the others until LRU eviction (security audit L2, PR 3 of H2).
+	if cacheTTL <= 0 {
+		return Config{}, fmt.Errorf(
+			"config: CACHE_TTL %v must be positive: a zero or negative TTL makes the instance caches never expire, so a session cut or status change on one instance would stay hidden from the others",
+			cacheTTL)
+	}
 	cachePostsEntries, err := getInt("CACHE_POSTS_ENTRIES", 20_000)
 	if err != nil {
 		return Config{}, err
