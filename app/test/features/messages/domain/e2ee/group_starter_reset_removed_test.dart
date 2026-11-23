@@ -4,6 +4,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/removal_queue_runner.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/removal_record.dart';
 import 'package:dzeroth/gen/dzeroth/keys/v1/keys.pb.dart' as kpb;
@@ -113,6 +114,24 @@ void main() {
     expect(resets().single.welcomeDeviceIds, [bob.idString]);
     expect(await pin(bob2.id), isNull);
     expect(await pin(sib.id), isNull);
+  });
+
+  test('a peer claim with an own-list device\'s key is dropped even when the '
+      'own claim fails (final minor round, ruling 1, CR R-1)', () async {
+    final sib = await RigPeer.create('sib');
+    final bob2 = RigPeer.withKeyOf('bob2', sib);
+    await setUpJoined();
+    peers([bob, bob2]);
+    siblings([sib]);
+    // No own package reaches the dedupe: the own claim fails.
+    rig.keys.claimErrors[_me] = const NetworkException('rig: no claim');
+    await makeStuck();
+    seam((id) => rigEq(id, sib.id));
+
+    await reset();
+
+    expect(resets().single.welcomeDeviceIds, [bob.idString]);
+    expect(await pin(bob2.id), isNull);
   });
 
   test('an unreadable removal queue: the reset uses only fresh own devices '

@@ -384,6 +384,15 @@ extension _Start on GroupStarter {
     return _OwnKeptOut(removed);
   }
 
+  /// Final minor round, ruling 1 (CR R-1): whether [key] is the key of a
+  /// device on the own list [own] (a removed device's included). A peer
+  /// claim with such a key is dropped by a start and a reset, as by
+  /// reconcile (fix round 1, ruling 2). Why: the cross-side dedupe sees an
+  /// own key only when that device's own claim is usable, and the own claim
+  /// may fail, carry no package, or be left out as removed.
+  bool _ownListKey(DeviceList own, Uint8List key) =>
+      own.devices.any((d) => _same(d.signatureKey, key));
+
   /// Whether any of [devices] had no empty claim recorded today.
   Future<bool> _anyUnclaimed(List<DirectoryDevice> devices) async {
     for (final d in devices) {
@@ -598,9 +607,13 @@ extension _Start on GroupStarter {
               _same(a.signatureKey, b.signatureKey) ||
               _same(a.deviceId, b.deviceId),
         );
+        // Final minor round, ruling 1 (CR R-1): never a peer claim with an
+        // own-list device's key.
         final usableTheirs = [
           for (final c in checkedTheirs.usable)
-            if (!onBoth(c, checkedMine.usable)) c,
+            if (!onBoth(c, checkedMine.usable) &&
+                !_ownListKey(own, c.signatureKey))
+              c,
         ];
         // After the dedupe: a peer claim with a removed device's key or id
         // is still dropped with it.

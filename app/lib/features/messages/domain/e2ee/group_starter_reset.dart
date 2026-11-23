@@ -386,9 +386,14 @@ extension _Reset on GroupStarter {
         bool removedToday(UsableClaim c) =>
             daily != null &&
             daily.isUndoOfOwnChange(id, c.deviceId, removing: false);
+        // Final minor round, ruling 1 (CR R-1): never a peer claim with an
+        // own-list device's key.
         final usableTheirs = [
           for (final c in checkedTheirs.usable)
-            if (!onBoth(c, checkedMine.usable) && !removedToday(c)) c,
+            if (!onBoth(c, checkedMine.usable) &&
+                !removedToday(c) &&
+                !_ownListKey(own, c.signatureKey))
+              c,
         ];
         // Task 11 follow-up: never an own device the user removed; none at
         // all while that is unknown and the own list is a kept one.

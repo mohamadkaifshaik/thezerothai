@@ -6,6 +6,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/vault/secure_vault.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/group_starter.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/removal_queue_runner.dart';
@@ -169,6 +170,22 @@ void main() {
     final bob2 = RigPeer.withKeyOf('bob2', sib);
     siblings([sib]);
     peers([bob, bob2]);
+    seam((id) => rigEq(id, sib.id));
+
+    expect((await start()).result, StartResult.started);
+
+    expect(await welcomed(), {bob.idString});
+    expect(await pin(bob2), isNull);
+  });
+
+  test('a peer claim with an own-list device\'s key is dropped even when the '
+      'own claim fails (final minor round, ruling 1, CR R-1)', () async {
+    final sib = await RigPeer.create('sib');
+    final bob2 = RigPeer.withKeyOf('bob2', sib);
+    siblings([sib]);
+    peers([bob, bob2]);
+    // No own package reaches the dedupe: the own claim fails.
+    rig.keys.claimErrors[_me] = const NetworkException('rig: no claim');
     seam((id) => rigEq(id, sib.id));
 
     expect((await start()).result, StartResult.started);
