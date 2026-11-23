@@ -212,7 +212,9 @@ class _AttachmentTileState extends State<AttachmentTile> {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final preview = attachment.previewBytes;
-    final videoPath = attachment.image?.videoPreviewPath;
+    final videoImage = attachment.kind == AttachmentKind.video
+        ? attachment.image
+        : null;
     final problem =
         attachment.status == AttachmentStatus.failed ||
         attachment.status == AttachmentStatus.unchecked ||
@@ -331,34 +333,39 @@ class _AttachmentTileState extends State<AttachmentTile> {
                       ),
                     ),
                   ),
-                if (videoPath != null && preview != null && !busy && !problem)
+                if (videoImage != null && preview != null && !busy && !problem)
                   Center(
                     child: IconButton.filled(
                       tooltip: 'Preview video',
                       icon: const Icon(Icons.play_arrow),
-                      onPressed: () => showDialog<void>(
-                        context: context,
-                        builder: (context) {
-                          final image = attachment.image!;
-                          return AlertDialog(
-                            content: AspectRatio(
-                              aspectRatio: image.width / image.height,
-                              child: PostVideo(
-                                url: videoPath,
-                                poster: Image.memory(preview),
-                                previewController: () =>
-                                    pickedVideoController(videoPath),
+                      onPressed: () => withVideoPreview(videoImage.fullBytes, (
+                        videoPath,
+                      ) async {
+                        if (!context.mounted) return;
+                        await showDialog<void>(
+                          context: context,
+                          builder: (context) {
+                            return AlertDialog(
+                              content: AspectRatio(
+                                aspectRatio:
+                                    videoImage.width / videoImage.height,
+                                child: PostVideo(
+                                  url: videoPath,
+                                  poster: Image.memory(preview),
+                                  previewController: () =>
+                                      pickedVideoController(videoPath),
+                                ),
                               ),
-                            ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(context),
-                                child: const Text('Close'),
-                              ),
-                            ],
-                          );
-                        },
-                      ),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.pop(context),
+                                  child: const Text('Close'),
+                                ),
+                              ],
+                            );
+                          },
+                        );
+                      }),
                     ),
                   ),
                 if (attachment.isGif)
