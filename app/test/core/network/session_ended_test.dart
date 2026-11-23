@@ -203,13 +203,17 @@ void main() {
 
   // Fix round ruling 5, N3: a forced refresh that hangs is bounded; on the
   // timeout the session is treated as ended (reported, no retry).
-  test('a refresh that hangs past kSessionEndedRefreshTimeout reports the '
-      'end without a retry', () {
+  // Final fix (security N-L6): a timed-out refresh is treated like a failed
+  // one: the call is retried once with the SDK's current token, and only a
+  // refused retry reports the end.
+  Object? stalledRefresh(List<connect.HttpResponse Function()> answers) {
+    Object? result = 'pending';
     fakeAsync((async) {
-      auth.answer(idTokenFor(_a, iat: 1));
+      auth
+        ..answer(idTokenFor(_a, iat: 1))
+        ..answer(idTokenFor(_a, iat: 2));
       auth.holdRefresh = true;
-      script([sessionEndedError]);
-      Object? result = 'pending';
+      script(answers);
       getMe(client()).then((r) => result = r);
       async.flushMicrotasks();
       expect(auth.hasRefreshWaiting, isTrue);
@@ -217,11 +221,28 @@ void main() {
         kSessionEndedRefreshTimeout - const Duration(milliseconds: 1),
       );
       expect(result, 'pending');
-      async.elapse(const Duration(milliseconds: 2));
-      expect(result, isA<SessionEndedException>());
       expect(http.sent, hasLength(1));
-      expect(auth.ended, [_a]);
+      async.elapse(const Duration(milliseconds: 2));
+      async.flushMicrotasks();
     });
+    return result;
+  }
+
+  test('a refresh that stalls past kSessionEndedRefreshTimeout: the call is '
+      'retried with the current token; a passing retry signs nobody out', () {
+    final result = stalledRefresh([sessionEndedError]);
+    expect(result, isNull);
+    expect(http.sent, hasLength(2));
+    expect(http.sentBearers.last, 'Bearer ${idTokenFor(_a, iat: 2)}');
+    expect(auth.ended, isEmpty);
+  });
+
+  test('a refresh that stalls past kSessionEndedRefreshTimeout and a refused '
+      'retry: one report', () {
+    final result = stalledRefresh([sessionEndedError, sessionEndedError]);
+    expect(result, isA<SessionEndedException>());
+    expect(http.sent, hasLength(2));
+    expect(auth.ended, [_a]);
   });
 
   test('the account changed during the refresh: the retry is refused '

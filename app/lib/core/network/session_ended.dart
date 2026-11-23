@@ -7,9 +7,11 @@ import 'auth_token_provider.dart';
 import 'connect_error_mapper.dart' show findErrorDetail;
 import 'request_session.dart';
 
-/// How long the one forced refresh of a SESSION_ENDED burst may take. Past
-/// it the session is treated as ended (fix round ruling 5, N3): reported,
-/// with no retry, so a hung token call never holds every refused call.
+/// How long the one forced refresh of a SESSION_ENDED burst may take (fix
+/// round ruling 5, N3), so a hung token call never holds every refused call.
+/// Past it the refresh counts as failed (security N-L6): the call is still
+/// retried once with the SDK's current token, and only a refused retry
+/// reports the end.
 const kSessionEndedRefreshTimeout = Duration(seconds: 15);
 
 /// True when [error] is the server's session-cut refusal: UNAUTHENTICATED
@@ -57,7 +59,7 @@ final class SessionEndedInterceptor {
 
   /// How many forced refreshes finished.
   int _refreshes = 0;
-  Future<bool>? _refreshing;
+  Future<void>? _refreshing;
 
   /// The account whose end this burst already reported.
   String? _endedUid;
@@ -83,14 +85,8 @@ final class SessionEndedInterceptor {
           _tokens.reportSessionEnded(uid);
           rethrow;
         }
-        final timedOut = seen == _refreshes && await _refresh();
+        if (seen == _refreshes) await _refresh();
         if (_sessionUid() != uid) throw const RequestSessionChangedException();
-        if (timedOut) {
-          // N3: no answer from the token service in time: treated as a
-          // refusal (no retry), the end is reported.
-          _report(uid);
-          rethrow;
-        }
         return _retry(next, request, uid);
       }
       if (_endedUid == uid) _endedUid = null;
@@ -121,10 +117,10 @@ final class SessionEndedInterceptor {
     _tokens.reportSessionEnded(uid);
   }
 
-  /// One forced refresh shared by every call refused while it runs; true
-  /// when it timed out ([kSessionEndedRefreshTimeout]). A failed refresh is
-  /// not an answer: the retry still goes (with whatever token the SDK has)
-  /// and decides.
+  /// One forced refresh shared by every call refused while it runs. A failed
+  /// refresh, or one that takes longer than [kSessionEndedRefreshTimeout]
+  /// (security N-L6), is not an answer: the retry still goes (with whatever
+  /// token the SDK has) and decides.
   ///
   /// N1: `_refreshing` is assigned before the body can finish (the body
   /// always suspends: [Future.sync] turns a synchronous throw into a failed
@@ -133,21 +129,17 @@ final class SessionEndedInterceptor {
   /// N2: a second refresh within one burst is possible: a call that entered
   /// after the first one finished and is refused before the end is reported
   /// starts another. Bounded (one token call per such wave) and accepted.
-  Future<bool> _refresh() => _refreshing ??= _runRefresh();
+  Future<void> _refresh() => _refreshing ??= _runRefresh();
 
-  Future<bool> _runRefresh() async {
-    var timedOut = false;
+  Future<void> _runRefresh() async {
     try {
       await Future.sync(_tokens.refreshIdToken)
           .timeout(kSessionEndedRefreshTimeout);
-    } on TimeoutException {
-      timedOut = true;
     } catch (_) {
-      // See above: the retry decides.
+      // A failure or the timeout (TimeoutException): the retry decides.
     } finally {
       _refreshes++;
       _refreshing = null;
     }
-    return timedOut;
   }
 }
