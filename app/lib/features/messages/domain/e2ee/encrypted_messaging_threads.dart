@@ -47,12 +47,32 @@ class _Thread {
   bool _again = false;
 
   /// Each listener gets the latest thread at once, then every change.
+  ///
+  /// Branch review m1: a thread nobody listens to is not in the port's map
+  /// and holds nothing decrypted ([_lastListener]). A stream object listened
+  /// to again registers its thread again, or follows the thread another
+  /// `watchThread` made for the same ref meanwhile; a thread closed by a
+  /// vault change (L3) stays ended.
   Stream<EncryptedThread> get stream => Stream.multi((c) {
+    _impl._checkVault();
+    if (_controller.isClosed) {
+      c.close();
+      return;
+    }
+    final owner = _impl._threads.putIfAbsent(ref, () => this);
+    if (!identical(owner, this)) {
+      final sub = owner.stream.listen(c.add, onDone: c.close);
+      c.onCancel = sub.cancel;
+      return;
+    }
     final latest = _latest;
     if (latest != null) c.add(latest);
     final sub = _controller.stream.listen(c.add, onDone: c.close);
     c.onCancel = sub.cancel;
   });
+
+  /// Someone listens (branch review n2: `loadOlder` reads nothing else).
+  bool get watched => _controller.hasListener;
 
   /// Whether a change of [conversationId] concerns this thread (a thread
   /// whose id is not known yet may be the one a send just bound).
@@ -78,6 +98,8 @@ class _Thread {
         _again = false;
         final thread = await _build();
         if (_controller.isClosed) return;
+        // m1: a build that ends after the last listener left keeps nothing.
+        if (!_controller.hasListener) return;
         if (thread != null) {
           _latest = thread;
           _controller.add(thread);
@@ -91,10 +113,16 @@ class _Thread {
 
   void _firstListener() => unawaited(refresh());
 
+  /// Closes the conversation with the coordinator, and (branch review m1)
+  /// drops the decrypted window and this thread's entry in the port's map:
+  /// the next first listener builds again from the vault anyway.
   void _lastListener() {
     final id = _opened;
     _opened = null;
     if (id != null) _impl._pipeline.closed(id);
+    _latest = null;
+    _again = false;
+    if (identical(_impl._threads[ref], this)) _impl._threads.remove(ref);
   }
 
   /// Opens the conversation once its id is known and someone listens.

@@ -114,6 +114,36 @@ void main() {
       },
     );
 
+    test('the last listener leaving drops the thread and its decrypted window; '
+        'loadOlder of an unwatched thread does nothing; the stream works when '
+        'listened again (branch review m1, n2)', () async {
+      await joined();
+      await store(_c1, 1, text: 'secret text');
+      const ref = ThreadRef.conversation(_c1);
+      final stream = port.watchThread(ref);
+      final first = await stream.first;
+      expect(
+        first.entries.whereType<DecryptedMessage>().single.text,
+        'secret text',
+      );
+      expect(port.threadCountForTest, 0, reason: 'nothing held after cancel');
+      await port.loadOlder(ref);
+      expect(port.threadCountForTest, 0, reason: 'loadOlder made no thread');
+
+      // The same stream object, listened again: a fresh build, then changes.
+      final seen = <EncryptedThread>[];
+      final sub = stream.listen(seen.add);
+      await _until(() async => seen.isNotEmpty);
+      expect(port.threadCountForTest, 1);
+      h.rig.server.beforeSend = (_) => Completer<void>().future;
+      await port.send(to: ref, localId: 'local-1', text: 'mine');
+      await _until(() async => seen.last.entries.any((e) => e.id == 'local-1'));
+      h.rig.server.beforeSend = null;
+      await sub.cancel();
+      expect(port.threadCountForTest, 0);
+      await h.settle();
+    });
+
     test('the first listener opens the conversation and the last one closes '
         'it', () async {
       await joined();

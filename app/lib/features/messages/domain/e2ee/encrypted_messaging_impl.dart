@@ -69,6 +69,11 @@ class EncryptedMessagingImpl implements EncryptedMessaging {
   /// The open threads, one per ref (gate item 29).
   final Map<ThreadRef, _Thread> _threads = {};
 
+  /// How many threads this port holds (branch review m1: none once their
+  /// last listener left).
+  @visibleForTesting
+  int get threadCountForTest => _threads.length;
+
   /// K2: recipient ref -> the conversation id a send (or the vault) bound
   /// it to.
   final Map<String, String> _bound = {};
@@ -203,7 +208,8 @@ class EncryptedMessagingImpl implements EncryptedMessaging {
   Future<void> loadOlder(ThreadRef ref) async {
     _checkVault();
     final t = _threads[ref];
-    if (t == null) return;
+    // Branch review n2: a thread nobody watches reads nothing.
+    if (t == null || !t.watched) return;
     t.window += kThreadPage;
     await t.refresh();
   }
