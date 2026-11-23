@@ -196,6 +196,11 @@ const (
 	// FAILED_PRECONDITION code mapping, so its messaging screens show their generic failure text, not an update prompt:
 	// telling such an app to update is the app version floor's job, not this error's.
 	ErrorReason_ERROR_REASON_ENCRYPTION_REQUIRED ErrorReason = 24
+	// FAILED_PRECONDITION, KeyService: RegisterKeyDevice or UploadKeyPackages for a device id the account removed from
+	// another device (RemoveKeyDevice with reason REMOTE). No metadata, no retry hint. Refused for at least 90 days after
+	// the removal. Do not retry with the same id: this device must be set up again under a new device id. A client built
+	// before this value sees UNSPECIFIED and falls back to the FAILED_PRECONDITION code mapping.
+	ErrorReason_ERROR_REASON_DEVICE_REMOVED ErrorReason = 25
 )
 
 // Enum value maps for ErrorReason.
@@ -226,6 +231,7 @@ var (
 		22: "ERROR_REASON_COMMUNITY_STATE",
 		23: "ERROR_REASON_STALE_EPOCH",
 		24: "ERROR_REASON_ENCRYPTION_REQUIRED",
+		25: "ERROR_REASON_DEVICE_REMOVED",
 	}
 	ErrorReason_value = map[string]int32{
 		"ERROR_REASON_UNSPECIFIED":            0,
@@ -253,6 +259,7 @@ var (
 		"ERROR_REASON_COMMUNITY_STATE":        22,
 		"ERROR_REASON_STALE_EPOCH":            23,
 		"ERROR_REASON_ENCRYPTION_REQUIRED":    24,
+		"ERROR_REASON_DEVICE_REMOVED":         25,
 	}
 )
 
@@ -284,11 +291,11 @@ func (ErrorReason) EnumDescriptor() ([]byte, []int) {
 }
 
 // A user's display data. Two kinds of copy share this message:
-//   - frozen copies, denormalized at write time: `posts.v1.Post.author` and `posts.v1.EmbeddedPost.author`
-//     (may be up to one refresh cycle stale, embeds are never refreshed) and `notifications.v1.Notification.actor`
-//     (snapshotted when the row was written);
-//   - live rows: `graph.v1.UserListItem.user`, hydrated from the user's profile when the response is built (instance
-//     cache, up to 60 s stale).
+// - frozen copies, denormalized at write time: `posts.v1.Post.author` and `posts.v1.EmbeddedPost.author`
+//   (may be up to one refresh cycle stale, embeds are never refreshed) and `notifications.v1.Notification.actor`
+//   (snapshotted when the row was written);
+// - live rows: `graph.v1.UserListItem.user`, hydrated from the user's profile when the response is built (instance
+//   cache, up to 60 s stale).
 type AuthorSnapshot struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Deprecated for display and links (FEATURE_PUBLIC_IDS): use public_id. Always set. With FEATURE_PUBLIC_IDS off for the
@@ -692,7 +699,7 @@ const file_dzeroth_common_v1_common_proto_rawDesc = "" +
 	"\vHomeTabKind\x12\x1d\n" +
 	"\x19HOME_TAB_KIND_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12HOME_TAB_KIND_LIST\x10\x01\x12\x1b\n" +
-	"\x17HOME_TAB_KIND_COMMUNITY\x10\x02*\xd3\x06\n" +
+	"\x17HOME_TAB_KIND_COMMUNITY\x10\x02*\xf4\x06\n" +
 	"\vErrorReason\x12\x1c\n" +
 	"\x18ERROR_REASON_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17ERROR_REASON_VALIDATION\x10\x01\x12\x1d\n" +
@@ -719,7 +726,8 @@ const file_dzeroth_common_v1_common_proto_rawDesc = "" +
 	"\x16ERROR_REASON_FORBIDDEN\x10\x15\x12 \n" +
 	"\x1cERROR_REASON_COMMUNITY_STATE\x10\x16\x12\x1c\n" +
 	"\x18ERROR_REASON_STALE_EPOCH\x10\x17\x12$\n" +
-	" ERROR_REASON_ENCRYPTION_REQUIRED\x10\x18BCZAgithub.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1;commonv1b\x06proto3"
+	" ERROR_REASON_ENCRYPTION_REQUIRED\x10\x18\x12\x1f\n" +
+	"\x1bERROR_REASON_DEVICE_REMOVED\x10\x19BCZAgithub.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1;commonv1b\x06proto3"
 
 var (
 	file_dzeroth_common_v1_common_proto_rawDescOnce sync.Once

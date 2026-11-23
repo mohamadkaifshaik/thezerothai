@@ -218,4 +218,9 @@ enum ErrorReason {
   // FAILED_PRECONDITION code mapping, so its messaging screens show their generic failure text, not an update prompt:
   // telling such an app to update is the app version floor's job, not this error's.
   ERROR_REASON_ENCRYPTION_REQUIRED = 24;
+  // FAILED_PRECONDITION, KeyService: RegisterKeyDevice or UploadKeyPackages for a device id the account removed from
+  // another device (RemoveKeyDevice with reason REMOTE). No metadata, no retry hint. Refused for at least 90 days after
+  // the removal. Do not retry with the same id: this device must be set up again under a new device id. A client built
+  // before this value sees UNSPECIFIED and falls back to the FAILED_PRECONDITION code mapping.
+  ERROR_REASON_DEVICE_REMOVED = 25;
 }

@@ -348,13 +348,13 @@ func TestRemove(t *testing.T) {
 				if _, _, err := s.Upload(ctx, uidA, devID, pkgs(0, 2), pkg(900)); err != nil {
 					t.Fatal(err)
 				}
-				if err := s.Remove(ctx, uidA, devID); err != nil {
+				if err := s.Remove(ctx, uidA, devID, RemoveSignOut); err != nil {
 					t.Fatal(err)
 				}
 				if len(r.devices[uidA]) != 0 || len(r.pool[devKey(uidA, devID)]) != 0 || r.lastResort[devKey(uidA, devID)] != nil {
 					t.Fatal("device, pool or last resort left behind")
 				}
-				if err := s.Remove(ctx, uidA, devID); err != nil {
+				if err := s.Remove(ctx, uidA, devID, RemoveSignOut); err != nil {
 					t.Fatalf("second remove: %v", err)
 				}
 			},
@@ -362,7 +362,7 @@ func TestRemove(t *testing.T) {
 		{
 			name: "missing device succeeds", id: devID2,
 			run: func(t *testing.T, s Service, r *fakeRepo) {
-				if err := s.Remove(ctx, uidA, devID2); err != nil {
+				if err := s.Remove(ctx, uidA, devID2, RemoveSignOut); err != nil {
 					t.Fatal(err)
 				}
 				if len(r.devices[uidA]) != 1 {
@@ -379,7 +379,7 @@ func TestRemove(t *testing.T) {
 				if _, err := s.Register(ctx, uidA, devID2, sigKey(1)); err == nil {
 					t.Fatal("sixth device accepted")
 				}
-				if err := s.Remove(ctx, uidA, devID); err != nil {
+				if err := s.Remove(ctx, uidA, devID, RemoveSignOut); err != nil {
 					t.Fatal(err)
 				}
 				mustRegister(t, s, devID2, sigKey(1))
@@ -389,7 +389,7 @@ func TestRemove(t *testing.T) {
 			name: "repo failure is wrapped", id: devID,
 			run: func(t *testing.T, s Service, r *fakeRepo) {
 				r.err = errors.New("boom")
-				err := s.Remove(ctx, uidA, devID)
+				err := s.Remove(ctx, uidA, devID, RemoveSignOut)
 				if err == nil || !strings.Contains(err.Error(), "boom") {
 					t.Fatalf("err = %v", err)
 				}
@@ -401,7 +401,7 @@ func TestRemove(t *testing.T) {
 			s, repo, _ := newTestService(t)
 			mustRegister(t, s, devID, sigKey(1))
 			if tc.field != "" {
-				wantValidation(t, s.Remove(ctx, uidA, tc.id), tc.field)
+				wantValidation(t, s.Remove(ctx, uidA, tc.id, RemoveSignOut), tc.field)
 				return
 			}
 			tc.run(t, s, repo)
@@ -626,7 +626,7 @@ func TestRequestLogCarriesNoSecrets(t *testing.T) {
 		t.Fatal(err)
 	}
 	check("list")
-	if err := s.Remove(ctx, uidA, devID); err != nil {
+	if err := s.Remove(ctx, uidA, devID, RemoveSignOut); err != nil {
 		t.Fatal(err)
 	}
 	check("remove")

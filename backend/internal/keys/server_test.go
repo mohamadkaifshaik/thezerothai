@@ -32,6 +32,7 @@ type fakeService struct {
 	sigKey, lastResort             []byte
 	packages                       [][]byte
 	userIDs                        []string
+	reason                         RemoveReason
 
 	device   Device
 	devices  []Device
@@ -63,9 +64,9 @@ func (f *fakeService) ListMine(ctx context.Context, uid string) ([]Device, error
 	return f.devices, f.err
 }
 
-func (f *fakeService) Remove(ctx context.Context, uid, deviceID string) error {
+func (f *fakeService) Remove(ctx context.Context, uid, deviceID string, reason RemoveReason) error {
 	f.note(ctx, "remove", uid)
-	f.deviceID = deviceID
+	f.deviceID, f.reason = deviceID, reason
 	return f.err
 }
 
