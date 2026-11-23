@@ -336,6 +336,9 @@ class DeviceKeysService {
   /// [kVaultSettingRemovedElsewhere] reads 0x01), and the listed answers
   /// counted toward clearing it (M5).
   SecureVault? _removedVault;
+
+  /// The vault whose marker was read and says "not removed" (fix wave 3).
+  SecureVault? _clearVault;
   int _listedAgain = 0;
   final ValueNotifier<bool> _removedFact = ValueNotifier(false);
   final _reportedPending = Expando<bool>();
@@ -363,14 +366,31 @@ class DeviceKeysService {
   /// this device's Register or Upload, for the open vault (persisted in
   /// [kVaultSettingRemovedElsewhere], so it survives a restart). While it
   /// holds every run is read only (one ListMyKeyDevices, no register, no
-  /// upload) and the pipeline stops: pass this getter, as the same fact, to
-  /// every `removedElsewhere` seam (crypto, receiver, starter, sender,
-  /// commit runner, upkeep, removal queue). Nothing is deleted until the
-  /// user chooses "set up again" ([recreateDevice], through
-  /// `DeviceReset.setUpAgain`). Synchronous after [onVaultReady]; false with
-  /// no vault.
+  /// upload). Nothing is deleted until the user chooses "set up again"
+  /// ([recreateDevice], through `DeviceReset.setUpAgain`). Synchronous
+  /// after [onVaultReady]; false with no vault. The pipeline's seams take
+  /// [stopsPipeline], not this.
   bool get removedElsewhere =>
       _removedVault != null && identical(_removedVault, _session.vault);
+
+  /// Fix wave 3 (SA M3): the fact for the open vault, failing closed.
+  RemovedElsewhere get removedElsewhereState {
+    final v = _session.vault;
+    if (v != null && identical(_removedVault, v)) {
+      return RemovedElsewhere.removed;
+    }
+    if (v != null && identical(_clearVault, v)) {
+      return RemovedElsewhere.notRemoved;
+    }
+    return RemovedElsewhere.unknown;
+  }
+
+  /// The pipeline's fact: pass this getter, as the same fact, to every
+  /// `removedElsewhere` seam (crypto, receiver, starter, sender, commit
+  /// runner, upkeep, removal queue). True unless the open vault's marker
+  /// was read and says "not removed".
+  bool get stopsPipeline =>
+      removedElsewhereState != RemovedElsewhere.notRemoved;
 
   /// [removedElsewhere] as a listenable (the port's `removedElsewhere`):
   /// the value for the open vault this service saw; false once that vault
@@ -610,7 +630,7 @@ class DeviceKeysService {
     try {
       // Task 12: a device removed elsewhere is read only (a list, nothing
       // else) until the marker clears or the user sets it up again.
-      if (await _syncRemoved(vault)) {
+      if (await _syncRemoved(vault, uid)) {
         await _checkListed(vault, uid, live);
         return;
       }

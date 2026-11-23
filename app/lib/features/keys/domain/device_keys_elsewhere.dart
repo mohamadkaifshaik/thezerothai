@@ -23,53 +23,126 @@ part of 'device_keys_service.dart';
 /// count; a failed call neither counts nor resets. While the server's mark
 /// lives the id is never listed, so in practice "set up again" is the way
 /// out.
+/// The removed-elsewhere fact for the open vault (fix wave 3, SA M3).
+/// `unknown`: the vault's marker has not been read yet, or did not open,
+/// or holds another value (the pipeline stays stopped); `removed`: the
+/// server answered DEVICE_REMOVED (stored, or remembered when the write
+/// failed); `notRemoved`: the marker was read and says so. Only
+/// `notRemoved` lets the pipeline run ([DeviceKeysService.stopsPipeline]).
+enum RemovedElsewhere { unknown, removed, notRemoved }
+
+/// What the stored marker holds: absent or 0x00, 0x01, anything else.
+enum _Marker { clear, set, malformed }
+
+final Expando<bool> _markerReported = Expando('markerReported');
+
 extension _Elsewhere on DeviceKeysService {
-  void _setRemoved(SecureVault? vault) {
+  void _setRemoved(SecureVault vault) {
     _removedVault = vault;
+    _clearVault = null;
     _listedAgain = 0;
-    _removedFact.value = vault != null;
+    _removedFact.value = true;
   }
 
-  /// The vault's marker reads 0x01. Throws [VaultCorruptException] when it
-  /// does not open.
-  static Future<bool> _readRemoved(SecureVault vault) async {
+  /// The marker was read and says "not removed" (or the listed-again path
+  /// or recreateDevice cleared it).
+  void _setClear(SecureVault vault) {
+    _removedVault = null;
+    _clearVault = vault;
+    _listedAgain = 0;
+    _removedFact.value = false;
+  }
+
+  /// Throws [VaultCorruptException] when the marker does not open.
+  static Future<_Marker> _readMarker(SecureVault vault) async {
     final bytes = await vault.setting(kVaultSettingRemovedElsewhere);
-    return bytes != null && bytes.length == 1 && bytes[0] == 0x01;
+    if (bytes == null) return _Marker.clear;
+    if (bytes.length == 1 && bytes[0] == 0x00) return _Marker.clear;
+    if (bytes.length == 1 && bytes[0] == 0x01) return _Marker.set;
+    return _Marker.malformed;
+  }
+
+  /// An unreadable or malformed marker, reported once per vault.
+  void _reportMarker(SecureVault vault, StackTrace stack) {
+    if (_markerReported[vault] == true) return;
+    _markerReported[vault] = true;
+    _report('removedElsewhereMarker', stack);
   }
 
   /// At vault ready: the memory follows the stored marker of a vault this
-  /// service has not seen yet. A marker that does not open is left to the
-  /// run (which fails closed on it).
+  /// service has not decided yet. Until this read succeeds the fact is
+  /// `unknown`, which stops the pipeline (fix wave 3, SA M3; it replaces
+  /// review N2's "reads as false"): a marker that does not open, or holds
+  /// another value, keeps it `unknown` (reported once), and the run fails
+  /// closed on it.
   Future<void> _loadRemoved(SecureVault vault) async {
-    if (identical(_removedVault, vault)) return;
-    bool marked;
+    if (_decided(vault)) return;
+    _Marker? marker;
     try {
-      marked = await _readRemoved(vault);
-    } on Object {
-      // Review N2: an unreadable marker (a vault read failure) reads as
-      // false here, on purpose. This only seeds the synchronous memory at
-      // open; the run that follows reads the marker again in _syncRemoved,
-      // where a failure is the run's failure (nothing is sent), and a
-      // device that is still removed is answered DEVICE_REMOVED again.
-      marked = false;
+      marker = await _readMarker(vault);
+    } on Object catch (_, stack) {
+      _reportMarker(vault, stack);
     }
     if (_disposed || !identical(_session.vault, vault)) return;
-    _setRemoved(marked ? vault : null);
+    // A run decided it meanwhile: that decision stands.
+    if (_decided(vault)) return;
+    switch (marker) {
+      case _Marker.set:
+        _setRemoved(vault);
+      case _Marker.clear:
+        _setClear(vault);
+      case _Marker.malformed:
+        _reportMarker(vault, StackTrace.current);
+        _removedFact.value = false;
+      case null:
+        _removedFact.value = false;
+    }
   }
 
-  /// In a run: the stored marker, read fresh, decides; the memory follows
-  /// it (the listed count is kept while it stays set).
-  Future<bool> _syncRemoved(SecureVault vault) async {
-    final marked = await _readRemoved(vault);
-    if (marked && !identical(_removedVault, vault)) _setRemoved(vault);
-    if (!marked && identical(_removedVault, vault)) _setRemoved(null);
-    return marked;
+  bool _decided(SecureVault vault) =>
+      identical(_removedVault, vault) || identical(_clearVault, vault);
+
+  /// In a run: whether this device is removed elsewhere. A stored 0x01
+  /// sets the memory. A stored "not removed" never clears a memory that
+  /// says removed (fix wave 3, SA M3: the marker write failed); the marker
+  /// is written again then. A malformed marker throws
+  /// [VaultCorruptException] (the run fails closed; the fact stays
+  /// `unknown`).
+  Future<bool> _syncRemoved(SecureVault vault, String uid) async {
+    final marker = await _readMarker(vault);
+    if (marker == _Marker.malformed) {
+      _reportMarker(vault, StackTrace.current);
+      throw const VaultCorruptException('vault_settings');
+    }
+    if (marker == _Marker.set) {
+      if (!identical(_removedVault, vault)) _setRemoved(vault);
+      return true;
+    }
+    if (identical(_removedVault, vault)) {
+      try {
+        await _persist(
+          vault,
+          uid,
+          (tx) => tx.putSetting(
+            kVaultSettingRemovedElsewhere,
+            Uint8List.fromList(const [0x01]),
+          ),
+        );
+      } on _Cancelled {
+        rethrow;
+      } catch (_, stack) {
+        _report('removedElsewhereWrite', stack);
+      }
+      return true;
+    }
+    _setClear(vault);
+    return false;
   }
 
   /// The FIRST DEVICE_REMOVED answer: the marker 0x01, the phase, and the
   /// hour's throttle (a run within the hour sends nothing). Memory follows
-  /// even when the write fails (reported): the next run's Register then
-  /// meets the same answer and writes it again.
+  /// even when the write fails (reported), and no later read clears it:
+  /// the next run writes the marker again ([_syncRemoved]).
   Future<void> _markRemoved(
     SecureVault vault,
     String uid,
@@ -152,7 +225,7 @@ extension _Elsewhere on DeviceKeysService {
     if (!live()) throw const _Cancelled();
     // Nothing was deleted, so nothing is restored: the next ordinary
     // trigger runs the ordinary upkeep.
-    _setRemoved(null);
+    _setClear(vault);
     _successVault = null;
     _lastSuccess = null;
     _status.value = DeviceKeysStatus.idle;
@@ -205,7 +278,7 @@ extension _Elsewhere on DeviceKeysService {
         );
       });
     });
-    _setRemoved(null);
+    _setClear(vault);
     _forceRegister = false;
     _successVault = null;
     _lastSuccess = null;
