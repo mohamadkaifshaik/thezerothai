@@ -136,7 +136,7 @@ extension _RemovalStore on RemovalQueueRunner {
       (i) => !i.reauth && _older(i, now, kRemovalIntentLimit),
     );
     for (final id in List.of(_reauthParked)) {
-      if (!_intents.any((i) => i.deviceId == id)) _unparkReauth(id);
+      if (!_intents.any((i) => i.deviceId == id)) _unparkIntent(id);
     }
     if (_intents.length != before) await _save(vault, queue: false);
     final held = _intentsNotBefore;
@@ -493,10 +493,26 @@ extension _RemovalStore on RemovalQueueRunner {
     _needsReauth.value = true;
   }
 
-  /// [deviceId]'s RemoveKeyDevice went through, or its intent is gone.
-  void _unparkReauth(String deviceId) {
+  /// Fix wave 10 (CR Nit 3): a rebuild-path ask (no intent stored). Kept
+  /// apart from the intent parks, which a pass prunes when their intent is
+  /// gone, so only the user's call for the id (or [reset]) clears it.
+  void _parkRebuild(String deviceId) {
+    _rebuildReauth.add(deviceId);
+    _needsReauth.value = true;
+  }
+
+  /// An intent park whose intent is gone (a pass's prune).
+  void _unparkIntent(String deviceId) {
     if (!_reauthParked.remove(deviceId)) return;
-    _needsReauth.value = _reauthParked.isNotEmpty;
+    _needsReauth.value = _reauthParked.isNotEmpty || _rebuildReauth.isNotEmpty;
+  }
+
+  /// [deviceId]'s RemoveKeyDevice went through, or the user dropped it:
+  /// both of its asks clear.
+  void _unparkReauth(String deviceId) {
+    _rebuildReauth.remove(deviceId);
+    _reauthParked.remove(deviceId);
+    _needsReauth.value = _reauthParked.isNotEmpty || _rebuildReauth.isNotEmpty;
   }
 
   /// Fix wave 9 (SA L5): parks [deviceId] and marks its stored intent as

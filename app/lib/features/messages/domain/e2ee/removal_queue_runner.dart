@@ -283,9 +283,9 @@ class RemovalQueueRunner {
 
   /// Brief amendment 3: the intents whose RemoveKeyDevice answered
   /// REAUTH_REQUIRED, parked until the user signs in again and asks again
-  /// ([removeDevice]). Memory only: after a restart such an intent is sent
-  /// once more (one call) and parks again.
+  /// ([removeDevice]). Parked again from the stored mark (fix wave 9).
   final Set<String> _reauthParked = {};
+  final Set<String> _rebuildReauth = {}; // no intent stored (fix wave 10)
   final ValueNotifier<bool> _needsReauth = ValueNotifier(false);
 
   Future<void>? _running;
@@ -533,7 +533,7 @@ class RemovalQueueRunner {
           // rebuild stored no intent, but the ask is raised all the same;
           // the user's next call for the id sends it and clears it.
           if (rebuild) {
-            _parkForReauth(deviceId);
+            _parkRebuild(deviceId);
           } else {
             await _parkStored(vault, deviceId);
           }
@@ -642,14 +642,14 @@ class RemovalQueueRunner {
     // by the next run's call for the same id (its own call, sent again).
     _removing.clear();
     _reauthParked.clear();
+    _rebuildReauth.clear();
     _needsReauth.value = false;
     _publish();
   }
 
-  /// Fix wave 9 (SA L5): the user gives up a removal that waits for a
-  /// re-sign-in: its intent goes (stored) and its ask clears. No call is
-  /// made. A [StateError] when no vault is open or the record cannot be
-  /// read.
+  /// Fix wave 9 (SA L5): the user gives up a removal waiting for a
+  /// re-sign-in: its intent goes and its ask clears, with no call; a
+  /// [StateError] with no vault or an unreadable record.
   Future<void> dropRemoval(String deviceId) => _dropRemoval(deviceId);
 
   /// A conversation header or inbox row was taken

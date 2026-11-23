@@ -223,6 +223,35 @@ void main() {
       expect(await runner.wasRemovedByUser(sibling.id), isTrue);
     });
 
+    test('a rebuild-path ask survives a later pass that loads a readable '
+        'record (fix wave 10, CR Nit 3)', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await stateOnly(_c1, accepted: false, mine: [sibling]);
+      await rig.device.vault.transaction(
+        (tx) => tx.putSetting(kVaultSettingRemovalRecord, rigBytes('not json')),
+      );
+      expectedErrors = ['removalQueue.read'];
+      rig.keys.removeError = const ReauthRequiredException('rig: sign in');
+      await expectLater(
+        runner.removeDevice(sibling.idString),
+        throwsA(isA<ReauthRequiredException>()),
+      );
+      expect(runner.needsReauth.value, isTrue);
+
+      // The record reads again (an empty one); a pass loads it.
+      await rig.device.vault.transaction(
+        (tx) => tx.putSetting(
+          kVaultSettingRemovalRecord,
+          const RemovalRecord().encode(),
+        ),
+      );
+      await runner.runPass();
+      await runner.idle();
+
+      expect(runner.needsReauth.value, isTrue);
+    });
+
     test('a parked intent is never dropped for its age and keeps the ask, '
         'also after a restart (fix wave 9, SA L5)', () async {
       final sibling = await RigPeer.create('sibling');
