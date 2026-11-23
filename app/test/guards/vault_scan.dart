@@ -99,31 +99,35 @@ bool _isIdentChar(String c) =>
 
 const String vaultDir = 'lib/core/vault/';
 
-/// The files `import`/`export` directives of [source] (living at [path],
-/// '/'-separated, relative to app/) point into `lib/core/vault/`, as base
-/// names. Whole directives are read up to `;`, so a conditional import that
-/// spans lines is seen with every URI it can select.
-List<String> vaultImports(String path, String source) {
+/// Every URI the `import`/`export` directives of [source] (living at [path],
+/// '/'-separated, relative to app/) can select: an in-package one resolved to
+/// `lib/...` (relative or `package:dzeroth/`), any other (`package:drift/`,
+/// `dart:io`) as written. Whole directives are read up to `;`, so a
+/// conditional import that spans lines is seen with every URI it can select.
+List<String> importTargets(String path, String source) {
   final text = stripSource(source, keepStrings: true);
   final found = <String>[];
   for (final d in RegExp(r'\b(?:import|export)\s[^;]*;').allMatches(text)) {
     for (final u in RegExp(r'''['"]([^'"]+)['"]''').allMatches(d.group(0)!)) {
       final uri = u.group(1)!;
-      String resolved;
       if (uri.startsWith('package:dzeroth/')) {
-        resolved = 'lib/${uri.substring('package:dzeroth/'.length)}';
+        found.add('lib/${uri.substring('package:dzeroth/'.length)}');
       } else if (uri.contains(':')) {
-        continue;
+        found.add(uri);
       } else {
-        resolved = Uri.parse(path).resolve(uri).path;
-      }
-      if (resolved.startsWith(vaultDir)) {
-        found.add(resolved.substring(vaultDir.length));
+        found.add(Uri.parse(path).resolve(uri).path);
       }
     }
   }
   return found;
 }
+
+/// The files `import`/`export` directives of [source] (living at [path])
+/// point into `lib/core/vault/`, as base names.
+List<String> vaultImports(String path, String source) => [
+  for (final t in importTargets(path, source))
+    if (t.startsWith(vaultDir)) t.substring(vaultDir.length),
+];
 
 /// Vault files that [path] (outside the vault layer) imports but may not.
 List<String> importViolations(
@@ -233,6 +237,15 @@ const List<String> sensitiveFragments = [
   'digest',
   'payload',
   'reportkey', // named by the plan; 'key' above already flags every such name
+  // The message pipeline (plan 5a Task 15). `text` also flags `context`: a
+  // log or report names neither.
+  'text',
+  'sharedpostid',
+  'conversationid',
+  'messageid',
+  'peeruserid',
+  'signaturekey', // 'key' above already flags it; named by the plan
+  'keypackage', // 'key' above already flags it; named by the plan
 ];
 
 final RegExp _printCall = RegExp(r'(?<![\w$.])(?:debugPrint|print)\s*\(');
@@ -240,9 +253,12 @@ final RegExp _printCall = RegExp(r'(?<![\w$.])(?:debugPrint|print)\s*\(');
 /// Calls that write somewhere: the error reporters (the app-level
 /// `reportUnexpectedError`, and the injected `onUnexpectedError` the vault
 /// session and the device-keys service reach through their private
-/// `_report` / `_onUnexpectedError?.call`) and `package:logging` loggers.
+/// `_report` / `_onUnexpectedError?.call`, the pipeline through its
+/// `_reportIfBug` / `_reportBug`: any `_report...`), `package:logging`
+/// loggers and `dart:developer`'s `log(`.
 final RegExp _sink = RegExp(
-  r'(?<![\w$])(?:reportUnexpectedError|_report|_?onUnexpectedError\s*\??\s*\.\s*call'
+  r'(?<![\w$])(?:reportUnexpectedError|_report\w*|log'
+  r'|_?onUnexpectedError\s*\??\s*\.\s*call'
   r'|_?log(?:ger)?\s*\??\s*\.\s*(?:finest|finer|fine|config|info|warning|severe|shout|log)'
   r'|Logger\s*\([^)]*\)\s*\.\s*\w+)\s*\(',
 );
@@ -366,3 +382,342 @@ List<String> cacheHabits(String source) => [
   for (final m in _memory.allMatches(stripSource(source, keepStrings: false)))
     m.group(0)!,
 ];
+
+// ---------------------------------------------------------------------------
+// The encrypted message pipeline (plan 5a Task 15).
+
+/// Matches of [pattern] in the CODE of [source]: comments and string-literal
+/// text removed (interpolated code kept), after removing [exemptSnippets]
+/// (exact, whitespace-insensitive, in that stripped form).
+List<String> codeMatches(
+  String source,
+  RegExp pattern, {
+  List<String> exemptSnippets = const [],
+}) {
+  final text = _removeSnippets(
+    stripSource(source, keepStrings: false),
+    exemptSnippets,
+  );
+  return [for (final m in pattern.allMatches(text)) m.group(0)!.trim()];
+}
+
+/// [text] (comments already removed) with every string literal's text and
+/// interpolations blanked to spaces (same length; quotes and newlines kept),
+/// and the offsets where an interpolation (`$x`, `${...}`) starts in a
+/// non-raw literal.
+({String code, List<int> interpolations}) _maskStrings(String text) {
+  final out = StringBuffer();
+  final at = <int>[];
+  final n = text.length;
+  String ch(int k) => k < n ? text[k] : '';
+  void blank(int from, int to) {
+    for (var k = from; k < to && k < n; k++) {
+      out.write(text[k] == '\n' ? '\n' : ' ');
+    }
+  }
+
+  var i = 0;
+  while (i < n) {
+    final c = text[i];
+    if (c != "'" && c != '"') {
+      out.write(c);
+      i++;
+      continue;
+    }
+    final raw = i > 0 && text[i - 1] == 'r' && !_isIdentChar(ch(i - 2));
+    final triple = ch(i + 1) == c && ch(i + 2) == c;
+    final q = triple ? c * 3 : c;
+    out.write(q);
+    i += q.length;
+    while (i < n) {
+      if (text.startsWith(q, i)) {
+        out.write(q);
+        i += q.length;
+        break;
+      }
+      if (!raw && text[i] == r'\') {
+        blank(i, i + 2);
+        i += 2;
+        continue;
+      }
+      if (!raw && text[i] == r'$' && ch(i + 1) == '{') {
+        at.add(i);
+        var depth = 1;
+        var j = i + 2;
+        while (j < n && depth > 0) {
+          if (text[j] == '{') depth++;
+          if (text[j] == '}') depth--;
+          j++;
+        }
+        blank(i, j);
+        i = j;
+        continue;
+      }
+      if (!raw && text[i] == r'$' && RegExp(r'[A-Za-z_]').hasMatch(ch(i + 1))) {
+        at.add(i);
+        var j = i + 1;
+        while (j < n && _isIdentChar(text[j])) {
+          j++;
+        }
+        blank(i, j);
+        i = j;
+        continue;
+      }
+      blank(i, i + 1);
+      i++;
+    }
+  }
+  return (code: out.toString(), interpolations: at);
+}
+
+/// The offset just past the `;` ending the expression that starts at [from]
+/// in [code], or just before a closing bracket that ends an enclosing group.
+int _expressionEnd(String code, int from) {
+  var depth = 0;
+  for (var i = from; i < code.length; i++) {
+    final c = code[i];
+    if (c == '(' || c == '[' || c == '{') depth++;
+    if (c == ')' || c == ']' || c == '}') {
+      if (depth == 0) return i;
+      depth--;
+    }
+    if (c == ';' && depth == 0) return i + 1;
+  }
+  return code.length;
+}
+
+/// The offset just past the bracket matching the one at [open] in [code].
+int _groupEnd(String code, int open) {
+  var depth = 0;
+  for (var i = open; i < code.length; i++) {
+    final c = code[i];
+    if (c == '(' || c == '[' || c == '{') depth++;
+    if (c == ')' || c == ']' || c == '}') {
+      depth--;
+      if (depth == 0) return i + 1;
+    }
+  }
+  return code.length;
+}
+
+final RegExp _errorBuild = RegExp(
+  r'\bthrow\b'
+  r'|(?<![\w$])[A-Z][\w$]*(?:Error|Exception)(?:\s*\.\s*\w+)?\s*\('
+  r'|\b(?:completeError|addError)\s*\('
+  r'|\bFuture\s*\.\s*error\s*\(',
+);
+
+/// Error and exception messages in [source] built with an interpolation: a
+/// `throw` expression (to its `;`), an `...Error(` / `...Exception(`
+/// constructor call (named ones too), `completeError(`, `addError(` or
+/// `Future.error(` whose text holds a `$` interpolation in a string literal.
+/// Comments are ignored, and so is a `$` in a `toString` body's literal
+/// (that is not an error being built). [exemptSnippets] (exact,
+/// whitespace-insensitive, in source form) are removed first.
+List<String> interpolatedErrorMessages(
+  String source, {
+  List<String> exemptSnippets = const [],
+}) {
+  final text = _removeSnippets(
+    stripSource(source, keepStrings: true),
+    exemptSnippets,
+  );
+  final masked = _maskStrings(text);
+  final code = masked.code;
+  final bad = <String>[];
+  for (final m in _errorBuild.allMatches(code)) {
+    final end = m.group(0) == 'throw'
+        ? _expressionEnd(code, m.end)
+        : _groupEnd(code, m.end - 1);
+    if (masked.interpolations.any((p) => p >= m.start && p < end)) {
+      bad.add(
+        text.substring(m.start, end).replaceAll(RegExp(r'\s+'), ' ').trim(),
+      );
+    }
+  }
+  return bad;
+}
+
+const Set<String> _notMemberNames = {
+  'operator',
+  'get',
+  'set',
+  'async',
+  'sync',
+  'return',
+  'super',
+  'this',
+};
+
+/// The public member names (methods, getters, setters, fields, static ones
+/// too) declared in the body of `class [className]` in [source]; empty when
+/// the class is absent. Read from the class body's top level only: bodies,
+/// parameter lists, initializers and `=>` expressions are skipped.
+Set<String> publicMembers(String source, String className) {
+  final text = stripSource(source, keepStrings: false);
+  final head = RegExp(r'\bclass\s+' + RegExp.escape(className) + r'\b[^{]*\{')
+      .firstMatch(text);
+  if (head == null) return const {};
+  final top = StringBuffer();
+  var last = '';
+  void put(String c) {
+    top.write(c);
+    if (c.trim().isNotEmpty) last = c;
+  }
+
+  var depth = 0;
+  var skipping = false;
+  for (var i = head.end; i < text.length; i++) {
+    final c = text[i];
+    if (c == '(' || c == '[' || c == '{') {
+      if (depth == 0 && !skipping) put(c);
+      depth++;
+      continue;
+    }
+    if (c == ')' || c == ']' || c == '}') {
+      if (depth == 0) break; // the class body's own `}`
+      depth--;
+      if (depth == 0) {
+        if (skipping && c == '}') {
+          skipping = false;
+          put(';');
+        } else if (!skipping) {
+          put(c);
+        }
+      }
+      continue;
+    }
+    if (depth > 0) continue;
+    if (skipping) {
+      if (c == ';') {
+        skipping = false;
+        put(';');
+      }
+      continue;
+    }
+    if (c == '=') {
+      final next = i + 1 < text.length ? text[i + 1] : '';
+      if (next == '=' || '!<>='.contains(last) && last.isNotEmpty) {
+        put(c); // an operator declaration (`operator ==(`, `<=`)
+        continue;
+      }
+      skipping = true; // `=> ...;` or `= initializer;`
+      continue;
+    }
+    put(c);
+  }
+  final names = <String>{};
+  for (final m in RegExp(
+    r'([A-Za-z_$][\w$]*)\s*(?:<[^;{}()]*>)?\s*(?:\(\)|;)',
+  ).allMatches(top.toString())) {
+    final name = m.group(1)!;
+    if (!RegExp(r'^[a-z]').hasMatch(name)) continue;
+    if (_notMemberNames.contains(name)) continue;
+    names.add(name);
+  }
+  return names;
+}
+
+/// Members referenced on a receiver named one of [receivers] in [source]
+/// (`r.m`, `r?.m`, `r..m`, `r!.m`, across lines), comments and strings
+/// ignored.
+List<String> membersOn(String source, Set<String> receivers) {
+  if (receivers.isEmpty) return const [];
+  final alt = receivers.map(RegExp.escape).join('|');
+  final pattern = RegExp(
+    r'(?<![\w$.])(?:' + alt + r')\s*!?\s*(?:\?\s*)?\.\.?\s*([A-Za-z_$][\w$]*)',
+  );
+  return [
+    for (final m in pattern.allMatches(stripSource(source, keepStrings: false)))
+      m.group(1)!,
+  ];
+}
+
+/// The names declared with type [typeName] in [source] (fields, parameters,
+/// locals, getters: `T name`, `T? name`, `T get name`), comments and strings
+/// ignored.
+List<String> namesTyped(String source, String typeName) => [
+  for (final m in RegExp(
+    r'(?<![\w$.])' +
+        RegExp.escape(typeName) +
+        r'\??\s+(?:get\s+)?([A-Za-z_$][\w$]*)',
+  ).allMatches(stripSource(source, keepStrings: false)))
+    m.group(1)!,
+];
+
+/// Constructions of the generated messaging `Message` (`pb.Message(`,
+/// `pb.Message.create(`) in [source], under whatever prefix the file imports
+/// `messaging.pb.dart` / `messaging.pbserver.dart` with (a file importing it
+/// with no prefix is scanned for a bare `Message(`). Comments and string
+/// text are ignored; [exemptSnippets] (exact, whitespace-insensitive) are
+/// removed first.
+List<String> messageConstructions(
+  String source, {
+  List<String> exemptSnippets = const [],
+}) {
+  final kept = stripSource(source, keepStrings: true);
+  final prefixes = <String>{};
+  for (final d in RegExp(r'\bimport\s[^;]*;').allMatches(kept)) {
+    final directive = d.group(0)!;
+    if (!RegExp(r'''['"][^'"]*messaging\.pb(?:server)?\.dart['"]''')
+        .hasMatch(directive)) {
+      continue;
+    }
+    final as = RegExp(r'\bas\s+(\w+)').firstMatch(directive);
+    prefixes.add(as == null ? '' : as.group(1)!);
+  }
+  final bad = <String>[];
+  for (final p in prefixes) {
+    final qualified = p.isEmpty ? '' : '${RegExp.escape(p)}\\s*\\.\\s*';
+    bad.addAll(
+      codeMatches(
+        source,
+        RegExp(r'(?<![\w$.])' + qualified + r'Message\s*(?:\.\s*create\s*)?\('),
+        exemptSnippets: exemptSnippets,
+      ),
+    );
+  }
+  return bad;
+}
+
+/// The first argument (trimmed source text) of every call of [function]
+/// (`f(` or `f<T>(`) in [source], comments ignored, after removing
+/// [exemptSnippets] (exact, whitespace-insensitive). A declaration (the name
+/// after a type: `Future<void> f(`, `void f(`) is not a call.
+List<String> firstArguments(
+  String source,
+  String function, {
+  List<String> exemptSnippets = const [],
+}) {
+  final text = _removeSnippets(
+    stripSource(source, keepStrings: true),
+    exemptSnippets,
+  );
+  final masked = _maskStrings(text).code;
+  final out = <String>[];
+  for (final m in RegExp(
+    r'(?<![\w$.])' + RegExp.escape(function) + r'\s*(?:<[^()]*?>)?\s*\(',
+  ).allMatches(masked)) {
+    final before = masked.substring(0, m.start).trimRight();
+    final word = RegExp(r'[\w$]+$').firstMatch(before)?.group(0);
+    final isCall =
+        before.endsWith('=>') ||
+        (word == null && !before.endsWith('>') && !before.endsWith('?')) ||
+        const {'await', 'return', 'yield', 'else', 'throw'}.contains(word);
+    if (!isCall) continue;
+    final close = _groupEnd(masked, m.end - 1) - 1;
+    var depth = 0;
+    var end = close;
+    for (var i = m.end; i < close; i++) {
+      final c = masked[i];
+      if (c == '(' || c == '[' || c == '{') depth++;
+      if (c == ')' || c == ']' || c == '}') depth--;
+      if (c == ',' && depth == 0) {
+        end = i;
+        break;
+      }
+    }
+    out.add(text.substring(m.end, end).trim());
+  }
+  return out;
+}
