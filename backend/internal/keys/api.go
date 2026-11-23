@@ -2,7 +2,8 @@
 // Each encryption device publishes a public signature key and a pool of opaque key packages; the server stores and hands
 // out opaque bytes and never parses a key package or sees message content.
 //
-// It owns users/{uid}/keyDevices/{deviceId} and its keyPackages subcollection. The flag gates (Guard, GuardNotOff) are the
+// It owns users/{uid}/keyDevices/{deviceId} and its keyPackages subcollection, and the removed marks
+// users/{uid}/keyDeviceRemovals/{deviceId} (a REMOTE RemoveKeyDevice; TTL expireAt). The flag gates (Guard, GuardNotOff) are the
 // handler's, before the service runs. Other modules reach it through the interfaces in this package only.
 package keys
 

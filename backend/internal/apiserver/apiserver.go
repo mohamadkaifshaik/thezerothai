@@ -982,7 +982,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// keys_claims_per_target_daily): the interceptor cannot see the target.
 	keysClaimCap := ratelimit.NewDailyCap(cfg.RateLimit.KeysClaimsPerTargetPerDay)
 	lookupCap := keysLookupCap(cfg.RateLimit.KeysDeviceLookupsPerDay, cfg.RateLimit.KeysNewAccountDeviceLookupsPerDay, isNewActor)
-	keysMod, err := newKeysModule(keysRepo, featureFlags, messagingPermission, messaging.ConversationID, keysClaimCap, lookupCap, log)
+	keysMod, err := newKeysModule(keysRepo, featureFlags, messagingPermission, messaging.ConversationID, keysClaimCap, lookupCap, cfg.AccountDeleteReauthMaxAge, log)
 	if err != nil {
 		return nil, nil, err
 	}

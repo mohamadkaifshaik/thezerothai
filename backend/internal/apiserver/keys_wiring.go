@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/dzeroth/dzeroth/backend/internal/keys"
 	"github.com/dzeroth/dzeroth/backend/internal/messaging"
@@ -26,11 +27,18 @@ type keysModule struct {
 //
 // convID is messaging.ConversationID, injected so keys never imports messaging (ClaimKeyPackagesResponse.conversation_id);
 // required, like the cap.
-func newKeysModule(repo keys.Repo, fc keys.FlagChecker, perm messaging.Permission, convID func(a, b string) string, claimCap *ratelimit.DailyCap, chargeLookups func(context.Context, string, int) error, log *slog.Logger) (keysModule, error) {
+//
+// reauthMaxAge is config.AccountDeleteReauthMaxAge (ACCOUNT_DELETE_REAUTH_MAX_AGE, validated in (0, 10m]): the recent
+// sign-in a REMOTE RemoveKeyDevice of an id not yet marked needs. Required: zero would refuse every REMOTE removal.
+func newKeysModule(repo keys.Repo, fc keys.FlagChecker, perm messaging.Permission, convID func(a, b string) string, claimCap *ratelimit.DailyCap, chargeLookups func(context.Context, string, int) error, reauthMaxAge time.Duration, log *slog.Logger) (keysModule, error) {
 	if repo == nil || perm == nil || convID == nil || claimCap == nil || chargeLookups == nil {
 		return keysModule{}, errors.New("keys: missing repository, permission, conversation id function, claim cap or lookup cap")
 	}
-	svc := keys.New(keys.Deps{Repo: repo, Permission: keysPermission{m: perm}, Flags: fc, ClaimCap: claimCap, ChargeLookups: chargeLookups, ConversationID: convID, Log: log})
+	if reauthMaxAge <= 0 {
+		return keysModule{}, errors.New("keys: missing reauth max age")
+	}
+	svc := keys.New(keys.Deps{Repo: repo, Permission: keysPermission{m: perm}, Flags: fc, ClaimCap: claimCap, ChargeLookups: chargeLookups,
+		ConversationID: convID, Log: log, ReauthMaxAge: reauthMaxAge})
 	return keysModule{svc: svc, server: keys.NewServer(fc, svc)}, nil
 }
 

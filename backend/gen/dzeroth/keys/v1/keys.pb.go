@@ -12,9 +12,16 @@
 // the client skips that device (it does not fail the whole operation).
 // Owner module: backend/internal/keys.
 // Collections owned: users/{uid}/keyDevices/{deviceId} (signatureKey (bytes), createdAt, lastSeenAt, lastResort (bytes,
-// absent = none), poolCount) and its subcollection users/{uid}/keyDevices/{deviceId}/keyPackages/{id} (the one-time
-// pool; data (bytes) and createdAt; id = the first 32 hex characters of the SHA-256 of the bytes). Both are erased with
-// the account; the account export lists device metadata and counts only, never key bytes.
+// absent = none), poolCount, removedAt (absent while live)) and its subcollection
+// users/{uid}/keyDevices/{deviceId}/keyPackages/{id} (the one-time pool; data (bytes) and createdAt; id = the first 32
+// hex characters of the SHA-256 of the bytes); and the removed marks users/{uid}/keyDeviceRemovals/{deviceId} (removedAt,
+// expireAt = removedAt + 90 days, the Firestore TTL field; doc id = the device id), written by RemoveKeyDevice with
+// reason REMOTE. A device document that carries removedAt (a REMOTE removal in progress) is not a registered device:
+// every read and claim skips it, but it keeps its place under the cap of 5 until the removal (or its retry) deletes it,
+// so a user never has more than 5 device documents; a RegisterKeyDevice at the cap finishes such stuck removals first
+// (see RegisterKeyDevice). All three are erased with the account; the account export lists device metadata and counts
+// and the removed marks (device id and times), with the metadata of a device document whose removal is still pending
+// (removal_pending), never key bytes.
 //
 // Key material is raw bytes: this is the first proto in the repo with `bytes` fields. Device ids, user ids and
 // idempotency keys are strings. Nothing the server stores or returns is a message body.
@@ -56,8 +63,8 @@
 //
 // Errors:
 // - INVALID_ARGUMENT + VALIDATION, metadata["field"] in idempotency_key | device_id | signature_public_key | key_packages
-//   | last_resort_key_package | user_ids | user_id | exclude_device_id, before any lookup unless stated. The value is
-//   never echoed.
+//   | last_resort_key_package | user_ids | user_id | exclude_device_id | reason (a RemoveReason value this server does
+//   not know), before any lookup unless stated. The value is never echoed.
 // - FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] = "e2ee_dm" (see the flag classes above).
 // - FAILED_PRECONDITION + LIMIT_REACHED, metadata["limit"] = "key_devices": a sixth device (never evicts).
 // - FAILED_PRECONDITION + CANNOT_MESSAGE (GetKeyDevices, ClaimKeyPackages): the caller may not message a target. ONE
@@ -66,6 +73,12 @@
 //   failed) is a generic INTERNAL, or UNAVAILABLE as below, never the messaging module's own error. The send-rules
 //   check reads through caches of up to 60 s: a block, an unfollow or an account status change can take up to 60 s to
 //   apply here, while SendMessage applies it immediately (and is what guards the message itself).
+// - FAILED_PRECONDITION + DEVICE_REMOVED, no metadata (RegisterKeyDevice, UploadKeyPackages): the device id was removed
+//   with reason REMOTE within the last 90 days (at least; the mark ends when Firestore's TTL deletes it). Decided
+//   before LIMIT_REACHED and before NOT_FOUND. Do not retry with the same id: set the device up again under a new id.
+// - FAILED_PRECONDITION + REAUTH_REQUIRED (RemoveKeyDevice with reason REMOTE that is not a retry, see RemoveReason):
+//   the ID token's auth_time is older than ACCOUNT_DELETE_REAUTH_MAX_AGE (5 min) or missing; nothing was written. Sign
+//   in again, then retry.
 // - NOT_FOUND: UploadKeyPackages for a device the caller has not registered (RemoveKeyDevice of a missing device is
 //   success, not NOT_FOUND).
 // - UNAVAILABLE (retry after the hinted delay): possible on any RPC for a real storage failure (contention on a
@@ -98,6 +111,65 @@ const (
 	// Verify that runtime/protoimpl is sufficiently up-to-date.
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
+
+// Why a device is removed. Decides whether the server remembers the id.
+type RemoveReason int32
+
+const (
+	// Builds before this field. Treated as SIGN_OUT.
+	RemoveReason_REMOVE_REASON_UNSPECIFIED RemoveReason = 0
+	// The device removes itself as it signs out. No removed mark: the same id may register again (a failed sign-out
+	// registers it again).
+	RemoveReason_REMOVE_REASON_SIGN_OUT RemoveReason = 1
+	// The user removes another device of theirs (lost, stolen, sold). The server keeps a removed mark for at least 90
+	// days: RegisterKeyDevice and UploadKeyPackages refuse the id with FAILED_PRECONDITION + DEVICE_REMOVED. Needs a
+	// recent sign-in (FAILED_PRECONDITION + REAUTH_REQUIRED when the ID token's auth_time is older than
+	// ACCOUNT_DELETE_REAUTH_MAX_AGE, 5 min, or missing; nothing is written) unless this is a retry: the id is already
+	// marked and its device document is gone or already being removed; a retry finishes the removal without one. An id
+	// that was never registered is marked too (the answer does not tell whether the id existed).
+	RemoveReason_REMOVE_REASON_REMOTE RemoveReason = 2
+)
+
+// Enum value maps for RemoveReason.
+var (
+	RemoveReason_name = map[int32]string{
+		0: "REMOVE_REASON_UNSPECIFIED",
+		1: "REMOVE_REASON_SIGN_OUT",
+		2: "REMOVE_REASON_REMOTE",
+	}
+	RemoveReason_value = map[string]int32{
+		"REMOVE_REASON_UNSPECIFIED": 0,
+		"REMOVE_REASON_SIGN_OUT":    1,
+		"REMOVE_REASON_REMOTE":      2,
+	}
+)
+
+func (x RemoveReason) Enum() *RemoveReason {
+	p := new(RemoveReason)
+	*p = x
+	return p
+}
+
+func (x RemoveReason) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (RemoveReason) Descriptor() protoreflect.EnumDescriptor {
+	return file_dzeroth_keys_v1_keys_proto_enumTypes[0].Descriptor()
+}
+
+func (RemoveReason) Type() protoreflect.EnumType {
+	return &file_dzeroth_keys_v1_keys_proto_enumTypes[0]
+}
+
+func (x RemoveReason) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use RemoveReason.Descriptor instead.
+func (RemoveReason) EnumDescriptor() ([]byte, []int) {
+	return file_dzeroth_keys_v1_keys_proto_rawDescGZIP(), []int{0}
+}
 
 type KeyDevice struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -391,8 +463,10 @@ type RemoveKeyDeviceRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	IdempotencyKey string                 `protobuf:"bytes,1,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
 	DeviceId       string                 `protobuf:"bytes,2,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// See RemoveReason. Clients MUST set it.
+	Reason        RemoveReason `protobuf:"varint,3,opt,name=reason,proto3,enum=dzeroth.keys.v1.RemoveReason" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RemoveKeyDeviceRequest) Reset() {
@@ -437,6 +511,13 @@ func (x *RemoveKeyDeviceRequest) GetDeviceId() string {
 		return x.DeviceId
 	}
 	return ""
+}
+
+func (x *RemoveKeyDeviceRequest) GetReason() RemoveReason {
+	if x != nil {
+		return x.Reason
+	}
+	return RemoveReason_REMOVE_REASON_UNSPECIFIED
 }
 
 type RemoveKeyDeviceResponse struct {
@@ -814,8 +895,11 @@ type ClaimedKeyPackage struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	DeviceId string                 `protobuf:"bytes,1,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
 	// The device's key as the directory held it just before the package was taken. It can be stale if the device id was
-	// removed and registered again in that instant, so the client checks the key package's credential and signature key
+	// removed (with reason SIGN_OUT; a REMOTE removal keeps the id from registering again for at least 90 days) and
+	// registered again in that instant, so the client checks the key package's credential and signature key
 	// against it and against the directory entry, and skips the device on a mismatch (see the file header).
+	// The device itself may have been removed with reason REMOTE in that instant (the removal window, see
+	// ClaimKeyPackages): the key is then the removed device's own, and a commit naming it as a welcome target is refused.
 	SignaturePublicKey []byte `protobuf:"bytes,2,opt,name=signature_public_key,json=signaturePublicKey,proto3" json:"signature_public_key,omitempty"`
 	// Empty when has_key_package is false.
 	KeyPackage    []byte `protobuf:"bytes,3,opt,name=key_package,json=keyPackage,proto3" json:"key_package,omitempty"`
@@ -893,8 +977,9 @@ func (x *ClaimedKeyPackage) GetLastResort() bool {
 
 type ClaimKeyPackagesResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// One per active device of user_id, oldest first, except: a device removed during the claim is left out, and for
-	// the caller's own id the excluded device is left out.
+	// One per active device of user_id, oldest first, except: a device removed during the claim is left out (unless the
+	// removal landed after its package was picked: the removal window, see ClaimKeyPackages), and for the caller's own id
+	// the excluded device is left out.
 	KeyPackages []*ClaimedKeyPackage `protobuf:"bytes,1,rep,name=key_packages,json=keyPackages,proto3" json:"key_packages,omitempty"`
 	// The id the 1:1 conversation of the caller and user_id has or will have (32 lower-case hex): set on every
 	// success for another user, an empty one included; empty for the caller's own id; never sent with an error. Not a
@@ -972,10 +1057,11 @@ const file_dzeroth_keys_v1_keys_proto_rawDesc = "" +
 	"\x06device\x18\x01 \x01(\v2\x1a.dzeroth.keys.v1.KeyDeviceR\x06device\"\x19\n" +
 	"\x17ListMyKeyDevicesRequest\"P\n" +
 	"\x18ListMyKeyDevicesResponse\x124\n" +
-	"\adevices\x18\x01 \x03(\v2\x1a.dzeroth.keys.v1.KeyDeviceR\adevices\"^\n" +
+	"\adevices\x18\x01 \x03(\v2\x1a.dzeroth.keys.v1.KeyDeviceR\adevices\"\x95\x01\n" +
 	"\x16RemoveKeyDeviceRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x1b\n" +
-	"\tdevice_id\x18\x02 \x01(\tR\bdeviceId\"\x19\n" +
+	"\tdevice_id\x18\x02 \x01(\tR\bdeviceId\x125\n" +
+	"\x06reason\x18\x03 \x01(\x0e2\x1d.dzeroth.keys.v1.RemoveReasonR\x06reason\"\x19\n" +
 	"\x17RemoveKeyDeviceResponse\"\xba\x01\n" +
 	"\x18UploadKeyPackagesRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x1b\n" +
@@ -1006,7 +1092,11 @@ const file_dzeroth_keys_v1_keys_proto_rawDesc = "" +
 	"lastResort\"\x8a\x01\n" +
 	"\x18ClaimKeyPackagesResponse\x12E\n" +
 	"\fkey_packages\x18\x01 \x03(\v2\".dzeroth.keys.v1.ClaimedKeyPackageR\vkeyPackages\x12'\n" +
-	"\x0fconversation_id\x18\x02 \x01(\tR\x0econversationId2\x86\x05\n" +
+	"\x0fconversation_id\x18\x02 \x01(\tR\x0econversationId*c\n" +
+	"\fRemoveReason\x12\x1d\n" +
+	"\x19REMOVE_REASON_UNSPECIFIED\x10\x00\x12\x1a\n" +
+	"\x16REMOVE_REASON_SIGN_OUT\x10\x01\x12\x18\n" +
+	"\x14REMOVE_REASON_REMOTE\x10\x022\x86\x05\n" +
 	"\n" +
 	"KeyService\x12j\n" +
 	"\x11RegisterKeyDevice\x12).dzeroth.keys.v1.RegisterKeyDeviceRequest\x1a*.dzeroth.keys.v1.RegisterKeyDeviceResponse\x12l\n" +
@@ -1028,50 +1118,53 @@ func file_dzeroth_keys_v1_keys_proto_rawDescGZIP() []byte {
 	return file_dzeroth_keys_v1_keys_proto_rawDescData
 }
 
+var file_dzeroth_keys_v1_keys_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_dzeroth_keys_v1_keys_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_dzeroth_keys_v1_keys_proto_goTypes = []any{
-	(*KeyDevice)(nil),                 // 0: dzeroth.keys.v1.KeyDevice
-	(*RegisterKeyDeviceRequest)(nil),  // 1: dzeroth.keys.v1.RegisterKeyDeviceRequest
-	(*RegisterKeyDeviceResponse)(nil), // 2: dzeroth.keys.v1.RegisterKeyDeviceResponse
-	(*ListMyKeyDevicesRequest)(nil),   // 3: dzeroth.keys.v1.ListMyKeyDevicesRequest
-	(*ListMyKeyDevicesResponse)(nil),  // 4: dzeroth.keys.v1.ListMyKeyDevicesResponse
-	(*RemoveKeyDeviceRequest)(nil),    // 5: dzeroth.keys.v1.RemoveKeyDeviceRequest
-	(*RemoveKeyDeviceResponse)(nil),   // 6: dzeroth.keys.v1.RemoveKeyDeviceResponse
-	(*UploadKeyPackagesRequest)(nil),  // 7: dzeroth.keys.v1.UploadKeyPackagesRequest
-	(*UploadKeyPackagesResponse)(nil), // 8: dzeroth.keys.v1.UploadKeyPackagesResponse
-	(*GetKeyDevicesRequest)(nil),      // 9: dzeroth.keys.v1.GetKeyDevicesRequest
-	(*UserKeyDevices)(nil),            // 10: dzeroth.keys.v1.UserKeyDevices
-	(*GetKeyDevicesResponse)(nil),     // 11: dzeroth.keys.v1.GetKeyDevicesResponse
-	(*ClaimKeyPackagesRequest)(nil),   // 12: dzeroth.keys.v1.ClaimKeyPackagesRequest
-	(*ClaimedKeyPackage)(nil),         // 13: dzeroth.keys.v1.ClaimedKeyPackage
-	(*ClaimKeyPackagesResponse)(nil),  // 14: dzeroth.keys.v1.ClaimKeyPackagesResponse
-	(*timestamppb.Timestamp)(nil),     // 15: google.protobuf.Timestamp
+	(RemoveReason)(0),                 // 0: dzeroth.keys.v1.RemoveReason
+	(*KeyDevice)(nil),                 // 1: dzeroth.keys.v1.KeyDevice
+	(*RegisterKeyDeviceRequest)(nil),  // 2: dzeroth.keys.v1.RegisterKeyDeviceRequest
+	(*RegisterKeyDeviceResponse)(nil), // 3: dzeroth.keys.v1.RegisterKeyDeviceResponse
+	(*ListMyKeyDevicesRequest)(nil),   // 4: dzeroth.keys.v1.ListMyKeyDevicesRequest
+	(*ListMyKeyDevicesResponse)(nil),  // 5: dzeroth.keys.v1.ListMyKeyDevicesResponse
+	(*RemoveKeyDeviceRequest)(nil),    // 6: dzeroth.keys.v1.RemoveKeyDeviceRequest
+	(*RemoveKeyDeviceResponse)(nil),   // 7: dzeroth.keys.v1.RemoveKeyDeviceResponse
+	(*UploadKeyPackagesRequest)(nil),  // 8: dzeroth.keys.v1.UploadKeyPackagesRequest
+	(*UploadKeyPackagesResponse)(nil), // 9: dzeroth.keys.v1.UploadKeyPackagesResponse
+	(*GetKeyDevicesRequest)(nil),      // 10: dzeroth.keys.v1.GetKeyDevicesRequest
+	(*UserKeyDevices)(nil),            // 11: dzeroth.keys.v1.UserKeyDevices
+	(*GetKeyDevicesResponse)(nil),     // 12: dzeroth.keys.v1.GetKeyDevicesResponse
+	(*ClaimKeyPackagesRequest)(nil),   // 13: dzeroth.keys.v1.ClaimKeyPackagesRequest
+	(*ClaimedKeyPackage)(nil),         // 14: dzeroth.keys.v1.ClaimedKeyPackage
+	(*ClaimKeyPackagesResponse)(nil),  // 15: dzeroth.keys.v1.ClaimKeyPackagesResponse
+	(*timestamppb.Timestamp)(nil),     // 16: google.protobuf.Timestamp
 }
 var file_dzeroth_keys_v1_keys_proto_depIdxs = []int32{
-	15, // 0: dzeroth.keys.v1.KeyDevice.created_at:type_name -> google.protobuf.Timestamp
-	15, // 1: dzeroth.keys.v1.KeyDevice.last_seen_at:type_name -> google.protobuf.Timestamp
-	0,  // 2: dzeroth.keys.v1.RegisterKeyDeviceResponse.device:type_name -> dzeroth.keys.v1.KeyDevice
-	0,  // 3: dzeroth.keys.v1.ListMyKeyDevicesResponse.devices:type_name -> dzeroth.keys.v1.KeyDevice
-	0,  // 4: dzeroth.keys.v1.UserKeyDevices.devices:type_name -> dzeroth.keys.v1.KeyDevice
-	10, // 5: dzeroth.keys.v1.GetKeyDevicesResponse.users:type_name -> dzeroth.keys.v1.UserKeyDevices
-	13, // 6: dzeroth.keys.v1.ClaimKeyPackagesResponse.key_packages:type_name -> dzeroth.keys.v1.ClaimedKeyPackage
-	1,  // 7: dzeroth.keys.v1.KeyService.RegisterKeyDevice:input_type -> dzeroth.keys.v1.RegisterKeyDeviceRequest
-	3,  // 8: dzeroth.keys.v1.KeyService.ListMyKeyDevices:input_type -> dzeroth.keys.v1.ListMyKeyDevicesRequest
-	5,  // 9: dzeroth.keys.v1.KeyService.RemoveKeyDevice:input_type -> dzeroth.keys.v1.RemoveKeyDeviceRequest
-	7,  // 10: dzeroth.keys.v1.KeyService.UploadKeyPackages:input_type -> dzeroth.keys.v1.UploadKeyPackagesRequest
-	9,  // 11: dzeroth.keys.v1.KeyService.GetKeyDevices:input_type -> dzeroth.keys.v1.GetKeyDevicesRequest
-	12, // 12: dzeroth.keys.v1.KeyService.ClaimKeyPackages:input_type -> dzeroth.keys.v1.ClaimKeyPackagesRequest
-	2,  // 13: dzeroth.keys.v1.KeyService.RegisterKeyDevice:output_type -> dzeroth.keys.v1.RegisterKeyDeviceResponse
-	4,  // 14: dzeroth.keys.v1.KeyService.ListMyKeyDevices:output_type -> dzeroth.keys.v1.ListMyKeyDevicesResponse
-	6,  // 15: dzeroth.keys.v1.KeyService.RemoveKeyDevice:output_type -> dzeroth.keys.v1.RemoveKeyDeviceResponse
-	8,  // 16: dzeroth.keys.v1.KeyService.UploadKeyPackages:output_type -> dzeroth.keys.v1.UploadKeyPackagesResponse
-	11, // 17: dzeroth.keys.v1.KeyService.GetKeyDevices:output_type -> dzeroth.keys.v1.GetKeyDevicesResponse
-	14, // 18: dzeroth.keys.v1.KeyService.ClaimKeyPackages:output_type -> dzeroth.keys.v1.ClaimKeyPackagesResponse
-	13, // [13:19] is the sub-list for method output_type
-	7,  // [7:13] is the sub-list for method input_type
-	7,  // [7:7] is the sub-list for extension type_name
-	7,  // [7:7] is the sub-list for extension extendee
-	0,  // [0:7] is the sub-list for field type_name
+	16, // 0: dzeroth.keys.v1.KeyDevice.created_at:type_name -> google.protobuf.Timestamp
+	16, // 1: dzeroth.keys.v1.KeyDevice.last_seen_at:type_name -> google.protobuf.Timestamp
+	1,  // 2: dzeroth.keys.v1.RegisterKeyDeviceResponse.device:type_name -> dzeroth.keys.v1.KeyDevice
+	1,  // 3: dzeroth.keys.v1.ListMyKeyDevicesResponse.devices:type_name -> dzeroth.keys.v1.KeyDevice
+	0,  // 4: dzeroth.keys.v1.RemoveKeyDeviceRequest.reason:type_name -> dzeroth.keys.v1.RemoveReason
+	1,  // 5: dzeroth.keys.v1.UserKeyDevices.devices:type_name -> dzeroth.keys.v1.KeyDevice
+	11, // 6: dzeroth.keys.v1.GetKeyDevicesResponse.users:type_name -> dzeroth.keys.v1.UserKeyDevices
+	14, // 7: dzeroth.keys.v1.ClaimKeyPackagesResponse.key_packages:type_name -> dzeroth.keys.v1.ClaimedKeyPackage
+	2,  // 8: dzeroth.keys.v1.KeyService.RegisterKeyDevice:input_type -> dzeroth.keys.v1.RegisterKeyDeviceRequest
+	4,  // 9: dzeroth.keys.v1.KeyService.ListMyKeyDevices:input_type -> dzeroth.keys.v1.ListMyKeyDevicesRequest
+	6,  // 10: dzeroth.keys.v1.KeyService.RemoveKeyDevice:input_type -> dzeroth.keys.v1.RemoveKeyDeviceRequest
+	8,  // 11: dzeroth.keys.v1.KeyService.UploadKeyPackages:input_type -> dzeroth.keys.v1.UploadKeyPackagesRequest
+	10, // 12: dzeroth.keys.v1.KeyService.GetKeyDevices:input_type -> dzeroth.keys.v1.GetKeyDevicesRequest
+	13, // 13: dzeroth.keys.v1.KeyService.ClaimKeyPackages:input_type -> dzeroth.keys.v1.ClaimKeyPackagesRequest
+	3,  // 14: dzeroth.keys.v1.KeyService.RegisterKeyDevice:output_type -> dzeroth.keys.v1.RegisterKeyDeviceResponse
+	5,  // 15: dzeroth.keys.v1.KeyService.ListMyKeyDevices:output_type -> dzeroth.keys.v1.ListMyKeyDevicesResponse
+	7,  // 16: dzeroth.keys.v1.KeyService.RemoveKeyDevice:output_type -> dzeroth.keys.v1.RemoveKeyDeviceResponse
+	9,  // 17: dzeroth.keys.v1.KeyService.UploadKeyPackages:output_type -> dzeroth.keys.v1.UploadKeyPackagesResponse
+	12, // 18: dzeroth.keys.v1.KeyService.GetKeyDevices:output_type -> dzeroth.keys.v1.GetKeyDevicesResponse
+	15, // 19: dzeroth.keys.v1.KeyService.ClaimKeyPackages:output_type -> dzeroth.keys.v1.ClaimKeyPackagesResponse
+	14, // [14:20] is the sub-list for method output_type
+	8,  // [8:14] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_dzeroth_keys_v1_keys_proto_init() }
@@ -1084,13 +1177,14 @@ func file_dzeroth_keys_v1_keys_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_dzeroth_keys_v1_keys_proto_rawDesc), len(file_dzeroth_keys_v1_keys_proto_rawDesc)),
-			NumEnums:      0,
+			NumEnums:      1,
 			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_dzeroth_keys_v1_keys_proto_goTypes,
 		DependencyIndexes: file_dzeroth_keys_v1_keys_proto_depIdxs,
+		EnumInfos:         file_dzeroth_keys_v1_keys_proto_enumTypes,
 		MessageInfos:      file_dzeroth_keys_v1_keys_proto_msgTypes,
 	}.Build()
 	File_dzeroth_keys_v1_keys_proto = out.File

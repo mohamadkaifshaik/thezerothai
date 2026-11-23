@@ -295,6 +295,16 @@ final class EncryptionRequiredException extends AppException {
   final String? conversationId;
 }
 
+/// This device's key id was removed from the account by another device
+/// (FAILED_PRECONDITION + DEVICE_REMOVED, KeyService). Never retried with the same
+/// id. The text is fixed and carries no identifiers; never show the server's.
+final class DeviceRemovedException extends AppException {
+  const DeviceRemovedException() : super(userMessage);
+
+  /// The only text ever shown for this error.
+  static const userMessage = 'This device was removed from your account.';
+}
+
 /// Why a role-gated community action was refused (PERMISSION_DENIED +
 /// FORBIDDEN; the server's `metadata["reason"]`).
 enum CommunityForbiddenReason {

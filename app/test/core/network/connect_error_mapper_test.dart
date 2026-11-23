@@ -601,6 +601,23 @@ void main() {
     expect(mapped.message, "You can't message this account.");
   });
 
+  test('ERROR_REASON_DEVICE_REMOVED maps to DeviceRemovedException with fixed text, never ProfileRequired', () {
+    final mapped = mapConnectError(
+      _withDetail(
+        connect.Code.failedPrecondition,
+        'server text',
+        common.ErrorDetail(
+          reason: common.ErrorReason.ERROR_REASON_DEVICE_REMOVED,
+          message: 'this device was removed from your account',
+        ),
+      ),
+    );
+    expect(mapped, isA<DeviceRemovedException>());
+    expect(mapped, isNot(isA<ProfileRequiredException>()));
+    expect(mapped.message, DeviceRemovedException.userMessage);
+    expect(mapped.message, 'This device was removed from your account.');
+  });
+
   group('VotePoll refusals (ADR-0029 D6, W6-13)', () {
     test('POLL_CLOSED maps to PollClosedException with fixed text', () {
       final mapped = mapConnectError(

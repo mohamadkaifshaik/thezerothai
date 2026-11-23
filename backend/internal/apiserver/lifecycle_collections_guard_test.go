@@ -234,6 +234,11 @@ var lifecycleCollections = []collectionRow{
 	// last resort exists, never key bytes.
 	{Name: "keyDevices", Sub: true, Disposition: erasedByStep, Step: "keys", Section: "keys", Owner: "keys", Cite: "erasure and export follow the ADR-0011 Q1 pattern; E2EE DM design 2026-11-18, 7.9 (owner-approved right-to-delete path), ADR pending"},
 	{Name: "keyPackages", Sub: true, Disposition: erasedByStep, Step: "keys", Section: "keys", Owner: "keys", Cite: "erasure and export follow the ADR-0011 Q1 pattern; E2EE DM design 2026-11-18, 7.9 (owner-approved right-to-delete path), ADR pending"},
+	// users/{uid}/keyDeviceRemovals/{deviceId} {removedAt, expireAt (TTL, removedAt + 90 days)}: the removed mark of a
+	// REMOTE RemoveKeyDevice (security audit H1). Only the user's own device id (as the doc id) and two times, no other
+	// user's uid. The `keys` step erases them as its second phase, after the last device, orphan marks included; the `keys`
+	// section exports them as removed_devices.
+	{Name: "keyDeviceRemovals", Sub: true, Disposition: erasedByStep, Step: "keys", Section: "keys", Owner: "keys", Cite: "erasure and export follow the ADR-0011 Q1 pattern; removal-server design 2026-11-23, 2.1 (owner-approved 2026-11-23: 90-day mark, right-to-delete as the keys step's phase 2), ADR pending"},
 }
 
 // gcsPrefixRow is one GCS object namespace.

@@ -71,7 +71,8 @@
     "userId": "<uid:A>"
   },
   "keys": {
-    "devices": []
+    "devices": [],
+    "removed_devices": []
   },
   "lists": {
     "follows": [],
