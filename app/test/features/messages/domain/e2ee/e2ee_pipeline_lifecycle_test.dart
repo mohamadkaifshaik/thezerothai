@@ -103,6 +103,10 @@ void main() {
     });
 
     test('item 20: a reset that settles starts a removal pass', () async {
+      // The callbacks are called by hand here: this proves the pipeline's
+      // wiring only. The real trigger (a reset that settles, and one whose
+      // outcome stays unknown) is covered by
+      // group_starter_reset_settled_test.dart (review m5).
       await h.ready();
       final runner = h.pipeline.runner;
       final before = runner.passesAsked;
