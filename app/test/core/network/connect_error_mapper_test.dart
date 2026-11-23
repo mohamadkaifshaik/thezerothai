@@ -618,6 +618,25 @@ void main() {
     expect(mapped.message, 'This device was removed from your account.');
   });
 
+  test(
+    'ERROR_REASON_SESSION_ENDED maps to SessionEndedException with fixed text',
+    () {
+      final mapped = mapConnectError(
+        _withDetail(
+          connect.Code.unauthenticated,
+          'server text',
+          common.ErrorDetail(
+            reason: common.ErrorReason.ERROR_REASON_SESSION_ENDED,
+            message: 'this session has ended',
+          ),
+        ),
+      );
+      expect(mapped, isA<SessionEndedException>());
+      expect(mapped.message, SessionEndedException.userMessage);
+      expect(mapped.message, isNot(contains('server text')));
+    },
+  );
+
   group('VotePoll refusals (ADR-0029 D6, W6-13)', () {
     test('POLL_CLOSED maps to PollClosedException with fixed text', () {
       final mapped = mapConnectError(
