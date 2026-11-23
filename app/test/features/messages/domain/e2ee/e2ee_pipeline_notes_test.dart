@@ -355,6 +355,27 @@ void main() {
     expect(await v.group(_c1, 1), isNull);
   });
 
+  test(
+    'SA L6: a push for an id neither known nor in the cached inbox pulls '
+    'nothing for it (the id is dropped; welcomes are still polled)',
+    () async {
+      await h.ready();
+      await h.settle();
+      h.rig.clock.advance(const Duration(minutes: 2));
+      final before = h.rig.server.calls.length;
+      final polls = h.welcomePolls;
+
+      h.pipeline.onPush('99999999999999999999999999999999');
+      await _until(() async => h.welcomePolls > polls);
+      await h.settle();
+
+      final calls = h.rig.server.calls.skip(before).toList();
+      expect(calls, isNot(contains('listConversationCommits')));
+      expect(calls, isNot(contains('listMessages')));
+      expect(h.pipeline.ignoredPushes, 1);
+    },
+  );
+
   test('CR M3: the resume\'s owed discard runs before the coordinator\'s '
       'resume', () async {
     final v = h.rig.device.vault;

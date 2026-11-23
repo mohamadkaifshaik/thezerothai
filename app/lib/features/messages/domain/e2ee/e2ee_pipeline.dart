@@ -545,9 +545,40 @@ class E2eePipeline {
     if (id.isEmpty) {
       parts.sync.pushWithoutConversation();
     } else {
-      parts.sync.onPush(id);
+      _inRoot(() => _pushed(parts, id));
     }
   }
+
+  /// Fix wave ruling 9 (security audit L6): a pushed id is pulled and
+  /// caught up only when it is in the known set or a cached inbox row;
+  /// any other id is dropped (no per-id work or state) and the push only
+  /// polls welcomes, as a push without an id does. Why the welcome poll is
+  /// kept: the first message of a NEW conversation arrives as a welcome,
+  /// before its row is cached. Never throws.
+  Future<void> _pushed(_Parts parts, String id) async {
+    if (!parts.live) return;
+    var mine = parts.known.isLoadedFor(parts.vault) && parts.known.contains(id);
+    if (!mine) {
+      try {
+        final rows = (await _messaging.cachedConversations(Folder.FOLDER_INBOX))
+            .conversations;
+        mine = rows.any((r) => r.id == id);
+      } on Object {
+        mine = false;
+      }
+    }
+    if (!parts.live || !identical(_parts, parts) || !started) return;
+    if (mine) {
+      parts.sync.onPush(id);
+    } else {
+      ignoredPushes++;
+      parts.sync.pushWithoutConversation();
+    }
+  }
+
+  /// Pushes whose id was dropped by [_pushed] (tests).
+  @visibleForTesting
+  int ignoredPushes = 0;
 
   void _onConversationsChanged() {
     final parts = _parts;

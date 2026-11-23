@@ -209,7 +209,9 @@ extension _PipelineNotes on E2eePipeline {
     for (final id in accepted) {
       _inRoot(() => parts.accepted(id));
     }
-    pushes.forEach(parts.sync.onPush);
+    for (final id in pushes) {
+      _inRoot(() => _pushed(parts, id));
+    }
     if (_inboxOwed) {
       _inboxOwed = false;
       _inRoot(parts.rereadInbox);
