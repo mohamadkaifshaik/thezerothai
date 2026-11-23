@@ -375,6 +375,43 @@ void main() {
     expect(left.items, isEmpty);
   });
 
+  test('a handle whose row was deleted another way (delete-for-me) is '
+      'dropped when the thread is rebuilt (CR nit)', () async {
+    await joined();
+    h.expectedErrors = ['send.outbox.unreadable'];
+    final vault = h.rig.device.vault;
+    h.rig.server.sendScript.add((
+      error: const FeatureDisabledException('off'),
+      stored: false,
+    ));
+    await port.send(
+      to: const ThreadRef.conversation(_c1),
+      localId: 'local-1',
+      text: 'one',
+    );
+    await h.pipeline.sender.settled(_c1);
+    final bad = (await vault.outbox()).items.single.idempotencyKey;
+    await h.rig.device.db.customStatement(
+      'UPDATE vault_outbox SET content = ciphertext, ciphertext = content '
+      "WHERE idempotency_key = '$bad'",
+    );
+    final seen = <EncryptedThread>[];
+    final sub = port
+        .watchThread(const ThreadRef.conversation(_c1))
+        .listen(seen.add);
+    await _until(() async => seen.isNotEmpty);
+    final handle = seen.last.unreadableUnsent.single;
+    expect(port.unreadableHandleCountForTest, 1);
+
+    h.pipeline.noteDeleted(_c1);
+    await _until(() async => seen.last.unreadableUnsent.isEmpty);
+    await h.settle();
+
+    expect(port.unreadableHandleCountForTest, 0);
+    expect(await port.deleteUnreadableUnsent(_c1, handle), isFalse);
+    await sub.cancel();
+  });
+
   group('device removal (lane D)', () {
     /// An own device the directory lists, read by the port's ownDevices.
     Future<RigPeer> ownOther(String name) async {

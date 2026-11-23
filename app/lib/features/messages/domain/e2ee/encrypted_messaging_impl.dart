@@ -93,6 +93,11 @@ class EncryptedMessagingImpl implements EncryptedMessaging {
   final Map<String, String> _unreadableHandleOf = {};
   final Random _handles = Random.secure();
 
+  /// How many unreadable-row handles this port holds (the code seat's nit:
+  /// none for rows deleted another way once their thread is rebuilt).
+  @visibleForTesting
+  int get unreadableHandleCountForTest => _unreadableRows.length;
+
   /// The vault the memory above belongs to (L3).
   SecureVault? _vaultSeen;
 
@@ -142,6 +147,20 @@ class EncryptedMessagingImpl implements EncryptedMessaging {
         _unreadableRows[handle] = (conversationId: conversationId, key: key);
         return handle;
       });
+
+  /// Code seat nit: after a fresh read of [conversationId]'s unreadable
+  /// keys, the handles of that conversation whose key is no longer listed
+  /// go (a row deleted another way: delete-for-me, a drain).
+  void _pruneUnreadable(String conversationId, Iterable<String> keys) {
+    final live = keys.toSet();
+    _unreadableRows.removeWhere((handle, row) {
+      if (row.conversationId != conversationId || live.contains(row.key)) {
+        return false;
+      }
+      _unreadableHandleOf.remove(row.key);
+      return true;
+    });
+  }
 
   /// K2: [recipient]'s thread continues under [conversationId].
   void _bind(String recipient, String conversationId) {

@@ -261,9 +261,11 @@ class _Thread {
   /// the last emission's (as item 17 does for the unsent rows).
   Future<List<String>> _unreadable(PipelineParts parts, String id) async {
     try {
+      final keys = await parts.sender.unreadableKeys(id);
+      // Only after a read that worked: a failed one keeps every handle.
+      _impl._pruneUnreadable(id, keys);
       return List.unmodifiable([
-        for (final key in await parts.sender.unreadableKeys(id))
-          _impl._unreadableHandle(id, key),
+        for (final key in keys) _impl._unreadableHandle(id, key),
       ]);
     } on Object catch (e, s) {
       if (EncryptedMessagingImpl._isBug(e)) {
