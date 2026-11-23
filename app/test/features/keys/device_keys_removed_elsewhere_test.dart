@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:connectrpc/connect.dart' as connect;
+import 'package:dzeroth/core/session/session_end.dart';
 import 'package:dzeroth/core/vault/vault_records.dart'
     show kVaultSettingRegisteredOnce;
 import 'package:dzeroth/features/keys/domain/device_keys_service.dart';
@@ -216,6 +217,22 @@ void main() {
       expect(rig.server.uploads, hasLength(uploads));
       expect(rig.storedId(), id);
       expect(rig.engine.createdIds, hasLength(1));
+    });
+
+    test('the listenable fact turns false when the vault goes and true again '
+        'when it reopens (fix round 1, N1)', () async {
+      await removedElsewhere();
+      expect(rig.service.removedElsewhereFact.value, isTrue);
+
+      // The token is lost: the vault closes and is kept.
+      await rig.session.onSessionEnded(_a, SessionEnd.sessionLost);
+      expect(rig.session.vault, isNull);
+      expect(rig.service.removedElsewhere, isFalse);
+      expect(rig.service.removedElsewhereFact.value, isFalse);
+
+      // The same user signs back in: the stored marker is read again.
+      await rig.signIn(_a);
+      expect(rig.service.removedElsewhereFact.value, isTrue);
     });
 
     test(

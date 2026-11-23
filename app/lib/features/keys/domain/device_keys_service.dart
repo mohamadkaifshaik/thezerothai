@@ -276,7 +276,15 @@ class DeviceKeysService {
        _removeTimeout = removeTimeout,
        _rpcTimeout = rpcTimeout,
        _isForeground = isForeground,
-       _onUnexpectedError = onUnexpectedError;
+       _onUnexpectedError = onUnexpectedError {
+    // Fix round 1, N1: the listenable follows the open vault, so it never
+    // says "removed elsewhere" with no vault open.
+    session.status.addListener(_followVault);
+  }
+
+  void _followVault() {
+    if (_removedFact.value && !removedElsewhere) _removedFact.value = false;
+  }
 
   static Timer _defaultPeriodic(Duration period, void Function() onTick) =>
       Timer.periodic(period, (_) => onTick());
@@ -365,7 +373,9 @@ class DeviceKeysService {
       _removedVault != null && identical(_removedVault, _session.vault);
 
   /// [removedElsewhere] as a listenable (the port's `removedElsewhere`):
-  /// the value for the last vault this service saw.
+  /// the value for the open vault this service saw; false once that vault
+  /// is closed or replaced (fix round 1, N1), until [onVaultReady] loads
+  /// the next vault's marker.
   ValueListenable<bool> get removedElsewhereFact => _removedFact;
 
   /// Security read M5, the port's `checkRemovedAgain`: while removed
@@ -542,6 +552,7 @@ class DeviceKeysService {
   /// Stops the periodic check; runs in flight stop at their next check.
   void dispose() {
     _disposed = true;
+    _session.status.removeListener(_followVault);
     _timer?.cancel();
     _timer = null;
   }
