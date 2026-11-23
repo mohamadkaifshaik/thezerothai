@@ -47,7 +47,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     // The network layer reports a session the server ended (SESSION_ENDED,
     // and again after one forced refresh) through the repository: the one
     // place both already share, so bootstrap needs no new wiring.
-    authRepository.onSessionEnded = _sessionEndedHook;
+    authRepository.onServerEndedSession = _sessionEndedHook;
   }
 
   void _sessionEndedHook(String uid) {
@@ -351,8 +351,8 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     _unknownTimer?.cancel();
     _userSubscription?.cancel();
     // Tear-offs of the same method on the same bloc are equal (`==`).
-    if (_authRepository.onSessionEnded == _sessionEndedHook) {
-      _authRepository.onSessionEnded = null;
+    if (_authRepository.onServerEndedSession == _sessionEndedHook) {
+      _authRepository.onServerEndedSession = null;
     }
     return super.close();
   }

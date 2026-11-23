@@ -548,7 +548,7 @@ void main() {
 
   // Ruling 1 (lane D PR 4): the network layer reports a session the server
   // ended (SESSION_ENDED twice, after one forced refresh) through
-  // AuthRepository.onSessionEnded; the bloc signs that uid out as a lost
+  // AuthRepository.onServerEndedSession; the bloc signs that uid out as a lost
   // session (the vault is kept), once per burst, and the sign-in screens
   // say why (ruling 2).
   group('session ended by a device removal', () {
@@ -571,7 +571,9 @@ void main() {
 
     /// The hook the bloc gave the repository.
     void Function(String) hookOf() =>
-        verify(() => authRepository.onSessionEnded = captureAny()).captured.last
+        verify(() => authRepository.onServerEndedSession = captureAny())
+                .captured
+                .last
             as void Function(String);
 
     Future<AuthBloc> signedIn() async {
@@ -664,9 +666,9 @@ void main() {
     test('closing the bloc unhooks it from the repository', () async {
       final bloc = await signedIn();
       final hook = hookOf();
-      when(() => authRepository.onSessionEnded).thenReturn(hook);
+      when(() => authRepository.onServerEndedSession).thenReturn(hook);
       await bloc.close();
-      verify(() => authRepository.onSessionEnded = null).called(1);
+      verify(() => authRepository.onServerEndedSession = null).called(1);
     });
   });
 }

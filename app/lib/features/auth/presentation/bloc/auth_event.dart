@@ -92,7 +92,7 @@ final class AuthSignOutRequested extends AuthEvent {
 
 /// Internal: the server ended [uid]'s session (SESSION_ENDED, and again after
 /// one forced token refresh; `SessionEndedInterceptor`). Dispatched through
-/// `AuthRepository.onSessionEnded`. Signs [uid] out as
+/// `AuthRepository.onServerEndedSession`. Signs [uid] out as
 /// [SessionEnd.sessionLost] (the vault is kept), once per burst; ignored when
 /// another account (or nobody) is signed in.
 final class AuthSessionEndedByServer extends AuthEvent {

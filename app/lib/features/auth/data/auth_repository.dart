@@ -539,11 +539,12 @@ class AuthRepository implements AuthTokenProvider {
 
   /// Told when the server ended [reportSessionEnded]'s session (a device was
   /// removed on another device). The auth bloc sets it in its constructor
-  /// and signs that uid out as [SessionEnd.sessionLost].
-  void Function(String uid)? onSessionEnded;
+  /// and signs that uid out as [SessionEnd.sessionLost]. (Not named like the
+  /// vault's `onSessionEnded`, which `vault_guard_test` reserves.)
+  void Function(String uid)? onServerEndedSession;
 
   @override
-  void reportSessionEnded(String uid) => onSessionEnded?.call(uid);
+  void reportSessionEnded(String uid) => onServerEndedSession?.call(uid);
 
   static String _generateNonce([int length = 32]) {
     const charset =

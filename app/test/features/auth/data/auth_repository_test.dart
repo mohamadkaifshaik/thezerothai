@@ -49,7 +49,8 @@ void main() {
       verify(() => user.getIdToken(true)).called(1);
     });
 
-    test('reportSessionEnded tells onSessionEnded, and is a no-op without '
+    test('reportSessionEnded tells onServerEndedSession, and is a no-op '
+        'without '
         'it', () {
       final repo = AuthRepository(
         firebaseAuth: firebaseAuth,
@@ -57,7 +58,7 @@ void main() {
       );
       repo.reportSessionEnded('uid-1');
       final seen = <String>[];
-      repo.onSessionEnded = seen.add;
+      repo.onServerEndedSession = seen.add;
       repo.reportSessionEnded('uid-1');
       expect(seen, ['uid-1']);
     });
