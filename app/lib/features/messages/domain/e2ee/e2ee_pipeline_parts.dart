@@ -330,13 +330,33 @@ class _Parts {
       });
     });
     _p._onPartChanged(id);
-    if (init != null && live) {
-      // Outside the lock: the discard takes it.
-      if (await starter.discardInit(id) == InitDiscard.discarded && live) {
-        await sender.discard(init.localId);
-        _p._onPartChanged(id);
-      }
+    // Fix round 2 (r1-I1): the local delete above needs no device; the init
+    // discard below makes MLS calls, so it runs only for a started pipeline
+    // (usable device, not removed elsewhere) and is owed otherwise.
+    if (init != null && live) await _p._discardOrOwe(this, id);
+  }
+
+  /// The starter's discard of [conversationId]'s pending init (outside the
+  /// conversation lock: the discard takes it). True when decided: no init
+  /// is left, or the discard answered `discarded`, `held`, `settled` or
+  /// `none` (a `held` or `settled` init may land or has landed: the first
+  /// message cannot be recalled). False for `notDecided` (try again later).
+  ///
+  /// Re-review r1-n1: a `settled` answer drains the conversation at user
+  /// priority (inside `discardInit`). That is harmless here: after the
+  /// delete no other row of it is left to send, and this is the device's
+  /// own start, not an incoming request, so no accept can follow.
+  Future<bool> discardPendingInit(String conversationId) async {
+    if (!live) return false;
+    final init = await starter.pendingInit(conversationId: conversationId);
+    if (init == null || !live) return init == null;
+    final answer = await starter.discardInit(conversationId);
+    if (answer == InitDiscard.notDecided) return false;
+    if (answer == InitDiscard.discarded && live) {
+      await sender.discard(init.localId);
+      _p._onPartChanged(conversationId);
     }
+    return true;
   }
 
   /// Sign-out, a user change or a new vault (gate item 41): every part's

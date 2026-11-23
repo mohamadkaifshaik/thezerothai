@@ -114,11 +114,12 @@ void main() {
     });
   });
 
-  test('m4: a delete of a conversation whose first message is still a '
-      'pending init goes through the starter\'s discard, never deletes the '
-      'init row under it', () async {
+  /// The pipeline started, then this device's first message to bob (whose
+  /// 1:1 conversation is _c1) got no answer to either attempt: the group is
+  /// provisional with its init row, and the server stored nothing.
+  /// [margin]: the resend margin has passed (a discard may decide).
+  Future<void> unansweredInit({bool margin = true}) async {
     final v = h.rig.device.vault;
-    // Bob's 1:1 conversation is _c1; one claimable package.
     h.rig.keys.claims['ref-bob'] = () async => kpb.ClaimKeyPackagesResponse(
       conversationId: _c1,
       keyPackages: [
@@ -152,7 +153,14 @@ void main() {
     await h.pipeline.sender.settled(_c1);
     expect((await v.group(_c1, 1))!.provisional, isTrue);
     expect((await v.outbox()).items.single.init, isNotNull);
-    h.rig.clock.advance(kInitResendMargin);
+    if (margin) h.rig.clock.advance(kInitResendMargin);
+  }
+
+  test('m4: a delete of a conversation whose first message is still a '
+      'pending init goes through the starter\'s discard, never deletes the '
+      'init row under it', () async {
+    final v = h.rig.device.vault;
+    await unansweredInit();
 
     final done = h.pipeline.changes.firstWhere((id) => id == _c1);
     h.pipeline.noteDeleted(_c1);
@@ -161,6 +169,40 @@ void main() {
 
     expect(await v.group(_c1, 1), isNull, reason: 'discarded by the starter');
     expect(await h.pipeline.starter.pendingInit(conversationId: _c1), isNull);
+  });
+
+  test('r1-I1: while removed elsewhere a delete is made locally with no MLS '
+      'call; the owed init discard runs once after the fact clears', () async {
+    final v = h.rig.device.vault;
+    await unansweredInit();
+    await _storeMessage(v, _c1);
+    h.deviceKeys.markRemoved();
+    expect(h.pipeline.started, isFalse);
+    final before = h.rig.server.calls.length;
+
+    final done = h.pipeline.changes.firstWhere((id) => id == _c1);
+    h.pipeline.noteDeleted(_c1);
+    await done;
+    await h.settle();
+
+    expect(await v.messages(_c1), isEmpty, reason: 'the local delete');
+    final calls = h.rig.server.calls.skip(before).toList();
+    expect(calls, isNot(contains('listConversationCommits')));
+    expect(calls, isNot(contains('listWelcomes')));
+    expect(await v.group(_c1, 1), isNotNull, reason: 'the discard is owed');
+    expect((await v.outbox()).items.single.init, isNotNull);
+    expect(h.pipeline.notedCount, 1, reason: 'one owed discard');
+
+    final sends = h.rig.server.sends.length;
+    h.deviceKeys.clearRemoved();
+    await _until(() async => h.pipeline.started);
+    await h.settle();
+
+    // Discarded before the start's resumeProvisional could resend it.
+    expect(await v.group(_c1, 1), isNull, reason: 'the owed discard ran');
+    expect((await v.outbox()).items, isEmpty);
+    expect(h.rig.server.sends, hasLength(sends), reason: 'never resent');
+    expect(h.pipeline.notedCount, 0, reason: 'nothing owed any more');
   });
 
   test('I3: a push and an open during the start window run after the '

@@ -197,6 +197,12 @@ class E2eePipeline {
   final LinkedHashMap<String, int> _notedDeleted = LinkedHashMap();
   final LinkedHashSet<String> _notedPushes = LinkedHashSet();
 
+  /// Fix round 2 (r1-I1): conversations whose local delete was made while
+  /// the pipeline was not started, and whose pending init still waits for
+  /// the starter's discard (MLS calls). Bounded and account-tagged like the
+  /// notes; run after a start; kept by [forgetNotes] like the deletes.
+  final LinkedHashSet<String> _owedDiscards = LinkedHashSet();
+
   /// Review I5, fix round 2 (r1-I2): the account every remembered note
   /// belongs to, the AUTHENTICATED uid ([_currentUid]) when it was noted.
   /// Notes are applied only to a vault whose `uid` is that account; a note
@@ -227,7 +233,47 @@ class E2eePipeline {
     _notedAccepted.clear();
     _notedDeleted.clear();
     _notedPushes.clear();
+    _owedDiscards.clear();
     _notesUser = null;
+  }
+
+  /// [conversationId]'s pending init is discarded now when the pipeline is
+  /// started and not stopped; otherwise (or when the discard could not
+  /// decide) it is owed. Never throws.
+  Future<void> _discardOrOwe(_Parts parts, String conversationId) async {
+    if (!started || _deviceKeys.stopsPipeline) {
+      _remember(_owedDiscards, conversationId);
+      return;
+    }
+    await _discardOne(parts, conversationId);
+  }
+
+  /// One discard; owed again unless decided. The caller checked that the
+  /// device may make MLS calls. Never throws.
+  Future<void> _discardOne(_Parts parts, String conversationId) async {
+    var decided = false;
+    try {
+      decided = await parts.discardPendingInit(conversationId);
+    } on Object catch (e, s) {
+      if (e is! StateError) _report('pipeline.discardInit', s);
+    }
+    if (!decided) _remember(_owedDiscards, conversationId);
+  }
+
+  /// Inside the start window (device usable, not stopped), BEFORE the
+  /// coordinator's sequence: its `resumeProvisional` would otherwise resend
+  /// the init of a conversation the user deleted.
+  Future<void> _applyOwedDiscards(_Parts parts) async {
+    _dropOtherAccountsNotes(parts.vault);
+    final owed = [..._owedDiscards];
+    _owedDiscards.clear();
+    for (final id in owed) {
+      if (!parts.live || _deviceKeys.stopsPipeline) {
+        _remember(_owedDiscards, id);
+        continue;
+      }
+      await _discardOne(parts, id);
+    }
   }
 
   /// A conversation's local copies changed (the parts' `onChanged`, and a
@@ -355,6 +401,8 @@ class E2eePipeline {
         // running.
         if (e is! StateError) _report('pipeline.notes', s);
       }
+      // Fix round 2 (r1-I1): never throws.
+      await _applyOwedDiscards(parts);
       if (parts.live && identical(_startedFor?.vault, vault)) {
         // The coordinator is running once this call returns (it sets its
         // state before its first await).
@@ -815,7 +863,8 @@ class E2eePipeline {
       _notedEncrypted.length +
       _notedAccepted.length +
       _notedDeleted.length +
-      _notedPushes.length;
+      _notedPushes.length +
+      _owedDiscards.length;
 
   /// The seam every part's timer goes through (gate item 40).
   @visibleForTesting
