@@ -515,7 +515,9 @@ void main() {
       (
         'EMAIL_NOT_VERIFIED',
         const EmailNotVerifiedException('verify'),
-        "Couldn't complete that. Please try again.",
+        // Task 13b (13b-i review M2): the messaging line for an account
+        // check, through sharePostErrorMessage's messaging fallback.
+        'Verify your email address to send messages.',
       ),
       (
         'FEATURE_DISABLED (dm_post_share, also dm_share_check and posts as '

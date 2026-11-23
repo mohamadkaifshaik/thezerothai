@@ -251,6 +251,9 @@ void main() {
       NotFoundException('x'),
       ValidationException('x'),
       EncryptionRequiredException('x'),
+      // 13b-i review M2: an account check does not pass by tapping retry.
+      AccountRestrictedException('x'),
+      EmailNotVerifiedException('x'),
     ];
     for (final error in definitive) {
       final e = entryOfOutgoing(_failed(error: error), _ready);
@@ -264,7 +267,6 @@ void main() {
       RateLimitedException('x', retryAfter: Duration(seconds: 5)),
       DegradedModeException('x'),
       NetworkException('x'),
-      AccountRestrictedException('x'),
     ];
     for (final error in passing) {
       final e = entryOfOutgoing(_failed(error: error), _ready);

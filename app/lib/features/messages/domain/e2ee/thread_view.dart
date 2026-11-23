@@ -320,7 +320,9 @@ _Status _failedProblem(OutgoingRow row) {
 /// A server answer that will not change by sending again now, and that
 /// `messagingErrorMessage` has its own line for (gate item 25). Every other
 /// typed error (a short rate limit, a degraded or paused service, the
-/// network, an account check) is shown as a retry, with no error carried.
+/// network) is shown as a retry, with no error carried. 13b-i review M2:
+/// an account check (restricted, email not verified) is lasting: tapping
+/// retry would fail the same way, so the row says why.
 bool _lasting(AppException e) => switch (e) {
   CannotMessageException() ||
   FeatureDisabledException() ||
@@ -328,6 +330,8 @@ bool _lasting(AppException e) => switch (e) {
   QuotaExceededException() ||
   NotFoundException() ||
   ValidationException() ||
-  EncryptionRequiredException() => true,
+  EncryptionRequiredException() ||
+  AccountRestrictedException() ||
+  EmailNotVerifiedException() => true,
   _ => false,
 };
