@@ -46,6 +46,11 @@ extension _Elsewhere on DeviceKeysService {
     try {
       marked = await _readRemoved(vault);
     } on Object {
+      // Review N2: an unreadable marker (a vault read failure) reads as
+      // false here, on purpose. This only seeds the synchronous memory at
+      // open; the run that follows reads the marker again in _syncRemoved,
+      // where a failure is the run's failure (nothing is sent), and a
+      // device that is still removed is answered DEVICE_REMOVED again.
       marked = false;
     }
     if (_disposed || !identical(_session.vault, vault)) return;
