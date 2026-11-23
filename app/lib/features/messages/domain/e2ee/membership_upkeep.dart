@@ -28,6 +28,7 @@ import 'message_receiver.dart';
 import 'pipeline_support.dart';
 import 'sync_budget.dart';
 
+part 'membership_upkeep_own_adds.dart';
 part 'membership_upkeep_reconcile.dart';
 
 const FormerPins _former = FormerPins();
@@ -115,6 +116,7 @@ class MembershipUpkeep {
     required void Function(String conversationId) onChanged,
     required String? Function() ownUserId,
     required bool Function() removedElsewhere,
+    required Future<bool> Function(Uint8List deviceId) wasRemovedByUser,
     void Function() Function(Duration delay, void Function() run)? schedule,
     void Function(Object error, StackTrace stack)? onUnexpectedError,
   }) : _commits = commits,
@@ -133,6 +135,7 @@ class MembershipUpkeep {
        _onChanged = onChanged,
        _ownUserId = ownUserId,
        _removedElsewhere = removedElsewhere,
+       _wasRemovedByUser = wasRemovedByUser,
        _schedule = schedule ?? ((delay, run) => Timer(delay, run).cancel),
        _onUnexpectedError = onUnexpectedError;
 
@@ -155,6 +158,17 @@ class MembershipUpkeep {
   final void Function(String conversationId) _onChanged;
   final String? Function() _ownUserId;
   final bool Function() _removedElsewhere;
+
+  /// Task 11 follow-up (CR2 M-6, flag-on gate): whether the user removed
+  /// the own device [deviceId] (the removal queue runner's
+  /// `wasRemovedByUser`; Task 13 wires it). Reconcile never adds an own
+  /// device it answers true for. It throws [StateError] when the answer is
+  /// unknown (the queue cannot be read): the pass then adds own devices
+  /// only from a fresh own list, else none. A constructor function, so the
+  /// upkeep does not import the runner (the runner takes the upkeep).
+  /// Own-list devices only (Task 11 fix round 5, R2): never asked for a
+  /// peer's device.
+  final Future<bool> Function(Uint8List deviceId) _wasRemovedByUser;
   final void Function() Function(Duration delay, void Function() run) _schedule;
   final void Function(Object error, StackTrace stack)? _onUnexpectedError;
 

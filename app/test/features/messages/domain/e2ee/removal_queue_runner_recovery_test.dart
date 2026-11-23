@@ -217,6 +217,7 @@ void main() {
         removedElsewhere: () => rig.removedElsewhere,
         ownUserId: () => 'user-a',
         publicIdsOff: () => false,
+        wasRemovedByUser: (id) => rig.wasRemovedByUser(id),
         schedule: (delay, run) => rig.scheduled.add((delay: delay, run: run)),
         onUnexpectedError: (e, _) => rig.unexpected.add(e),
       );
