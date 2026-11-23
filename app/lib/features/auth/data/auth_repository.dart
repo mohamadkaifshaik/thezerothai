@@ -534,6 +534,17 @@ class AuthRepository implements AuthTokenProvider {
         Future.value();
   }
 
+  @override
+  Future<String?> refreshIdToken() => getIdToken(forceRefresh: true);
+
+  /// Told when the server ended [reportSessionEnded]'s session (a device was
+  /// removed on another device). The auth bloc sets it in its constructor
+  /// and signs that uid out as [SessionEnd.sessionLost].
+  void Function(String uid)? onSessionEnded;
+
+  @override
+  void reportSessionEnded(String uid) => onSessionEnded?.call(uid);
+
   static String _generateNonce([int length = 32]) {
     const charset =
         '0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._';

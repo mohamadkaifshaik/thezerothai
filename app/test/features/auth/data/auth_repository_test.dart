@@ -36,6 +36,33 @@ void main() {
     googleSignIn = _MockGoogleSignIn();
   });
 
+  group('SESSION_ENDED seam (AuthTokenProvider)', () {
+    test('refreshIdToken forces a new token from the SDK', () async {
+      final user = _MockUser();
+      when(() => firebaseAuth.currentUser).thenReturn(user);
+      when(() => user.getIdToken(true)).thenAnswer((_) async => 'fresh');
+      final repo = AuthRepository(
+        firebaseAuth: firebaseAuth,
+        googleSignIn: googleSignIn,
+      );
+      expect(await repo.refreshIdToken(), 'fresh');
+      verify(() => user.getIdToken(true)).called(1);
+    });
+
+    test('reportSessionEnded tells onSessionEnded, and is a no-op without '
+        'it', () {
+      final repo = AuthRepository(
+        firebaseAuth: firebaseAuth,
+        googleSignIn: googleSignIn,
+      );
+      repo.reportSessionEnded('uid-1');
+      final seen = <String>[];
+      repo.onSessionEnded = seen.add;
+      repo.reportSessionEnded('uid-1');
+      expect(seen, ['uid-1']);
+    });
+  });
+
   group('account-deletion session end', () {
     late _MockUser user;
     late AuthRepository repo;

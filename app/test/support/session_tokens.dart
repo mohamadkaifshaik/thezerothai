@@ -44,6 +44,89 @@ class ScriptedAuthTokens implements AuthTokenProvider {
     _waiting.add(c);
     return c.future;
   }
+
+  /// How many forced refreshes were asked for.
+  int refreshes = 0;
+
+  /// While set, [refreshIdToken] waits until [finishRefresh].
+  bool holdRefresh = false;
+
+  /// What a forced refresh throws instead of answering (a network failure).
+  Object? refreshError;
+  final Queue<Completer<String?>> _refreshWaiting = Queue();
+
+  /// Finishes the oldest held [refreshIdToken].
+  void finishRefresh() => _refreshWaiting.removeFirst().complete(null);
+
+  bool get hasRefreshWaiting => _refreshWaiting.isNotEmpty;
+
+  /// The forced refresh answers nothing the interceptor reads: the next
+  /// [getIdToken] answer (queued with [answer]) is the refreshed token.
+  @override
+  Future<String?> refreshIdToken() {
+    refreshes++;
+    final error = refreshError;
+    if (error != null) return Future.error(error);
+    if (!holdRefresh) return Future.value(null);
+    final c = Completer<String?>();
+    _refreshWaiting.add(c);
+    return c.future;
+  }
+
+  /// Every account [reportSessionEnded] was told about, in order.
+  final List<String> ended = [];
+
+  @override
+  void reportSessionEnded(String uid) => ended.add(uid);
+}
+
+/// A Connect UNAUTHENTICATED answer carrying ErrorDetail SESSION_ENDED (26),
+/// as the server's session-cut interceptor sends it.
+connect.HttpResponse sessionEndedError() => connectErrorWithReason(
+  401,
+  'unauthenticated',
+  reasonNumber: 26,
+  message: 'this session has ended',
+);
+
+/// A Connect error with [code] and an `ErrorDetail` whose `reason` is
+/// [reasonNumber] (`dzeroth.common.v1.ErrorReason`), JSON-encoded the way
+/// the server sends it.
+connect.HttpResponse connectErrorWithReason(
+  int status,
+  String code, {
+  required int reasonNumber,
+  String message = '',
+}) {
+  // ErrorDetail: field 1 (reason, varint), field 2 (message, bytes).
+  final text = utf8.encode(message);
+  final detail = <int>[
+    0x08,
+    reasonNumber,
+    if (text.isNotEmpty) ...[0x12, text.length, ...text],
+  ];
+  final headers = connect.Headers()..set('content-type', ['application/json']);
+  return connect.HttpResponse(
+    status,
+    headers,
+    Stream.value(
+      Uint8List.fromList(
+        utf8.encode(
+          jsonEncode({
+            'code': code,
+            'message': message,
+            'details': [
+              {
+                'type': 'dzeroth.common.v1.ErrorDetail',
+                'value': base64.encode(detail).replaceAll('=', ''),
+              },
+            ],
+          }),
+        ),
+      ),
+    ),
+    connect.Headers(),
+  );
 }
 
 /// An [AppCheckTokenProvider] that answers [token] at once, or waits on a
@@ -78,8 +161,13 @@ class RecordingHttp {
   /// Every request handed to the network, in order.
   final List<connect.HttpRequest> sent = [];
 
+  /// The `Authorization` header of each request as it was when sent (a
+  /// retry re-sends the same request object, whose headers then change).
+  final List<String?> sentBearers = [];
+
   connect.HttpClient get client => (request) async {
     sent.add(request);
+    sentBearers.add(request.header['authorization']);
     return respond(request);
   };
 

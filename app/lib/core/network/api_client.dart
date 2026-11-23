@@ -25,6 +25,7 @@ import 'connect_error_mapper.dart';
 import 'http_client_factory.dart';
 import 'interceptors.dart';
 import 'request_session.dart';
+import 'session_ended.dart';
 
 /// Single Connect-RPC client for the whole app (project rule: "one `ApiClient`
 /// with Firebase ID token + App Check token, retry with backoff, request
@@ -52,6 +53,9 @@ class ApiClient {
            if (onServicePaused != null)
              ServicePausedInterceptor(onServicePaused).call,
            const RequestMetadataInterceptor().call,
+           // Outside AuthHeadersInterceptor: its one retry of a
+           // SESSION_ENDED call fetches the refreshed token again.
+           SessionEndedInterceptor(authTokens, sessionUid).call,
            AuthHeadersInterceptor(
              authTokens,
              appCheckTokens,
