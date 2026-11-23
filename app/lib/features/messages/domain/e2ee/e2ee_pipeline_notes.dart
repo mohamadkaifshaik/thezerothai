@@ -8,9 +8,16 @@ part of 'e2ee_pipeline.dart';
 extension _PipelineNotes on E2eePipeline {
   /// Whether a note may be remembered now: there is an authenticated
   /// account, and another account's notes are dropped first.
-  bool _claimNotes() {
+  ///
+  /// Fix wave ruling 4 (security audit L2): a note made for an open vault
+  /// ([account], its `uid`) is remembered only while that is still the
+  /// authenticated account. Why: in a direct A→B switch the auth state is
+  /// B while A's parts are live; A's failed delete would otherwise be
+  /// claimed by B and applied to B's vault.
+  bool _claimNotes([String? account]) {
     final uid = _currentUid();
     if (uid == null || uid.isEmpty) return false;
+    if (account != null && account != uid) return false;
     if (_notesUser != uid) {
       _dropAllNotes();
       _notesUser = uid;
@@ -38,7 +45,7 @@ extension _PipelineNotes on E2eePipeline {
   /// decide) it is owed. Never throws.
   Future<void> _discardOrOwe(_Parts parts, String conversationId) async {
     if (!started || _deviceKeys.stopsPipeline) {
-      _remember(_owedDiscards, conversationId);
+      _remember(_owedDiscards, conversationId, account: parts.vault.uid);
       return;
     }
     await _discardOne(parts, conversationId);
@@ -53,7 +60,9 @@ extension _PipelineNotes on E2eePipeline {
     } on Object catch (e, s) {
       if (e is! StateError) _report('pipeline.discardInit', s);
     }
-    if (!decided) _remember(_owedDiscards, conversationId);
+    if (!decided) {
+      _remember(_owedDiscards, conversationId, account: parts.vault.uid);
+    }
   }
 
   /// Inside the start window (device usable, not stopped), BEFORE the
@@ -73,15 +82,15 @@ extension _PipelineNotes on E2eePipeline {
     _owedDiscards.clear();
     for (final id in owed) {
       if (!parts.live || _deviceKeys.stopsPipeline) {
-        _remember(_owedDiscards, id);
+        _remember(_owedDiscards, id, account: parts.vault.uid);
         continue;
       }
       await _discardOne(parts, id);
     }
   }
 
-  void _rememberDelete(String id, int at) {
-    if (!_claimNotes()) return;
+  void _rememberDelete(String id, int at, {String? account}) {
+    if (!_claimNotes(account)) return;
     final before = _notedDeleted.remove(id);
     _notedDeleted[id] = before != null && before > at ? before : at;
     while (_notedDeleted.length > kPipelineNotesMax) {
@@ -97,7 +106,7 @@ extension _PipelineNotes on E2eePipeline {
       return true;
     } on Object catch (e, s) {
       if (e is! StateError) _report('pipeline.delete', s);
-      _rememberDelete(id, at);
+      _rememberDelete(id, at, account: parts.vault.uid);
       return false;
     }
   }
@@ -122,8 +131,8 @@ extension _PipelineNotes on E2eePipeline {
     }
   }
 
-  void _remember(LinkedHashSet<String> set, String id) {
-    if (!_claimNotes()) return;
+  void _remember(LinkedHashSet<String> set, String id, {String? account}) {
+    if (!_claimNotes(account)) return;
     set
       ..remove(id)
       ..add(id);

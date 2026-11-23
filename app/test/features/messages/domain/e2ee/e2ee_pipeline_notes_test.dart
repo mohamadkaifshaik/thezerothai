@@ -363,6 +363,28 @@ void main() {
     expect(h.pipeline.notedCount, 0);
   });
 
+  test('SA L2: a delete of the open vault that fails during a direct switch '
+      'to another account is never remembered for the new account', () async {
+    final v = h.rig.device.vault;
+    await _storeMessage(v, _c1);
+    await h.ready();
+    // A direct A→B switch: the auth state is B while A's parts are live.
+    h.uid = 'user-x';
+    var failures = 1;
+    h.rig.device.onOutbox = () async {
+      if (failures > 0) {
+        failures--;
+        throw const FormatException('rig: an unreadable outbox');
+      }
+    };
+    h.pipeline.noteDeleted(_c1);
+    await _until(() async => h.reported.isNotEmpty);
+    await h.settle();
+
+    expect(h.pipeline.notedCount, 0, reason: 'A\'s delete is not B\'s note');
+    h.reported.clear();
+  });
+
   test('r1-I2: a delete made while the user reference is not known yet '
       '(null early in a run) is still remembered and made', () async {
     final v = h.rig.device.vault;
