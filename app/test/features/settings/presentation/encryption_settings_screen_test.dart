@@ -596,6 +596,70 @@ void main() {
       expect(port.removedDevices, ['ref-older']);
     });
 
+    // Fix round ruling 5.
+    testWidgets('N5: a second REAUTH_REQUIRED says the sign-in could not be '
+        'confirmed (not the conversation text)', (tester) async {
+      await pump(tester, user: _googleUser);
+      port.failNextOn(
+        'removeDevice',
+        const ReauthRequiredException('Please sign in again.'),
+      );
+      await openAndConfirmRemove(tester);
+      await tester.tap(find.text(kConfirmItsYouAction));
+      await tester.pumpAndSettle();
+      port.failNextOn(
+        'removeDevice',
+        const ReauthRequiredException('Please sign in again.'),
+      );
+      await tester.tap(find.text(kConfirmItsYouAction));
+      await tester.pumpAndSettle();
+      expect(find.text(kDeviceRemoveReauthFailedText), findsOneWidget);
+      expect(find.text(kDeviceRemoveFailedText), findsNothing);
+    });
+
+    testWidgets('N6: the password path says the sign-in expired before the '
+        'second password prompt', (tester) async {
+      await pump(tester, user: _passwordUser);
+      port.failNextOn(
+        'removeDevice',
+        const ReauthRequiredException('Please sign in again.'),
+      );
+      await openAndConfirmRemove(tester);
+      expect(find.text(kConfirmItsYouAgainBody), findsOneWidget);
+      await tester.tap(find.text(kConfirmItsYouAction));
+      await tester.pumpAndSettle();
+      expect(port.calls.where((c) => c == 'reauthenticate'), hasLength(2));
+      expect(port.removedDevices, ['ref-older', 'ref-older']);
+    });
+
+    testWidgets('N7: while a sign-in runs, no row offers Remove (as while a '
+        'removal runs)', (tester) async {
+      final signIn = Completer<ReauthResult>();
+      when(
+        () => defaultAuth.reauthenticate(
+          promptPassword: any(named: 'promptPassword'),
+        ),
+      ).thenAnswer((_) => signIn.future);
+      await pump(tester, user: _googleUser);
+      await openAndConfirmRemove(tester);
+      await tester.tap(find.text(kConfirmItsYouAction));
+      await tester.pumpAndSettle();
+      expect(_removeButtons(), findsNothing);
+      signIn.complete(const ReauthResult());
+      await tester.pumpAndSettle();
+      expect(port.removedDevices, ['ref-older']);
+    });
+
+    testWidgets('a double tap on Continue starts one sign-in', (tester) async {
+      await pump(tester, user: _googleUser);
+      await openAndConfirmRemove(tester);
+      await tester.tap(find.text(kConfirmItsYouAction));
+      await tester.tap(find.text(kConfirmItsYouAction), warnIfMissed: false);
+      await tester.pumpAndSettle();
+      expect(port.calls.where((c) => c == 'reauthenticate'), hasLength(1));
+      expect(port.removedDevices, ['ref-older']);
+    });
+
     testWidgets('a mixed account (Google and a password) gets the Continue '
         'step, so the Google popup opens on a tap', (tester) async {
       await pump(tester, user: _passwordUser, passwordOnly: false);

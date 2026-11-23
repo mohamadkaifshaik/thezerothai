@@ -62,9 +62,14 @@ class ScriptedAuthTokens implements AuthTokenProvider {
 
   /// The forced refresh answers nothing the interceptor reads: the next
   /// [getIdToken] answer (queued with [answer]) is the refreshed token.
+  /// When set, [refreshIdToken] throws synchronously (before returning a
+  /// future).
+  bool refreshThrowsSync = false;
+
   @override
   Future<String?> refreshIdToken() {
     refreshes++;
+    if (refreshThrowsSync) throw StateError('sync');
     final error = refreshError;
     if (error != null) return Future.error(error);
     if (!holdRefresh) return Future.value(null);

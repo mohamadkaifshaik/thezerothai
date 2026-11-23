@@ -260,10 +260,12 @@ void main() {
       final first = c.remove('ref-other', confirmItsYou: () => open.future);
       await pumpEventQueue();
       expect(c.state.removing, isNull);
+      expect(c.state.confirming, isTrue);
       expect(await c.remove('ref-other'), RemoveOutcome.notAttempted);
       expect(port.removedDevices, isEmpty);
       open.complete(true);
       expect(await first, RemoveOutcome.removed);
+      expect(c.state.confirming, isFalse);
       expect(port.removedDevices, ['ref-other']);
     });
 

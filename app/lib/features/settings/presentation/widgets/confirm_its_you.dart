@@ -22,7 +22,8 @@ import '../../../messages/presentation/e2ee/encryption_copy.dart';
 ///   the tap, so a web popup is not blocked.
 ///
 /// [again]: the removal answered REAUTH_REQUIRED (it missed the window) and
-/// the same prompt is asked again. True only when the sign-in succeeded; a
+/// the same prompt is asked again, with the "expired" text (a password
+/// account too, before its password prompt). True only when the sign-in succeeded; a
 /// cancel is false; any other failure shows its text and is false.
 Future<bool> confirmItsYou(
   BuildContext context,
@@ -53,7 +54,9 @@ Future<bool> confirmItsYou(
     }
   }
 
-  if (password) return signIn();
+  // N6: asked again, a password account sees why (the expired text) before
+  // its password prompt, like every other account.
+  if (password && !again) return signIn();
   final started = await showAppMaterialDialog<Future<bool>>(
     context: context,
     builder: (_) => _ConfirmItsYouDialog(
@@ -64,26 +67,40 @@ Future<bool> confirmItsYou(
   return started == null ? false : await started;
 }
 
-class _ConfirmItsYouDialog extends StatelessWidget {
+class _ConfirmItsYouDialog extends StatefulWidget {
   const _ConfirmItsYouDialog({required this.body, required this.onContinue});
 
   final String body;
   final Future<bool> Function() onContinue;
 
   @override
+  State<_ConfirmItsYouDialog> createState() => _ConfirmItsYouDialogState();
+}
+
+class _ConfirmItsYouDialogState extends State<_ConfirmItsYouDialog> {
+  /// SA Info: one sign-in per dialog, whatever the taps.
+  bool _started = false;
+
+  void _continue() {
+    if (_started) return;
+    _started = true;
+    // Started inside the tap (a web popup needs the gesture); the dialog
+    // closes with the sign-in's future.
+    Navigator.of(context).pop(widget.onContinue());
+  }
+
+  @override
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text(kConfirmItsYouTitle),
-      content: Text(body),
+      content: Text(widget.body),
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Cancel'),
         ),
         FilledButton(
-          // Started inside the tap (a web popup needs the gesture); the
-          // dialog closes with the sign-in's future.
-          onPressed: () => Navigator.of(context).pop(onContinue()),
+          onPressed: _continue,
           child: const Text(kConfirmItsYouAction),
         ),
       ],

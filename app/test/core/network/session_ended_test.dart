@@ -3,6 +3,9 @@ import 'dart:async';
 import 'package:connectrpc/connect.dart' as connect;
 import 'package:dzeroth/core/network/api_client.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
+import 'package:dzeroth/core/network/session_ended.dart'
+    show kSessionEndedRefreshTimeout;
+import 'package:fake_async/fake_async.dart';
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as posts;
 import 'package:flutter_test/flutter_test.dart';
@@ -176,6 +179,49 @@ void main() {
     expect(await getMe(client()), isA<SessionEndedException>());
     expect(http.sent, hasLength(2));
     expect(auth.ended, [_a]);
+  });
+
+  // Fix round ruling 5, N1: a refresh that throws synchronously must not
+  // leave a finished refresh stuck in place (later bursts would never
+  // refresh again).
+  test('a refresh that throws synchronously does not stop a later burst '
+      'from refreshing', () async {
+    for (var i = 0; i < 8; i++) {
+      auth.answer(idTokenFor(_a, iat: i));
+    }
+    final api = client();
+    auth.refreshThrowsSync = true;
+    script([sessionEndedError]);
+    expect(await getMe(api), isNull);
+    expect(auth.refreshes, 1);
+
+    auth.refreshThrowsSync = false;
+    script([sessionEndedError]);
+    expect(await getMe(api), isNull);
+    expect(auth.refreshes, 2);
+  });
+
+  // Fix round ruling 5, N3: a forced refresh that hangs is bounded; on the
+  // timeout the session is treated as ended (reported, no retry).
+  test('a refresh that hangs past kSessionEndedRefreshTimeout reports the '
+      'end without a retry', () {
+    fakeAsync((async) {
+      auth.answer(idTokenFor(_a, iat: 1));
+      auth.holdRefresh = true;
+      script([sessionEndedError]);
+      Object? result = 'pending';
+      getMe(client()).then((r) => result = r);
+      async.flushMicrotasks();
+      expect(auth.hasRefreshWaiting, isTrue);
+      async.elapse(
+        kSessionEndedRefreshTimeout - const Duration(milliseconds: 1),
+      );
+      expect(result, 'pending');
+      async.elapse(const Duration(milliseconds: 2));
+      expect(result, isA<SessionEndedException>());
+      expect(http.sent, hasLength(1));
+      expect(auth.ended, [_a]);
+    });
   });
 
   test('the account changed during the refresh: the retry is refused '

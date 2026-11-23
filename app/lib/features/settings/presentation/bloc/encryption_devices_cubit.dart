@@ -26,6 +26,7 @@ class EncryptionDevicesState {
     this.removing,
     this.removalsPending = 0,
     this.error,
+    this.confirming = false,
   });
 
   final EncryptionDevicesStatus status;
@@ -33,6 +34,10 @@ class EncryptionDevicesState {
 
   /// The ref being removed.
   final String? removing;
+
+  /// A removal's "Confirm it's you" is open (fix round ruling 5, N7): no
+  /// removal can start, so the screen disables every Remove.
+  final bool confirming;
   final int removalsPending;
   final AppException? error;
 }
@@ -59,6 +64,23 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
   /// A re-sign-in for a removal is open: no second removal starts.
   bool _confirming = false;
 
+  /// Sets [_confirming] and shows it ([EncryptionDevicesState.confirming]).
+  void _setConfirming(bool value) {
+    _confirming = value;
+    if (isClosed) return;
+    final s = state;
+    emit(
+      EncryptionDevicesState(
+        status: s.status,
+        list: s.list,
+        removing: s.removing,
+        removalsPending: s.removalsPending,
+        error: s.error,
+        confirming: value,
+      ),
+    );
+  }
+
   void _pendingChanged() {
     if (isClosed) return;
     final s = state;
@@ -69,6 +91,7 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
         removing: s.removing,
         removalsPending: _messaging.removalsPending.value,
         error: s.error,
+        confirming: _confirming,
       ),
     );
   }
@@ -85,6 +108,7 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
         list: before.list,
         removing: before.removing,
         removalsPending: before.removalsPending,
+        confirming: _confirming,
       ),
     );
     try {
@@ -96,6 +120,7 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
           list: list,
           removing: state.removing,
           removalsPending: state.removalsPending,
+          confirming: _confirming,
         ),
       );
     } catch (e, stack) {
@@ -107,6 +132,7 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
           removing: state.removing,
           removalsPending: state.removalsPending,
           error: e is AppException ? e : null,
+          confirming: _confirming,
         ),
       );
     }
@@ -121,8 +147,9 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
   ///
   /// [confirmItsYou] (the screen passes it on every Remove tap; lane D PR 4, ruling 3 and fix round ruling 1) is the
   /// re-sign-in. It runs FIRST, before anything is sent or queued and before the row shows its spinner, so the
-  /// REMOTE call that follows at once is inside the server's recent-sign-in window (`ACCOUNT_DELETE_REAUTH_MAX_AGE`). False or a throw: [RemoveOutcome.cancelled],
-  /// nothing sent. A REAUTH_REQUIRED answer anyway: [RemoveOutcome.needsReauth], the list kept and no error (the
+  /// REMOTE call that follows at once is inside the server's recent-sign-in window (`ACCOUNT_DELETE_REAUTH_MAX_AGE`).
+  /// While it runs, [EncryptionDevicesState.confirming] is true. False or a throw: [RemoveOutcome.cancelled], nothing
+  /// sent. A REAUTH_REQUIRED answer anyway: [RemoveOutcome.needsReauth], the list kept and no error (the
   /// queue parked the removal; calling this again for the same ref sends it at once).
   Future<RemoveOutcome> remove(
     String ref, {
@@ -134,13 +161,13 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
     }
     if (confirmItsYou != null) {
       var confirmed = false;
-      _confirming = true;
+      _setConfirming(true);
       try {
         confirmed = await confirmItsYou();
       } catch (_, stack) {
         _report('confirmItsYou', stack);
       } finally {
-        _confirming = false;
+        _setConfirming(false);
       }
       if (!confirmed) return RemoveOutcome.cancelled;
       if (isClosed || state.removing != null) return RemoveOutcome.notAttempted;

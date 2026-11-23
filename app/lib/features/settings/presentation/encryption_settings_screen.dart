@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../../../app/session_wiring.dart' show UnexpectedErrorReporter;
 import '../../../core/feature_flags/device_sign_out_feature_flag.dart';
+import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
@@ -23,7 +24,6 @@ import '../../messages/presentation/e2ee/encryption_access_builder.dart';
 import '../../messages/presentation/e2ee/encryption_copy.dart';
 import '../../messages/presentation/e2ee/encryption_status.dart';
 import '../../auth/data/auth_repository.dart';
-import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'bloc/encryption_devices_cubit.dart';
 import 'settings_up.dart';
 import 'widgets/confirm_its_you.dart';
@@ -178,7 +178,7 @@ class _DevicesView extends StatelessWidget {
     // non-null: a missing provider is a programming error and fails loudly,
     // never a promptless send. device_sign_out (the removal also signs out
     // the other sessions) only changes the copy.
-    final signOut = _deviceSignOutOn(context);
+    final signOut = featureEnabledSnapshot(context, kFeatureDeviceSignOut);
     final auth = context.read<AuthRepository>();
     final added = device.addedAt;
     final confirmed = await showAppAlertConfirm(
@@ -226,22 +226,18 @@ class _DevicesView extends StatelessWidget {
       ..hideCurrentSnackBar()
       ..showSnackBar(
         SnackBar(
-          content: Text(
-            outcome == RemoveOutcome.removed
-                // `other_sessions_ended` is not passed on by the port yet
-                // (Task 13-ii): the plain text until it is.
-                ? deviceRemovedText()
-                : kDeviceRemoveFailedText,
-          ),
+          content: Text(switch (outcome) {
+            // `other_sessions_ended` is not passed on by the port yet
+            // (Task 13-ii): the plain text until it is.
+            RemoveOutcome.removed => deviceRemovedText(),
+            // N5: still outside the sign-in window after the second
+            // "Confirm it's you": about the sign-in, not conversations.
+            RemoveOutcome.needsReauth => kDeviceRemoveReauthFailedText,
+            _ => kDeviceRemoveFailedText,
+          }),
         ),
       );
   }
-
-  static bool _deviceSignOutOn(BuildContext context) =>
-      context.read<OnboardingBloc?>()?.state.enabledFeatures.contains(
-        kFeatureDeviceSignOut,
-      ) ??
-      false;
 
   @override
   Widget build(BuildContext context) {
@@ -353,18 +349,21 @@ class _DevicesView extends StatelessWidget {
                       now: at,
                       directoryKnown: list.directoryKnown,
                       removing: state.removing == d.ref,
-                      // No Remove while the directory is unread or while
-                      // any removal runs.
+                      // No Remove while the directory is unread, while any
+                      // removal runs, or while a removal's "Confirm it's
+                      // you" is open (N7: never a tap that does nothing).
                       onRemove:
                           d.inDirectory &&
                               list.directoryKnown &&
-                              state.removing == null
+                              state.removing == null &&
+                              !state.confirming
                           ? () => _remove(context, cubit, d)
                           : null,
                     ),
               ],
             ),
-            if (others.isNotEmpty && _deviceSignOutOn(context))
+            if (others.isNotEmpty &&
+                isFeatureEnabled(context, kFeatureDeviceSignOut))
               Padding(
                 padding: const EdgeInsets.fromLTRB(
                   AppSpacing.md,

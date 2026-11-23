@@ -518,6 +518,11 @@ const kConfirmItsYouAction = 'Continue';
 const kConfirmItsYouAgainBody =
     'Your sign-in has expired. Sign in again to finish removing this device.';
 
+/// The removal still missed the sign-in window after the second "Confirm
+/// it's you" (fix round ruling 5, N5).
+const kDeviceRemoveReauthFailedText =
+    "Couldn't confirm it's you, so the device wasn't removed. Try again.";
+
 /// Removed, `other_sessions_ended` false.
 const kDeviceRemovedSessionsKept =
     'Removed. If this device was lost or stolen, change your password too.';
