@@ -254,7 +254,11 @@ void main() {
           .watchThread(const ThreadRef.conversation(_c1))
           .listen(seen.add);
       await _until(() async => seen.isNotEmpty);
-      expect(seen.last.unreadableUnsent, [bad]);
+      // SA L2 (flag-on gate G3): a per-run handle, never the outbox key
+      // (the key sent on the wire).
+      final handle = seen.last.unreadableUnsent.single;
+      expect(handle, isNot(bad));
+      expect(handle, isNotEmpty);
 
       // A later row waits behind the unreadable one.
       await port.send(
@@ -274,12 +278,19 @@ void main() {
         h.rig.keys.claimCalls.length,
         h.rig.keys.removeCalls.length,
       );
+      // The same row keeps its handle across emissions of this run.
+      await _until(() async => seen.last.entries.any((e) => e.id == 'local-2'));
+      expect(seen.last.unreadableUnsent, [handle]);
       expect(await port.deleteUnreadableUnsent(_c1, good), isFalse);
-      expect(await port.deleteUnreadableUnsent(_c2, bad), isFalse);
+      // The raw keys are not handles: refused, also for the right row.
+      expect(await port.deleteUnreadableUnsent(_c1, bad), isFalse);
+      expect(await port.deleteUnreadableUnsent(_c2, handle), isFalse);
+      expect(await port.deleteUnreadableUnsent(_c1, 'unknown'), isFalse);
       expect(await port.deleteUnreadableUnsent(_c1, ''), isFalse);
       expect((await vault.outbox()).unreadableKeys, [bad]);
-      expect(await port.deleteUnreadableUnsent(_c1, bad), isTrue);
-      expect(await port.deleteUnreadableUnsent(_c1, bad), isFalse);
+      expect(await port.deleteUnreadableUnsent(_c1, handle), isTrue);
+      // A stale handle (its row is gone).
+      expect(await port.deleteUnreadableUnsent(_c1, handle), isFalse);
       await h.settle();
       expect(h.rig.server.calls, hasLength(serverCalls), reason: 'no network');
       expect((

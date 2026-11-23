@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' show Random;
 
 import 'package:flutter/foundation.dart';
 
@@ -83,6 +84,15 @@ class EncryptedMessagingImpl implements EncryptedMessaging {
   Set<String>? _ownRefs;
   List<kpb.KeyDevice>? _lastDirectory;
 
+  /// SA L2 (flag-on gate G3): the screens' handles of unreadable unsent
+  /// rows ([EncryptedThread.unreadableUnsent]), random per run, mapped here
+  /// to the row's conversation and outbox key. The key itself (the
+  /// idempotency key sent on the wire) never leaves the port. Forgotten
+  /// with the vault (L3) and when the row is deleted.
+  final Map<String, ({String conversationId, String key})> _unreadableRows = {};
+  final Map<String, String> _unreadableHandleOf = {};
+  final Random _handles = Random.secure();
+
   /// The vault the memory above belongs to (L3).
   SecureVault? _vaultSeen;
 
@@ -99,6 +109,8 @@ class EncryptedMessagingImpl implements EncryptedMessaging {
     _bound.clear();
     _ownRefs = null;
     _lastDirectory = null;
+    _unreadableRows.clear();
+    _unreadableHandleOf.clear();
     for (final t in threads) {
       t.close();
     }
@@ -118,6 +130,18 @@ class EncryptedMessagingImpl implements EncryptedMessaging {
       if (t.shows(conversationId)) t.refreshIfWatched();
     }
   }
+
+  /// SA L2: the handle of the unreadable row [key] of [conversationId], the
+  /// same one for the whole run (128 random bits, hex).
+  String _unreadableHandle(String conversationId, String key) =>
+      _unreadableHandleOf.putIfAbsent(key, () {
+        final handle = [
+          for (var i = 0; i < 16; i++)
+            _handles.nextInt(256).toRadixString(16).padLeft(2, '0'),
+        ].join();
+        _unreadableRows[handle] = (conversationId: conversationId, key: key);
+        return handle;
+      });
 
   /// K2: [recipient]'s thread continues under [conversationId].
   void _bind(String recipient, String conversationId) {
@@ -616,7 +640,9 @@ class EncryptedMessagingImpl implements EncryptedMessaging {
 
   /// Gate item 18 (port additions): the sender deletes the row only while
   /// it is still unreadable, under the conversation lock; no network, no
-  /// plaintext. False with no ready vault, an invalid id or an empty ref.
+  /// plaintext. False with no ready vault, an invalid id, and a [ref] that
+  /// is not a handle this run gave out for that conversation (SA L2: an
+  /// outbox key itself, an unknown or a stale handle).
   @override
   Future<bool> deleteUnreadableUnsent(String conversationId, String ref) async {
     _checkVault();
@@ -624,7 +650,17 @@ class EncryptedMessagingImpl implements EncryptedMessaging {
     if (parts == null || ref.isEmpty || !isConversationId(conversationId)) {
       return false;
     }
-    return parts.sender.deleteUnreadable(conversationId, ref);
+    final row = _unreadableRows[ref];
+    if (row == null || row.conversationId != conversationId) return false;
+    final deleted = await parts.sender.deleteUnreadable(
+      conversationId,
+      row.key,
+    );
+    if (deleted) {
+      _unreadableRows.remove(ref);
+      _unreadableHandleOf.remove(row.key);
+    }
+    return deleted;
   }
 
   /// Gate item 13: every retry of an unsent row goes through the starter's

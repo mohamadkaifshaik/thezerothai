@@ -174,7 +174,8 @@ final class EncryptedThread {
 
   /// Gate item 18 (a flag-on gate): own unsent rows of this conversation that no longer open on this device (their
   /// text, time and state are not known). Nothing of the conversation is sent past them, so its sends wait until each
-  /// is deleted with [EncryptedMessaging.deleteUnreadableUnsent]. Opaque refs: never displayed, logged or sent.
+  /// is deleted with [EncryptedMessaging.deleteUnreadableUnsent]. Opaque handles, random per run (never the row's
+  /// key; SA L2), stable while the run lasts: never displayed, logged or sent.
   /// Empty for a draft whose conversation id is not known yet.
   final List<String> unreadableUnsent;
 }

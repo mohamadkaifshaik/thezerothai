@@ -254,14 +254,17 @@ class _Thread {
     );
   }
 
-  /// Gate item 18 (port additions): the keys of [id]'s outbox rows that do
-  /// not open, which hold the conversation's sends. Not at or before
-  /// `cleared_at` filtered: their time cannot be read, and they block all
-  /// the same. A failed read keeps the last emission's (as item 17 does
-  /// for the unsent rows).
+  /// Gate item 18 (port additions): [id]'s outbox rows that do not open,
+  /// which hold the conversation's sends, as the port's per-run handles
+  /// (SA L2: never the keys). Not at or before `cleared_at` filtered: their
+  /// time cannot be read, and they block all the same. A failed read keeps
+  /// the last emission's (as item 17 does for the unsent rows).
   Future<List<String>> _unreadable(PipelineParts parts, String id) async {
     try {
-      return List.unmodifiable(await parts.sender.unreadableKeys(id));
+      return List.unmodifiable([
+        for (final key in await parts.sender.unreadableKeys(id))
+          _impl._unreadableHandle(id, key),
+      ]);
     } on Object catch (e, s) {
       if (EncryptedMessagingImpl._isBug(e)) {
         _impl._pipeline.reportPortError('port.watchThread.unreadable', s);
