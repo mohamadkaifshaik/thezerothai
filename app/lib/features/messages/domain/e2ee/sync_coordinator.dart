@@ -364,6 +364,13 @@ class SyncCoordinator {
     }());
   }
 
+  /// A message push that names no conversation: the welcome poll only (a
+  /// message push is a welcome trigger, unfloored).
+  void pushWithoutConversation() {
+    if (!_active) return;
+    _track(_pollWelcomes(BudgetPriority.live, floor: false));
+  }
+
   /// A conversation row (an inbox row, or a cached one after a list
   /// change): encrypted with no group here means a welcome may wait.
   void onInboxRow(pb.Conversation row) {

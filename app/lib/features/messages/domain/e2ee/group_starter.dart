@@ -380,6 +380,10 @@ class GroupStarter {
   /// nothing.
   int _runSerial = 0;
 
+  /// How many times [reset] ran (Task 13's sign-out test).
+  @visibleForTesting
+  int get resets => _runSerial;
+
   /// Task 10 amendment 1: the call rules of a reset's `CommitConversation`
   /// calls, the commit runner's ([CommitCallTracker]).
   final CommitCallTracker _resetCalls;
