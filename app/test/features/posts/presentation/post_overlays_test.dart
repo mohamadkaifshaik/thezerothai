@@ -17,6 +17,7 @@ import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:dzeroth/shared/widgets/post/post_card.dart';
+import 'package:dzeroth/shared/widgets/post/post_video.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -118,6 +119,24 @@ void main() {
     await tester.pumpAndSettle();
     return router;
   }
+
+  testWidgets('the Media link opens the clip in a video player', (
+    tester,
+  ) async {
+    parent.post.media
+      ..clear()
+      ..add(
+        common.MediaRef(
+          url: 'https://media.example/clip.mp4',
+          contentType: 'video/mp4',
+        ),
+      );
+    await open(tester, AppRouter.postPhotoPath(postId(1), 1));
+    final video = tester.widget<PostVideo>(find.byType(PostVideo));
+    expect(video.url, parent.post.media.single.url);
+    expect(video.startOnOpen, isTrue);
+    expect(find.byIcon(Icons.broken_image_outlined), findsNothing);
+  });
 
   test('photo and reply deep links survive authentication', () {
     expect(
