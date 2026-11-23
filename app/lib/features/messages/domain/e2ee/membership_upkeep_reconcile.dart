@@ -300,6 +300,40 @@ extension _Reconcile on MembershipUpkeep {
         exempt(m.deviceId);
       }
     }
+    // Fix round 1, ruling 3 (SA M2): a `mine` pin whose id has an unexpired
+    // "removed by the user" mark with this very key is removed with NO
+    // queue entry. Why: the entry is pruned once the pins no longer name
+    // the device, and a later commit (a peer's, or a reset built before
+    // the mark) can pin it again; an own list that still shows it (hostile
+    // or stale) keeps M3 from removing it, and the add checks never see a
+    // member. The key must match the mark's (an id alone is no proof), and
+    // M2's key-history guard holds as on the mark path above. The user's
+    // removal is exempt from the M5 pause (ruling H).
+    //
+    // Final minor round, ruling 3 (security re-check): `unattributed` pins
+    // too, with the same guard. Why: a hostile own list can hide the
+    // re-pinned device (so it is not `mine`) while the peer's list shows
+    // it to the peer; M2's delayed removal would otherwise be all.
+    for (final m in members) {
+      if (m.side != MemberSide.mine && m.side != MemberSide.unattributed) {
+        continue;
+      }
+      if (_same(m.deviceId, thisDevice)) continue;
+      final hex = vaultDeviceIdHex(m.deviceId);
+      if (removing.contains(hex)) continue;
+      final key = removedKeyOf?.call(m.deviceId);
+      if (key == null || !_same(key, m.signatureKey)) continue;
+      if (keyHistoryRefuses(
+        member: m,
+        refusal: history.refusal(hex, m.signatureKey),
+        ownList: own,
+        peerList: peer,
+      )) {
+        continue;
+      }
+      remove(m.deviceId);
+      exempt(m.deviceId);
+    }
     // M3: one readable own list decides.
     for (final m in members) {
       if (mayRemoveOwnDevice(
@@ -428,13 +462,15 @@ extension _Reconcile on MembershipUpkeep {
           !context.syncedSinceStart &&
           (removes.isNotEmpty ||
               (mayAdd &&
-                  (await _wanted(
+                  (await _ownForAdds(
                     own,
                     peer,
                     staying,
                     thisDevice,
                     history,
-                  )).isNotEmpty))) {
+                    priority,
+                    mayReadFresh: false,
+                  )).wanted.isNotEmpty))) {
         _armRetry(id, depth, _now().add(kPeerRemovalFetchGap));
       }
       if (removes.isEmpty && !recheck) {
@@ -612,17 +648,31 @@ extension _Reconcile on MembershipUpkeep {
   /// of step 1. An empty claim, and a claimed package the checks dropped
   /// (audit M1), is recorded for the IST day after the claims, outside any
   /// write body.
+  ///
+  /// Task 11 follow-up: [_ownForAdds] decides the own list of this step (a
+  /// fresh one replaces step 1's while the removal answer is unknown) and
+  /// the own devices it keeps out.
   Future<List<UsableClaim>> _claimAdds(
     String id,
     String? ref,
-    DeviceList own,
+    DeviceList stepOneOwn,
     DeviceList peer,
     List<MemberRecord> members,
     Uint8List thisDevice,
     KeyHistory history,
     BudgetPriority priority,
   ) async {
-    final wanted = await _wanted(own, peer, members, thisDevice, history);
+    final ownAdds = await _ownForAdds(
+      stepOneOwn,
+      peer,
+      members,
+      thisDevice,
+      history,
+      priority,
+      mayReadFresh: true,
+    );
+    final own = ownAdds.list;
+    final wanted = ownAdds.wanted;
     if (wanted.isEmpty) return const [];
     final empty = <Uint8List>[];
     Future<List<UsableClaim>> side(ClaimSide side) async {
@@ -693,12 +743,21 @@ extension _Reconcile on MembershipUpkeep {
           _same(a.signatureKey, b.signatureKey) ||
           _same(a.deviceId, b.deviceId),
     );
+    // Fix round 1, ruling 2 (CR I-2): a peer claim with the key of ANY
+    // device on this step's own list is dropped too (and tried for the
+    // day). Why: an own device the user removed is never claimed now
+    // (`_wanted` leaves it out), so the dedupe above no longer sees its
+    // key; a peer device carrying it under another id would bring the
+    // removed device's key into the group. Before the Task 11 follow-up
+    // the removed device was claimed and `onBoth` dropped both.
+    bool ownKey(UsableClaim c) =>
+        own.devices.any((d) => _same(d.signatureKey, c.signatureKey));
     final usable = <UsableClaim>[];
     for (final (c, other) in [
       for (final c in mine) (c, theirs),
       for (final c in theirs) (c, mine),
     ]) {
-      if (onBoth(c, other)) {
+      if (onBoth(c, other) || (c.side == ClaimSide.theirs && ownKey(c))) {
         empty.add(c.deviceId);
       } else {
         usable.add(c);

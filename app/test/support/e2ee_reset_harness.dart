@@ -73,6 +73,7 @@ GroupStarter build({DailyLedger? ledger}) => starter = GroupStarter(
   removedElsewhere: () => rig.removedElsewhere,
   ownUserId: () => _me,
   publicIdsOff: () => false,
+  wasRemovedByUser: (id) => rig.wasRemovedByUser(id),
   schedule: (delay, run) => rig.scheduled.add((delay: delay, run: run)),
   onUnexpectedError: (e, _) => rig.unexpected.add(e),
 );
