@@ -481,6 +481,49 @@ void main() {
     expect(rig.contexts.of(_c1).unknownDevices, contains(oldHex));
   });
 
+  test('a conversation where this device already applied its own removal '
+      'keeps a readable history, and the old id is never mine (final round '
+      '1, SA M4)', () async {
+    await join(_c1);
+    final v = rig.device.vault;
+    final oldHex = vaultDeviceIdHex(ownId());
+    // Bob removes this device; it applies the commit (selfRemoved): its
+    // pins, its own `mine` pin included, become former pins.
+    final at = rig.server.current(_c1);
+    final removal = await rigCommit(
+      offers[_c1]!.add.group,
+      remove: [rig.device.deviceId],
+    );
+    rig.server.addCommit(_c1, at, removal.commit, fromUser: 'user-b');
+    expect(await rig.crypto.catchUp(_c1), CatchUpResult.waitingForWelcome);
+    expect(await v.groups(_c1), isEmpty);
+    expect(await v.members(_c1), isEmpty);
+    expect(
+      (await const FormerPins().of(
+        v,
+        _c1,
+      )).singleWhere((m) => vaultDeviceIdHex(m.deviceId) == oldHex).side,
+      MemberSide.mine,
+    );
+    rig.removedElsewhere = true;
+
+    await reset.setUpAgain();
+
+    final former = await const FormerPins().of(v, _c1);
+    final own = former.singleWhere(
+      (m) => vaultDeviceIdHex(m.deviceId) == oldHex,
+    );
+    expect(own.side, MemberSide.unattributed);
+    final read = await DeviceKeyHistory().of(
+      v,
+      _c1,
+      currentPins: await v.members(_c1),
+      formerPins: former,
+    );
+    expect(read.unreadable, isFalse);
+    expect(read.refusal(oldHex, rig.device.signatureKey), KeyRefusal.none);
+  });
+
   test('an own pin whose key is not the vault key is never recorded as the '
       'old self (fix wave 1, SA M1)', () async {
     await join(_c1);

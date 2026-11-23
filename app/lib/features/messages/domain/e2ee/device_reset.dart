@@ -147,6 +147,20 @@ class DeviceReset {
       final c = item.conversationId;
       if (c != null && item.stage == OutboxStage.encrypted) ids.add(c);
     }
+    // Final round 1 (SA M4): a known conversation whose own removal this
+    // device already applied holds no group and no pin, but its former
+    // pins hold the old own pin (`mine`). Under the new id that pin would
+    // make its key history unreadable, so it is rewritten too.
+    if (!_known.isLoadedFor(v)) await _known.load(v);
+    if (ownHex != null) {
+      for (final id in _known.ids) {
+        if (ids.contains(id)) continue;
+        final former = await _formerPins.of(v, id);
+        if (former.any((m) => vaultDeviceIdHex(m.deviceId) == ownHex)) {
+          ids.add(id);
+        }
+      }
+    }
     // Every read first (the history and the former pins read fresh with
     // this body's vault), then one transaction.
     final plans = <_Clear>[];
@@ -173,7 +187,6 @@ class DeviceReset {
     // Fix wave 5 (CR Minor B): every known conversation's first sighting
     // goes too, also one with no group left (waiting for a welcome), so no
     // manual reset is offered at once for the new id.
-    if (!_known.isLoadedFor(v)) await _known.load(v);
     final sightings = <String, ConversationSync>{};
     for (final id in _known.ids) {
       if (ids.contains(id)) continue;
@@ -182,15 +195,18 @@ class DeviceReset {
     }
     await v.transaction((tx) async {
       for (final p in plans) {
-        final kept = <String, MemberRecord>{
-          for (final m in p.former) vaultDeviceIdHex(m.deviceId): m,
-        };
-        for (final m in p.pins) {
+        final kept = <String, MemberRecord>{};
+        var ownFormer = false;
+        // The former pins first, then the current ones over them; the old
+        // own pin of either is rewritten (final round 1, SA M4: also one
+        // only the former pins hold).
+        for (final m in [...p.former, ...p.pins]) {
           final hex = vaultDeviceIdHex(m.deviceId);
           if (hex != ownHex) {
             kept[hex] = m;
             continue;
           }
+          ownFormer = true;
           // Fix wave 1 (SA M1): the old own pin is the device the account
           // removed. Its former pin never keeps a side, so a welcome or
           // commit that brings the old (id, key) back is attributed from
@@ -216,7 +232,7 @@ class DeviceReset {
             since: m.since,
           );
         }
-        if (p.pins.isNotEmpty) {
+        if (p.pins.isNotEmpty || ownFormer) {
           await _formerPins.putIn(tx, v, p.id, kept.values.toList());
         }
         for (final g in p.groups) {
