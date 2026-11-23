@@ -24,6 +24,20 @@ List<String> findViolations(String source) {
   ];
 }
 
+/// Fix round 2 (re-review nit): `E2eePipeline.onStartWindowForTest` is a
+/// public mutable test seam, awaited inside the start window when set.
+/// Every assignment of it in [source] (comments and strings stripped); `==`
+/// is a comparison, not an assignment.
+List<String> findWindowSeamAssignments(String source) {
+  final code = stripSource(source, keepStrings: false);
+  return [
+    for (final m in RegExp(
+      r'\bonStartWindowForTest\s*(=(?!=)|\?\?=)',
+    ).allMatches(code))
+      m.group(0)!,
+  ];
+}
+
 void main() {
   final files = readTree('lib', {'.dart'});
 
@@ -39,6 +53,45 @@ void main() {
       isTrue,
       reason: 'the parameter the guard watches moved or changed',
     );
+  });
+
+  test('no code under lib/ assigns the start-window test seam', () {
+    final found = <String>[
+      for (final e in files.entries)
+        if (!e.key.startsWith('lib/gen/'))
+          for (final hit in findWindowSeamAssignments(e.value))
+            '${e.key}: $hit',
+    ];
+    expect(found, isEmpty);
+    expect(
+      files[_pipeline]!.contains(
+        'Future<void> Function()? onStartWindowForTest;',
+      ),
+      isTrue,
+      reason: 'the seam the guard watches moved or changed',
+    );
+  });
+
+  group('start-window seam self-tests', () {
+    test('an assignment is flagged; the declaration, a read, a comparison '
+        'and a comment are not', () {
+      expect(
+        findWindowSeamAssignments('p.onStartWindowForTest = f;'),
+        isNotEmpty,
+      );
+      expect(
+        findWindowSeamAssignments('p..onStartWindowForTest ??= f;'),
+        isNotEmpty,
+      );
+      for (final source in [
+        'Future<void> Function()? onStartWindowForTest;',
+        'final w = onStartWindowForTest;',
+        'if (onStartWindowForTest == null) return;',
+        '// p.onStartWindowForTest = f;\n',
+      ]) {
+        expect(findWindowSeamAssignments(source), isEmpty, reason: source);
+      }
+    });
   });
 
   group('self-tests', () {
