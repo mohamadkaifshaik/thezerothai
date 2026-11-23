@@ -201,17 +201,69 @@ Map<String, String> _vaultAndKeys() => {
     if (_inVaultLayer(e.key) && !e.key.endsWith('.g.dart')) e.key: e.value,
 };
 
+/// The message search (it holds the typed query and decrypted hits) and the
+/// E2EE wiring, scanned for logging with the layers below (Task 15 fix
+/// round, SA L5).
+const Set<String> _extraLoggingFiles = {
+  'lib/features/messages/domain/message_search.dart',
+  'lib/features/messages/presentation/bloc/message_search_cubit.dart',
+  'lib/features/messages/presentation/bloc/message_search_state.dart',
+  'lib/features/messages/presentation/widgets/message_search_panel.dart',
+  'lib/app/e2ee_wiring.dart',
+};
+
+/// Exact fragments the logging scan skips, by file (each with why).
+const Map<String, List<String>> _loggingExempt = {
+  // #1103 (Task 13): the wiring reports a failed resume step by name
+  // ('deviceKeys'); `deviceKeysResumed()` is the future it awaits, not a key.
+  'lib/app/e2ee_wiring.dart': ['deviceKeysResumed()'],
+};
+
 /// Where the logging scan looks: the vault layer, the keys feature, the
-/// crypto engine layer (not its generated bridge) and the message codec layer.
+/// crypto engine layer (not its generated bridge), the pipeline, the
+/// encrypted presentation code and [_extraLoggingFiles].
 bool _inLoggingScope(String path) =>
     _inVaultLayer(path) ||
     (path.startsWith('lib/core/crypto/') &&
         !path.startsWith('lib/core/crypto/frb_generated/')) ||
-    path.startsWith('lib/features/messages/domain/e2ee/');
+    path.startsWith('lib/features/messages/domain/e2ee/') ||
+    path.startsWith('lib/features/messages/presentation/e2ee/') ||
+    _extraLoggingFiles.contains(path);
 
-bool _inPipeline(String path) => inPipeline(path);
+/// Every `toString` the pinned scan finds in [lib] (path -> source): the
+/// vault and keys layers (not `.g.dart`), the whole pipeline directory (a
+/// new file included), `MlsPair` and `MlsException`. Compared with
+/// [_allowedToStrings].
+Map<String, Map<String, String>> _toStringScanned(Map<String, String> lib) {
+  final found = <String, Map<String, String>>{};
+  for (final e in lib.entries) {
+    final scanned =
+        (_inVaultLayer(e.key) && !e.key.endsWith('.g.dart')) ||
+        inPipeline(e.key) ||
+        e.key == 'lib/core/crypto/mls_pair.dart' ||
+        e.key == 'lib/core/crypto/crypto_types.dart';
+    if (!scanned) continue;
+    final d = toStringDeclarations(e.value);
+    if (d.isNotEmpty) found[e.key] = d;
+  }
+  return found;
+}
 
-Map<String, String> _pipelineFiles() => pipelineFiles();
+/// Generated `.freezed.dart` files in [lib] whose toString belongs to a
+/// guarded type (`@freezed` on a pipeline or port type prints every field).
+List<String> _generatedToStringViolations(
+  Map<String, String> lib,
+  Set<String> port,
+) => [
+  for (final e in lib.entries)
+    if (e.key.endsWith('.freezed.dart') &&
+        codeMatches(e.value, toStringDeclaration).isNotEmpty)
+      for (final m in RegExp(
+        r'\bmixin\s+_\$(\w+)',
+      ).allMatches(stripSource(e.value, keepStrings: false)))
+        if (_noToStringViolation(m.group(1)!, port: port))
+          '${e.key}: ${m.group(1)}',
+];
 
 Map<String, String> _loggingFiles() => {
   for (final e in _libFiles().entries)
@@ -260,22 +312,30 @@ const Set<String> _namedPortTypes = {
   'SendOutcome',
 };
 
-/// Class names declared in [source] (comments and strings ignored).
+/// A type declaration: class (also `class X = A with B;`), mixin, enum,
+/// extension type. Group 1 the name, group 2 the clause up to the body.
+final RegExp _typeDeclaration = RegExp(
+  r'\b(?:class|mixin|enum|extension\s+type)\s+(\w+)([^{;]*)[{;]',
+);
+
+/// Type names declared in [source] (class, mixin, enum, extension type;
+/// comments and strings ignored).
 Set<String> _declaredClasses(String source) => {
-  for (final m in RegExp(
-    r'\bclass\s+(\w+)',
-  ).allMatches(stripSource(source, keepStrings: false)))
+  for (final m in _typeDeclaration.allMatches(
+    stripSource(source, keepStrings: false),
+  ))
     m.group(1)!,
 };
 
-/// Classes declared in [sources] that extend, implement or mix in any of
-/// [bases], directly or through one another (to a fixed point).
+/// Types declared in [sources] that extend, implement, mix in or are
+/// constrained to (`mixin M on X`) any of [bases], directly or through one
+/// another (to a fixed point).
 Set<String> _subtypesOf(Set<String> bases, Iterable<String> sources) {
   final heads = <(String, String)>[
     for (final s in sources)
-      for (final m in RegExp(
-        r'\bclass\s+(\w+)([^{;]*)\{',
-      ).allMatches(stripSource(s, keepStrings: false)))
+      for (final m in _typeDeclaration.allMatches(
+        stripSource(s, keepStrings: false),
+      ))
         (m.group(1)!, m.group(2)!),
   ];
   final found = <String>{};
@@ -753,9 +813,18 @@ void main() {
         'reports no secret names', () {
       final bad = <String>[];
       for (final e in _loggingFiles().entries) {
-        for (final v in loggingViolations(e.value)) {
+        final src = withoutSnippets(e.value, _loggingExempt[e.key] ?? const []);
+        for (final v in loggingViolations(src)) {
           bad.add('${e.key}: $v');
         }
+      }
+      // Each exemption is still needed.
+      for (final e in _loggingExempt.entries) {
+        expect(
+          loggingViolations(_libFiles()[e.key]!),
+          isNotEmpty,
+          reason: '${e.key}: the exemption is no longer needed',
+        );
       }
       expect(
         bad,
@@ -805,6 +874,18 @@ void main() {
         '_reportBug(plaintext);',
         'log(text);',
         'developer.log(messageId);',
+        // Every other sink (Task 15 fix round, SA L5).
+        'Logger.root.info(text);',
+        'final l = Logger(\'x\'); l.info(text);',
+        'Logger audit; audit.fine(messageId);',
+        'searchLog.warning(query.text);',
+        'logger.d(messageId);',
+        '_portLogger.e(conversationId);',
+        'reportPortError(conversationId, stack);',
+        'FlutterError.reportError(FlutterErrorDetails(exception: text));',
+        'FirebaseCrashlytics.instance.recordError(text, stack);',
+        'crashlytics.recordError(content, stack);',
+        'FirebaseCrashlytics.instance.log(messageId);',
       ]) {
         expect(loggingViolations(bad), isNotEmpty, reason: bad);
       }
@@ -832,13 +913,21 @@ void main() {
         'lib/core/crypto/guarded_crypto_engine.dart',
         'lib/core/crypto/mls_pair.dart',
         'lib/features/messages/domain/e2ee/message_content_codec.dart',
+        'lib/features/messages/presentation/e2ee/encryption_status_card.dart',
+        'lib/features/messages/domain/message_search.dart',
+        'lib/features/messages/presentation/bloc/message_search_cubit.dart',
+        'lib/features/messages/presentation/widgets/message_search_panel.dart',
+        'lib/app/e2ee_wiring.dart',
       ]) {
         expect(_inLoggingScope(p), isTrue, reason: p);
+      }
+      for (final f in _extraLoggingFiles) {
+        expect(_libFiles().containsKey(f), isTrue, reason: '$f is gone');
       }
       for (final p in [
         'lib/core/crypto/frb_generated/api.dart',
         'lib/features/messages/data/messaging_repository.dart',
-        'lib/features/messages/domain/message_search.dart',
+        'lib/features/posts/domain/post.dart',
       ]) {
         expect(_inLoggingScope(p), isFalse, reason: p);
       }
@@ -958,21 +1047,8 @@ void main() {
   group('no printable secrets', () {
     test('only the pinned vault, keys, MlsPair and message-pipeline types '
         'define toString', () {
-      final found = <String, Map<String, String>>{};
-      final scanned = {
-        ..._vaultAndKeys(),
-        ..._pipelineFiles(),
-        'lib/core/crypto/mls_pair.dart':
-            _libFiles()['lib/core/crypto/mls_pair.dart']!,
-        'lib/core/crypto/crypto_types.dart':
-            _libFiles()['lib/core/crypto/crypto_types.dart']!,
-      };
-      for (final e in scanned.entries) {
-        final d = toStringDeclarations(e.value);
-        if (d.isNotEmpty) found[e.key] = d;
-      }
       expect(
-        found,
+        _toStringScanned(_libFiles()),
         _allowedToStrings,
         reason:
             'A toString on a vault type must print ids, counts or names only. '
@@ -1009,22 +1085,28 @@ void main() {
       'changed E2eePipelineError / ConversationCryptoState body, is seen',
       () {
         const types = 'lib/features/messages/domain/e2ee/e2ee_types.dart';
-        // A new file in the directory (13b's port implementation, say) is
-        // scanned because the scan is by directory.
+        // A new file in the directory (13b's port implementation, say) lands
+        // in the scan, because the scan is by directory, and changes what it
+        // finds; one outside the scanned layers does not.
+        const newFile = 'lib/features/messages/domain/e2ee/new_port_impl.dart';
+        const planted =
+            'class EncryptedMessagingImpl {\n'
+            '  @override\n'
+            '  toString() => \'Impl(\$conversationId)\';\n'
+            '}\n';
+        final real = _libFiles();
+        final withNew = _toStringScanned({...real, newFile: planted});
+        expect(withNew[newFile], {
+          'EncryptedMessagingImpl': "=> 'Impl(\$conversationId)';",
+        });
+        expect(withNew, isNot(_toStringScanned(real)));
         expect(
-          _inPipeline('lib/features/messages/domain/e2ee/new_port_impl.dart'),
-          isTrue,
+          _toStringScanned({
+            ...real,
+            'lib/features/posts/domain/x.dart': planted,
+          }),
+          _toStringScanned(real),
         );
-        final planted = toStringDeclarations(
-          'class EncryptedMessagingImpl {\n'
-          '  @override\n'
-          '  String toString() => \'Impl(\$conversationId)\';\n'
-          '}\n',
-        );
-        expect({
-          ..._allowedToStrings,
-          'x/new_port_impl.dart': planted,
-        }, isNot(_allowedToStrings));
         final changed = toStringDeclarations(
           'class E2eePipelineError {\n'
           '  String toString() => \'E2eePipelineError(\$step, \$detail)\';\n'
@@ -1045,7 +1127,10 @@ void main() {
     test('the named types, RemovalQueue*, the port file\'s types and every '
         'ThreadEntry subtype have none, anywhere in lib/', () {
       final port = _portTypes();
-      final bad = <String>[];
+      final bad = <String>[
+        // A generated toString (freezed) on a guarded type counts too.
+        ..._generatedToStringViolations(_libFiles(), port),
+      ];
       for (final e in _handWrittenLib().entries) {
         for (final c in toStringDeclarations(e.value).keys) {
           if (_noToStringViolation(c, port: port)) bad.add('${e.key}: $c');
@@ -1097,6 +1182,14 @@ void main() {
         ),
         {'ThreadEntry', 'BrandNewPortType'},
       );
+      // Mixins, enums, extension types and `class X = A with B;` too.
+      expect(
+        _declaredClasses(
+          'mixin M on ThreadEntry {}\nenum E { a }\n'
+          'extension type T(int v) {}\nclass X = A with B;\n',
+        ),
+        {'M', 'E', 'T', 'X'},
+      );
       final subs = _subtypesOf(
         {'ThreadEntry'},
         [
@@ -1104,9 +1197,35 @@ void main() {
           'final class B extends A {}',
           'final class C implements ThreadEntry, Other {}',
           'final class D extends Unrelated {}',
+          'mixin M on ThreadEntry {}',
+          'enum K implements ThreadEntry { a }',
+          'extension type T(int v) implements ThreadEntry {}',
+          'class W = Object with M;',
         ],
       );
-      expect(subs, {'A', 'B', 'C'});
+      expect(subs, {'A', 'B', 'C', 'M', 'K', 'T', 'W'});
+      // A generated (freezed) toString on a guarded type is seen; on another
+      // type it is not.
+      const gen =
+          'mixin _\$OutgoingRow {\n  @override\n  String toString() {\n'
+          "    return 'OutgoingRow(text: \$text)';\n  }\n}\n";
+      expect(
+        _generatedToStringViolations({'lib/x.freezed.dart': gen}, const {}),
+        ['lib/x.freezed.dart: OutgoingRow'],
+      );
+      expect(
+        _generatedToStringViolations({
+          'lib/x.freezed.dart': gen.replaceAll('OutgoingRow', 'PlainState'),
+        }, const {}),
+        isEmpty,
+      );
+      // A toString with no return type is seen.
+      expect(
+        toStringDeclarations(
+          "class OutgoingRow {\n  toString() => '\$text';\n}",
+        ).keys,
+        ['OutgoingRow'],
+      );
       final port = {..._namedPortTypes, ...subs, 'BrandNewPortType'};
       for (final c in port) {
         final d = toStringDeclarations(
