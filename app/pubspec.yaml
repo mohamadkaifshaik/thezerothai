@@ -70,7 +70,7 @@ dependencies:
     path: rust_builder
   flutter_rust_bridge: 2.13.0
   video_player: ^2.14.1
-  ffmpeg_kit_flutter_new: ^5.0.0
+  ffmpeg_kit_flutter_new_full: 3.0.0
 
 dev_dependencies:
   flutter_test:

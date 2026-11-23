@@ -5,6 +5,8 @@ package apiserver
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -21,16 +23,18 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/degraded"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/outbox"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/snowflake"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/store"
 )
 
 // mediaModule is everything Build needs from the media composition.
 type mediaModule struct {
-	server  *media.Server
-	library *media.Library
-	purger  *media.Purger
-	jobs    *media.Jobs
+	delivery *mediaDelivery
+	server   *media.Server
+	library  *media.Library
+	purger   *media.Purger
+	jobs     *media.Jobs
 	// orphans is the orphan sweep of the daily-maintenance cron (media_orphan_sweep.go).
 	orphans *media.OrphanSweeper
 }
@@ -117,11 +121,18 @@ func wireMedia(cfg config.Config, log *slog.Logger, fs *firestore.Client, featur
 	if err != nil {
 		return nil, fmt.Errorf("media orphan sweep: %w", err)
 	}
+	purger := media.NewPurger(repo, buckets, cfg.MediaPublicBaseURL)
+	if cfg.Env == "dev" || cfg.Env == "prod" {
+		purger.WithExportSigner(func(ctx context.Context, object string) (string, error) {
+			return buckets.Public.SignedMediaURL(ctx, object, cfg.ExportRetention)
+		})
+	}
 	return &mediaModule{
-		orphans: orphans,
-		server:  media.NewServer(svc, featureFlags),
-		library: media.NewLibrary(repo, cfg.MediaPublicBaseURL),
-		purger:  media.NewPurger(repo, buckets, cfg.MediaPublicBaseURL),
+		delivery: newMediaDelivery(cfg.MediaPublicBaseURL, buckets.Public.SignedMediaURL),
+		orphans:  orphans,
+		server:   media.NewServer(svc, featureFlags),
+		library:  media.NewLibrary(repo, cfg.MediaPublicBaseURL),
+		purger:   purger,
 		// PROFILE_MEDIA_RETIRE (default off) gates both the publish and the handler.
 		jobs: media.NewJobs(repo, buckets, postGone{postsRepo}, publisher).WithProfileRetire(media.RetireDeps{
 			Mode: cfg.ProfileMediaRetire, Users: users, Tagger: buckets,
@@ -144,11 +155,30 @@ func (r profileMediaRetirer) RetireProfileImage(ctx context.Context, uid string,
 	return r.jobs.ProfileImageReplaced(ctx, uid, purpose, oldURL, oldThumbURL, changedAt)
 }
 
-var (
-	_ identity.MediaRetirer = profileMediaRetirer{}
-	// identity's repo is the fresh users/{uid} read the retire step needs; this fails the build if either side drifts.
-	_ media.ProfileImages = (*identity.FirestoreRepo)(nil)
-)
+// The avatar intent and the new profile commit atomically. The sweep repeats the
+// existing ownership, current-avatar and generation checks before touching storage.
+func registerAvatarRetirement(ob *outbox.Outbox, users *identity.FirestoreRepo, jobs *media.Jobs, mode config.ProfileMediaRetire) error {
+	if err := ob.Handle(media.JobKindProfileMediaRetired, func(ctx context.Context, item outbox.Item) error {
+		_, err := jobs.RetireHandler().Handle(ctx, item.Payload)
+		return err
+	}); err != nil {
+		return err
+	}
+	if mode.Allows(string(media.PurposeAvatar)) {
+		users.SetAvatarRetirement(func(b store.Batch, before, after identity.Profile) error {
+			payload, err := json.Marshal(media.RetireMessage{Kind: media.JobKindProfileMediaRetired, UID: before.UserID,
+				Purpose: string(media.PurposeAvatar), OldURL: before.AvatarURL, OldThumbURL: before.AvatarThumbURL, ChangedAt: after.UpdatedAt})
+			if err != nil {
+				return err
+			}
+			key := fmt.Sprintf("%x", sha256.Sum256(payload))
+			return ob.Stage(b, outbox.Entry{Kind: media.JobKindProfileMediaRetired, Key: key, UID: before.UserID, Payload: payload})
+		})
+	}
+	return nil
+}
+
+var _ media.ProfileImages = (*identity.FirestoreRepo)(nil)
 
 // resolveProfileImage is the body of the avatar adapter: FEATURE_MEDIA off for the caller and every
 // unusable id (media.ErrNotReady) both give notReady = true (one answer, no oracle); any other error is a real

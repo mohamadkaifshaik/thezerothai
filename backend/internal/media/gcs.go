@@ -9,11 +9,10 @@ import (
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/objstore"
 )
 
-// publicCacheControl is the Cache-Control of every public object: object names embed the immutable media id, so
-// the bytes never change.
-const publicCacheControl = "public, max-age=31536000, immutable"
+// Authorized media must be fetched again after the signed read expires.
+const servingCacheControl = "private, no-store"
 
-// Buckets implements Signer and Objects over the private upload bucket and the public-read media bucket.
+// Buckets implements Signer and Objects over the private upload bucket and the private serving bucket.
 type Buckets struct {
 	Upload *objstore.Store
 	Public *objstore.Store
@@ -64,7 +63,7 @@ func (b *Buckets) Publish(ctx context.Context, uploadObject string, srcGeneratio
 	if srcGeneration <= 0 {
 		return errors.New("media: publish needs the verified source generation") // fail closed (M-4): an unpinned copy could publish swapped bytes
 	}
-	return b.Upload.CopyTo(ctx, uploadObject, srcGeneration, b.Public, publicObject, contentType, publicCacheControl)
+	return b.Upload.CopyTo(ctx, uploadObject, srcGeneration, b.Public, publicObject, contentType, servingCacheControl)
 }
 
 // DeleteUpload implements Objects.

@@ -21,7 +21,6 @@ import (
 	"connectrpc.com/connect"
 	firebase "firebase.google.com/go/v4"
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/articles/v1/articlesv1connect"
-	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/billing/v1/billingv1connect"
 	"github.com/dzeroth/dzeroth/backend/internal/articles"
 	"github.com/dzeroth/dzeroth/backend/internal/beacons"
 	"github.com/dzeroth/dzeroth/backend/internal/billing"
@@ -126,6 +125,13 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	if err != nil {
 		return nil, nil, fmt.Errorf("firestore client: %w", err)
 	}
+
+	transferred := false
+	defer func() {
+		if !transferred {
+			_ = fsClient.Close()
+		}
+	}()
 
 	idVerifier := idVerifierOverride
 	if idVerifier == nil {
@@ -244,9 +250,10 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		identity.WithSignupAuth(authAdminClient, log),
 		// Warn-only sign-in identity audit in GetMe (AUTH_IDENTITY_AUDIT, default off).
 		identity.WithAuthIdentityAudit(cfg.AuthIdentityAudit, log),
+		// Fast publication follows the commit; its transactional outbox covers process loss.
+		identity.WithMediaRetirer(profileMediaRetirer{jobs: mediaMod.jobs}, log),
 		identity.WithAvatarResolver(avatarResolver{lib: mediaMod.library, flags: featureFlags}),
 		// A replaced or removed avatar goes to media's retire step (PROFILE_MEDIA_RETIRE).
-		identity.WithMediaRetirer(profileMediaRetirer{jobs: mediaMod.jobs}, log),
 		identity.WithPinChecker(pinChecker),
 		identity.WithMessageBadge(messaging.NewUnreadBadge(messagingRepo), log), // GetMe.unread_conversation_count
 		// GetMe.unread_notification_count: the unseen rows the caller would see (block, mute, blocked-by and the F-04
@@ -350,6 +357,10 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	if err != nil {
 		return nil, nil, err
 	}
+	if err := registerAvatarRetirement(ob, identityRepo, mediaMod.jobs, cfg.ProfileMediaRetire); err != nil {
+		return nil, nil, err
+	}
+
 	var inlinePostDeleteJobs posts.PostDeleteJobs = mediaMod.jobs
 	if bo.inlinePostDeleteJobs != nil {
 		inlinePostDeleteJobs = bo.inlinePostDeleteJobs(inlinePostDeleteJobs)
@@ -517,35 +528,11 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	if err != nil {
 		return nil, nil, fmt.Errorf("account lifecycle: %w", err)
 	}
-	if err := registerLifecycleModules(lifecycle, postsRepo, graphRepo, mediaMod.purger, notifRepo); err != nil {
-		return nil, nil, fmt.Errorf("account lifecycle registry: %w", err)
-	}
-	if err := registerEngagementLifecycle(lifecycle, engagementRepo); err != nil {
-		return nil, nil, fmt.Errorf("engagement lifecycle registry: %w", err)
-	}
-	if err := registerArticleLifecycle(lifecycle, fsClient); err != nil {
-		return nil, nil, fmt.Errorf("articles lifecycle registry: %w", err)
-	}
 	// moderation: ReportContent behind FEATURE_REPORTS. It reuses posts.GetForViewer and
 	// identity.GetProfile for target visibility and writes only reports/* and the reports quota.
 	moderationRepo := moderation.NewFirestoreRepo(fsClient, quota.New(fsClient))
-	if err := registerModerationLifecycle(lifecycle, moderationRepo, identityRepo); err != nil {
-		return nil, nil, fmt.Errorf("moderation lifecycle registry: %w", err)
-	}
-	// scheduled posts: the erase step and export section are registered whether or not
-	// FEATURE_SCHEDULED_POSTS is on, because documents outlive the flag; the step runs after reports, before identity.
-	if err := registerScheduledLifecycle(lifecycle, postsRepo); err != nil {
-		return nil, nil, fmt.Errorf("scheduled lifecycle registry: %w", err)
-	}
-	// bookmarks: the erase step and export section are registered whether or not FEATURE_BOOKMARKS is
-	// on; the step runs after scheduled, before identity.
-	if err := registerBookmarkLifecycle(lifecycle, engagementRepo); err != nil {
-		return nil, nil, fmt.Errorf("bookmarks lifecycle registry: %w", err)
-	}
-	// follow_requests: the erase step and export section are registered whether or not
-	// FEATURE_PRIVATE_ACCOUNTS is on; the step runs after bookmarks, before identity.
-	if err := registerFollowRequestsLifecycle(lifecycle, graphRepo); err != nil {
-		return nil, nil, fmt.Errorf("follow_requests lifecycle registry: %w", err)
+	if err := registerContentLifecycle(lifecycle, fsClient, postsRepo, graphRepo, mediaMod.purger, notifRepo, engagementRepo, moderationRepo, identityRepo); err != nil {
+		return nil, nil, err
 	}
 	// messaging: the erase step and export section are registered whether or not FEATURE_MESSAGING is on; the
 	// step runs after follow_requests, before identity. The repo is also the send path's storage (wired with the routes).
@@ -659,7 +646,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// device_sign_out is globally off (dropping one user from an allowlist must not reopen that user's thief).
 	// identity.Service embeds SessionCuts, so this is checked at compile time (CR N4).
 	var sessionCuts identity.SessionCuts = identitySvc
-	interceptors := connect.WithInterceptors(chainInterceptors(chainDeps{
+	chain := chainInterceptors(chainDeps{
 		log: log, projectID: cfg.ProjectID,
 		appCheck: appCheckVerifier, appCheckMode: authn.Mode(cfg.AppCheck),
 		idVerifier:    idVerifier,
@@ -670,7 +657,11 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		degradedMode: cfg.Degraded, media: mediaProcedures(),
 		accountStatus: accountStatusProvider, restricted: RestrictedAllowedProcedures(),
 		publicIDs: publicIDs,
-	})...)
+	})
+	if cfg.Env == "prod" || cfg.Env == "dev" {
+		chain = append(chain, mediaMod.delivery.interceptor())
+	}
+	interceptors := connect.WithInterceptors(chain...)
 
 	// M8: outside ENV=local, config.Load already refuses to start unless both InternalOIDCAudience and
 	// InternalOIDCAllowedEmails are set (fail closed), so /internal/* is only ever unauthenticated here
@@ -695,94 +686,11 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	if e := registerDailyStatsLifecycle(lifecycle, dailyStats); e != nil {
 		return nil, nil, fmt.Errorf("daily stats lifecycle registry: %w", e)
 	}
-	billingServer := billing.NewServer(nil, nil, nil)
-	var articlePublishingAccess func(context.Context, string) error
-	if cfg.BillingWebhook.PurchasesEnabled && (!cfg.BillingWebhook.Enabled || (cfg.Env != "dev" && cfg.Env != "prod") || cfg.AuthEmulator || cfg.BillingSandbox.Enabled) {
-		return nil, nil, fmt.Errorf("real purchase rollout requires dev/prod, configured webhooks, and no emulators")
+	billingMod, err := wireBilling(cfg, log, routes, billingBindings)
+	if err != nil {
+		return nil, nil, err
 	}
-	var billingWebhookRecovery trendsStep
-	if cfg.BillingWebhook.Enabled {
-		if (cfg.Env != "dev" && cfg.Env != "prod") || cfg.AuthEmulator || cfg.BillingSandbox.Enabled {
-			return nil, nil, fmt.Errorf("production billing webhooks require dev/prod without emulators or sandbox checkout")
-		}
-		products := map[string]billing.Product{}
-		for id, product := range cfg.BillingWebhook.Products {
-			products[id] = billing.Product{Store: product.Store, Entitlement: product.Entitlement}
-		}
-		provider, e := billing.NewRevenueCatProvider(cfg.BillingWebhook.SecretAPIKey, products, nil)
-		if e != nil {
-			return nil, nil, fmt.Errorf("billing webhook provider configuration invalid")
-		}
-		reconciler, e := billing.NewReconciler(billingBindings, provider, nil)
-		if e != nil {
-			return nil, nil, fmt.Errorf("billing webhook reconciliation configuration invalid")
-		}
-		environment := billing.Production
-		if cfg.BillingWebhook.Environment == "SANDBOX" && cfg.Env == "dev" {
-			environment = billing.Sandbox
-		} else if cfg.BillingWebhook.Environment != "" && cfg.BillingWebhook.Environment != "PRODUCTION" {
-			return nil, nil, fmt.Errorf("billing receipt environment invalid")
-		}
-		identities, e := billing.NewIdentityService(billingBindings, environment, nil)
-		if e != nil {
-			return nil, nil, fmt.Errorf("production billing identity configuration invalid")
-		}
-		server := billing.NewServer(identities, billingBindings, reconciler)
-		if cfg.BillingWebhook.PurchasesEnabled {
-			server.EnableStorePurchases(products)
-		}
-		billingServer = server
-		access := verifiedBillingAccess{bindings: billingBindings, verifier: reconciler, now: time.Now, environment: environment}
-		subscriptionPostLimit = access.postTextLimit
-		articlePublishingAccess = access.publishArticle
-		processor, e := billing.NewWebhookProcessor(billingBindings, reconciler)
-		if e != nil {
-			return nil, nil, e
-		}
-		processor.ReadOnly = cfg.Degraded == config.DegradedReadonly
-		if e = routes.revenuecat(processor, cfg.BillingWebhook.Authorization, cfg.BillingWebhook.SigningSecret, cfg.BillingWebhook.AppIDs, environment); e != nil {
-			return nil, nil, fmt.Errorf("billing webhook authentication configuration invalid")
-		}
-		billingWebhookRecovery = processor
-		routes.internal("/internal/cron/billing-webhooks", billingRecoveryHandler(processor, log, cfg.ProjectID))
-	}
-	// Without configured billing, new article publication remains unavailable.
-	if cfg.BillingSandbox.Enabled {
-		if cfg.Env != "local" || cfg.ProjectID != "demo-dzeroth-local" || !cfg.AuthEmulator {
-			return nil, nil, fmt.Errorf("billing sandbox requires local demo project and Auth emulator")
-		}
-		bindings := billingBindings
-		provider, e := billing.NewRevenueCatProvider(cfg.BillingSandbox.SecretAPIKey,
-			map[string]billing.Product{
-				"plus_monthly": {Store: "test_store", Entitlement: billing.PlusEntitlement},
-				"monthly":      {Store: "test_store", Entitlement: billing.ProEntitlement},
-			}, nil)
-		if e != nil {
-			return nil, nil, fmt.Errorf("billing provider configuration invalid")
-		}
-		identities, e := billing.NewIdentityService(bindings, billing.Sandbox, nil)
-		if e != nil {
-			return nil, nil, fmt.Errorf("billing identity configuration invalid")
-		}
-		reconciler, e := billing.NewReconciler(bindings, provider, nil)
-		if e != nil {
-			return nil, nil, fmt.Errorf("billing reconciliation configuration invalid")
-		}
-		server := billing.NewServer(identities, bindings, reconciler)
-		access := verifiedBillingAccess{bindings: bindings, verifier: reconciler, now: time.Now, environment: billing.Sandbox}
-		subscriptionPostLimit = access.postTextLimit
-		articlePublishingAccess = access.publishArticle
-		server.EnableSandboxPurchases()
-		billingServer = server
-	}
-	// Read-only operation must neither advertise checkout nor write verification
-	// metadata through a status read. Existing account reads remain protected.
-	if cfg.Degraded == config.DegradedReadonly {
-		billingServer = billing.NewServer(nil, billingBindings, nil)
-	}
-	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
-		return billingv1connect.NewBillingServiceHandler(billingServer, o...)
-	})
+	subscriptionPostLimit = billingMod.postLimit
 	// /health is the canonical path: Cloud Run's Google front end reserves URL paths ending in "z" on
 	// *.run.app, so external requests to /healthz never reach the container. /healthz stays as an alias.
 	routes.public("/health", http.HandlerFunc(health.Handler()))
@@ -806,7 +714,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		return articlesv1connect.NewArticleServiceHandler(articles.NewServer(fsClient, postsSvc, featureFlags, func(ctx context.Context, uid, id string) (string, error) {
 			ref, err := mediaMod.library.ResolvePostCover(ctx, uid, id)
 			return ref.URL, err
-		}).WithPublishingAccess(articlePublishingAccess).WithImages(articleImageResolver{mediaMod.library}, articleImageAttacher{mediaMod.library}), o...)
+		}).WithPublishingAccess(billingMod.publishArticle).WithImages(articleImageResolver{mediaMod.library}, articleImageAttacher{mediaMod.library}), o...)
 	})
 
 	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
@@ -1073,7 +981,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// The view rollup (F1 post views) rides the same tick last, under its own 15-minute gate (view_rollup_wiring.go);
 	// /internal/cron/view-rollup runs it alone. Skipped while FEATURE_POST_VIEWS is globally off or under DEGRADED_MODE=readonly.
 	viewRollupTick, viewRollupRoute := newViewRollups(postsRepo, func() bool { return featureFlags.GloballyOff(posts.ViewsFlagName) }, cfg.Degraded == config.DegradedReadonly, postsCache.DeletePost)
-	routes.internal("/internal/cron/publish-scheduled", withViewRollup(withBillingRecovery(withOutboxSweep(posts.NewSweepHandler(postsSvc.(posts.Sweeper), log, cfg.ProjectID), outboxStep, cfg.ProjectID, time.Now), billingWebhookRecovery, log), viewRollupStep{rollup: viewRollupTick, log: log}, cfg.ProjectID, time.Now))
+	routes.internal("/internal/cron/publish-scheduled", withViewRollup(withBillingRecovery(withOutboxSweep(posts.NewSweepHandler(postsSvc.(posts.Sweeper), log, cfg.ProjectID), outboxStep, cfg.ProjectID, time.Now), billingMod.recover, log), viewRollupStep{rollup: viewRollupTick, log: log}, cfg.ProjectID, time.Now))
 	routes.internal("/internal/cron/outbox-sweep", outboxSweepHandler(outboxStep, log, cfg.ProjectID))
 	routes.internal("/internal/cron/view-rollup", viewRollupHandler(viewRollupStep{rollup: viewRollupRoute, log: log}, log, cfg.ProjectID))
 	// The notifications-fanout push endpoint. Behind the OIDC verifier like every /internal/* route; the
@@ -1106,6 +1014,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// through http.StripPrefix, at "/api/", so this stays correct as new modules are added.
 	// M10: CORS is off unless cfg.CORSAllowedOrigins is non-empty (local dev by default, or an explicit
 	// CORS_ALLOWED_ORIGINS elsewhere) — see pkg/platform/httpcors's doc comment.
+	transferred = true
 	return httpcors.Wrap(cfg.CORSAllowedOrigins, apiRoot(protectedMux)), fsClient, nil
 }
 

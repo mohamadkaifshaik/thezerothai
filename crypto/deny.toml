@@ -7,6 +7,10 @@ yanked = "deny"
 # A finding is fixed or reported to the owner, never silenced without the owner's decision. The two entries below were
 # accepted by the owner on 2026-11-18 and MUST be re-examined by 2027-02-16 (90 days): remove an entry as soon as its
 # fix can be taken, and do not extend the date without asking again.
+# The scheduled policy check enforces each "review by" date below. The
+# optional hpke-rs-libcrux provider pins libcrux-kem 0.0.9 in the lockfiles.
+# Its hybrid paths (RUSTSEC-2026-0330/0331) are absent from the selected Android
+# and wasm dependency graphs. Recheck both targets before changing the provider.
 ignore = [
     # crypto-bigint 0.5.5: operations meant to be constant-time can leak timing. It is reached only through
     # elliptic-curve 0.13 (p256, p384, k256, ecdsa); the one suite this workspace uses is X25519 + Ed25519, whose

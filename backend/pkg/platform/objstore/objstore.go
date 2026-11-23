@@ -305,6 +305,15 @@ func (s *Store) SignedGetURL(ctx context.Context, object, filename string, ttl t
 			"response-content-type":        {"application/json"},
 		},
 	}
+	return s.signedDownload(ctx, object, opts)
+}
+
+// SignedMediaURL preserves the stored media type and supports browser range GETs.
+func (s *Store) SignedMediaURL(ctx context.Context, object string, ttl time.Duration) (string, error) {
+	return s.signedDownload(ctx, object, &storage.SignedURLOptions{Scheme: storage.SigningSchemeV4, Method: "GET", Expires: time.Now().Add(ttl)})
+}
+
+func (s *Store) signedDownload(ctx context.Context, object string, opts *storage.SignedURLOptions) (string, error) {
 	if s.sign != nil {
 		return s.sign(ctx, s.bucket, object, opts)
 	}

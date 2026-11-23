@@ -15,8 +15,8 @@ const kProtectConfirmTitle = 'Protect your posts?';
 const kProtectConfirmPoints = <String>[
   'Only people you approve can see your posts, past and future.',
   'People who already follow you stay.',
-  'It takes effect within about a minute.',
-  'Images you already shared may still open for anyone who has their link.',
+  'People who lose access can still open an existing media link for up to five minutes.',
+  'Previously shared or downloaded copies may still be visible.',
   'If you turn this off later, pending follow requests are approved.',
 ];
 const kProtectConfirmAction = 'Protect posts';

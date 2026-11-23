@@ -314,6 +314,7 @@ class PostCard extends StatelessWidget {
         !indentBody &&
         windowWidth < AppBreakpoints.mobile;
     Widget mediaRow(double insetStart, double insetEnd) => PostMedia(
+      postId: isRepost ? embedded!.postId : _post.postId,
       media: media,
       useFullImage: fullContent,
       showPageIndicator: PostMedia.hasNoText(text),

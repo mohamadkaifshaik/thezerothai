@@ -10,6 +10,8 @@ import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import 'package:dzeroth/shared/widgets/post/post_card.dart';
+import 'package:dzeroth/shared/widgets/post/post_media.dart';
+import 'package:dzeroth/features/posts/data/posts_repository.dart';
 import 'package:flutter/gestures.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/semantics.dart';
@@ -84,7 +86,35 @@ int _tappableSpans(WidgetTester tester, String contains) {
   return count;
 }
 
+class _ReadPosts extends Mock implements PostsRepository {}
+
 void main() {
+  testWidgets('expired feed media requests a fresh audience-checked post', (
+    tester,
+  ) async {
+    final repo = _ReadPosts();
+    when(() => repo.getPost('p'))
+        .thenAnswer((_) async => pb.PostView(post: pb.Post()));
+    await tester.pumpWidget(
+      RepositoryProvider<PostsRepository>.value(
+        value: repo,
+        child: MaterialApp(
+          home: PostMedia(
+            postId: 'p',
+            media: [
+              common.MediaRef(
+                url: 'https://storage.googleapis.com/demo-media/m/old.jpg?X-Goog-Date=20200101T000000Z&X-Goog-Expires=300',
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    verify(() => repo.getPost('p')).called(1);
+    expect(find.byType(CachedNetworkImage), findsNothing);
+  });
+
   late _FakeUrlLauncherPlatform launcher;
   late MockGraphRepository graphRepository;
 

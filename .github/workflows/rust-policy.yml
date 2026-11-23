@@ -1,0 +1,23 @@
+name: Scheduled Rust dependency policy
+on:
+  schedule:
+    - cron: "25 4 * * 1"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  policy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-rust
+        with:
+          version: "1.100.0"
+          cargo-deny: "true"
+      - run: python3 scripts/crypto/check-advisory-policy.py
+      - run: cargo deny --locked check
+        working-directory: crypto
+      - run: cargo deny --locked --config ../../crypto/deny.toml check
+        working-directory: app/rust

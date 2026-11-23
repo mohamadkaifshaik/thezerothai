@@ -48,7 +48,10 @@ func NewNode() (*Node, error) {
 		return nil, fmt.Errorf("snowflake: read random node id: %w", err)
 	}
 	node := int64(binary.BigEndian.Uint16(b[:])) & maxNode
-	return &Node{node: node, now: time.Now}, nil
+	// Anchor UTC once; elapsed time uses Go's monotonic clock, so an NTP step
+	// cannot stall mutations or replay previously issued milliseconds.
+	started := time.Now()
+	return &Node{node: node, now: func() time.Time { return started.Add(time.Since(started)) }}, nil
 }
 
 // Generate returns the next ID as a 19-digit zero-padded decimal string.

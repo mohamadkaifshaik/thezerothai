@@ -35,6 +35,10 @@ name: Promote prod
 on:
   workflow_dispatch:
     inputs:
+      canary_run_id:
+        description: "Successful stage-10 run ID (required for stage 100)"
+        required: false
+        type: string
       stage:
         description: "Percentage of traffic to shift to the candidate revision"
         required: true
@@ -44,6 +48,7 @@ on:
           - "100"
 
 permissions:
+  actions: read
   contents: read
   id-token: write
 
@@ -156,6 +161,8 @@ jobs:
           # Whole-line match: a NO-GO report that merely mentions the GO string must not pass.
           grep -qx "VERDICT: GO" "$f" || { echo "::error::$f has no line that is exactly 'VERDICT: GO'"; exit 1; }
 
+      - uses: ./.github/actions/setup-firebase
+
       - name: Auth to GCP (WIF)
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
@@ -209,6 +216,7 @@ jobs:
             exit 1
           fi
 
+          echo "digest=$rev_digest" >> "$GITHUB_OUTPUT"
           echo "revision=${revision}" >> "$GITHUB_OUTPUT"
           echo "Verified candidate revision ${revision} (image ${image}) matches tag ${RELEASE_TAG}"
 
@@ -231,7 +239,6 @@ jobs:
         env:
           FIREBASE_PROJECT_ID: ${{ vars.PROD_PROJECT_ID }}
         run: |
-          npm install -g firebase-tools@15.32.0
           firebase deploy --only firestore:rules,firestore:indexes \
             --project "${FIREBASE_PROJECT_ID}" --non-interactive
 
@@ -240,6 +247,20 @@ jobs:
         env:
           PROJECT: ${{ vars.PROD_PROJECT_ID }}
         run: bash scripts/promotion/wait-firestore-indexes.sh "$PROJECT"
+
+      - name: Capture the rollback baseline
+        if: steps.stage.outputs.stage == '10'
+        env:
+          SERVICE: ${{ vars.PROD_SERVICE_NAME }}
+          PROJECT: ${{ vars.PROD_PROJECT_ID }}
+          REGION: ${{ vars.PROD_REGION }}
+          REVISION: ${{ steps.rc_rev.outputs.revision }}
+          DIGEST: ${{ steps.rc_rev.outputs.digest }}
+          SMOKE_EMAIL: ${{ secrets.PROD_SMOKE_EMAIL }}
+          SMOKE_PASSWORD: ${{ secrets.PROD_SMOKE_PASSWORD }}
+          FIREBASE_API_KEY: ${{ vars.PROD_FIREBASE_API_KEY }}
+          SMOKE_REFERER: ${{ vars.PROD_SMOKE_REFERER }}
+        run: bash scripts/promotion/prod-canary.sh capture
 
       - name: Shift 10% traffic to the verified revision
         if: steps.stage.outputs.stage == '10'
@@ -254,12 +275,28 @@ jobs:
             --region="${REGION}" \
             --to-revisions="${REVISION}=10"
 
-      - name: Watch reminder
+      - name: Record verified 10 percent traffic
         if: steps.stage.outputs.stage == '10'
         env:
+          SERVICE: ${{ vars.PROD_SERVICE_NAME }}
+          PROJECT: ${{ vars.PROD_PROJECT_ID }}
+          REGION: ${{ vars.PROD_REGION }}
           REVISION: ${{ steps.rc_rev.outputs.revision }}
-        run: |
-          echo "::notice::10% of traffic is now on ${REVISION}. Watch 5xx ratio, p95 latency and Error Reporting for ~15 minutes, then re-run this workflow with stage=100."
+          DIGEST: ${{ steps.rc_rev.outputs.digest }}
+          SMOKE_EMAIL: ${{ secrets.PROD_SMOKE_EMAIL }}
+          SMOKE_PASSWORD: ${{ secrets.PROD_SMOKE_PASSWORD }}
+          FIREBASE_API_KEY: ${{ vars.PROD_FIREBASE_API_KEY }}
+          SMOKE_REFERER: ${{ vars.PROD_SMOKE_REFERER }}
+        run: bash scripts/promotion/prod-canary.sh record
+
+      - name: Preserve immutable canary evidence
+        if: steps.stage.outputs.stage == '10'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: prod-canary
+          path: ${{ runner.temp }}/canary.json
+          if-no-files-found: error
+          retention-days: 2
 
       - name: Setup Flutter
         if: steps.stage.outputs.stage == '100'
@@ -308,6 +345,40 @@ jobs:
             --dart-define=API_BASE_URL="${API_BASE_URL}" \
             --dart-define=RECAPTCHA_SITE_KEY="${RECAPTCHA_SITE_KEY}" \
             --dart-define=GOOGLE_WEB_CLIENT_ID="${GOOGLE_WEB_CLIENT_ID}"
+
+      - name: Verify source of stage-10 evidence
+        if: steps.stage.outputs.stage == '100'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.canary_run_id }}
+        run: |
+          [[ "$RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" |
+            jq -e --arg sha "$GITHUB_SHA" '.path == ".github/workflows/promote-prod.yml" and
+              .head_sha == $sha and .event == "workflow_dispatch" and .conclusion == "success"' >/dev/null
+
+      - name: Read stage-10 evidence
+        if: steps.stage.outputs.stage == '100'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: prod-canary
+          path: ${{ runner.temp }}
+          run-id: ${{ inputs.canary_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Verify soak, rollback target and authenticated candidate read
+        if: steps.stage.outputs.stage == '100'
+        env:
+          SERVICE: ${{ vars.PROD_SERVICE_NAME }}
+          PROJECT: ${{ vars.PROD_PROJECT_ID }}
+          REGION: ${{ vars.PROD_REGION }}
+          REVISION: ${{ steps.rc_rev.outputs.revision }}
+          DIGEST: ${{ steps.rc_rev.outputs.digest }}
+          SMOKE_EMAIL: ${{ secrets.PROD_SMOKE_EMAIL }}
+          SMOKE_PASSWORD: ${{ secrets.PROD_SMOKE_PASSWORD }}
+          FIREBASE_API_KEY: ${{ vars.PROD_FIREBASE_API_KEY }}
+          SMOKE_REFERER: ${{ vars.PROD_SMOKE_REFERER }}
+        run: bash scripts/promotion/prod-canary.sh verify
 
       - name: Shift 100% traffic to the verified revision
         if: steps.stage.outputs.stage == '100'
