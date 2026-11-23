@@ -281,6 +281,27 @@ void main() {
     },
   );
 
+  test(
+    'an own device tried today is not asked about, and an unreadable '
+    'queue then costs no fresh own read (fix round 1, ruling 7, CR M-4)',
+    () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpJoined(ownListed: [sibling]);
+      ownClaims([sibling]);
+      // Its claim came back empty earlier today.
+      await rig.ledger.markEmptyClaim(sibling.id);
+      unreadableQueue();
+      expect((await rig.directory.own(fresh: true)).readable, isTrue);
+      final listsBefore = rig.keys.listCalls;
+
+      await rig.upkeep.reconcile(_c1);
+
+      expect(asked, isEmpty);
+      expect(rig.keys.listCalls, listsBefore, reason: 'no fresh own read');
+      expect(ownClaimCalls(), isEmpty);
+    },
+  );
+
   test('an unreadable removal queue and no fresh own list: reconcile adds '
       'no own device this pass, and still adds the peer\'s', () async {
     final sibling = await RigPeer.create('sibling');
