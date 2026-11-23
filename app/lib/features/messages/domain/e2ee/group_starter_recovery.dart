@@ -103,6 +103,16 @@ extension _Recovery on GroupStarter {
           // provisional and the row still carries its init.
           await _receiver.pullLive(id, priority: priority);
           await _sender.drain(id, priority: priority);
+        case _NextKind.discardCleared:
+          // Fix wave ruling 1: the deleted conversation's init goes through
+          // the user's discard (it takes the lock itself); when discarded,
+          // its row (now the sender's, failed) goes too, as the pipeline's
+          // own delete does.
+          final localId = next.localId;
+          if (await _discardInit(id) == InitDiscard.discarded &&
+              localId != null) {
+            await _sender.discard(localId);
+          }
         case _NextKind.settledReset:
           // Task 10: the reset is final; catch up on g + 1 (attribution
           // of its members) and the rows waiting behind it go out (a row
@@ -138,6 +148,19 @@ extension _Recovery on GroupStarter {
     // Not an init's (nothing else is ever provisional).
     if (pending.kind != PendingKind.init) return none;
     final row = await _initRow(op.vault, id, group.generation);
+    // Task 13 fix wave, ruling 1 (security audit M1). Decision: an init
+    // whose conversation the user deleted for themself at or after the
+    // row's time is never resent (nor replayed, nor rebuilt): the user's
+    // discard runs instead, after the lock, under its own rules (`held`,
+    // `notDecided` and `settled` keep the row). Why: the pipeline's owed
+    // discard lives in memory only, so after a restart this stored mark
+    // is the one record of the delete; a resend would bring back a
+    // conversation the user deleted. A device clock moved back can make a
+    // later start's row look older than the delete: it is then discarded
+    // (the privacy-safe direction).
+    if (row != null && await _clearedSince(op.vault, id, row)) {
+      return _Next(_NextKind.discardCleared, localId: row.localId);
+    }
     if (_ageOf(group) < kProvisionalExpiry) {
       // Audit M3. Decision: a young group with no readable init row waits;
       // it is not expired. Why: the row may only be unreadable now, and a
@@ -151,28 +174,6 @@ extension _Recovery on GroupStarter {
     }
     return _expireLocked(op, id, group, pending, row, priority, mayRebuild);
   }
-
-  /// How long ago [group] was made provisional; [kProvisionalExpiry] when
-  /// it carries no creation time.
-  ///
-  /// Review M4 (the class of N8). Decision: a creation time AFTER now (the
-  /// device clock moved back) has no age that can be told, so the group
-  /// counts as expired: its init is sent no more and the stored commits
-  /// decide. Why: a negative age would pass as "young" for as long as the
-  /// clock stays behind, and the 24 h bound on resending one init would not
-  /// hold.
-  Duration _ageOf(GroupRecord group) {
-    final created = group.provisionalCreatedAtMicros;
-    if (created == null) return kProvisionalExpiry;
-    final at = DateTime.fromMicrosecondsSinceEpoch(created, isUtc: true);
-    final now = _now();
-    return at.isAfter(now) ? kProvisionalExpiry : now.difference(at);
-  }
-
-  /// Audit M3: whether [group]'s init is sent no more: it is within
-  /// [kInitResendMargin] of [kProvisionalExpiry], or older.
-  bool _sendsNoMore(GroupRecord group) =>
-      _ageOf(group) >= kProvisionalExpiry - kInitResendMargin;
 
   /// The row that carries the init of [id]'s provisional group: addressed
   /// by its id, or by the recipient reference stored for it.
@@ -851,7 +852,15 @@ Duration? _refusalRetryAfter(AppException e) {
 
 /// What a locked step asks to run once the lock is released.
 /// `settledReset` (Task 10): an own reset settled; catch up, then drain.
-enum _NextKind { none, drain, join, pull, rebuild, settledReset }
+enum _NextKind {
+  none,
+  drain,
+  join,
+  pull,
+  rebuild,
+  settledReset,
+  discardCleared,
+}
 
 class _Next {
   const _Next(this.kind, {this.localId, this.resendAfter, this.refusal});

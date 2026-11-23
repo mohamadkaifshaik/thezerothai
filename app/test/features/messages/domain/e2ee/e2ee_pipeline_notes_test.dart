@@ -205,6 +205,40 @@ void main() {
     expect(h.pipeline.notedCount, 0, reason: 'nothing owed any more');
   });
 
+  test('SA M1: a delete-for-me whose owed discard was lost at a restart '
+      'never lets the next run resend the deleted init', () async {
+    final v = h.rig.device.vault;
+    await unansweredInit();
+    h.deviceKeys.markRemoved();
+    final done = h.pipeline.changes.firstWhere((id) => id == _c1);
+    h.pipeline.noteDeleted(_c1);
+    await done;
+    await h.settle();
+    expect(h.pipeline.notedCount, 1, reason: 'owed, in memory only');
+    final sends = h.rig.server.sends.length;
+
+    // The app ends: the owed set is gone. The next run's pipeline (a fresh
+    // starter) opens the same vault with the device usable.
+    h.pipeline.dispose();
+    final next = h.build();
+    addTearDown(next.dispose);
+    h.deviceKeys.clearRemoved();
+    await next.onVaultReady(v);
+    await _until(() async => next.started);
+    await next.coordinator!.idle();
+    await next.starter.settled(_c1);
+
+    expect(h.rig.server.sends, hasLength(sends), reason: 'never resent');
+    // A fresh run holds an init it did not send for the resend margin;
+    // after it, the next resume discards it.
+    h.rig.clock.advance(kInitResendMargin);
+    await next.starter.resumeProvisional();
+    await next.starter.settled(_c1);
+    await _until(() async => await v.group(_c1, 1) == null);
+    await _until(() async => (await v.outbox()).items.isEmpty);
+    expect(h.rig.server.sends, hasLength(sends), reason: 'never resent');
+  });
+
   test('r2-m1: a delete arriving inside the start window never lets the '
       'start\'s resumeProvisional resend that conversation\'s init', () async {
     final v = h.rig.device.vault;

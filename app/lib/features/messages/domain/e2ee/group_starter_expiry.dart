@@ -272,3 +272,42 @@ extension _Expiry on GroupStarter {
     return false;
   }
 }
+
+/// The provisional group's age and the user's delete mark, read by the
+/// resume and the discard. Moved from `group_starter_recovery.dart`
+/// unchanged, beside the fix wave's [_clearedSince] (the file-size rule).
+extension _ProvisionalAge on GroupStarter {
+  /// Task 13 fix wave, ruling 1: whether the user deleted [id] for themself
+  /// at or after [row] (the stored `clearedAtMicros`, written in the
+  /// delete's transaction).
+  Future<bool> _clearedSince(
+    SecureVault vault,
+    String id,
+    OutboxItem row,
+  ) async {
+    final cleared = (await vault.conversation(id))?.sync.clearedAtMicros;
+    return cleared != null && cleared >= row.createdAtMicros;
+  }
+
+  /// How long ago [group] was made provisional; [kProvisionalExpiry] when
+  /// it carries no creation time.
+  ///
+  /// Review M4 (the class of N8). Decision: a creation time AFTER now (the
+  /// device clock moved back) has no age that can be told, so the group
+  /// counts as expired: its init is sent no more and the stored commits
+  /// decide. Why: a negative age would pass as "young" for as long as the
+  /// clock stays behind, and the 24 h bound on resending one init would not
+  /// hold.
+  Duration _ageOf(GroupRecord group) {
+    final created = group.provisionalCreatedAtMicros;
+    if (created == null) return kProvisionalExpiry;
+    final at = DateTime.fromMicrosecondsSinceEpoch(created, isUtc: true);
+    final now = _now();
+    return at.isAfter(now) ? kProvisionalExpiry : now.difference(at);
+  }
+
+  /// Audit M3: whether [group]'s init is sent no more: it is within
+  /// [kInitResendMargin] of [kProvisionalExpiry], or older.
+  bool _sendsNoMore(GroupRecord group) =>
+      _ageOf(group) >= kProvisionalExpiry - kInitResendMargin;
+}
