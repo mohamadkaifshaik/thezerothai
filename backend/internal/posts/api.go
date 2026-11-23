@@ -814,7 +814,7 @@ const (
 	// MaxRecent is how many newest root posts one author-recent entry holds.
 	MaxRecent = 20
 	// MaxMedia is the most images one post carries.
-	MaxMedia = 4
+	MaxMedia = 20
 )
 
 // ErrNotFound is returned by Reader.Get for a missing or deleted post. Callers map it at their own boundary;

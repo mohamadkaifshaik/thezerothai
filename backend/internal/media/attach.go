@@ -87,6 +87,9 @@ func (l *Library) LoadForPost(ctx context.Context, tx *firestore.Transaction, ui
 		if d.OwnerID != uid || d.Purpose != string(PurposePost) || !d.Published() || d.PostID != "" || d.Orphaned() {
 			return nil, ErrNotReady
 		}
+		if d.ContentType == ContentTypeMP4 && len(ids) != 1 {
+			return nil, ErrNotReady
+		}
 		c.Refs = append(c.Refs, l.ref(d))
 	}
 	return c, nil
@@ -114,7 +117,7 @@ func (l *Library) ResolvePostCover(ctx context.Context, uid, mediaID string) (Re
 	return l.ref(d), nil
 }
 func usablePostCover(d *Doc, uid string) bool {
-	return d != nil && d.OwnerID == uid && d.Purpose == string(PurposePost) && d.Published() && d.PostID == "" && d.RetiredAt == nil && !d.Orphaned() && d.ContentType != ContentTypeGIF
+	return d != nil && d.OwnerID == uid && d.Purpose == string(PurposePost) && d.Published() && d.PostID == "" && d.RetiredAt == nil && !d.Orphaned() && d.ContentType != ContentTypeGIF && d.ContentType != ContentTypeMP4
 }
 
 // resolveOwned is the one lookup behind the profile-image resolvers: ErrNotReady unless the document
@@ -163,7 +166,7 @@ func (l *Library) LoadForArticle(ctx context.Context, tx *firestore.Transaction,
 		if err != nil {
 			return nil, err
 		}
-		if d.OwnerID != uid || d.Purpose != string(PurposePost) || !d.Published() || d.PostID != "" || d.Orphaned() || d.ContentType == ContentTypeGIF {
+		if d.OwnerID != uid || d.Purpose != string(PurposePost) || !d.Published() || d.PostID != "" || d.Orphaned() || d.ContentType == ContentTypeGIF || d.ContentType == ContentTypeMP4 {
 			return nil, ErrNotReady
 		}
 		c.Refs = append(c.Refs, l.ref(d))
@@ -192,7 +195,7 @@ func (l *Library) ResolveArticleImages(ctx context.Context, authorID, postID str
 		return nil, err
 	}
 	for id, d := range docs {
-		if d == nil || d.OwnerID != authorID || d.Purpose != string(PurposePost) || !d.Published() || d.RetiredAt != nil || d.Orphaned() || d.ContentType == ContentTypeGIF {
+		if d == nil || d.OwnerID != authorID || d.Purpose != string(PurposePost) || !d.Published() || d.RetiredAt != nil || d.Orphaned() || d.ContentType == ContentTypeGIF || d.ContentType == ContentTypeMP4 {
 			continue
 		}
 		if d.PostID != postID {

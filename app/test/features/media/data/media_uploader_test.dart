@@ -65,6 +65,31 @@ void main() {
     for (final id in ids) UploadJob(id: id, image: fakeProcessed(id)),
   ];
 
+  test('twenty photos keep their order across five upload batches', () async {
+    final ids = List.generate(20, (i) => 'photo$i');
+    final batchSizes = <int>[];
+    var next = 0;
+    when(
+      () => repo.createUpload(
+        idempotencyKey: any(named: 'idempotencyKey'),
+        purpose: any(named: 'purpose'),
+        images: any(named: 'images'),
+      ),
+    ).thenAnswer((call) async {
+      final size = (call.namedArguments[#images] as List).length;
+      batchSizes.add(size);
+      return [for (var i = 0; i < size; i++) uploadTarget(ids[next++])];
+    });
+    stubPutOk();
+    stubFinalize(readyResult);
+    final result = await uploader.upload(
+      purpose: pb.MediaPurpose.MEDIA_PURPOSE_POST,
+      jobs: jobs(ids),
+    );
+    expect(result.map((r) => r.mediaId), ids);
+    expect(batchSizes, [4, 4, 4, 4, 4]);
+  });
+
   group('a session that ended stops the upload', () {
     test('nothing is reserved once it is no longer wanted', () async {
       stubCreate(['m1']);

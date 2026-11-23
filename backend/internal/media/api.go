@@ -13,6 +13,7 @@ package media
 import (
 	"context"
 	"errors"
+	"io"
 	"time"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/objstore"
@@ -46,6 +47,8 @@ const (
 	ContentTypeWebP = "image/webp"
 	// ContentTypeGIF is accepted for POST media only, behind FEATURE_GIF (GifFlagName).
 	ContentTypeGIF = "image/gif"
+	ContentTypeMP4 = "video/mp4"
+	MaxVideoBytes  = 96 << 20
 )
 
 // GifFlagName is the wire name of FEATURE_GIF. CreateUpload with image/gif needs it on for the caller on
@@ -54,8 +57,9 @@ const GifFlagName = "gif"
 
 // Limits.
 const (
-	// MaxPerPost is the most images one post carries (and one CreateUpload reserves).
-	MaxPerPost = 4
+	// Separate the post attachment limit from the signed upload batch size.
+	MaxPerPost     = 20
+	MaxUploadBatch = 4
 	// MaxFullBytes and MaxThumbBytes are the signed x-goog-content-length-range upper bounds (POST and AVATAR).
 	MaxFullBytes  = 2 << 20
 	MaxThumbBytes = 256 << 10
@@ -131,6 +135,8 @@ type Objects interface {
 	// UploadHead with generation != 0 reads exactly that object generation and answers objstore.ErrGenerationChanged when it is
 	// no longer live; 0 reads the live object.
 	UploadHead(ctx context.Context, object string, n, generation int64) ([]byte, error)
+	// WriteUploadTo streams a verified generation into a seekable video input.
+	WriteUploadTo(context.Context, string, int64, int64, io.Writer) (int64, error)
 	// Publish copies an upload object into the public bucket with a long immutable Cache-Control (1 Class A). The copy is
 	// conditional on the source still being srcGeneration (the generation verify recorded): a replaced object answers
 	// objstore.ErrGenerationChanged and nothing is published.

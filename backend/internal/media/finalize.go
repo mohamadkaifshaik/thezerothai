@@ -115,7 +115,7 @@ func finalizePurpose(docs map[string]*Doc, ids []string) string {
 }
 
 func validateFinalize(items []FinalizeItem) error {
-	if len(items) == 0 || len(items) > MaxPerPost {
+	if len(items) == 0 || len(items) > MaxUploadBatch {
 		return apierr.Validation("items", "1 to 4 items are required")
 	}
 	seen := make(map[string]struct{}, len(items))
@@ -246,11 +246,14 @@ func (s *service) finalizeOne(ctx context.Context, uid string, d *Doc, blurhash 
 	// retries at 2, 4 and 8 s can never burn attempts on it. The slot is released once the contact sheet is encoded (screenGIF), and here on
 	// every early return.
 	releaseSlot := func() {}
-	if d.ContentType == ContentTypeGIF {
+	if d.ContentType == ContentTypeGIF || d.ContentType == ContentTypeMP4 {
 		rel, err := s.acquireGif(ctx)
 		switch {
 		case errors.Is(err, errGifBusy):
 			logger.SetRequestField(ctx, fieldGifBusy, true)
+			if d.ContentType == ContentTypeMP4 {
+				return Result{}, 0, mediaNotReady(d.ID, "video checks are busy, please try again shortly")
+			}
 			return Result{}, 0, mediaNotReady(d.ID, gifMessageBusy)
 		case err != nil:
 			return Result{}, 0, logger.RedactErr(fmt.Errorf("media: gif slot: %w", err), uid)
@@ -488,7 +491,7 @@ type verifiedGens struct{ full, thumb int64 }
 // there yet is reported as errUploadMissing (the caller decides: the client has not finished uploading, or a
 // concurrent finalize already published and deleted it).
 func (s *service) verify(ctx context.Context, d *Doc) (reason string, gens verifiedGens, err error) {
-	maxFull, maxThumb := capsFor(Purpose(d.Purpose))
+	maxFull, maxThumb := capsFor(d.ContentType)
 	for i, o := range []struct {
 		object, md5, contentType string
 		size                     int64
@@ -536,6 +539,11 @@ func (s *service) verify(ctx context.Context, d *Doc) (reason string, gens verif
 		// B14: the real pixel size, read from the same pinned head, must be the declared one (the thumbnail no larger than
 		// it) within MaxDimension, MaxPixels and the purpose's geometry. A GIF's size is its logical screen (header bytes
 		// 6-9, inside the 512-byte head); its still thumbnail is a JPEG or WebP. Refused here, before any Vision unit.
+		if o.contentType == ContentTypeMP4 {
+			// The decoder verifies the dimensions from this generation before screening.
+			gens.full = a.Generation
+			continue
+		}
 		w, h, ok := imageDims(o.contentType, head)
 		if !ok || !geometryOK(d, i == 0, w, h) {
 			return reasonInvalid, gens, nil
@@ -553,13 +561,16 @@ func (s *service) verify(ctx context.Context, d *Doc) (reason string, gens verif
 // screensThumb reports whether the thumbnail is screened too: always for a GIF (: sheet by bytes + thumbnail = 2 units; the thumbnail is
 // a client-made still that lists show, and nothing ties it to the GIF's frames), otherwise per VISION_SCREEN_THUMB.
 func (s *service) screensThumb(d *Doc) bool {
-	return s.ScreenThumb || d.ContentType == ContentTypeGIF
+	return s.ScreenThumb || d.ContentType == ContentTypeGIF || d.ContentType == ContentTypeMP4
 }
 
 // screen runs SafeSearch on the full image and, when screensThumb, the thumbnail (the small image is what lists
 // show, and it is uploaded separately). It reports whether either is blocked by the policy. A GIF is screened by its
 // sampled frames instead (screenGIF).
 func (s *service) screen(ctx context.Context, d *Doc, gens verifiedGens, releaseSlot func()) (screenResult, error) {
+	if d.ContentType == ContentTypeMP4 {
+		return s.screenVideo(ctx, d, gens, releaseSlot)
+	}
 	if d.ContentType == ContentTypeGIF {
 		return s.screenGIF(ctx, d, gens, releaseSlot)
 	}
@@ -664,6 +675,16 @@ func blockedBySafeSearch(ss SafeSearch, p Purpose) bool {
 // reject deletes the private objects and records REJECTED (kept for PendingTTL so a replayed FinalizeUpload gets
 // the same answer, then removed by the TTL policy).
 func (s *service) reject(ctx context.Context, d *Doc, reason string) (Result, error) {
+	if d.ContentType == ContentTypeMP4 {
+		switch reason {
+		case reasonInvalid:
+			reason = "Choose an H.264 MP4 video up to 5 minutes, with AAC audio or no audio."
+		case reasonPolicy:
+			reason = "This video may break the community rules."
+		case reasonAttempts:
+			reason = "We could not check this video. Remove it and try another clip."
+		}
+	}
 	// Resolve first: deleting the objects before the document is resolved lets a rejecting loser pull them from
 	// under a winner that is about to publish, and a failed Resolve would strand a PENDING doc with no objects.
 	err := s.Repo.Resolve(ctx, d.ID, d.UpdateTime, Resolution{

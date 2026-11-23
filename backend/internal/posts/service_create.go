@@ -382,11 +382,11 @@ func validateReplyPolicy(in CreateInput) (ReplyPolicy, error) {
 // maxAltTextRunes bounds one alt text (CreatePost proto: <= 1,000 chars).
 const maxAltTextRunes = 1000
 
-// validateMedia checks the shape of media_ids and media_alt_texts before any read: at most 4 distinct 19-digit
+// validateMedia checks the shape of media_ids and media_alt_texts before any read: at most 20 distinct 19-digit
 // ids and alt texts that are empty or parallel to the ids, valid UTF-8, no control characters, <= 1,000 code points.
 func validateMedia(mediaIDs, alts []string) error {
 	if len(mediaIDs) > MaxMedia {
-		return apierr.Validation("media_ids", "at most 4 images per post")
+		return apierr.Validation("media_ids", "at most 20 images per post")
 	}
 	if len(alts) > 0 && len(alts) != len(mediaIDs) {
 		return apierr.Validation("media_alt_texts", "media_alt_texts must be empty or parallel to media_ids")

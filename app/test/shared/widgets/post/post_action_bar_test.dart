@@ -468,38 +468,26 @@ void main() {
       handle.dispose();
     });
 
-    // One image is a plain frame; 2-4 are a row of tiles of one height (six
-    // given, four shown). Two tiles fill the column, so that row cannot
-    // scroll.
-    for (final count in [1, 2, 3, 4, 6]) {
-      testWidgets(
-        '$count images lay out without overflow, as '
-        '${count == 1 ? 'a single frame' : '${count > 4 ? 4 : count} tiles'}',
-        (tester) async {
-          await tester.pumpWidget(
-            _host(PostMedia(media: [for (var i = 0; i < count; i++) ref()])),
-          );
-          expect(tester.takeException(), isNull);
-          expect(
-            mediaPageCount(tester),
-            count == 1 ? isNull : (count > 4 ? 4 : count),
-          );
-          if (count > 1) {
-            expect(currentMediaPage(tester), 0);
-            final tile = tester.getSize(frames().first);
-            expect(tile.width / tile.height, closeTo(4 / 5, 0.001));
-            for (
-              var page = 1;
-              count > 2 && page < (count > 4 ? 4 : count);
-              page++
-            ) {
-              await swipeToNextMediaPage(tester);
-              expect(currentMediaPage(tester), page);
-              expect(tester.takeException(), isNull);
-            }
+    // Two tiles fill the column. Larger galleries scroll through every photo.
+    for (final count in [1, 2, 3, 6, 20]) {
+      testWidgets('$count images lay out without overflow, as '
+          '${count == 1 ? 'a single frame' : '$count tiles'}', (tester) async {
+        await tester.pumpWidget(
+          _host(PostMedia(media: [for (var i = 0; i < count; i++) ref()])),
+        );
+        expect(tester.takeException(), isNull);
+        expect(mediaPageCount(tester), count == 1 ? isNull : count);
+        if (count > 1) {
+          expect(currentMediaPage(tester), 0);
+          final tile = tester.getSize(frames().first);
+          expect(tile.width / tile.height, closeTo(4 / 5, 0.001));
+          for (var page = 1; count > 2 && page < count; page++) {
+            await swipeToNextMediaPage(tester);
+            expect(currentMediaPage(tester), page);
+            expect(tester.takeException(), isNull);
           }
-        },
-      );
+        }
+      });
     }
 
     testWidgets('empty list renders nothing', (tester) async {

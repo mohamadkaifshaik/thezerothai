@@ -101,8 +101,8 @@ void main() {
       expect(_ids(tiles), ['ok/0', 'ok/1']);
     });
 
-    test('at most four images of one post (the post card limit)', () {
-      expect(profileMediaTiles([_post('a', images: 6)], max: 10).length, 4);
+    test('at most twenty images of one post (the post card limit)', () {
+      expect(profileMediaTiles([_post('a', images: 21)], max: 25).length, 20);
     });
 
     test('no posts: no tiles', () {

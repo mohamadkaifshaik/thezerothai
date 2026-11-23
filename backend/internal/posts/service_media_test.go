@@ -41,6 +41,7 @@ func TestCreate_MediaPassedToRepo(t *testing.T) {
 		in   CreateInput
 		ok   bool
 	}{
+		{"twenty photos", CreateInput{MediaIDs: mediaIDs(20)}, true},
 		{"one image with text", CreateInput{Text: "hi", MediaIDs: []string{mid1}}, true},
 		{"image only: empty text allowed", CreateInput{Text: "", MediaIDs: []string{mid1}}, true},
 		{"blank text with image", CreateInput{Text: " \U0000200B ", MediaIDs: []string{mid1, mid2}}, true},
@@ -73,7 +74,7 @@ func TestCreate_MediaValidation(t *testing.T) {
 		in    CreateInput
 		field string
 	}{
-		{"five images", CreateInput{Text: "x", MediaIDs: []string{mid1, mid2, "0000000000000000203", "0000000000000000204", "0000000000000000205"}}, "media_ids"},
+		{"twenty-one images", CreateInput{Text: "x", MediaIDs: mediaIDs(21)}, "media_ids"},
 		{"malformed id", CreateInput{Text: "x", MediaIDs: []string{"abc"}}, "media_ids"},
 		{"path-like id", CreateInput{Text: "x", MediaIDs: []string{"../users/uid-bob"}}, "media_ids"},
 		{"duplicate id", CreateInput{Text: "x", MediaIDs: []string{mid1, mid1}}, "media_ids"},

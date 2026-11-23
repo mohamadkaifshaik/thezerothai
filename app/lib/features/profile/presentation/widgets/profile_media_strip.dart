@@ -8,6 +8,7 @@ import '../../../../core/widgets/context_pane.dart';
 import '../../../../gen/dzeroth/common/v1/common.pb.dart' as common;
 import '../../../../gen/dzeroth/posts/v1/posts.pbenum.dart' show PostKind;
 import '../../../../shared/widgets/post/gif_badge.dart';
+import '../../../media/domain/media_feature_flag.dart' show kMaxPostImages;
 import '../../../media/domain/processed_image.dart' show kGifContentType;
 import '../../../timeline/data/timeline_store.dart';
 import '../../../timeline/presentation/bloc/timeline_state.dart';
@@ -50,7 +51,7 @@ List<ProfileMediaTile> profileMediaTiles(
   for (final entry in entries) {
     final post = entry.postView?.post;
     if (post == null || post.kind == PostKind.POST_KIND_REPOST) continue;
-    for (var i = 0; i < post.media.length && i < 4; i++) {
+    for (var i = 0; i < post.media.length && i < kMaxPostImages; i++) {
       final media = post.media[i];
       if (media.thumbUrl.isEmpty) continue;
       tiles.add(ProfileMediaTile(postId: post.postId, index: i, media: media));

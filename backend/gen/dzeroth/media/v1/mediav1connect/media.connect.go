@@ -2,7 +2,7 @@
 //
 // Source: dzeroth/media/v1/media.proto
 
-// Media: images only at Stage 0 (animated GIF for post media behind FEATURE_GIF). Owner module:
+// Media: still images, post videos and animated post GIFs (FEATURE_GIF). Owner module:
 // backend/internal/media.
 // Collections owned: media/{mediaId} (TTL on expireAt while PENDING), admin/vision-{yyyymm} (SafeSearch usage counter: a cost meter, it never limits screening).
 // Bytes never pass through the API: clients PUT to a private upload bucket with V4 signed URLs; approved
@@ -49,7 +49,7 @@ const (
 // MediaServiceClient is a client for the dzeroth.media.v1.MediaService service.
 type MediaServiceClient interface {
 	// Reserve 1-4 media ids and get signed PUT URLs (full + thumb each), 10-minute TTL, bound to the exact object
-	// path, Content-Type, Content-MD5 and x-goog-content-length-range (full <= 2 MiB, thumb <= 256 KiB).
+	// path, Content-Type, Content-MD5 and x-goog-content-length-range (image <= 2 MiB, MP4 <= 96 MiB, thumb <= 256 KiB).
 	// A purpose other than POST or AVATAR (UNSPECIFIED, or the removed value 3) => INVALID_ARGUMENT + VALIDATION,
 	// metadata["field"] = "purpose".
 	// No daily upload quota: only the per-minute bucket limits how often a user can call it. Rejected with
@@ -61,6 +61,7 @@ type MediaServiceClient interface {
 	// VALIDATION field "content_type"); exactly one item in a request that carries a GIF (else VALIDATION field
 	// "items"); full <= 2 MiB (the same signed range); declared width and height <= 1,280; thumb_content_type must be
 	// "image/jpeg" or "image/webp" (else VALIDATION field "thumb_content_type").
+	// A post video is uploaded alone: H.264 MP4, optional AAC, up to 5 minutes and 1920 pixels per side.
 	CreateUpload(context.Context, *connect.Request[v1.CreateUploadRequest]) (*connect.Response[v1.CreateUploadResponse], error)
 	// Verify and moderate uploaded objects, then publish. Per item: GCS object attrs + 512-byte ranged read
 	// (magic bytes) -> SafeSearch on every image, always (the full image, plus the thumbnail when VISION_SCREEN_THUMB
@@ -87,6 +88,7 @@ type MediaServiceClient interface {
 	// Vision-units cap (refused before any claim, nothing written, retry_after to IST midnight; do not retry sooner). A
 	// media item is REJECTED with reason "attempts" after 3 attempts that produced a valid assessment, or 8 claims in total;
 	// its objects are deleted. A busy GIF slot consumes no attempt.
+	// For videos the server screens a sheet of 4-15 sampled frames and the still thumbnail before publication.
 	FinalizeUpload(context.Context, *connect.Request[v1.FinalizeUploadRequest]) (*connect.Response[v1.FinalizeUploadResponse], error)
 }
 
@@ -135,7 +137,7 @@ func (c *mediaServiceClient) FinalizeUpload(ctx context.Context, req *connect.Re
 // MediaServiceHandler is an implementation of the dzeroth.media.v1.MediaService service.
 type MediaServiceHandler interface {
 	// Reserve 1-4 media ids and get signed PUT URLs (full + thumb each), 10-minute TTL, bound to the exact object
-	// path, Content-Type, Content-MD5 and x-goog-content-length-range (full <= 2 MiB, thumb <= 256 KiB).
+	// path, Content-Type, Content-MD5 and x-goog-content-length-range (image <= 2 MiB, MP4 <= 96 MiB, thumb <= 256 KiB).
 	// A purpose other than POST or AVATAR (UNSPECIFIED, or the removed value 3) => INVALID_ARGUMENT + VALIDATION,
 	// metadata["field"] = "purpose".
 	// No daily upload quota: only the per-minute bucket limits how often a user can call it. Rejected with
@@ -147,6 +149,7 @@ type MediaServiceHandler interface {
 	// VALIDATION field "content_type"); exactly one item in a request that carries a GIF (else VALIDATION field
 	// "items"); full <= 2 MiB (the same signed range); declared width and height <= 1,280; thumb_content_type must be
 	// "image/jpeg" or "image/webp" (else VALIDATION field "thumb_content_type").
+	// A post video is uploaded alone: H.264 MP4, optional AAC, up to 5 minutes and 1920 pixels per side.
 	CreateUpload(context.Context, *connect.Request[v1.CreateUploadRequest]) (*connect.Response[v1.CreateUploadResponse], error)
 	// Verify and moderate uploaded objects, then publish. Per item: GCS object attrs + 512-byte ranged read
 	// (magic bytes) -> SafeSearch on every image, always (the full image, plus the thumbnail when VISION_SCREEN_THUMB
@@ -173,6 +176,7 @@ type MediaServiceHandler interface {
 	// Vision-units cap (refused before any claim, nothing written, retry_after to IST midnight; do not retry sooner). A
 	// media item is REJECTED with reason "attempts" after 3 attempts that produced a valid assessment, or 8 claims in total;
 	// its objects are deleted. A busy GIF slot consumes no attempt.
+	// For videos the server screens a sheet of 4-15 sampled frames and the still thumbnail before publication.
 	FinalizeUpload(context.Context, *connect.Request[v1.FinalizeUploadRequest]) (*connect.Response[v1.FinalizeUploadResponse], error)
 }
 
