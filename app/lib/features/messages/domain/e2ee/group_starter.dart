@@ -43,9 +43,13 @@ import 'sync_budget.dart';
 // built on it; it is still read through this file.
 export 'pipeline_support.dart' show kServerRequestDeadline;
 
+part 'group_starter_discard.dart';
+part 'group_starter_expiry.dart';
 part 'group_starter_recovery.dart';
 part 'group_starter_reset.dart';
+part 'group_starter_reset_resume.dart';
 part 'group_starter_restart.dart';
+part 'group_starter_route.dart';
 part 'group_starter_start.dart';
 
 /// R6: the age at which the stored commits decide what became of a
@@ -68,6 +72,13 @@ const Duration kProvisionalExpiry = Duration(hours: 24);
 /// it really ended (`MessagingRepository.abandonedMlsCall`).
 final Duration kInitResendMargin = kRequestInFlightMargin;
 
+/// Task 8 audit L1: the least time between two 24 h rebuilds of one
+/// conversation's provisional group ([DailyLedger.takeRebuild]). Why: a
+/// rebuild that fails after its claim (a replace refused under the lock, a
+/// state in doubt) would otherwise claim again at every resume, spending
+/// the peer's one-time packages and the claim caps.
+const Duration kRebuildSpacing = Duration(hours: 1);
+
 /// The `limit_name` of the two daily claim caps (KP): 20 claims per target,
 /// 300 claims in all.
 const String kLimitClaimsPerTargetDaily = 'keys_claims_per_target_daily';
@@ -87,53 +98,30 @@ const String kStartErrorPeerHasNoDevice = 'PeerHasNoDevice';
 const String kStartErrorLookupFailed = 'LookupFailed';
 const String kStartErrorUnavailable = 'StartUnavailable';
 
-/// What [GroupStarter.startOrRoute] did with a first message.
+/// Gate 6 (audit L10): the stored error name of a row whose pending init
+/// the user discarded ([GroupStarter.discardInit]). As with
+/// [kStartErrorPeerHasNoDevice]: `failed`, retryable, a null `error`; the
+/// user's retry starts again from fresh claims ([GroupStarter.retryStart]).
+const String kStartErrorInitDiscarded = 'InitDiscarded';
+
+/// What [GroupStarter.discardInit] did.
 ///
-/// `started`: this device created a provisional group; the row is saved and
-/// its init is being sent. `joinedExisting`: the conversation is (or was
-/// ever) encrypted here; the row is saved with the sender and goes out, or
-/// waits. `plaintext`: nothing is saved; the caller sends it in plaintext.
-/// Every other value: nothing is saved and nothing is sent.
-/// `lookupFailed` (security read H1): the peer's list could not be read;
-/// `cause` carries a [CannotMessageException] when the lookup answered
-/// CANNOT_MESSAGE, and a failed claim's error.
-enum StartResult {
-  started,
-  joinedExisting,
-  plaintext,
-  peerHasNoDevice,
-  tryAgainTomorrow,
-  unavailable,
-  lookupFailed,
-}
-
-/// What [GroupStarter.startOrRoute] answered. Review M9: a class, not the
-/// brief's record: a record's built-in `toString` prints the conversation
-/// id, and no scan sees a record. It defines no `toString`.
-class StartOutcome {
-  const StartOutcome({required this.result, this.conversationId, this.cause});
-
-  final StartResult result;
-
-  /// The conversation the row was saved for; null when nothing was saved.
-  final String? conversationId;
-
-  /// The typed error behind `lookupFailed` and `tryAgainTomorrow`.
-  final AppException? cause;
-}
-
-/// The server's deterministic id of the 1:1 conversation of the raw uids
-/// [a] and [b] (`backend/internal/messaging/model.go`, `ConversationID`):
-/// the first 32 lower-case hex characters of SHA-256 of
-/// `"dm1|" + lo + "|" + hi`, the uids in byte order (uids are ASCII, so
-/// `String.compareTo` is byte order). Only for raw uids: a public id gives
-/// another value.
-String dmConversationId(String a, String b) {
-  final swap = b.compareTo(a) < 0;
-  final lo = swap ? b : a;
-  final hi = swap ? a : b;
-  return sha256.convert(utf8.encode('dm1|$lo|$hi')).toString().substring(0, 32);
-}
+/// `discarded`: the provisional group is gone and its init row failed with
+/// [kStartErrorInitDiscarded]; or (fix round 2, ruling 7) another device's
+/// commit was first, so the row did NOT fail: the winner's welcome was
+/// joined and the row waits for the sender, which encrypts it again in
+/// that group under a new key. `settled`: the server's first page held the
+/// message, so the group settled with that answer instead (nothing to
+/// discard). `held`: the server holds the init as this device's and an
+/// answer may still come (the group is younger than [kProvisionalExpiry],
+/// a call of it may still land, or no replay of it was refused in this
+/// run, pre-flag-on review I-1), or (fix round 2, ruling 3) an earlier run
+/// sent it and this run began less than [kInitResendMargin] ago: nothing
+/// changed; the UI explains that
+/// the message is being delivered. `notDecided`: what the server holds
+/// could not be read now (the commits, or the page): nothing changed, the
+/// user may try again. `none`: no pending init row for that conversation.
+enum InitDiscard { discarded, settled, held, notDecided, none }
 
 /// Starting encryption in a conversation (Task 8; R6 steps 1 to 4, K2, R3,
 /// R11; security reads C1, H1, H2): where a first message goes (encrypted,
@@ -230,6 +218,45 @@ class GroupStarter {
     // touched again, and every later reader would have to remember to make
     // it. One starter per session (Task 13), so one callback.
     crypto.onOwnResetEnded = _forgetReset;
+    // Task 8 concern 4: the join path left this device's own stored init
+    // unanswered (a row still carries it); the resume replays it.
+    crypto.onOwnInitUnanswered = _resumeAfterJoin;
+    // Fix round 2, ruling 8: the join path discarded this device's own init
+    // (another device's commit was first): its row's memory goes, as at
+    // every discard made here.
+    crypto.onOwnInitDiscarded = _forgetInit;
+    _runStartedAt = now();
+  }
+
+  /// Task 8 concern 4. Decision: one resume of [id], unawaited and started
+  /// outside the conversation lock's zone (the join path calls this with
+  /// the lock held, and the resume takes it itself), at background
+  /// priority (no user intent). Why: the join code leaves such a group
+  /// provisional for the starter (review W1); without this the group
+  /// waited for the next vault-ready, send or retry, holding every row of
+  /// the conversation meanwhile.
+  ///
+  /// Pre-flag-on fix round 2, ruling 5 (code review m-C). Decision: when a
+  /// resume of [id] is running, this one starts AFTER it (its
+  /// `whenComplete`), never joins it; an end after [reset] starts nothing.
+  /// Why: the running resume read the group before the join's settle left
+  /// it unanswered, so joining it asked nothing again and the group waited
+  /// for an unrelated trigger (the same reason as [_armMarginResume]).
+  void _resumeAfterJoin(String id) {
+    final serial = _runSerial;
+    Zone.root.run(() {
+      final running = _running[id];
+      if (running == null) {
+        unawaited(_resume(id, BudgetPriority.background));
+        return;
+      }
+      unawaited(
+        running.whenComplete(() {
+          if (serial != _runSerial) return;
+          unawaited(_resume(id, BudgetPriority.background));
+        }),
+      );
+    });
   }
 
   final ConversationCrypto _crypto;
@@ -266,6 +293,11 @@ class GroupStarter {
   /// flight removes its own entry when it ends.
   final Set<String> _restarting = {};
 
+  /// Audit L2: peer reference -> the routing of [startOrRoute] running for
+  /// it (single flight). Not cleared by [reset]: a routing in flight
+  /// removes its own entry when it ends.
+  final Map<String, Future<void>> _routing = {};
+
   /// Local ids whose init's outcome stayed unknown after the automatic
   /// resend: each later trigger makes one attempt.
   final Set<String> _unknown = {};
@@ -285,6 +317,52 @@ class GroupStarter {
   /// Conversation -> when the last such call really ended: the expiry's
   /// margin counts from then.
   final Map<String, DateTime> _initCallEndedAt = {};
+
+  /// Task 9 concern 1. Conversation -> the start of the last init call
+  /// whose outcome stayed unknown in this run: a "not stored" read decides
+  /// nothing until [kInitResendMargin] after it.
+  final Map<String, DateTime> _initUnknownStartedAt = {};
+
+  /// Conversations with one resume armed for the end of that margin.
+  final Set<String> _marginArmed = {};
+
+  /// Pre-flag-on review I-1. Local ids whose LAST request in this run was
+  /// the replay of a stored init (review W1) and was refused by the server
+  /// with a lasting answer (fix round 2, ruling 2: a STALE_EPOCH naming this
+  /// conversation, CANNOT_MESSAGE, FEATURE_DISABLED or NOT_FOUND, never one
+  /// with a retry time; a rate limit, a quota, degraded mode and the other
+  /// refusals that do not last are unknown outcomes). The only evidence on
+  /// which [discardInit] discards a group the server holds as this
+  /// device's. Fix round 3, ruling 5 (audit L-1): CANNOT_MESSAGE,
+  /// FEATURE_DISABLED and NOT_FOUND are made BEFORE the server's replay
+  /// lookup, and can be undone (an unblock, a reactivation, an allowlist
+  /// change): they count because they last, so the discard they allow may
+  /// still delete a group the server holds. Only the STALE_EPOCH comes
+  /// after the lookup. Cleared before each request of the row, by its
+  /// settle or discard ([_forget]) and by [reset].
+  final Set<String> _replayRefused = {};
+
+  /// Pre-flag-on fix round 2, ruling 3 (code review m-A, audit L-a): when
+  /// this run began (the construction, or the last [reset]), and the keys
+  /// of the init rows this run sent a request of. A row with stored
+  /// attempts and no request in this run was sent by an earlier run, whose
+  /// request may still land until [kInitResendMargin] after this time
+  /// ([discardInit] is held until then).
+  late DateTime _runStartedAt;
+  final Set<String> _sentThisRun = {};
+
+  /// Fix round 3, ruling 1 (audit L-2): the keys of the init rows whose
+  /// first request in this run found attempts stored by an earlier run.
+  /// That run's request may still land, so [discardInit] holds such a row
+  /// until [kInitResendMargin] after [_runStartedAt], as it holds a row
+  /// this run never sent.
+  final Set<String> _earlierRunRows = {};
+
+  /// Fix round 2, ruling 8: conversation -> the local id of the init row
+  /// this run last sent a request of, so a discard known only by its
+  /// conversation (the join code's, the expiry's with no row) forgets that
+  /// row's memory ([_forgetInit]).
+  final Map<String, String> _initRowOf = {};
 
   /// Bumped by [reset]: the end of a call tracked before it changes
   /// nothing.
@@ -315,12 +393,28 @@ class GroupStarter {
   final Set<String> _repairing = {};
 
   /// Sign-out or a new vault: forgets this run's memory.
+  ///
+  /// Binding for Task 13 (pre-flag-on fix round 2, ruling 6, code review
+  /// m-D): sign-out, and a new vault, call BOTH this and
+  /// `CommitRunner.reset()` (which clears the join code's own-commit memory,
+  /// `ConversationCrypto.forgetOwnCommits`). Why: each forgets one half of
+  /// the run. With only this one, the join code keeps the groups it already
+  /// handed over (pre-flag-on review m-2) and never hands them to the new
+  /// run; with only the other, this class keeps the refused-replay evidence
+  /// and the margins of the earlier user's run.
   void reset() {
     _unknown.clear();
     _notBefore.clear();
     _reported.clear();
     _initCallsOut.clear();
     _initCallEndedAt.clear();
+    _initUnknownStartedAt.clear();
+    _marginArmed.clear();
+    _replayRefused.clear();
+    _sentThisRun.clear();
+    _earlierRunRows.clear();
+    _initRowOf.clear();
+    _runStartedAt = _now();
     _resetCalls.clear();
     _resetLists.clear();
     _resetRefused.clear();
@@ -547,6 +641,51 @@ class GroupStarter {
   /// `group_starter_restart.dart`.
   Future<void> retryStart(String localId) => _retryStart(localId);
 
+  /// Gate 6 (audit L10, Task 8 concern 1): the user's discard of the
+  /// pending init row of [conversationId] ([pendingInit]), for an init
+  /// whose replay keeps being refused, or which stays provisional. Takes
+  /// the conversation lock. [ArgumentError] for an invalid id; never
+  /// throws otherwise (a failure is [InitDiscard.notDecided]).
+  ///
+  /// The group is discarded, and the row fails with
+  /// [kStartErrorInitDiscarded] (and `InitSettle.replay`'s endless retry
+  /// ends), only when:
+  /// - the server's record says this init is NOT stored (the stored
+  ///   commits, read with the margin rules: no call of it may still land);
+  ///   when that record shows another device's commit first (fix round 2,
+  ///   ruling 7) the row does not fail: the winner's welcome is joined, as
+  ///   the resume's STALE_EPOCH path does, and the row goes out in it;
+  /// - or the server holds it as this device's, the group is
+  ///   [kProvisionalExpiry] old with no answer for its message (the first
+  ///   `ListMessages` page does not hold it), no call of it is out, the
+  ///   margin after the last one has passed, and (pre-flag-on review I-1)
+  ///   this run's last request of the row was its replay and the server
+  ///   refused it with a lasting answer (fix round 2, ruling 2: STALE_EPOCH
+  ///   naming this conversation, CANNOT_MESSAGE, FEATURE_DISABLED or
+  ///   NOT_FOUND; a rate limit, a quota or another check the server makes
+  ///   before its replay lookup is no such answer); without it it is
+  ///   [InitDiscard.held];
+  /// - or the marks are already at or past the init (`InitSettle.replay`):
+  ///   it can never be settled, whatever the server holds.
+  ///
+  /// Never for a group the server holds as this device's while an answer
+  /// may still come ([InitDiscard.held]), and (fix round 2, ruling 3) never
+  /// for a row an earlier run sent and this run did not, until
+  /// [kInitResendMargin] after this run began. A page that holds the message
+  /// settles the group with it ([InitDiscard.settled]).
+  ///
+  /// Binding for Task 13b: offer this on a pending init row only; after
+  /// `discarded` the row is the sender's (failed, retryable): a retry goes
+  /// through [retryStart], and a discard of the row through
+  /// `EncryptedSender.discard`. Show `held` as "still being delivered" and
+  /// `notDecided` as "try again".
+  Future<InitDiscard> discardInit(String conversationId) {
+    if (!isConversationId(conversationId)) {
+      throw ArgumentError('Invalid conversation id.');
+    }
+    return _discardInit(conversationId);
+  }
+
   // -------------------------------------------------------------------------
   // Routing
 
@@ -578,6 +717,23 @@ class GroupStarter {
     if (conversationId != null && !isConversationId(conversationId)) {
       throw ArgumentError('Invalid conversation id.');
     }
+    // Audit L2. Decision: one routing per peer ref at a time; a start for a
+    // peer whose routing runs waits for it and is then routed afresh (the
+    // conversation is then known, so its row goes to the sender). Why: two
+    // fresh starts for one peer each claimed the peer's one-time packages
+    // (and one of the 20 claims per target a day), and the second claim
+    // was always wasted: the lock then found the first one's group. Keyed
+    // on the reference exactly as given (another id kind of the same
+    // person is not joined). Every routing of the peer waits, not only a
+    // fresh one: which path a routing takes is known only after its reads,
+    // and the order the user typed is kept that way.
+    while (true) {
+      final running = _routing[peerUserId];
+      if (running == null) break;
+      await running;
+    }
+    final routed = Completer<void>();
+    _routing[peerUserId] = routed.future;
     try {
       return await _route(
         localId: localId,
@@ -595,185 +751,12 @@ class GroupStarter {
       // Fail closed: a failed read or an engine failure is never plaintext.
       _reportIfBug(e, s, 'start.route');
       return _out(StartResult.unavailable);
-    }
-  }
-
-  Future<StartOutcome> _route({
-    required String localId,
-    required String peer,
-    required String? conversationId,
-    required String text,
-    required String sharedPostId,
-  }) async {
-    final vault = _session.vault;
-    // Review I1. Decision: a vault exists on this device and cannot be
-    // asked now (opening, a key outage, a lost lock): its known set is the
-    // only record that a conversation is encrypted, so nothing is routed
-    // without it. Never plaintext, whatever the flag says; with no vault
-    // on the device at all the flag decides as before (R1's inertness).
-    //
-    // Review N2. Decision: "no vault on the device" is taken only from a
-    // session that SAYS so (status `off`, or `unsupported`: no vault can
-    // exist on this platform). `vaultKnown` is false as well when the
-    // marker could not be read (status `unavailable`), and a vault that
-    // may exist is treated as one that does: never plaintext in doubt.
-    if (vault == null) {
-      final status = _session.status.value;
-      if (_session.vaultKnown ||
-          (status != VaultStatus.off && status != VaultStatus.unsupported)) {
-        return _out(StartResult.unavailable);
+    } finally {
+      if (identical(_routing[peerUserId], routed.future)) {
+        _routing.remove(peerUserId);
       }
+      routed.complete();
     }
-    if (vault != null && !_known.isLoadedFor(vault)) await _known.load(vault);
-
-    // 1. Known first (security read C1): the known set and the cache's
-    // sticky marker are asked BEFORE the flag and before any lookup.
-    String? known;
-    if (conversationId != null) {
-      if (_known.contains(conversationId) ||
-          await _messaging.cachedEverEncrypted(conversationId)) {
-        known = conversationId;
-      } else if (vault != null &&
-          await _known.conversationForPeer(vault, peer) != null) {
-        // Review M2. Decision: the id is not known, but the vault stores
-        // this peer for ANOTHER conversation. An honest server cannot
-        // produce that (the id is deterministic): nothing is started and
-        // nothing is plaintext.
-        return _out(StartResult.unavailable);
-      }
-    } else if (vault != null) {
-      known = await _known.conversationForPeer(vault, peer);
-    }
-    if (known != null) {
-      final saved = await _viaSender(
-        known,
-        localId: localId,
-        text: text,
-        sharedPostId: sharedPostId,
-      );
-      // Review F1 (c): a new send is an explicit trigger. When the vault
-      // shows this device was never a member (its own init was refused or
-      // abandoned), encryption starts again here; else the row waits.
-      if (saved.result == StartResult.joinedExisting) {
-        await _restartKnown(known, peer);
-      }
-      return saved;
-    }
-    if (conversationId == null) {
-      // Second re-read R1: a recipient the stored refs do not resolve,
-      // whose cached row is of a conversation ever known as encrypted (the
-      // stored ref and this one may be of different id kinds). Nothing is
-      // started and nothing is plaintext.
-      final row = await _messaging.cachedConversationWith(peer);
-      if (row != null &&
-          row.id.isNotEmpty &&
-          (_known.contains(row.id) ||
-              await _messaging.cachedEverEncrypted(row.id))) {
-        return _out(StartResult.unavailable);
-      }
-    }
-
-    // 2. A device whose flag is off or unknown never claims or inits.
-    if (!_session.mayStart) return _plaintextUnlessKnown(conversationId, peer);
-    // The flag is on but nothing can be started here now (no usable vault
-    // or engine, or this device was removed elsewhere). Decision: never
-    // plaintext in doubt; the caller may try again.
-    if (vault == null || _removedElsewhere() || _engineDown()) {
-      return _out(StartResult.unavailable);
-    }
-
-    // 3. The peer's device list (security read H1): plaintext ONLY on a
-    // readable, empty answer.
-    final list = await _directory.peer(peer, priority: BudgetPriority.user);
-    switch (list.state) {
-      case ListState.readable:
-        if (list.devices.isEmpty) {
-          return _plaintextUnlessKnown(conversationId, peer);
-        }
-      case ListState.unreadable:
-        return _lookupFailed(peer);
-      case ListState.deferred:
-        // Review 3b, the brief as amended: deferred -> start only when the
-        // last readable list is younger than `kDeviceListReuse`, else
-        // `lookupFailed`. Here: no kept list, or an empty one, ends now;
-        // a non-empty one lets the start's own fresh lookup try, and
-        // [_lastReadable] refuses a kept list that is too old. Why: fail
-        // closed; the old clause trusted a list of any age.
-        if (list.fetchedAt == null || list.devices.isEmpty) {
-          return _out(StartResult.lookupFailed);
-        }
-    }
-
-    // The report key and the exact bytes are fixed here, once.
-    final content = encodeMessageContent(
-      text: text,
-      sharedPostId: sharedPostId,
-      reportKey: await _random(kReportKeyBytes),
-    );
-    final outcome = await _begin(
-      peer,
-      _Draft(
-        localId: localId,
-        content: content,
-        text: text,
-        sharedPostId: sharedPostId,
-        recipient: conversationId == null ? peer : null,
-        conversationId: conversationId,
-      ),
-    );
-    final id = outcome.conversationId;
-    if (outcome.result == StartResult.started && id != null) {
-      _onChanged(id);
-      // The init goes out after this call returned (it may take 30 s).
-      unawaited(_resume(id, BudgetPriority.user));
-    }
-    return outcome;
-  }
-
-  /// A conversation this device ever knew as encrypted: the row goes to the
-  /// sender under [id] (it is sent in an existing group, or waits for a
-  /// welcome); never plaintext.
-  Future<StartOutcome> _viaSender(
-    String id, {
-    required String localId,
-    required String text,
-    required String sharedPostId,
-  }) async {
-    if (_session.vault == null || _removedElsewhere() || _engineDown()) {
-      return _out(StartResult.unavailable, id);
-    }
-    try {
-      await _sender.enqueue(
-        localId: localId,
-        conversationId: id,
-        text: text,
-        sharedPostId: sharedPostId,
-      );
-    } on StateError {
-      // The vault closed meanwhile: nothing was saved.
-      return _out(StartResult.unavailable, id);
-    }
-    return _out(StartResult.joinedExisting, id);
-  }
-
-  /// An unreadable lookup: with the typed cause when it answered
-  /// CANNOT_MESSAGE (the directory parks the peer then).
-  StartOutcome _lookupFailed(String peer) => _out(
-    StartResult.lookupFailed,
-    null,
-    _directory.isParked(peer) ? const CannotMessageException() : null,
-  );
-
-  /// Review M1. `plaintext`, unless the conversation is known NOW. The
-  /// known check of step 1 and this answer are separated by awaits (a
-  /// lookup of up to 30 s) in which a welcome can be joined: the
-  /// synchronous part of step 1 is asked again right before answering,
-  /// so the server's ENCRYPTION_REQUIRED is not what stops it.
-  StartOutcome _plaintextUnlessKnown(String? conversationId, String peer) {
-    final known =
-        (conversationId != null && _known.contains(conversationId)) ||
-        _known.ids.any((id) => _known.peerOf(id) == peer);
-    return _out(known ? StartResult.unavailable : StartResult.plaintext);
   }
 
   StartOutcome _out(
@@ -843,62 +826,6 @@ class GroupStarter {
     }
   }
 }
-
-/// The first message of a start: a new draft, or the row [replaces] that
-/// this start encrypts again: the waiting stage-plain row of a known
-/// conversation ([_Mode.restart]), or the init row of the expired
-/// provisional group the start replaces ([_Mode.replace]; that group is
-/// not discarded first, it goes in the creating transaction). No
-/// `toString`.
-class _Draft {
-  const _Draft({
-    required this.localId,
-    required this.content,
-    this.text,
-    this.sharedPostId = '',
-    this.recipient,
-    this.conversationId,
-    this.replaces,
-    this.createdAtMicros,
-    this.expectId,
-    this.replacesCommit,
-  });
-
-  final String localId;
-  final Uint8List content;
-
-  /// The typed text of a new draft (for the sender, when the conversation
-  /// turns out to exist); null for a rebuild.
-  final String? text;
-  final String sharedPostId;
-
-  /// The recipient reference exactly as sent, for a draft addressed by
-  /// recipient; null for one addressed by [conversationId].
-  final String? recipient;
-  final String? conversationId;
-
-  /// The key of the row this start encrypts again (it is replaced by a row
-  /// under a NEW key in the same transaction): a stage-plain row
-  /// ([_Mode.restart]), or the old init row ([_Mode.replace]).
-  final String? replaces;
-  final int? createdAtMicros;
-
-  /// The conversation id the claim must answer, for a row addressed by
-  /// recipient whose conversation is already known ([_Mode.replace]).
-  final String? expectId;
-
-  /// [_Mode.replace]: the pending commit of the provisional group this
-  /// start replaces (the group is replaced only while it is still that one).
-  final Uint8List? replacesCommit;
-}
-
-/// How a start treats what the vault already holds for the claim's id.
-///
-/// `fresh`: a first message; a known id or a stored group takes the row
-/// instead. `restart`: a known conversation this device was never a member
-/// of (review F1, option c). `replace`: the 24 h rebuild (review I3): the
-/// old provisional group is replaced in the creating transaction.
-enum _Mode { fresh, restart, replace }
 
 // One body each, shared with the sender (`pipeline_support.dart`).
 typedef _Stopped = PipelineStopped;

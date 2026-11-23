@@ -69,7 +69,10 @@ void main() {
   /// flight, under the conversation lock).
   Completer<void>? gate;
 
-  GroupStarter build({VaultSession? session}) => starter = GroupStarter(
+  GroupStarter build({
+    VaultSession? session,
+    void Function(Duration delay, void Function() run)? schedule,
+  }) => starter = GroupStarter(
     crypto: rig.crypto,
     sender: rig.sender,
     receiver: rig.receiver,
@@ -88,7 +91,8 @@ void main() {
     removedElsewhere: () => rig.removedElsewhere,
     ownUserId: () => ownId,
     publicIdsOff: () => publicIdsOff,
-    schedule: (delay, run) => rig.scheduled.add((delay: delay, run: run)),
+    schedule:
+        schedule ?? (delay, run) => rig.scheduled.add((delay: delay, run: run)),
     onUnexpectedError: (e, _) => rig.unexpected.add(e),
   );
 
@@ -275,6 +279,8 @@ void main() {
 
       final real = dmConversationId(_me, _bob);
       person(_bob, real, [bob]);
+      // Audit M2 (ii): the cache's conversation with bob is the real id.
+      rig.server.rows.remove(_c1);
       r = await start();
       expect(r.result, StartResult.started);
       expect(r.conversationId, real);
@@ -583,6 +589,143 @@ void main() {
       expect(rig.keys.getCalls, isEmpty);
       expect(rig.keys.listCalls, 0);
       expect(rig.keys.claimCalls, isEmpty);
+      expect(rig.server.sends, isEmpty);
+    });
+  });
+
+  group('the claim\'s conversation is bound to its peer (Task 8 audit M2)', () {
+    test('(i) a claim naming a conversation whose cached header names '
+        'another peer is refused before the lock', () async {
+      // The server answers bob's claim with _c2, the cached conversation
+      // with carol (not in the known set: public ids on, so nothing else
+      // could tell).
+      rig.server.rows
+        ..remove(_c1)
+        ..[_c2] = header(_c2, 'ref-carol');
+      rig.keys.claims[_bob] = () async => kpb.ClaimKeyPackagesResponse(
+        conversationId: _c2,
+        keyPackages: [await packageOf(bob)],
+      );
+
+      final r = await start();
+
+      expect(r.result, StartResult.unavailable);
+      expect(r.conversationId, isNull);
+      expect(rig.keys.claimCalls, hasLength(1));
+      expect(await rows(), isEmpty);
+      expect(await groupOf(_c2), isNull);
+      expect(rig.known.contains(_c2), isFalse);
+      expect(rig.server.sends, isEmpty);
+    });
+
+    test('(ii) a claim naming another id than the cached conversation with '
+        'this peer is refused before the lock', () async {
+      // The cache holds _c1 as the conversation with bob; the claim names
+      // _c2, of which nothing is cached.
+      expect(rig.server.rows[_c1]!.peer.userId, _bob);
+      rig.keys.claims[_bob] = () async => kpb.ClaimKeyPackagesResponse(
+        conversationId: _c2,
+        keyPackages: [await packageOf(bob)],
+      );
+
+      final r = await start();
+
+      expect(r.result, StartResult.unavailable);
+      expect(rig.keys.claimCalls, hasLength(1));
+      expect(await rows(), isEmpty);
+      expect(await groupOf(_c2), isNull);
+      expect(await groupOf(), isNull);
+      expect(rig.server.sends, isEmpty);
+
+      // The claim naming the cached id starts.
+      person(_bob, _c1, [bob]);
+      expect((await start()).result, StartResult.started);
+      await done();
+    });
+
+    test('(iii) a known id whose stored ref is of the same id kind and '
+        'another peer is refused when routed to; a ref of the other kind is '
+        'not compared', () async {
+      await rig.known.add(_c2, peerUserId: 'ref-carol');
+
+      var r = await start(conversationId: _c2);
+
+      expect(r.result, StartResult.unavailable);
+      expect(r.conversationId, isNull);
+      expect(await rows(), isEmpty);
+      expect(rig.keys.claimCalls, isEmpty);
+      expect(rig.server.sends, isEmpty);
+
+      // A stored ref that is a public id cannot be compared with a raw uid
+      // (audit L8, id-kind drift): the row goes to the known conversation
+      // as before, never plaintext.
+      const publicRef = 'u0123456789abcdefghjkmnpqrs';
+      expect(publicRef, hasLength(27));
+      await rig.known.add(_c3, peerUserId: publicRef);
+      r = await start(conversationId: _c3);
+      expect(r.result, StartResult.joinedExisting);
+      expect(r.conversationId, _c3);
+      expect(rig.keys.claimCalls, isEmpty);
+    });
+
+    test('a conversation another peer\'s routing commits while this routing '
+        'claims is refused under the lock, even for a draft addressed by its '
+        'id (pre-flag-on audit M-A)', () async {
+      // _c1 is the thread with bob (Q). A hostile server answers carol's
+      // (P's) claim with _c1 too; the cache holds no header for _c1, so the
+      // checks before the lock cannot tell.
+      final carol = await RigPeer.create('carol');
+      person('ref-carol', _c1, [carol]);
+      rig.server.rows.remove(_c1);
+      await sibling('sib');
+      // Bob's routing holds at its own-device claim.
+      final own = rig.keys.claims[_me]!;
+      final hold = Completer<void>();
+      var ownClaims = 0;
+      rig.keys.claims[_me] = () async {
+        if (ownClaims++ == 0) await hold.future;
+        return own();
+      };
+
+      final q = start(localId: 'local-q', conversationId: _c1, text: 'to bob');
+      await pumpEventQueue();
+      expect(rig.keys.claimCalls.map((c) => c.userId), [_bob, _me]);
+      // Carol's routing commits _c1 meanwhile, stored as carol's.
+      final p = await start(localId: 'local-p', peer: 'ref-carol');
+      expect(p.result, StartResult.started);
+      expect(p.conversationId, _c1);
+      expect(rig.known.peerOf(_c1), 'ref-carol');
+      hold.complete();
+      final r = await q;
+      await done();
+
+      expect(r.result, StartResult.unavailable);
+      expect(r.conversationId, isNull);
+      // Bob's text was never saved into _c1, and only carol's init went
+      // out.
+      expect((await rows()).where((x) => x.localId == 'local-q'), isEmpty);
+      expect(rig.server.sends, hasLength(1));
+      expect(inits(), hasLength(1));
+    });
+
+    test('a cache that comes to disagree while this routing claims refuses '
+        'under the lock (pre-flag-on audit M-A)', () async {
+      rig.server.rows.remove(_c1);
+      await sibling('sib');
+      final own = rig.keys.claims[_me]!;
+      rig.keys.claims[_me] = () async {
+        // While the own-device claim is in flight the cache learns that _c1
+        // is the conversation with carol.
+        rig.server.rows[_c1] = header(_c1, 'ref-carol');
+        return own();
+      };
+
+      final r = await start(conversationId: _c1);
+
+      expect(r.result, StartResult.unavailable);
+      expect(await rows(), isEmpty);
+      expect(await groupOf(), isNull);
+      expect(rig.known.contains(_c1), isFalse);
       expect(rig.server.sends, isEmpty);
     });
   });
@@ -1012,6 +1155,8 @@ void main() {
         'refused before any claim (code review M5)', () async {
       publicIdsOff = true;
       person(_bob, dmConversationId(_me, _bob), [bob]);
+      // Audit M2 (ii): the cache's conversation with bob is the real id.
+      rig.server.rows.remove(_c1);
       for (final unknownId in [null, '']) {
         ownId = unknownId;
         final r = await start();
@@ -1026,6 +1171,41 @@ void main() {
       final r = await start();
       expect(r.result, StartResult.started);
       await done(dmConversationId(_me, _bob));
+    });
+
+    test('two concurrent starts for the same peer share one run: one claim '
+        'set and one init (audit L2)', () async {
+      final sib = await sibling('sibling');
+      final hold = Completer<void>();
+      final answer = rig.keys.claims[_bob]!;
+      rig.keys.claims[_bob] = () async {
+        await hold.future;
+        return answer();
+      };
+
+      final first = start();
+      final second = start(localId: 'local-2', text: 'second');
+      await pumpEventQueue();
+      // The first is claiming; the second waits for it.
+      expect(rig.keys.claimCalls, hasLength(1));
+      hold.complete();
+      final r1 = await first;
+      final r2 = await second;
+      await done();
+
+      expect(r1.result, StartResult.started);
+      expect(r2.result, StartResult.joinedExisting);
+      expect(r2.conversationId, _c1);
+      // One claim for bob, one for the own sibling: one claim set.
+      expect(rig.keys.claimCalls.map((c) => c.userId), [_bob, _me]);
+      expect(inits(), hasLength(1));
+      expect((await groupOf())!.provisional, isFalse);
+      final init = pb.MlsInit.fromBuffer(inits().single.mlsInit!);
+      expect(init.welcomeDeviceIds, [bob.idString, sib.idString]);
+      // Both messages went out, in the order typed.
+      expect(await rows(), isEmpty);
+      expect(rig.server.sends, hasLength(2));
+      expect(rig.server.sends.last.mlsInit, isNull);
     });
 
     test('a failed claim for the own devices still starts, with the peer\'s '
@@ -1627,22 +1807,152 @@ void main() {
       expect(await rig.sender.outgoing(_c2), isEmpty);
     });
 
-    test('FEATURE_DISABLED on a retry without it is a refusal', () async {
-      rig.server.sendScript.addAll([
-        unknown,
-        (error: const FeatureDisabledException('off'), stored: false),
-      ]);
+    // Task 9 concern 1, changed on purpose: this test was Task 8's "a
+    // refused retry is decided at once". The first attempt's outcome is
+    // unknown, so its request may still reach the server until
+    // [kInitResendMargin] after it started; the refusal of the retry right
+    // after it decides nothing. After the margin the same refusal does.
+    test(
+      'FEATURE_DISABLED on a retry without it is a refusal once the '
+      'margin after the unknown attempt has passed (Task 9 concern 1)',
+      () async {
+        rig.server.sendScript.addAll([
+          unknown,
+          (error: const FeatureDisabledException('off'), stored: false),
+        ]);
 
+        await start();
+        await done();
+
+        expect(rig.server.sends, hasLength(2));
+        expect((await groupOf())!.provisional, isTrue);
+        expect(await rig.device.vault.members(_c1), hasLength(2));
+        var row = (await rows()).single;
+        expect(row.stage, OutboxStage.encrypted);
+        expect(row.init, isNotNull);
+        expect(row.lastError, isNull);
+        // One resume, at the margin's end after the unknown attempt started.
+        expect(rig.scheduled.map((s) => s.delay), [kInitResendMargin]);
+
+        rig.clock.advance(kInitResendMargin);
+        rig.server.sendScript.add((
+          error: const FeatureDisabledException('off'),
+          stored: false,
+        ));
+        rig.scheduled.single.run();
+        await done();
+
+        expect(rig.server.sends, hasLength(3));
+        expect(rig.server.sends[0].same(rig.server.sends[2]), isTrue);
+        expect(await groupOf(), isNull);
+        expect(await rig.device.vault.members(_c1), isEmpty);
+        row = (await rows()).single;
+        expect(row.stage, OutboxStage.plain);
+        expect(row.lastError, 'FeatureDisabledException');
+        expect(row.init, isNull);
+      },
+    );
+
+    test('a refusal or a STALE_EPOCH right after an attempt with an unknown '
+        'outcome deletes nothing inside the margin; after it the record '
+        'decides (Task 9 concern 1)', () async {
+      // The first call takes 10 s, so the automatic second try (also
+      // unknown) starts 10 s after it; the refusal comes 40 s after that
+      // second try started. The margin counts from the LAST start.
+      var sent = 0;
+      rig.server.beforeSend = (send) async {
+        sent++;
+        if (sent == 1) rig.clock.advance(const Duration(seconds: 10));
+      };
+      rig.server.sendScript.addAll([unknown, unknown]);
       await start();
       await done();
-
       expect(rig.server.sends, hasLength(2));
+      rig.scheduled.clear();
+
+      rig.clock.advance(const Duration(seconds: 40));
+      const stale = (
+        error: StaleEpochException(
+          'stale',
+          generation: 1,
+          epoch: 1,
+          conversationId: _c1,
+        ),
+        stored: false,
+      );
+      rig.server.sendScript.add(stale);
+      await starter.resumeProvisional();
+      await done();
+      // Inside the margin after the second (unknown) try: kept, no join.
+      expect(rig.server.sends, hasLength(3));
+      expect(rig.server.calls, contains('listConversationCommits'));
+      expect((await groupOf())!.provisional, isTrue);
+      expect((await rows()).single.init, isNotNull);
+      expect(rig.device.engine.calls, isNot(contains('joinFromWelcome')));
+      expect(rig.scheduled.map((s) => s.delay), [
+        kInitResendMargin - const Duration(seconds: 40),
+      ]);
+
+      // At the margin's end the record decides: nothing stored, refused.
+      rig.clock.advance(kInitResendMargin - const Duration(seconds: 40));
+      rig.server.sendScript.add((
+        error: const FeatureDisabledException('off'),
+        stored: false,
+      ));
+      rig.scheduled.single.run();
+      await done();
+      expect(rig.server.sends, hasLength(4));
       expect(await groupOf(), isNull);
-      expect(await rig.device.vault.members(_c1), isEmpty);
-      final row = (await rows()).single;
-      expect(row.stage, OutboxStage.plain);
-      expect(row.lastError, 'FeatureDisabledException');
-      expect(row.init, isNull);
+      expect((await rows()).single.lastError, 'FeatureDisabledException');
+    });
+
+    test('a margin that ends while the commit listing runs arms a resume '
+        'that fires while its resume still runs; it runs after that one and '
+        'decides with no other trigger (pre-flag-on review m-1)', () async {
+      // A timer with no wait fires at once here: while the resume that
+      // armed it still holds its single-flight slot, as a real zero-wait
+      // timer can.
+      final armed = <Duration>[];
+      build(
+        schedule: (delay, run) {
+          rig.scheduled.add((delay: delay, run: run));
+          if (delay == Duration.zero) {
+            armed.add(delay);
+            run();
+          }
+        },
+      );
+      rig.server.sendScript.addAll([unknown, unknown]);
+      await start();
+      await done();
+      expect(rig.server.sends, hasLength(2));
+      rig.scheduled.clear();
+
+      // The refusal comes 1 s before the margin's end; its listing takes
+      // 2 s, so the margin ends while it runs: the "not stored" read
+      // decides nothing and one resume is armed with no wait.
+      rig.clock.advance(kInitResendMargin - const Duration(seconds: 1));
+      rig.server.onCall = (call) async {
+        if (call == 'listConversationCommits') {
+          rig.clock.advance(const Duration(seconds: 2));
+        }
+      };
+      rig.server.sendScript.addAll([
+        (error: const FeatureDisabledException('off'), stored: false),
+        (error: const FeatureDisabledException('off'), stored: false),
+      ]);
+      await starter.resumeProvisional();
+      await done();
+      await pumpEventQueue();
+      await done();
+
+      expect(armed, [Duration.zero]);
+      // The armed resume asked again after the first one ended: the same
+      // request, refused, and the record now decides.
+      expect(rig.server.sends, hasLength(4));
+      expect(rig.server.sends[0].same(rig.server.sends[3]), isTrue);
+      expect(await groupOf(), isNull);
+      expect((await rows()).single.lastError, 'FeatureDisabledException');
     });
 
     test('text typed while provisional waits at stage plain and goes out '
@@ -2342,11 +2652,28 @@ void main() {
       await expectNoNewStart();
     });
 
-    test('no new start for another peer than the stored peer ref', () async {
+    test('no new start for another peer than the stored peer ref, and '
+        '(audit M2 iii) no row for that peer either', () async {
       await refusedOnce();
       final carol = await RigPeer.create('carol');
       rig.keys.peers['ref-carol'] = [rigKeyDevice(carol.idString, carol.key)];
-      await expectNoNewStart(peer: 'ref-carol', conversationId: _c1);
+      await discardFailed();
+      // Audit M2 (iii), a behaviour change: the stored ref of _c1 is bob's,
+      // of the same id kind, so a send for carol into _c1 is refused; it
+      // used to be enqueued there and wait (encrypted to bob's devices).
+      final r = await start(
+        localId: 'local-2',
+        peer: 'ref-carol',
+        conversationId: _c1,
+        text: 'second',
+      );
+      expect(r.result, StartResult.unavailable);
+      expect(r.conversationId, isNull);
+      await done();
+      expect(rig.keys.claimCalls, isEmpty);
+      expect(await groupOf(), isNull);
+      expect(await rows(), isEmpty);
+      expect(rig.server.sends, hasLength(1));
     });
 
     test('no new start with the flag not on', () async {
@@ -2553,10 +2880,12 @@ void main() {
       await expectUntouched('an unreadable own list');
       rig.keys.ownFails = false;
 
-      // (c) The app restarts in between; the next resume starts again.
+      // (c) The app restarts in between; the next resume starts again,
+      // once [kRebuildSpacing] has passed since the rebuild in (a) (audit
+      // L1, a behaviour change: it used to start two minutes later).
       await rig.restart();
       build();
-      rig.clock.advance(const Duration(minutes: 2));
+      rig.clock.advance(kRebuildSpacing);
       rig.server.sendScript.addAll([unknown, unknown]);
       await starter.resumeProvisional();
       await done();
@@ -2574,6 +2903,119 @@ void main() {
       expect(row.recipientUserId, _bob);
       expect(await rig.device.vault.members(_c1), hasLength(2));
       expect(rig.server.sends.last.key, row.idempotencyKey);
+    });
+
+    /// An expired provisional group whose server's first commit is another
+    /// device's init: the next resume rebuilds it. The rig's clock is set to
+    /// 06:00 UTC (11:30 IST) of its own day, so no test crosses an IST day
+    /// (the real clock is never compared with it).
+    Future<({GroupRecord group, OutboxItem row})> expiredLost() async {
+      final day = rig.clock.now();
+      rig.clock.value = DateTime.utc(day.year, day.month, day.day, 6);
+      rig.server.sendScript.addAll([unknown, unknown]);
+      await start();
+      await done();
+      final state = (group: (await groupOf())!, row: (await rows()).single);
+      rig.server.addCommit(
+        _c1,
+        const MlsPair(1, 0),
+        rigBytes('the init of another device'),
+        fromUser: 'user-b',
+      );
+      rig.clock.advance(kProvisionalExpiry + const Duration(minutes: 1));
+      rig.keys.claimCalls.clear();
+      return state;
+    }
+
+    Future<void> expectOld(
+      ({GroupRecord group, OutboxItem row}) old,
+      String why,
+    ) async {
+      final g = (await groupOf())!;
+      expect(g.provisional, isTrue, reason: why);
+      expect(
+        rigEq(g.pending!.commit, old.group.pending!.commit),
+        isTrue,
+        reason: why,
+      );
+      final row = (await rows()).single;
+      expect(row.idempotencyKey, old.row.idempotencyKey, reason: why);
+      expect(row.init, isNotNull, reason: why);
+      expect(row.lastError, isNull, reason: why);
+    }
+
+    test('a rebuild the key history would refuse makes no claim and no '
+        'lookup (audit L1)', () async {
+      final old = await expiredLost();
+      // The key history no longer opens: the creating body would refuse.
+      await rig.device.vault.transaction(
+        (tx) => tx.putSetting(
+          'messages.e2ee.keys.$_c1',
+          Uint8List.fromList([1, 2, 3]),
+        ),
+      );
+      final gets = rig.keys.getCalls.length;
+      final lists = rig.keys.listCalls;
+
+      await starter.resumeProvisional();
+      await done();
+
+      expect(rig.keys.claimCalls, isEmpty);
+      expect(rig.keys.getCalls, hasLength(gets));
+      expect(rig.keys.listCalls, lists);
+      await expectOld(old, 'an unreadable history');
+      expect(rig.keyHistoryErrors, ['keyHistory.read']);
+      rig.unexpected.clear();
+    });
+
+    test('one rebuild per group per hour, kept across a restart (audit '
+        'L1)', () async {
+      final old = await expiredLost();
+      // The first rebuild claims; its replace is refused (the commits
+      // cannot be listed again under the lock), so the group stays.
+      var listings = 0;
+      rig.server.onCall = (call) async {
+        if (call == 'listConversationCommits' && ++listings == 2) {
+          throw const NetworkException('no network');
+        }
+      };
+      await starter.resumeProvisional();
+      await done();
+      rig.server.onCall = null;
+      expect(listings, 2);
+      expect(rig.keys.claimCalls, hasLength(1));
+      await expectOld(old, 'the replace was refused');
+
+      // Within the hour: the expiry asks the commits, and nothing is
+      // claimed. A restart does not reopen it.
+      rig.clock.advance(const Duration(minutes: 30));
+      await starter.resumeProvisional();
+      await done();
+      expect(rig.keys.claimCalls, hasLength(1));
+      await rig.restart();
+      build();
+      rig.clock.advance(const Duration(minutes: 29));
+      await starter.resumeProvisional();
+      await done();
+      expect(rig.keys.claimCalls, hasLength(1));
+      await expectOld(old, 'within the hour');
+
+      // An hour after the first rebuild: the next one is made.
+      rig.clock.advance(const Duration(minutes: 1));
+      rig.server.sendScript.addAll([unknown, unknown]);
+      await starter.resumeProvisional();
+      await done();
+      expect(rig.keys.claimCalls, hasLength(2));
+      final rebuilt = (await groupOf())!;
+      expect(rebuilt.provisional, isTrue);
+      expect(
+        rebuilt.provisionalCreatedAtMicros,
+        rig.clock.now().microsecondsSinceEpoch,
+      );
+      expect(
+        (await rows()).single.idempotencyKey,
+        isNot(old.row.idempotencyKey),
+      );
     });
   });
 
@@ -2641,7 +3083,9 @@ void main() {
       await expectRowUntouched('replaced meanwhile');
 
       // (2) While the next rebuild's claim is in flight the group is
-      // settled (made final).
+      // settled (made final). That rebuild is made once [kRebuildSpacing]
+      // has passed (audit L1).
+      rig.clock.advance(kRebuildSpacing);
       during = () => rig.device.vault.transaction(
         (tx) => tx.clearProvisional(_c1, 1, afterPair: const MlsPair(1, 0)),
       );
@@ -3215,6 +3659,593 @@ void main() {
     );
   });
 
+  group('discardInit (gate 6, audit L10)', () {
+    /// A started init whose two attempts got no answer; nothing stored at
+    /// the server unless [stored].
+    Future<OutboxItem> unanswered({
+      bool stored = false,
+      String? conversationId,
+    }) async {
+      rig.server.sendScript.addAll([stored ? lostAnswer : unknown, unknown]);
+      gate = Completer<void>();
+      await start(conversationId: conversationId);
+      final row = (await rows()).single;
+      gate!.complete();
+      await done();
+      expect((await groupOf())!.provisional, isTrue);
+      return row;
+    }
+
+    Future<void> expectUnchanged(OutboxItem row, String why) async {
+      expect((await groupOf())!.provisional, isTrue, reason: why);
+      final kept = (await rows()).single;
+      expect(kept.idempotencyKey, row.idempotencyKey, reason: why);
+      expect(kept.init, isNotNull, reason: why);
+      expect(kept.stage, OutboxStage.encrypted, reason: why);
+      expect(kept.lastError, isNull, reason: why);
+    }
+
+    Future<void> expectDiscarded(String why) async {
+      expect(await groupOf(), isNull, reason: why);
+      expect(await rig.device.vault.members(_c1), isEmpty, reason: why);
+      final row = (await rows()).single;
+      expect(row.stage, OutboxStage.plain, reason: why);
+      expect(row.init, isNull, reason: why);
+      expect(row.lastError, kStartErrorInitDiscarded, reason: why);
+      expect(await starter.pendingInit(conversationId: _c1), isNull);
+      final shown = (await rig.sender.outgoing(_c1)).single;
+      expect(shown.status, OutgoingStatus5a.failed, reason: why);
+      expect(shown.retryable, isTrue, reason: why);
+      expect(shown.error, isNull, reason: why);
+      expect(rig.known.contains(_c1), isTrue, reason: why);
+    }
+
+    test('the server\'s record says not stored: the group goes and the row '
+        'fails with a reason the UI can show', () async {
+      await unanswered();
+      rig.clock.advance(kInitResendMargin);
+      final sends = rig.server.sends.length;
+
+      expect(await starter.discardInit(_c1), InitDiscard.discarded);
+
+      await expectDiscarded('not stored');
+      expect(rig.server.sends, hasLength(sends));
+      // The user's retry starts again from fresh claims (review F1 c).
+      rig.keys.claimCalls.clear();
+      await starter.retryStart('local-1');
+      await done();
+      expect(rig.keys.claimCalls.single.userId, _bob);
+    });
+
+    test('another device\'s commit first: the group goes, the winner\'s '
+        'welcome is joined and the row goes out in it, never failed '
+        '(pre-flag-on review m-E)', () async {
+      final row = await unanswered();
+      // Bob's own start reached the server first; his welcome lists this
+      // device.
+      await rig.offer(_c1, bob);
+      rig.clock.advance(kInitResendMargin);
+
+      expect(await starter.discardInit(_c1), InitDiscard.discarded);
+      await done();
+
+      final g = (await groupOf())!;
+      expect(g.provisional, isFalse);
+      expect(g.pending, isNull);
+      expect(rig.device.engine.calls, contains('joinFromWelcome'));
+      // The row was re-encrypted in the joined group under a new key and
+      // sent; it never failed.
+      expect(await rows(), isEmpty);
+      final last = rig.server.sends.last;
+      expect(last.mlsInit, isNull);
+      expect(last.key, isNot(row.idempotencyKey));
+      expect(
+        await rig.device.vault.hasMessage(
+          _c1,
+          expectedMessageId(_me, last.key),
+        ),
+        isTrue,
+      );
+      expect(await starter.pendingInit(conversationId: _c1), isNull);
+    });
+
+    test('another device\'s commit first: the sender forgets the row\'s '
+        'remembered refusal too (pre-flag-on fix round 3, ruling 6)', () async {
+      final row = await unanswered();
+      await rig.offer(_c1, bob);
+      rig.clock.advance(kInitResendMargin);
+      // A typed refusal the sender remembers for the row from earlier.
+      rig.sender.rememberRefusal(row.localId, const CannotMessageException());
+      expect(rig.sender.memoryEntries, 1);
+      // The welcome cannot be fetched now: the row waits, nothing is sent.
+      rig.server.onCall = (call) async {
+        if (call == 'listWelcomes') throw const NetworkException('no network');
+      };
+
+      expect(await starter.discardInit(_c1), InitDiscard.discarded);
+      await done();
+
+      expect(await groupOf(), isNull);
+      final waiting = (await rows()).single;
+      expect(waiting.init, isNull);
+      expect(waiting.lastError, isNull);
+      expect(rig.sender.memoryEntries, 0);
+    });
+
+    test('after a restart, a row whose attempts were all made by the earlier '
+        'run is held until the margin after the restart; then the record '
+        'decides (pre-flag-on fix round 2, ruling 3)', () async {
+      final row = await unanswered();
+      expect(row.attempts, 0);
+      expect((await rows()).single.attempts, greaterThan(0));
+      // A request of the earlier run may still be on its way: the new run
+      // never saw it end.
+      await rig.restart();
+      build();
+      final sends = rig.server.sends.length;
+      rig.server.calls.clear();
+
+      rig.clock.advance(kInitResendMargin - const Duration(seconds: 1));
+      expect(await starter.discardInit(_c1), InitDiscard.held);
+      await expectUnchanged(row, 'inside the margin after the restart');
+      expect(rig.server.calls, isEmpty, reason: 'nothing is asked');
+
+      rig.clock.advance(const Duration(seconds: 1));
+      expect(await starter.discardInit(_c1), InitDiscard.discarded);
+      await expectDiscarded('the margin after the restart has passed');
+      expect(rig.server.sends, hasLength(sends));
+    });
+
+    test('a row this run sent with an unknown outcome, tapped inside the '
+        'margin after this run began: not decided, never held by the '
+        'restart rule (pre-flag-on fix round 3, ruling 3, code review Minor '
+        '2)', () async {
+      final row = await unanswered();
+      expect((await rows()).single.attempts, greaterThan(0));
+      rig.server.calls.clear();
+
+      // Still inside the margin after the construction: the restart rule
+      // does not apply, the record is asked, and this run's own unknown
+      // outcome makes its "not stored" decide nothing.
+      expect(await starter.discardInit(_c1), InitDiscard.notDecided);
+      await expectUnchanged(row, 'this run\'s request may still land');
+      expect(rig.server.calls, contains('listConversationCommits'));
+    });
+
+    /// Fix round 3, ruling 1: the earlier run's last request may still land.
+    /// After a restart, the resume sends the row once more (its first
+    /// request in this run) and the server refuses it for good.
+    Future<OutboxItem> refusedAfterRestart({required bool listable}) async {
+      final row = await unanswered();
+      await rig.restart();
+      build();
+      rig.server.sendScript.add((
+        error: const FeatureDisabledException('off'),
+        stored: false,
+      ));
+      if (!listable) {
+        rig.server.onCall = (call) async {
+          if (call == 'listConversationCommits') {
+            throw const NetworkException('no network');
+          }
+        };
+      }
+      final sends = rig.server.sends.length;
+      await starter.resumeProvisional();
+      await done();
+      expect(rig.server.sends, hasLength(sends + 1));
+      expect(rig.server.sends.last.same(rig.server.sends.first), isTrue);
+      rig.server.onCall = null;
+      return row;
+    }
+
+    test('after a restart, the resume sends the row and is refused, its '
+        'listing cannot be read: a tap inside the margin after the restart '
+        'is held; then the record decides (pre-flag-on fix round 3, ruling '
+        '1, audit L-2)', () async {
+      final row = await refusedAfterRestart(listable: false);
+      await expectUnchanged(row, 'the resume decided nothing');
+      rig.server.calls.clear();
+
+      rig.clock.advance(kInitResendMargin - const Duration(seconds: 1));
+      expect(await starter.discardInit(_c1), InitDiscard.held);
+      await expectUnchanged(row, 'the earlier run\'s request may still land');
+      expect(rig.server.calls, isEmpty, reason: 'nothing is asked');
+
+      rig.clock.advance(const Duration(seconds: 1));
+      expect(await starter.discardInit(_c1), InitDiscard.discarded);
+      await expectDiscarded('the margin after the restart has passed');
+    });
+
+    test('after a restart, the resume\'s own "not stored" read inside the '
+        'margin after the restart decides nothing: a refused retry keeps '
+        'the group (pre-flag-on fix round 3, ruling 1; the Task 9 restart '
+        'limit)', () async {
+      final row = await refusedAfterRestart(listable: true);
+      // The listing said "not stored", but the earlier run's request may
+      // still be stored after it: the group and the row stay.
+      await expectUnchanged(row, 'a refusal inside the margin after restart');
+      // One resume is armed for the margin's end, so the record decides
+      // without another trigger.
+      expect(rig.scheduled.map((s) => s.delay), contains(kInitResendMargin));
+
+      rig.clock.advance(kInitResendMargin);
+      expect(await starter.discardInit(_c1), InitDiscard.discarded);
+      await expectDiscarded('the margin after the restart has passed');
+    });
+
+    test('the server holds the init as this device\'s and it is younger '
+        'than 24 h: held, nothing changes', () async {
+      final row = await unanswered(stored: true);
+      failListMessages();
+      rig.clock.advance(kInitResendMargin);
+
+      expect(await starter.discardInit(_c1), InitDiscard.held);
+
+      await expectUnchanged(row, 'held');
+      expect(
+        rig.server.calls.where((c) => c == 'listMlsMessages'),
+        isEmpty,
+        reason: 'a young group is held on the commits alone',
+      );
+    });
+
+    test(
+      'the server holds the init as this device\'s for 24 h and no replay '
+      'of it was refused in this run: the first page decides between '
+      'settled and not decided, else held (pre-flag-on review I-1)',
+      () async {
+        final row = await unanswered(stored: true);
+        rig.clock.advance(kProvisionalExpiry + const Duration(minutes: 1));
+
+        // The page cannot be had: nothing is decided.
+        failListMessages();
+        expect(await starter.discardInit(_c1), InitDiscard.notDecided);
+        await expectUnchanged(row, 'no page');
+
+        // The page does not hold the message (50 newer ones), no call is out
+        // and the margin has passed, but no replay was refused: the server
+        // holds the group as ours and may hold a live conversation in it.
+        rig.server.onCall = null;
+        rig.server.rewriteLive = (real) =>
+            pb.ListMessagesResponse(conversation: real.conversation);
+        expect(await starter.discardInit(_c1), InitDiscard.held);
+        await expectUnchanged(row, 'ours, no refused replay');
+      },
+    );
+
+    // Pre-flag-on fix round 2, ruling 2: the lasting refusals, the only
+    // evidence (a STALE_EPOCH counts only when it names this conversation).
+    for (final error in const <AppException>[
+      FeatureDisabledException('off'),
+      CannotMessageException(),
+      NotFoundException('gone'),
+      StaleEpochException(
+        'stale',
+        generation: 1,
+        epoch: 2,
+        conversationId: _c1,
+      ),
+    ]) {
+      test('a replay refused with ${error.runtimeType} after 24 h, and a page '
+          'without the message: discarded (pre-flag-on review I-1)', () async {
+        final row = await unanswered(stored: true);
+        rig.clock.advance(kProvisionalExpiry + const Duration(minutes: 1));
+        rig.server.rewriteLive = (real) =>
+            pb.ListMessagesResponse(conversation: real.conversation);
+        rig.server.sendScript.add((error: error, stored: false));
+        final sends = rig.server.sends.length;
+
+        await starter.resumeProvisional();
+        await done();
+
+        // The replay went out, byte for byte, and was refused: nothing is
+        // deleted by the refusal itself.
+        expect(rig.server.sends, hasLength(sends + 1));
+        expect(rig.server.sends.last.same(rig.server.sends.first), isTrue);
+        await expectUnchanged(row, 'a refused replay deletes nothing');
+
+        expect(await starter.discardInit(_c1), InitDiscard.discarded);
+        await expectDiscarded('ours, its replay refused');
+      });
+    }
+
+    // Fix round 3, ruling 2 (code review Minor 1): a STALE_EPOCH of the
+    // replay is the evidence only when it names this conversation.
+    for (final named in const <String?>[null, _c2]) {
+      test('a replay of a row addressed by its id refused with a STALE_EPOCH '
+          'naming ${named ?? 'no conversation'}: an unknown outcome, held '
+          '(pre-flag-on fix round 3, ruling 2)', () async {
+        final row = await unanswered(stored: true, conversationId: _c1);
+        expect(row.conversationId, _c1);
+        expect(row.recipientUserId, isNull);
+        rig.clock.advance(kProvisionalExpiry + const Duration(minutes: 1));
+        rig.server.rewriteLive = (real) =>
+            pb.ListMessagesResponse(conversation: real.conversation);
+        rig.server.sendScript.add((
+          error: StaleEpochException(
+            'stale',
+            generation: 1,
+            epoch: 2,
+            conversationId: named,
+          ),
+          stored: false,
+        ));
+        final sends = rig.server.sends.length;
+
+        await starter.resumeProvisional();
+        await done();
+
+        expect(rig.server.sends, hasLength(sends + 1));
+        expect(rig.server.sends.last.same(rig.server.sends.first), isTrue);
+        if (named != null) {
+          // Another conversation named: reported once, step name only.
+          expect(rig.unexpected.map((e) => (e as E2eePipelineError).step), [
+            'start.staleConversation',
+          ]);
+          rig.unexpected.clear();
+        }
+        expect(await starter.discardInit(_c1), InitDiscard.held);
+        await expectUnchanged(row, 'not this conversation\'s refusal');
+      });
+    }
+
+    test('a refused replay, then reset() (sign-out or a new vault): held, '
+        'the evidence was memory of the earlier run (pre-flag-on review '
+        'm-B)', () async {
+      final row = await unanswered(stored: true);
+      rig.clock.advance(kProvisionalExpiry + const Duration(minutes: 1));
+      rig.server.rewriteLive = (real) =>
+          pb.ListMessagesResponse(conversation: real.conversation);
+      rig.server.sendScript.add((
+        error: const FeatureDisabledException('off'),
+        stored: false,
+      ));
+      await starter.resumeProvisional();
+      await done();
+      await expectUnchanged(row, 'a refused replay deletes nothing');
+
+      starter.reset();
+
+      expect(await starter.discardInit(_c1), InitDiscard.held);
+      await expectUnchanged(row, 'right after the reset');
+      // Past the margin after the reset too (ruling 3 holds no more): no
+      // replay was refused in this run.
+      rig.clock.advance(kInitResendMargin);
+      expect(await starter.discardInit(_c1), InitDiscard.held);
+      await expectUnchanged(row, 'no refused replay in this run');
+    });
+
+    test(
+      'a refused replay followed by a replay whose outcome is unknown: '
+      'held, only the last request counts (pre-flag-on review I-1)',
+      () async {
+        final row = await unanswered(stored: true);
+        rig.clock.advance(kProvisionalExpiry + const Duration(minutes: 1));
+        rig.server.rewriteLive = (real) =>
+            pb.ListMessagesResponse(conversation: real.conversation);
+        rig.server.sendScript.addAll([
+          (error: const FeatureDisabledException('off'), stored: false),
+          unknown,
+        ]);
+        final sends = rig.server.sends.length;
+
+        await starter.resumeProvisional();
+        await done();
+        await starter.resumeProvisional();
+        await done();
+
+        expect(rig.server.sends, hasLength(sends + 2));
+        expect(await starter.discardInit(_c1), InitDiscard.held);
+        await expectUnchanged(row, 'the last replay got no answer');
+      },
+    );
+
+    // Each gate that keeps [_sendLocked] from sending the replay. With it
+    // closed for 24 h no replay is refused, so the group is held.
+    final gates = <({String name, Future<void> Function() close, int replays})>[
+      (
+        name: 'the flag is off',
+        close: () => rig.device.session.onFlagChanged(E2eeFlag.off, uid: _me),
+        replays: 0,
+      ),
+      (
+        name: 'this device was removed elsewhere',
+        close: () async => rig.removedElsewhere = true,
+        replays: 0,
+      ),
+      (
+        name: 'the thread cannot be answered (canReply false)',
+        close: () async => rig.contexts.of(_c1).canReply = false,
+        replays: 0,
+      ),
+      (
+        name: 'a member is unattributed',
+        close: () => rig.device.vault.transaction(
+          (tx) => tx.putMember(
+            MemberRecord(
+              conversationId: _c1,
+              deviceId: bob.id,
+              signatureKey: bob.key,
+              side: MemberSide.unattributed,
+              since: const MlsPair(1, 1),
+            ),
+          ),
+        ),
+        replays: 0,
+      ),
+      (
+        name: 'the server\'s retry time has not come',
+        close: () async {
+          // One replay, answered with a retry time an hour away: the
+          // later trigger sends nothing.
+          rig.server.sendScript.add((
+            error: const ScreeningUnavailableException(
+              'busy',
+              retryAfter: Duration(hours: 1),
+            ),
+            stored: false,
+          ));
+          await starter.resumeProvisional();
+          await done();
+        },
+        replays: 1,
+      ),
+      // Pre-flag-on fix round 2, ruling 2 (code review I-A, audit M-B): a
+      // refusal the server makes BEFORE its replay lookup says nothing of
+      // the group. It is an unknown outcome, never the evidence; one with a
+      // retry time holds the next replay until then (the test's later
+      // trigger sends nothing).
+      for (final (refusal, retry) in const <(AppException, bool)>[
+        (RateLimitedException('slow', retryAfter: Duration(hours: 1)), true),
+        (DegradedModeException('ro', retryAfter: Duration(hours: 1)), true),
+        (QuotaExceededException('quota', retryAfter: Duration(hours: 1)), true),
+        (LimitReachedException('limit', retryAfter: Duration(hours: 1)), true),
+        (AccountRestrictedException('restricted'), false),
+        (EmailNotVerifiedException('verify'), false),
+        (ValidationException('bad'), false),
+      ])
+        (
+          name: 'the replay was refused with ${refusal.runtimeType}',
+          close: () async {
+            rig.server.sendScript.add((error: refusal, stored: false));
+            if (!retry) return;
+            await starter.resumeProvisional();
+            await done();
+          },
+          replays: 1,
+        ),
+    ];
+    for (final closed in gates) {
+      test('at 24 h with ours and a hidden page, while ${closed.name}: held, '
+          'the group stays (pre-flag-on review I-1)', () async {
+        final row = await unanswered(stored: true);
+        rig.clock.advance(kProvisionalExpiry + const Duration(minutes: 1));
+        rig.server.rewriteLive = (real) =>
+            pb.ListMessagesResponse(conversation: real.conversation);
+        final sends = rig.server.sends.length;
+
+        await closed.close();
+        await starter.resumeProvisional();
+        await done();
+        expect(rig.server.sends, hasLength(sends + closed.replays));
+
+        expect(await starter.discardInit(_c1), InitDiscard.held);
+        await expectUnchanged(row, closed.name);
+      });
+    }
+
+    test('a page that holds the message settles the group instead of '
+        'discarding it', () async {
+      final row = await unanswered(stored: true);
+      rig.clock.advance(kProvisionalExpiry + const Duration(minutes: 1));
+
+      expect(await starter.discardInit(_c1), InitDiscard.settled);
+      await done();
+
+      expect((await groupOf())!.provisional, isFalse);
+      expect(await rows(), isEmpty);
+      expect(
+        await rig.device.vault.hasMessage(_c1, row.expectedMessageId),
+        isTrue,
+      );
+    });
+
+    test(
+      'the commits cannot be listed: not decided, nothing changes',
+      () async {
+        final row = await unanswered();
+        rig.clock.advance(kInitResendMargin);
+        rig.server.onCall = (call) async {
+          if (call == 'listConversationCommits') {
+            throw const NetworkException('no network');
+          }
+        };
+
+        expect(await starter.discardInit(_c1), InitDiscard.notDecided);
+        await expectUnchanged(row, 'no listing');
+      },
+    );
+
+    test('an init call that may still land is held', () async {
+      // The second attempt outlives the client's wait and still runs.
+      final ended = Completer<void>();
+      rig.server.beforeSend = (send) async {
+        if (rig.server.sends.length != 2) return;
+        rig.clock.advance(kMlsRpcTimeout);
+        rig.server.abandon(send.key, ended.future);
+      };
+      rig.server.sendScript.addAll([lostAnswer, unknown]);
+      await start();
+      await done();
+      rig.server.beforeSend = null;
+      final row = (await rows()).single;
+      rig.clock.advance(kProvisionalExpiry);
+
+      expect(await starter.discardInit(_c1), InitDiscard.held);
+      await expectUnchanged(row, 'a call is out');
+      ended.complete();
+      await pumpEventQueue();
+    });
+
+    test('a group the marks already passed (InitSettle.replay) is discarded '
+        'without asking the server: the way out of replay', () async {
+      // The marks are at the init's pair (written before the group: the
+      // vault writes no mark for a provisional group), so no settle can
+      // ever be written for it.
+      await rig.device.vault.transaction(
+        (tx) => tx.setAfterPair(_c1, const MlsPair(1, 0)),
+      );
+      await rig.seedProvisional(_c1, [bob]);
+      await rig.known.add(_c1, peerUserId: _bob);
+      final key = 'a' * 32;
+      await rig.device.vault.transaction(
+        (tx) => tx.putOutbox(
+          OutboxItem(
+            idempotencyKey: key,
+            localId: 'local-1',
+            expectedMessageId: expectedMessageId(_me, key),
+            recipientUserId: _bob,
+            generation: 1,
+            epoch: 1,
+            ciphertext: Uint8List.fromList([1, 2, 3]),
+            reportCommitment: Uint8List(32),
+            content: rigBytes('hello'),
+            createdAtMicros: rig.clock.now().microsecondsSinceEpoch,
+            init: Uint8List.fromList([9, 9]),
+          ),
+        ),
+      );
+      expect(
+        await rig.locks.run(
+          _c1,
+          () => rig.crypto.settleOwnInitLocked(
+            _c1,
+            1,
+            delivered: const InitDelivered(accepted: true),
+          ),
+        ),
+        InitSettle.replay,
+      );
+      rig.server.calls.clear();
+
+      expect(await starter.discardInit(_c1), InitDiscard.discarded);
+
+      expect(rig.server.calls, isEmpty);
+      await expectDiscarded('replay');
+    });
+
+    test('nothing to discard: none; an invalid id throws', () async {
+      expect(await starter.discardInit(_c1), InitDiscard.none);
+      expect(() => starter.discardInit('x'), throwsArgumentError);
+      // A settled group has no pending init.
+      await start();
+      await done();
+      expect((await groupOf())!.provisional, isFalse);
+      expect(await starter.discardInit(_c1), InitDiscard.none);
+    });
+  });
+
   group('resumeProvisional', () {
     test('a provisional group dated after now (the clock moved back) counts '
         'as expired: its init is not resent', () async {
@@ -3426,6 +4457,11 @@ void main() {
         );
         await rig.known.add(_c1, peerUserId: _bob);
         final history = await rig.sealedSetting('messages.e2ee.keys.$_c1');
+        // The join code alone: what it hands to the starter is recorded
+        // here instead (the row above is a placeholder, not a real init;
+        // the starter's resume is shown by the concern 4 test).
+        final handedOver = <String>[];
+        rig.crypto.onOwnInitUnanswered = handedOver.add;
         // The server stored this device's own init; a welcome of that
         // generation is listed (the join code's own-init-already-stored path).
         rig.server.addCommit(
@@ -3445,6 +4481,8 @@ void main() {
 
         // The welcome is a replay of this device's own generation: gone.
         expect(rig.server.acks.expand((a) => a.ids), [w]);
+        // Task 8 concern 4: handed to the starter, once.
+        expect(handedOver, [_c1]);
         // No answer for the message here: the group stays provisional for
         // the starter, which replays the init and settles with the answer.
         final g = (await groupOf())!;
@@ -3503,6 +4541,230 @@ void main() {
           isFalse,
         );
         expect(rig.server.sends, isEmpty);
+        // A settle hands nothing over.
+        expect(handedOver, [_c1]);
+      },
+    );
+
+    test('after the join code leaves an own init unanswered, the starter '
+        'resumes it by itself and the group settles with no other trigger '
+        '(Task 8 concern 4)', () async {
+      // The init was stored and both answers were lost (the second try's
+      // too): the group is provisional and the row keeps its init.
+      rig.server.sendScript.addAll([lostAnswer, unknown]);
+      gate = Completer<void>();
+      await start();
+      final row = (await rows()).single;
+      gate!.complete();
+      await done();
+      expect((await groupOf())!.provisional, isTrue);
+      rig.scheduled.clear();
+      final sends = rig.server.sends.length;
+      // A welcome of this device's own generation is listed.
+      final w = rig.server.addWelcome(
+        rig.device.deviceIdString,
+        _c1,
+        const MlsPair(1, 0),
+        Uint8List(4),
+      );
+
+      expect(await rig.crypto.processWelcomes(), isEmpty);
+      expect(rig.server.acks.expand((a) => a.ids), [w]);
+      // Nothing but the poll: no resumeProvisional, no retry, no timer.
+      await pumpEventQueue();
+      await done();
+
+      expect(rig.scheduled, isEmpty);
+      expect(rig.server.sends, hasLength(sends + 1));
+      expect(rig.server.sends.last.key, row.idempotencyKey);
+      expect(rig.server.sends.last.mlsInit, isNotNull);
+      expect((await groupOf())!.provisional, isFalse);
+      expect(await rows(), isEmpty);
+      expect(
+        await rig.device.vault.hasMessage(_c1, row.expectedMessageId),
+        isTrue,
+      );
+    });
+
+    test('the join code tells the starter when it discards an own init for '
+        'another device\'s commit, once (pre-flag-on review nit)', () async {
+      rig.server.sendScript.addAll([unknown, unknown]);
+      await start();
+      await done();
+      expect((await groupOf())!.provisional, isTrue);
+      // Wired by the starter; recorded here as well.
+      final wired = rig.crypto.onOwnInitDiscarded!;
+      final told = <String>[];
+      rig.crypto.onOwnInitDiscarded = (id) {
+        told.add(id);
+        wired(id);
+      };
+      // Bob's start reached the server first; his welcome lists this
+      // device.
+      await rig.offer(_c1, bob);
+
+      await rig.crypto.processWelcomes();
+      await pumpEventQueue();
+      await done();
+
+      expect(told, [_c1]);
+      expect((await groupOf())!.provisional, isFalse);
+      expect(await starter.pendingInit(conversationId: _c1), isNull);
+    });
+
+    test('a hand-over from the join code while a resume of the conversation '
+        'runs starts one more resume after it, never joins it (pre-flag-on '
+        'review m-C)', () async {
+      rig.server.sendScript.addAll([unknown, unknown]);
+      await start();
+      await done();
+      expect((await groupOf())!.provisional, isTrue);
+      expect(rig.server.sends, hasLength(2));
+      rig.scheduled.clear();
+
+      // A resume is running: its request is in flight.
+      gate = Completer<void>();
+      rig.server.sendScript.addAll([unknown, unknown]);
+      final running = starter.resumeProvisional();
+      await pumpEventQueue();
+      expect(rig.server.sends, hasLength(3));
+
+      // The join code hands the group over meanwhile (its settle found the
+      // own init stored and unanswered).
+      rig.crypto.onOwnInitUnanswered!(_c1);
+      gate!.complete();
+      await running;
+      await pumpEventQueue();
+      await done();
+
+      // The handed-over resume asked again once the running one had ended.
+      expect(rig.server.sends, hasLength(4));
+      expect(rig.server.sends[3].same(rig.server.sends[0]), isTrue);
+      expect((await groupOf())!.provisional, isTrue);
+    });
+
+    test('a hand-over from the join code, then reset() before the running '
+        'resume ends: nothing more is started (pre-flag-on fix round 3, '
+        'ruling 4)', () async {
+      rig.server.sendScript.addAll([unknown, unknown]);
+      await start();
+      await done();
+      expect(rig.server.sends, hasLength(2));
+      rig.scheduled.clear();
+
+      gate = Completer<void>();
+      rig.server.sendScript.addAll([unknown, unknown]);
+      final running = starter.resumeProvisional();
+      await pumpEventQueue();
+      expect(rig.server.sends, hasLength(3));
+
+      rig.crypto.onOwnInitUnanswered!(_c1);
+      // Sign-out or a new vault while the resume runs.
+      starter.reset();
+      gate!.complete();
+      await running;
+      await pumpEventQueue();
+      await done();
+
+      // Only the running resume's request: the hand-over of the earlier run
+      // started nothing.
+      expect(rig.server.sends, hasLength(3));
+    });
+
+    test('a discard known only by its conversation forgets the row\'s '
+        'memory: a retry time kept for the discarded group does not hold the '
+        'init of a new group of the conversation (pre-flag-on fix round 3, '
+        'ruling 4)', () async {
+      // The init's outcome is unknown and the server names a retry time an
+      // hour away: this run remembers "not before" for the row.
+      rig.server.sendScript.add((
+        error: const ScreeningUnavailableException(
+          'busy',
+          retryAfter: Duration(hours: 1),
+        ),
+        stored: false,
+      ));
+      await start();
+      await done();
+      final old = (await rows()).single;
+      expect((await groupOf())!.provisional, isTrue);
+      expect(rig.server.sends, hasLength(1));
+
+      // The group goes where only the conversation is known (the join
+      // code's discard, which tells the starter after its transaction).
+      expect(
+        await rig.locks.run(
+          _c1,
+          () => rig.crypto.discardProvisionalLocked(
+            _c1,
+            1,
+            lastError: kStartErrorInitDiscarded,
+          ),
+        ),
+        isTrue,
+      );
+      rig.crypto.onOwnInitDiscarded!(_c1);
+      // The conversation's own margins have passed; the retry time has not.
+      rig.clock.advance(kInitResendMargin);
+
+      // The user's retry: a new group of the same conversation for the same
+      // row, whose init goes out at once.
+      await starter.retryStart('local-1');
+      await done();
+
+      expect(rig.server.sends.length, greaterThan(1));
+      final sent = rig.server.sends[1];
+      expect(sent.mlsInit, isNotNull);
+      expect(sent.key, isNot(old.idempotencyKey));
+    });
+
+    test(
+      'the join code hands an own unanswered init to the starter once per '
+      'group per run, not once per welcome poll (pre-flag-on review m-2)',
+      () async {
+        rig.server.sendScript.addAll([lostAnswer, unknown]);
+        gate = Completer<void>();
+        await start();
+        gate!.complete();
+        await done();
+        expect((await groupOf())!.provisional, isTrue);
+        rig.scheduled.clear();
+        // Every replay is refused and the page never shows the message: the
+        // group stays provisional through every poll.
+        rig.server.rewriteLive = (real) =>
+            pb.ListMessagesResponse(conversation: real.conversation);
+        const refused = (error: FeatureDisabledException('off'), stored: false);
+        rig.server.sendScript.addAll([refused, refused, refused]);
+        final sends = rig.server.sends.length;
+
+        Future<void> poll() async {
+          rig.server.addWelcome(
+            rig.device.deviceIdString,
+            _c1,
+            const MlsPair(1, 0),
+            Uint8List(4),
+          );
+          expect(await rig.crypto.processWelcomes(), isEmpty);
+          await pumpEventQueue();
+          await done();
+        }
+
+        // The first poll hands the group over: one resume, one replay.
+        await poll();
+        expect(rig.server.sends, hasLength(sends + 1));
+        expect((await groupOf())!.provisional, isTrue);
+
+        // Later polls meet the same group: nothing more is started.
+        await poll();
+        await poll();
+        expect(rig.server.sends, hasLength(sends + 1));
+        expect((await groupOf())!.provisional, isTrue);
+        expect((await rows()).single.init, isNotNull);
+
+        // A new run (sign-out or a new vault forgets it) hands it over again.
+        rig.crypto.forgetOwnCommits();
+        await poll();
+        expect(rig.server.sends, hasLength(sends + 2));
       },
     );
 
