@@ -1,6 +1,39 @@
-// Pure scanners behind `vault_guard_test.dart`. They take source text and
-// return findings, so the guard test can prove each rule on a small violating
-// string (a built-in mutation check) as well as on the real tree.
+// Pure scanners behind `vault_guard_test.dart` and `pipeline_guard_test.dart`.
+// They take source text and return findings, so the guard tests can prove each
+// rule on a small violating string (a built-in mutation check) as well as on
+// the real tree.
+
+import 'telemetry_scan.dart' show readTree;
+
+Map<String, String>? _libCache;
+
+/// Every `.dart` file under lib/ (run from app/), read once per test run.
+Map<String, String> libFiles() => _libCache ??= readTree('lib', {'.dart'});
+
+/// Files under lib/ in the generated trees.
+bool isGeneratedPath(String path) =>
+    path.startsWith('lib/gen/') ||
+    path.startsWith('lib/core/crypto/frb_generated/') ||
+    path.endsWith('.g.dart') ||
+    path.endsWith('.freezed.dart');
+
+/// lib/ outside the generated trees.
+Map<String, String> handWrittenLib() => {
+  for (final e in libFiles().entries)
+    if (!isGeneratedPath(e.key)) e.key: e.value,
+};
+
+const String pipelineDir = 'lib/features/messages/domain/e2ee/';
+
+/// The message pipeline: every file under [pipelineDir], so a file a later
+/// task adds (13b's port implementation) is covered without a list change.
+bool inPipeline(String path) =>
+    path.startsWith(pipelineDir) && !isGeneratedPath(path);
+
+Map<String, String> pipelineFiles() => {
+  for (final e in libFiles().entries)
+    if (inPipeline(e.key)) e.key: e.value,
+};
 
 /// [source] with comments removed. With [keepStrings] false the CONTENT of
 /// string literals is dropped too (the quotes stay, and the code inside `$x` /
