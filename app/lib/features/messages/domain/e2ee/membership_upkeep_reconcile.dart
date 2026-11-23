@@ -255,13 +255,49 @@ extension _Reconcile on MembershipUpkeep {
     // Ruling H (audit L2): the removals the M5 pause and the fail-closed
     // ledger do not hold: the user's queued ones and M3's own devices.
     final pauseExempt = <Uint8List>[];
-    // Task 11's queue: the members it names (never this device).
+    final exempting = <String>{};
+    void exempt(Uint8List deviceId) {
+      if (exempting.add(vaultDeviceIdHex(deviceId))) pauseExempt.add(deviceId);
+    }
+
+    // Task 11's queue: the members it names (never this device). Only
+    // `mine` pins, and an `unattributed` pin whose key is the key of the
+    // user's removed mark (fix round 2, ruling 1), are ever removed from it,
+    // so a peer's device (`theirs`) is never touched by the queue (Task 11
+    // review I1; the runner drops an entry pinned on the peer's side).
     final queued = queuedRemovals?.call(id) ?? const <Uint8List>{};
     for (final m in members) {
       if (!_same(m.deviceId, thisDevice) &&
           queued.any((q) => _same(q, m.deviceId))) {
+        if (m.side == MemberSide.unattributed) {
+          final key = removedKeyOf?.call(m.deviceId);
+          if (key == null || !_same(key, m.signatureKey)) continue;
+          // Task 11 fix round 4, ruling 11 (SA N2), and fix round 5, ruling
+          // 1: M2's full key-history guard holds for the mark path too
+          // (`tainted` with a list that shows the pair included; the runner
+          // reports it).
+          if (keyHistoryRefuses(
+            member: m,
+            refusal: history.refusal(
+              vaultDeviceIdHex(m.deviceId),
+              m.signatureKey,
+            ),
+            ownList: own,
+            peerList: peer,
+          )) {
+            continue;
+          }
+        } else if (m.side != MemberSide.mine) {
+          continue;
+        }
+        // Fix round 4, ruling 3 (CR2 M-1): a queued id with no removed mark
+        // is a lost own device the runner's pass found on one own list; M3
+        // below decides it on this pass's own list, so one list that missed
+        // it does not freeze into a removal (and flapping). No seam set (no
+        // runner): every queued id is the user's.
+        if (removedByUser?.call(m.deviceId) == false) continue;
         remove(m.deviceId);
-        pauseExempt.add(m.deviceId);
+        exempt(m.deviceId);
       }
     }
     // M3: one readable own list decides.
@@ -271,9 +307,7 @@ extension _Reconcile on MembershipUpkeep {
         ownList: own,
         thisDeviceId: thisDevice,
       )) {
-        if (!removing.contains(vaultDeviceIdHex(m.deviceId))) {
-          pauseExempt.add(m.deviceId);
-        }
+        exempt(m.deviceId);
         remove(m.deviceId);
       }
     }
