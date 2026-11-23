@@ -387,5 +387,13 @@ void main() {
       expect(cut.runes.length, 140);
       expect(cut.runes.every((r) => r == 0x1F600), isTrue);
     });
+
+    test('text is the first non-blank line, trimmed (branch review n3)', () {
+      String preview(String text) =>
+          previewOf(_row(content: _content(text)), genericOnly: false).text;
+      expect(preview('\n\n  hello there  \nsecond'), 'hello there');
+      expect(preview('\r\n\t\r\nfirst\r\nsecond'), 'first');
+      expect(preview('  \n \n'), '');
+    });
   });
 }

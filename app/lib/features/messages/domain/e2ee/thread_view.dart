@@ -196,7 +196,12 @@ ConversationPreview previewOf(
   if (kind != PreviewKind.text) {
     return ConversationPreview(kind: kind, mine: e.mine);
   }
-  final firstLine = e.text.split('\n').first;
+  // Branch review n3: the first line that is not blank, trimmed ('' when
+  // every line is blank).
+  final firstLine = e.text
+      .split('\n')
+      .map((l) => l.trim())
+      .firstWhere((l) => l.isNotEmpty, orElse: () => '');
   final runes = firstLine.runes;
   final text = runes.length <= kPreviewTextMax
       ? firstLine
