@@ -219,10 +219,17 @@ class MembershipUpkeep {
   /// Sign-out or a new vault: every timer is cancelled and this run's
   /// memory forgotten.
   void reset() {
+    _resets++;
     cancelScheduled();
     _sights.clear();
     _addsNotBefore.clear();
   }
+
+  int _resets = 0;
+
+  /// How many times [reset] ran (Task 13's sign-out test).
+  @visibleForTesting
+  int get resets => _resets;
 
   /// Completes when no acceptance a header started, and no re-check whose
   /// timer fired, is running.

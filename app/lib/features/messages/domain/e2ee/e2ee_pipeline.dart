@@ -652,6 +652,14 @@ class E2eePipeline {
   @visibleForTesting
   bool get hasParts => _parts != null;
 
+  /// How many hints are remembered (a count only).
+  @visibleForTesting
+  int get notedCount =>
+      _notedEncrypted.length +
+      _notedAccepted.length +
+      _notedDeleted.length +
+      _notedPushes.length;
+
   /// The seam every part's timer goes through (gate item 40).
   @visibleForTesting
   void Function() scheduleForTest(Duration delay, void Function() run) =>
