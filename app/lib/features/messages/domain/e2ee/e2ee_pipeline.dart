@@ -189,6 +189,39 @@ class E2eePipeline {
   final LinkedHashMap<String, int> _notedDeleted = LinkedHashMap();
   final LinkedHashSet<String> _notedPushes = LinkedHashSet();
 
+  /// Review I5: the account every remembered note belongs to (the
+  /// `ownUserId` when it was noted). Notes are applied only while that
+  /// account is signed in; a note made for another account first drops them
+  /// all, and so does any apply under another account.
+  String? _notesUser;
+
+  /// Whether a note may be remembered now: there is a signed-in account,
+  /// and another account's notes are dropped first.
+  bool _claimNotes() {
+    final uid = _ownUserId();
+    if (uid == null || uid.isEmpty) return false;
+    if (_notesUser != uid) {
+      _dropAllNotes();
+      _notesUser = uid;
+    }
+    return true;
+  }
+
+  /// Before any apply: notes of an account other than the signed-in one
+  /// are dropped, never applied (review I5).
+  void _dropOtherAccountsNotes() {
+    final uid = _ownUserId();
+    if (_notesUser != null && _notesUser != uid) _dropAllNotes();
+  }
+
+  void _dropAllNotes() {
+    _notedEncrypted.clear();
+    _notedAccepted.clear();
+    _notedDeleted.clear();
+    _notedPushes.clear();
+    _notesUser = null;
+  }
+
   /// A conversation's local copies changed (the parts' `onChanged`, and a
   /// delete made here). Never carries content.
   Stream<String> get changes => _changes.stream;
@@ -463,6 +496,7 @@ class E2eePipeline {
   }
 
   void _rememberDelete(String id, int at) {
+    if (!_claimNotes()) return;
     final before = _notedDeleted.remove(id);
     _notedDeleted[id] = before != null && before > at ? before : at;
     while (_notedDeleted.length > kPipelineNotesMax) {
@@ -497,6 +531,7 @@ class E2eePipeline {
   }
 
   Future<void> _applyDeletesOnce(_Parts parts) async {
+    _dropOtherAccountsNotes();
     for (final e in [..._notedDeleted.entries]) {
       if (!parts.live) return;
       _notedDeleted.remove(e.key);
@@ -522,6 +557,7 @@ class E2eePipeline {
   }
 
   void _remember(LinkedHashSet<String> set, String id) {
+    if (!_claimNotes()) return;
     set
       ..remove(id)
       ..add(id);
@@ -534,6 +570,7 @@ class E2eePipeline {
   /// the known set (gate item 24). The remembered deletes were made at
   /// vault ready ([_applyDeletes]).
   Future<void> _applyNotes(_Parts parts) async {
+    _dropOtherAccountsNotes();
     final encrypted = [..._notedEncrypted];
     for (final id in encrypted) {
       await _addKnown(parts, id);
@@ -545,6 +582,7 @@ class E2eePipeline {
   /// pushes, and a list change of the window.
   void _afterStartNotes(_Parts parts) {
     if (!started || !identical(_parts, parts)) return;
+    _dropOtherAccountsNotes();
     final encrypted = [..._notedEncrypted];
     final accepted = [..._notedAccepted];
     final pushes = [..._notedPushes];
