@@ -165,20 +165,11 @@ void main() {
   test('a start drops a peer claim that carries a removed own device\'s '
       'key under another id (the filter runs after the dedupe)', () async {
     final sib = await RigPeer.create('sib');
-    final bob2 = await RigPeer.create('bob2');
+    // The server lists bob2 for bob; it signs with sib's key under its own
+    // id (a real package, so only the dedupe can drop it).
+    final bob2 = RigPeer.withKeyOf('bob2', sib);
     siblings([sib]);
-    // The server lists bob2 for bob, with sib's key.
-    rig.keys.peers[_bob] = [
-      rigKeyDevice(bob.idString, bob.key),
-      rigKeyDevice(bob2.idString, sib.key),
-    ];
-    rig.keys.claims[_bob] = () async => kpb.ClaimKeyPackagesResponse(
-      conversationId: _c1,
-      keyPackages: [
-        await packageOf(bob),
-        await packageOf(bob2, key: sib.key),
-      ],
-    );
+    peers([bob, bob2]);
     seam((id) => rigEq(id, sib.id));
 
     expect((await start()).result, StartResult.started);

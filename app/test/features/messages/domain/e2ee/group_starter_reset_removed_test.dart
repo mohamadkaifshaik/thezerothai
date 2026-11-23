@@ -96,6 +96,25 @@ void main() {
     expect(asked, [sib.idString]);
   });
 
+  test('a peer claim carrying a removed own device\'s key under another id '
+      'is dropped with it: the filter runs after the dedupe (fix round 1, '
+      'ruling 6, CR M-3)', () async {
+    final sib = await RigPeer.create('sib');
+    // The server lists bob2 for bob; it signs with sib's key.
+    final bob2 = RigPeer.withKeyOf('bob2', sib);
+    await setUpJoined();
+    peers([bob, bob2]);
+    siblings([sib]);
+    await makeStuck();
+    seam((id) => rigEq(id, sib.id));
+
+    await reset();
+
+    expect(resets().single.welcomeDeviceIds, [bob.idString]);
+    expect(await pin(bob2.id), isNull);
+    expect(await pin(sib.id), isNull);
+  });
+
   test('an unreadable removal queue: the reset uses only fresh own devices '
       '(kept lists add no own device)', () async {
     final sib = await RigPeer.create('sib');
