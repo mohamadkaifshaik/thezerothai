@@ -284,6 +284,8 @@ class DeviceKeysService {
 
   void _followVault() {
     if (_removedFact.value && !removedElsewhere) _removedFact.value = false;
+    // Final round 3 (CR Nit 5): the set-up-again latch goes with its vault.
+    if (!identical(_settingUpVault, _session.vault)) _settingUpVault = null;
   }
 
   static Timer _defaultPeriodic(Duration period, void Function() onTick) =>
@@ -440,11 +442,18 @@ class DeviceKeysService {
   Future<void> recreateDevice() => _recreateDevice();
 
   /// Fix wave 6 (CR Minor C): `DeviceReset.setUpAgain` takes this latch
-  /// before its own transaction. False (nothing held) unless removed
-  /// elsewhere or already held for the open vault (a retry). While held,
-  /// a listed-again clear is not applied, so the cleared vault always gets
-  /// its new id; [recreateDevice] releases it.
+  /// before its own transaction; ONLY DeviceReset takes it. False (nothing
+  /// held) unless removed elsewhere or already held for the open vault (a
+  /// retry). While held, a listed-again clear is not applied and the run
+  /// does not write the marker again, so the cleared vault always gets its
+  /// new id. Released by [recreateDevice] or when the vault closes (final
+  /// round 3).
   bool beginSetUpAgain() => _beginSetUpAgain();
+
+  /// The latch of [beginSetUpAgain] is held for the open vault.
+  @visibleForTesting
+  bool get setUpAgainHeld =>
+      _settingUpVault != null && identical(_settingUpVault, _session.vault);
 
   /// A [VaultSession.addVaultReadyHook] hook: a vault was opened and
   /// published. Reads the vault's removed-elsewhere marker first (so

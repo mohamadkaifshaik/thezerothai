@@ -521,6 +521,17 @@ void main() {
       expect(rig.service.beginSetUpAgain(), isFalse);
     });
 
+    test('the set-up-again latch goes when the vault closes (final round 3, '
+        'CR Nit 5)', () async {
+      await removedElsewhere();
+      expect(rig.service.beginSetUpAgain(), isTrue);
+      expect(rig.service.setUpAgainHeld, isTrue);
+
+      await rig.session.onSessionEnded(_a, SessionEnd.sessionLost);
+
+      expect(rig.service.setUpAgainHeld, isFalse);
+    });
+
     test('beginSetUpAgain is refused when not removed elsewhere, and the '
         'latch keeps a failed set-up retryable', () async {
       await rig.signIn(_a);
