@@ -243,6 +243,47 @@ void main() {
     });
   });
 
+  group('the account a no-vault send began under (branch audit L1)', () {
+    test('an account switch during the cache read is refused retryable, '
+        'never notEncrypted', () async {
+      final session = FakeVaultWorld().launch();
+      await session.start(restoredUid: 'user-a', restoreDefinitive: true);
+      await session.onSignedIn('user-a', flag: E2eeFlag.off);
+      var account = 'user-a';
+      final pipeline = E2eePipeline(
+        session: session,
+        deviceKeys: h.deviceKeys,
+        engine: () => h.guarded,
+        messaging: h.messaging,
+        keys: h.rig.keys,
+        ownUserId: () => account,
+        currentUid: () => account,
+        now: h.rig.clock.now,
+        onUnexpectedError: (e, _) => h.reported.add(e),
+      );
+      addTearDown(pipeline.dispose);
+      final p = EncryptedMessagingImpl(pipeline);
+      final dave = ThreadRef.recipientOf(
+        common.AuthorSnapshot(userId: 'ref-dave'),
+      );
+      // Unchanged account: plaintext (no vault, nothing marked).
+      final before = await p.send(to: dave, localId: 'local-1', text: 'hi');
+      expect(before.kind, SendOutcomeKind.notEncrypted);
+      // A direct switch to user-b, finished during the cache read.
+      h.rig.server.onCacheRead = () async {
+        account = 'user-b';
+        await session.onSignedIn('user-b', flag: E2eeFlag.off);
+      };
+      final out = await p.send(to: dave, localId: 'local-2', text: 'hi');
+      h.rig.server.onCacheRead = null;
+      expect(session.signInStepDone, isTrue);
+      expect(
+        (out.kind, out.problem),
+        (SendOutcomeKind.refused, SendProblem.retryable),
+      );
+    });
+  });
+
   group('failures (review M6)', () {
     test('resetConversation throws ResetRefusedException(peerHasNoDevice) '
         'when the peer lists no device', () async {

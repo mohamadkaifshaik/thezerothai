@@ -251,6 +251,10 @@ class E2eePipeline {
   DeviceKeysService get deviceKeys => _deviceKeys;
   MessagingRepository get messaging => _messaging;
 
+  /// The AUTHENTICATED uid now (the `currentUid` this pipeline was built
+  /// with); the port binds a no-vault send to it (branch audit L1).
+  String? get authenticatedUid => _currentUid();
+
   /// Plan 5a Task 13b: the parts of the open vault, for the port; null
   /// before [onVaultReady] built them, and once that vault closed or
   /// changed (sign-out, another user, a lost lock).

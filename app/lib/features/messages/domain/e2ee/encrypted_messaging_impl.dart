@@ -326,6 +326,12 @@ class EncryptedMessagingImpl implements EncryptedMessaging {
     String? recipient,
   ) async {
     final session = _session;
+    // Branch audit L1, decision: the answer is bound to the account the
+    // send began under (the authenticated uid at entry); an account that
+    // changed before the answer (a direct switch during a cache read wipes
+    // the cache) is "try again", never plaintext. No account: "try again".
+    final account = _pipeline.authenticatedUid;
+    if (account == null) return _refused(SendProblem.retryable);
     // (1) C1 step 5: a vault on this device that is not ready (opening
     // included): no conversation can be classified.
     if (session.vaultKnown) return _refused(SendProblem.blocked);
@@ -360,6 +366,10 @@ class EncryptedMessagingImpl implements EncryptedMessaging {
     // A vault that became known during the reads above.
     if (session.vaultKnown || _pipeline.parts != null) {
       return _refused(SendProblem.blocked);
+    }
+    // L1: no await from here to the answer.
+    if (_pipeline.authenticatedUid != account || !session.signInStepDone) {
+      return _refused(SendProblem.retryable);
     }
     return SendOutcome(
       SendOutcomeKind.notEncrypted,
