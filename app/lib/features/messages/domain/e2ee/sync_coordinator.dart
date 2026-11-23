@@ -11,6 +11,10 @@ import 'sync_budget.dart' show BudgetPriority;
 
 part 'sync_coordinator_queue.dart';
 
+/// Fix round 1 (review m2): a `held` answer whose time has already passed
+/// (a `Retry-After: 0`) waits at least this long, never a spin.
+const Duration kHeldMinWait = Duration(seconds: 1);
+
 /// Plan 5a Task 13 (R8): "other reasons" poll welcomes at most this often.
 const Duration kWelcomePollFloor = Duration(seconds: 60);
 
@@ -224,9 +228,15 @@ class SyncCoordinator {
   /// A start has run and no [stop] came after it.
   bool _started = false;
 
-  /// Bumped by every start and [stop]: a sequence of an older run stops at
-  /// its next check.
+  /// Bumped by [stop] only: a sequence of an older run stops at its next
+  /// check. Fix round 1 (review I1): a restart with no [stop] (the flag
+  /// turning on) keeps the run, so a push, an `opened`, a refresh, the queue
+  /// and a welcome poll in flight finish under it.
   int _run = 0;
+
+  /// Bumped by every [onVaultReady]: only the newest vault-ready sequence
+  /// goes on (an older one's remaining steps are the newer one's).
+  int _starts = 0;
   bool _paused = false;
 
   // Welcome polls.
@@ -277,31 +287,35 @@ class SyncCoordinator {
       return;
     }
     _started = true;
-    final run = ++_run;
+    final run = _run;
+    final seq = ++_starts;
+    bool live() => _live(run) && seq == _starts;
     const p = BudgetPriority.background;
     await _step(
       'resumeProvisional',
       () => _work.resumeProvisional(priority: p),
     );
-    if (!_live(run)) return;
+    if (!live()) return;
     final outbox = await _value(
       'outbox',
       _work.encryptedOutboxConversations,
       const <String>[],
     );
     for (final id in outbox) {
-      if (!_live(run)) return;
+      if (!live()) return;
       await _step('drain', () => _work.drain(id, priority: p));
     }
-    if (!_live(run)) return;
+    if (!live()) return;
+    // A poll still running (an earlier start's) is joined and polls once
+    // more for this start.
     await _pollWelcomes(p, floor: false);
-    if (!_live(run)) return;
+    if (!live()) return;
     final passed = await _appOpenPass(run);
-    if (!_live(run)) return;
+    if (!live()) return;
     await _step('removal', () => _work.removalPass(RemovalTrigger.vaultReady));
-    if (!_live(run)) return;
+    if (!live()) return;
     final sweep = await _value('sweep', _work.sweepOrder, const <String>[]);
-    if (!_live(run)) return;
+    if (!live()) return;
     for (final id in sweep) {
       if (passed.contains(id)) continue;
       _catchUpOnce.add(id);

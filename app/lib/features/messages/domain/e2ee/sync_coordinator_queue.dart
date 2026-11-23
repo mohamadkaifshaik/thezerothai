@@ -67,7 +67,9 @@ extension _Queue on SyncCoordinator {
       }
     } finally {
       _queueRunning = false;
-      if (_live(run)) _arm();
+      // Review I1: arm for whatever run is active now, not only this loop's
+      // (a start while this loop ran queued passes that need the timer).
+      if (_active) _arm();
     }
   }
 
