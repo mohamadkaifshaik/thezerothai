@@ -7,7 +7,6 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:dzeroth/core/vault/secure_vault.dart';
-import 'package:dzeroth/features/messages/domain/e2ee/e2ee_types.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/group_starter.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/removal_queue_runner.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/removal_record.dart';
