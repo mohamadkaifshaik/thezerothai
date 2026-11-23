@@ -1,5 +1,8 @@
 import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging_impl.dart';
+import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
+import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
+import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../../support/e2ee_pipeline_harness.dart';
@@ -75,5 +78,66 @@ void main() {
       );
       expect(await outboxIds(), isEmpty);
     });
+  });
+
+  group('the plaintext answer is asked once more (gate item 3, review '
+      'M1)', () {
+    pb.Conversation carolRow() => pb.Conversation(
+      id: _c2,
+      peer: common.AuthorSnapshot(userId: 'ref-carol'),
+      folder: Folder.FOLDER_INBOX,
+      canReply: true,
+    );
+
+    test('a conversation the cache marks encrypted during the lookup is '
+        'refused blocked', () async {
+      await h.ready();
+      expect(h.rig.device.session.mayStart, isTrue);
+      h.rig.server.rows[_c2] = carolRow();
+      h.rig.keys
+        ..peers['ref-carol'] = []
+        ..onGet = () async => h.rig.server.everEncrypted.add(_c2);
+      final out = await sendTo(_c2);
+      expect(h.rig.keys.getCalls, isNotEmpty);
+      expect(
+        (out.kind, out.problem),
+        (SendOutcomeKind.refused, SendProblem.blocked),
+      );
+    });
+
+    test('a recipient whose cached row is marked encrypted during the lookup '
+        'is refused blocked', () async {
+      await h.ready();
+      h.rig.keys
+        ..peers['ref-carol'] = []
+        ..onGet = () async {
+          h.rig.server.rows[_c2] = carolRow();
+          h.rig.server.everEncrypted.add(_c2);
+        };
+      final out = await port.send(
+        to: ThreadRef.recipientOf(common.AuthorSnapshot(userId: 'ref-carol')),
+        localId: 'local-1',
+        text: 'hi',
+      );
+      expect(h.rig.keys.getCalls, isNotEmpty);
+      expect(
+        (out.kind, out.problem),
+        (SendOutcomeKind.refused, SendProblem.blocked),
+      );
+    });
+
+    test(
+      'with nothing marked, a recipient listing no device is plaintext',
+      () async {
+        await h.ready();
+        h.rig.keys.peers['ref-carol'] = [];
+        final out = await port.send(
+          to: ThreadRef.recipientOf(common.AuthorSnapshot(userId: 'ref-carol')),
+          localId: 'local-1',
+          text: 'hi',
+        );
+        expect(out.kind, SendOutcomeKind.notEncrypted);
+      },
+    );
   });
 }

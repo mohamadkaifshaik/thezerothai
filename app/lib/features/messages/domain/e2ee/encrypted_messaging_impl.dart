@@ -406,9 +406,21 @@ class EncryptedMessagingImpl implements EncryptedMessaging {
         // Gate item 3: asked once more right before the caller's plaintext
         // call (the cache first, then the known set with no await after
         // it): a welcome joined during the routing is never sent around.
+        final messaging = _pipeline.messaging;
         if (conversationId != null &&
-            await _pipeline.messaging.cachedEverEncrypted(conversationId)) {
+            await messaging.cachedEverEncrypted(conversationId)) {
           return _refused(SendProblem.blocked);
+        }
+        // 13b-i review M1: a recipient's cached row is read again too (it
+        // may have arrived, marked encrypted, during the lookup).
+        if (conversationId == null) {
+          final row = await messaging.cachedConversationWith(peer);
+          if (row != null &&
+              row.id.isNotEmpty &&
+              (parts.known.contains(row.id) ||
+                  await messaging.cachedEverEncrypted(row.id))) {
+            return _refused(SendProblem.blocked);
+          }
         }
         final known = parts.known;
         if (!parts.live ||
