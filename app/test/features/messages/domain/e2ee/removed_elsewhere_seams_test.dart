@@ -86,4 +86,53 @@ void main() {
     expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
     expect(rig.server.calls.sublist(calls), isNotEmpty);
   });
+
+  test('removed elsewhere: attribution reads no device list while a member '
+      'is unattributed (fix round 1, I1)', () async {
+    await rig.accept(_c1);
+    rig.header(_c1, 'ref-bob');
+    final offer = await rig.offer(_c1, bob);
+    expect(await rig.crypto.processWelcomes(), [_c1]);
+    // Bob adds carol; no list shows her yet, so she stays unattributed.
+    final carol = await RigPeer.create('carol');
+    final at = rig.server.current(_c1);
+    final commit = await rigCommit(
+      offer.add.group,
+      add: [await carol.keyPackage()],
+    );
+    rig.server.addCommit(_c1, at, commit.commit, fromUser: 'user-b');
+    expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+    Future<String?> carolSide() async {
+      for (final m in await rig.device.vault.members(_c1)) {
+        if (rigEq(m.deviceId, carol.id)) return m.side;
+      }
+      return null;
+    }
+
+    expect(await carolSide(), 'unattributed');
+    // Now the peer's list shows her: an attribution would pin her.
+    rig.keys.peers['ref-bob']!.add(rigKeyDevice(carol.idString, carol.key));
+
+    rig.removedElsewhere = true;
+    final lists = rig.keys.listCalls;
+    final gets = rig.keys.getCalls.length;
+    final before = await rig.dump();
+
+    await rig.crypto.attributeMembers(_c1, priority: BudgetPriority.user);
+    await rig.locks.run(
+      _c1,
+      () =>
+          rig.crypto.attributeMembersLocked(_c1, priority: BudgetPriority.user),
+    );
+
+    expect(rig.keys.listCalls, lists);
+    expect(rig.keys.getCalls, hasLength(gets));
+    expect(await rig.dump(), before);
+    expect(await carolSide(), 'unattributed');
+
+    rig.removedElsewhere = false;
+    await rig.crypto.attributeMembers(_c1, priority: BudgetPriority.user);
+    expect(rig.keys.getCalls.length, greaterThan(gets));
+    expect(await carolSide(), 'theirs');
+  });
 }
