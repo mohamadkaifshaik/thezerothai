@@ -655,6 +655,8 @@ class DeviceKeysService {
       // answer to Register or Upload. No retry, no upload; later runs are
       // read only. Nothing is deleted.
       await _markRemoved(vault, uid, live);
+    } on _ListFailed {
+      _status.value = const DeviceKeysStatus.failed(retryable: true);
     } on FeatureDisabledException {
       // The gate remembers it until the flag set changes.
       _status.value = DeviceKeysStatus.idle;

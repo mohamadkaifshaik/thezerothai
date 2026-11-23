@@ -4,6 +4,12 @@ part of 'device_keys_service.dart';
 /// device created or loaded, registered when it must be, and its pool topped
 /// up. Moved out of the library file to keep it under the size limit (Task
 /// 12; a move, with the class's static helpers named by their class).
+/// A ListMyKeyDevices answer that is a failed call of the run, not a
+/// statement about this device (DEVICE_REMOVED there, fix wave 7).
+class _ListFailed implements Exception {
+  const _ListFailed();
+}
+
 extension _Upkeep on DeviceKeysService {
   Future<void> _upkeep(
     SecureVault vault,
@@ -41,7 +47,14 @@ extension _Upkeep on DeviceKeysService {
     var hasLastResort = false;
     if (!local.created) {
       check();
-      final list = await _deadline(_repo.listMine());
+      final pb.ListMyKeyDevicesResponse list;
+      try {
+        list = await _deadline(_repo.listMine());
+      } on DeviceRemovedException {
+        // Fix wave 7 (SA L1): only a Register or Upload answer marks this
+        // device; on the list it is an ordinary failed call.
+        throw const _ListFailed();
+      }
       check();
       pb.KeyDevice? mine;
       for (final d in list.devices) {

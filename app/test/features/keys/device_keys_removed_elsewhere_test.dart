@@ -138,6 +138,29 @@ void main() {
       expect(rig.rpcs(after), ['list']);
     });
 
+    test('DEVICE_REMOVED answering ListMyKeyDevices is an ordinary failed '
+        'call, not a mark (fix wave 7, SA L1)', () async {
+      await rig.signIn(_a);
+      rig.advance(_hour);
+      rig.server.failNext['list'] = [
+        keyServerError(
+          connect.Code.failedPrecondition,
+          common.ErrorReason.ERROR_REASON_DEVICE_REMOVED,
+        ),
+      ];
+      final before = rig.server.calls.length;
+
+      await rig.service.ensureReady();
+
+      expect(rig.rpcs(before), ['list']);
+      expect(rig.service.removedElsewhere, isFalse);
+      expect(rig.setting(kVaultSettingRemovedElsewhere), '');
+      expect(
+        rig.service.status.value,
+        const DeviceKeysStatus.failed(retryable: true),
+      );
+    });
+
     test('missing from the list re-registers the same id and key', () async {
       await rig.signIn(_a);
       final id = rig.storedId()!;
