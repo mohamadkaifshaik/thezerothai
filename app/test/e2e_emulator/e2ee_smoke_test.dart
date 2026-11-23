@@ -8,8 +8,10 @@ import 'package:dzeroth/features/messages/domain/conversation_id.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/commit_runner.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/device_directory.dart'
     show kDeviceListReuse;
+import 'package:dzeroth/features/messages/domain/e2ee/conversation_crypto.dart'
+    show kResetWaitWithoutWelcome;
 import 'package:dzeroth/features/messages/domain/e2ee/e2ee_types.dart'
-    show E2eeActionException;
+    show E2eeActionException, E2eeRefusal;
 import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/message_content_codec.dart';
 import 'package:dzeroth/features/messages/presentation/report_conversation.dart'
@@ -60,9 +62,14 @@ void main() {
 }
 
 void _scenario() {
+  // Review N1: [world] is null until setUpAll built it, so tearDownAll and a
+  // failure report never read an unassigned `late` (which would hide the
+  // setUpAll failure behind a LateInitializationError). The steps use [w],
+  // which they reach only after setUpAll succeeded.
+  SmokeWorld? world;
   late SmokeWorld w;
   late SmokeUser a, b, c, d;
-  late SmokeDevice a1, a2, b1, c1, d1;
+  late SmokeDevice a1, a2, b1, b2, c1, d1;
   late String conv; // A and B's conversation
   final passed = <String>{};
   final launched = <SmokeDevice>[];
@@ -112,20 +119,21 @@ void _scenario() {
       for (final n in needs) {
         if (!passed.contains(n)) fail('not run: step $n did not pass');
       }
+      String state() => world?.describe() ?? '  (no world: setUpAll failed)';
       try {
         await body();
       } on TestFailure catch (e) {
         // Review I2 / M5: every failure says what the wire refused and how
         // far the client clock runs ahead.
         if (e.message?.contains('timed out:') ?? false) rethrow;
-        fail('${e.message}\n${w.describe()}');
+        fail('${e.message}\n${state()}');
       } on E2eeActionException catch (e) {
         fail(
           'E2eeActionException(${e.refusal.name}, cause: ${e.cause.runtimeType})'
-          '\n${w.describe()}',
+          '\n${state()}',
         );
       } on Object catch (e) {
-        fail('$e\n${w.describe()}');
+        fail('$e\n${state()}');
       }
       passed.add(id);
     }, timeout: const Timeout(Duration(minutes: 8)));
@@ -160,7 +168,7 @@ void _scenario() {
     if (_run.isEmpty) {
       fail('E2EE_SMOKE_RUN is empty: scripts/e2ee-smoke.sh passes it');
     }
-    w = SmokeWorld(
+    w = world = SmokeWorld(
       apiBase: _api,
       auth: SmokeAuth(host: _authHost, project: _project),
       run: _run,
@@ -176,8 +184,7 @@ void _scenario() {
   });
 
   tearDownAll(() async {
-    if (_api.isEmpty) return;
-    await w.close();
+    await world?.close();
   });
 
   step(
@@ -643,24 +650,18 @@ void _scenario() {
 
   step(
     '8',
-    'B1 resets: generation 2 on both, one reset row each',
+    'reset: refused on a healthy conversation; B2 waits 24 h and resets',
     ['7'],
     () async {
-      // Fix round ruling 1: the port offers a reset only when the state
-      // does (`canReset`: stuck, waiting 24 h for a welcome, or the M5
-      // pause; conversation_describe.dart, group_starter_reset.dart:87-94).
-      // A healthy conversation is refused `unavailable` by design. Checked
-      // first so a failure names the precondition, not the refusal.
-      final security = b1.thread(conv).latest?.security;
-      expect(
-        security?.canReset,
-        isTrue,
-        reason:
-            'precondition: B1 is offered a reset (state '
-            '${security?.state.name}); the plan\'s reset of a healthy '
-            'conversation is refused by the port by design',
-      );
-      await b1.port.resetConversation(conv);
+      // Plan amendment (controller ruling, fix round): the port offers a
+      // reset only when the state does (`canReset`: stuck, waiting 24 h for
+      // a welcome, or the M5 pause; conversation_describe.dart:132-160,
+      // group_starter_reset.dart:87-94), so the plan's "B1 resets" of a
+      // healthy conversation is refused by design. Part 1 pins that refusal;
+      // part 2 runs the reset the client really offers: B2, a new device of
+      // B that nobody added, waits past kResetWaitWithoutWelcome and resets.
+      Future<EncryptedThread> fresh(SmokeDevice dev) =>
+          dev.port.watchThread(ThreadRef.conversation(conv)).first;
       bool hasGen2(List<GroupRecord> groups) =>
           groups.any((g) => g.generation == 2);
       int resets(SmokeDevice dev) => dev
@@ -668,20 +669,80 @@ void _scenario() {
           .lines
           .where((l) => l.kind == SystemLineKind.encryptionReset)
           .length;
+
+      // 1. B1's healthy conversation: no reset offered, the call refused
+      // before any reset RPC.
+      expect((await fresh(b1)).security.canReset, isFalse);
+      final b1Before = b1.wire.calls.length;
+      await expectLater(
+        b1.port.resetConversation(conv),
+        throwsA(
+          isA<E2eeActionException>().having(
+            (e) => e.refusal,
+            'refusal',
+            E2eeRefusal.unavailable,
+          ),
+        ),
+      );
+      expect(
+        // A reset's writes and claims; reads (lists, lookups) are left out
+        // because B1's background passes make them too.
+        b1.wire.callsOf({
+          'CommitConversation',
+          'ClaimKeyPackages',
+        }, from: b1Before).toList(),
+        isEmpty,
+        reason: 'the refused reset made no reset RPC',
+      );
+
+      // 2. B2 starts, sees the conversation and waits for a welcome that
+      // never comes (A1 and B1 are not nudged here; their device lists are
+      // younger than kDeviceListReuse, so neither adds B2).
+      b2 = await start('B2', b);
+      final tb2 = b2.watch(conv);
       await w.eventually(
-        'A1 joined generation 2; one reset row on A1 and B1',
+        'B2 waits for a welcome',
+        () async =>
+            tb2.latest?.security.state ==
+            ConversationEncryptionState.waitingForDevice,
+        nudge: () async {
+          await b2.nudgeInbox();
+          b2.push(conv);
+        },
+      );
+      expect(
+        (await codeOf(b1, conv)).myDevices,
+        1,
+        reason: 'precondition: B2 is not a member',
+      );
+      // The clients' time moves past the reset's 24 h wait (the offset only
+      // grows: from here the clients run a day and 32 minutes ahead).
+      w.clock.advance(kResetWaitWithoutWelcome + const Duration(minutes: 1));
+      await w.eventually(
+        'B2 is offered a reset',
+        () async => (await fresh(b2)).security.canReset,
+        nudge: () async => b2.push(conv),
+      );
+      await b2.port.resetConversation(conv);
+
+      // The plan's assertions, for the parties in the group after the reset.
+      await w.eventually(
+        'generation 2 on A1, B1 and B2; one reset row on each',
         () async =>
             hasGen2(await a1.vault.groups(conv)) &&
             hasGen2(await b1.vault.groups(conv)) &&
+            hasGen2(await b2.vault.groups(conv)) &&
             resets(a1) == 1 &&
-            resets(b1) == 1,
+            resets(b1) == 1 &&
+            resets(b2) == 1,
         nudge: () async {
           a1.push(conv);
           b1.push(conv);
+          b2.push(conv);
         },
       );
       final outs = await Future.wait([
-        b1.port.send(
+        b2.port.send(
           to: ThreadRef.conversation(conv),
           localId: SmokeWorld.newKey(),
           text: eightB,
@@ -697,18 +758,24 @@ void _scenario() {
         [SendOutcomeKind.queued, SendOutcomeKind.queued],
       );
       await w.eventually(
-        'messages after the reset decrypted by both',
+        'messages after the reset decrypted by all',
         () async =>
+            a1.thread(conv).showsOnce(eightA, mine: true) &&
             a1.thread(conv).showsOnce(eightB, mine: false) &&
-            b1.thread(conv).showsOnce(eightA, mine: false),
+            b1.thread(conv).showsOnce(eightA, mine: false) &&
+            b1.thread(conv).showsOnce(eightB, mine: true) &&
+            b2.thread(conv).showsOnce(eightA, mine: false) &&
+            b2.thread(conv).showsOnce(eightB, mine: true),
         nudge: () async {
           a1.push(conv);
           b1.push(conv);
+          b2.push(conv);
         },
       );
       expect((await a1.storedWithText(conv, eightB)).single.generation, 2);
-      // Review M6: both directions, and generation 1 kept on both.
+      // Review M6: both directions, and generation 1 kept on A1 and B1.
       expect((await b1.storedWithText(conv, eightA)).single.generation, 2);
+      expect((await b2.storedWithText(conv, eightA)).single.generation, 2);
       for (final dev in [a1, b1]) {
         expect(
           (await dev.storedWithText(conv, one)).single.generation,
@@ -718,8 +785,7 @@ void _scenario() {
       }
       expect(a1.thread(conv).showsOnce(one, mine: true), isTrue);
       expect(b1.thread(conv).showsOnce(one, mine: false), isTrue);
-      expect(resets(a1), 1);
-      expect(resets(b1), 1);
+      expect([resets(a1), resets(b1), resets(b2)], [1, 1, 1]);
     },
   );
 
