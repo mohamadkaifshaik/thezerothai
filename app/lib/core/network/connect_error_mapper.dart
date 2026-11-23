@@ -157,6 +157,10 @@ AppException mapConnectError(Object error) {
       // wires the behaviour.
       case common.ErrorReason.ERROR_REASON_DEVICE_REMOVED:
         return const DeviceRemovedException();
+      // Every RPC: this session signed in before the account's session cut (a REMOTE device removal). Typed with
+      // fixed text, never the generic UNAUTHENTICATED mapping; the sign-out (vault kept) is lane D PR 4.
+      case common.ErrorReason.ERROR_REASON_SESSION_ENDED:
+        return const SessionEndedException();
       case common.ErrorReason.ERROR_REASON_UNSPECIFIED:
         // A state conflict keyed by `metadata["reason"]` (the beacons backend): typed, never
         // "profile required". Without a reason the code mapping below still applies.

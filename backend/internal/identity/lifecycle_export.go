@@ -85,6 +85,9 @@ type exportProfile struct {
 	FollowingCount int64           `json:"followingCount"`
 	PostsCount     int64           `json:"postsCount"`
 	CreatedAt      time.Time       `json:"createdAt"`
+	// SessionsValidAfter is the account's session cut (users/{uid}.sessionsValidAfter: sessions that signed in before it
+	// were ended by a device removal), omitted when there is none.
+	SessionsValidAfter *time.Time `json:"sessionsValidAfter,omitempty"`
 }
 
 func profileSection(p Profile) exportProfile {
@@ -94,6 +97,7 @@ func profileSection(p Profile) exportProfile {
 		Location: p.Location, Website: p.Website, PinnedPostID: p.PinnedPostID, ReadReceipts: p.ReadReceipts,
 		DMPolicy: string(p.DMPolicy), HomeTabs: exportHomeTabs(p),
 		PostsCount: p.PostsCount, CreatedAt: p.CreatedAt.UTC(),
+		SessionsValidAfter: ptrTime(p.SessionsValidAfter.UTC()),
 	}
 }
 

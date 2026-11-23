@@ -31,6 +31,13 @@ class RemoveReason extends $pb.ProtobufEnum {
   /// ACCOUNT_DELETE_REAUTH_MAX_AGE, 5 min, or missing; nothing is written) unless this is a retry: the id is already
   /// marked and its device document is gone or already being removed; a retry finishes the removal without one. An id
   /// that was never registered is marked too (the answer does not tell whether the id existed).
+  /// With FEATURE_DEVICE_SIGN_OUT (wire name "device_sign_out") on for the caller, a REMOTE removal with a recent sign-in
+  /// also ends every session of the account that signed in before the caller did (the cut is the caller's own
+  /// auth_time, so the caller's session is kept): such sessions get UNAUTHENTICATED + SESSION_ENDED on every RPC until
+  /// they sign in again (another server instance may accept them for up to 60 s). The cut is remembered on the mark, so
+  /// a retry without a recent sign-in finishes a cut that failed; a retry never asks for a new cut. A repeated REMOTE
+  /// removal of an id marked without a cut (the flag was off then) asks for the cut when the caller signed in recently.
+  /// A failure of the cut answers UNAVAILABLE (retry). With the flag off for the caller nothing is cut.
   static const RemoveReason REMOVE_REASON_REMOTE =
       RemoveReason._(2, _omitEnumNames ? '' : 'REMOVE_REASON_REMOTE');
 

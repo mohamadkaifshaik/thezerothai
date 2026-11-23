@@ -89,6 +89,7 @@ func clearEnv(t *testing.T) {
 		"FEATURE_PUBLIC_IDS", "FEATURE_PUBLIC_IDS_ALLOWLIST", "FEATURE_PUBLIC_IDS_PERCENT",
 		"FEATURE_DM_SUGGESTIONS", "FEATURE_DM_SUGGESTIONS_ALLOWLIST", "FEATURE_DM_SUGGESTIONS_PERCENT",
 		"FEATURE_E2EE_DM", "FEATURE_E2EE_DM_ALLOWLIST", "FEATURE_E2EE_DM_PERCENT",
+		"FEATURE_DEVICE_SIGN_OUT", "FEATURE_DEVICE_SIGN_OUT_ALLOWLIST", "FEATURE_DEVICE_SIGN_OUT_PERCENT",
 		"RATE_LIMIT_SHARES_PER_MIN", "SHARES_RECORDED_PER_DAY",
 		"FEATURE_POST_VIEWS", "FEATURE_POST_VIEWS_ALLOWLIST", "FEATURE_POST_VIEWS_PERCENT", "POST_VIEWS_PUBLIC_THRESHOLD",
 		"FEATURE_CREATOR_INSIGHTS", "FEATURE_CREATOR_INSIGHTS_ALLOWLIST", "FEATURE_CREATOR_INSIGHTS_PERCENT", "RATE_LIMIT_CREATOR_INSIGHTS_PER_MIN",
@@ -518,17 +519,23 @@ func TestLoad_Overrides(t *testing.T) {
 	}
 }
 
-// TestLoad_CacheTTLGuard: CACHE_TTL must stay <= 60 s, below the 120 s deletion start gate.
+// TestLoad_CacheTTLGuard: CACHE_TTL must stay <= 60 s, below the 120 s deletion start gate, and above 0 (the cache
+// treats ttl <= 0 as "never expires", which would hide a session cut or a status change from other instances; SA L2).
 func TestLoad_CacheTTLGuard(t *testing.T) {
+	tooLong := []string{"CACHE_TTL", "60s", "120s"}
+	notPositive := []string{"CACHE_TTL", "positive", "never expire"}
 	tests := []struct {
 		name    string
-		ttl     string // "" = unset (default)
-		wantErr bool
+		ttl     string   // "" = unset (default)
+		wantErr []string // nil = loads; else the error mentions each
 	}{
-		{"default", "", false},
-		{"boundary 60s ok", "60s", false},
-		{"61s rejected", "61s", true},
-		{"120s rejected", "120s", true},
+		{"default", "", nil},
+		{"boundary 60s ok", "60s", nil},
+		{"1ms ok", "1ms", nil},
+		{"61s rejected", "61s", tooLong},
+		{"120s rejected", "120s", tooLong},
+		{"0s rejected", "0s", notPositive},
+		{"negative rejected", "-1s", notPositive},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -537,11 +544,11 @@ func TestLoad_CacheTTLGuard(t *testing.T) {
 				t.Setenv("CACHE_TTL", tc.ttl)
 			}
 			cfg, err := Load()
-			if tc.wantErr {
+			if tc.wantErr != nil {
 				if err == nil {
 					t.Fatal("expected error")
 				}
-				for _, want := range []string{"CACHE_TTL", "60s", "120s"} {
+				for _, want := range tc.wantErr {
 					if !strings.Contains(err.Error(), want) {
 						t.Errorf("error %q does not mention %q", err, want)
 					}
@@ -551,7 +558,7 @@ func TestLoad_CacheTTLGuard(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Load() error = %v", err)
 			}
-			if cfg.CacheTTL > MaxCacheTTL {
+			if cfg.CacheTTL > MaxCacheTTL || cfg.CacheTTL <= 0 {
 				t.Errorf("CacheTTL = %v", cfg.CacheTTL)
 			}
 		})

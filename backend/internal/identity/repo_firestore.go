@@ -94,6 +94,9 @@ type userDoc struct {
 	// (UpdateProfile) cannot drop them.
 	DeletionRequestedAt *time.Time      `firestore:"deletionRequestedAt,omitempty"`
 	DeletionJob         *deletionJobDoc `firestore:"deletionJob,omitempty"`
+	// SessionsValidAfter is the session cut (EndSessionsBefore), absent = none. A pointer with omitempty so a whole-document
+	// rewrite of an account without one never adds the field; carried by Profile so such a rewrite cannot drop it.
+	SessionsValidAfter *time.Time `firestore:"sessionsValidAfter,omitempty"`
 }
 
 func (d userDoc) toProfile(uid string) Profile {
@@ -127,6 +130,7 @@ func (d userDoc) toProfile(uid string) Profile {
 		UpdatedAt:            d.UpdatedAt,
 		DeletionRequestedAt:  derefTime(d.DeletionRequestedAt),
 		DeletionJob:          d.DeletionJob.toDomain(),
+		SessionsValidAfter:   derefTime(d.SessionsValidAfter),
 	}
 }
 
@@ -160,6 +164,7 @@ func profileToDoc(p Profile) userDoc {
 		UpdatedAt:            p.UpdatedAt,
 		DeletionRequestedAt:  ptrTime(p.DeletionRequestedAt),
 		DeletionJob:          deletionJobToDoc(p.DeletionJob),
+		SessionsValidAfter:   ptrTime(p.SessionsValidAfter),
 	}
 }
 

@@ -126,10 +126,13 @@ extension _Reset on GroupStarter {
       throw const E2eeActionException(E2eeRefusal.unavailable);
     }
 
-    // 2. Both lists fresh (H1, as the start reads them).
-    final own = _lastReadable(
-      await _directory.own(fresh: true, priority: priority),
-    );
+    // 2. Both lists fresh (H1, as the start reads them). [ownFresh]: the
+    // server answered this read (not a kept list `_lastReadable` accepts
+    // while the directory is deferred); the Task 11 follow-up's unknown
+    // removal answer adds own devices only then.
+    final ownAnswer = await _directory.own(fresh: true, priority: priority);
+    final ownFresh = ownAnswer.readable;
+    final own = _lastReadable(ownAnswer);
     final theirs = _lastReadable(
       await _directory.peer(peer, fresh: true, priority: priority),
     );
@@ -153,6 +156,12 @@ extension _Reset on GroupStarter {
       throw const E2eeActionException(E2eeRefusal.unavailable);
     }
     final me = _ownUserId();
+    // Fix round 1, ruling 10 (CR N-3), recorded: `others` still counts an
+    // own device the user removed, so a reset whose only other own device
+    // is one may claim the own side for nothing (one claim of the
+    // per-target cap, one package of a device being removed). Accepted:
+    // the claim API cannot exclude one device, and the answer is asked
+    // only after the claims (`_ownKeptOut`, under the lock).
     var mine = const <kpb.ClaimedKeyPackage>[];
     final others = [
       for (final d in own.devices)
@@ -178,6 +187,7 @@ extension _Reset on GroupStarter {
         id,
         g,
         own: own,
+        ownFresh: ownFresh,
         theirs: theirs,
         claimedTheirs: claimed.keyPackages,
         inspectedTheirs: inspectedTheirs,
@@ -284,11 +294,23 @@ extension _Reset on GroupStarter {
   /// server supplies, and must not undo this device's own removal of the
   /// day. A manual reset is the user's choice, and its `deviceAdded` rows
   /// show what it added.
+  ///
+  /// Task 11 follow-up (CR2 M-6; fix round 4, ruling 8; review ruling 4;
+  /// a flag-on gate): every reset, manual or automatic, leaves out each
+  /// claimed own device the user removed ([GroupStarter._wasRemovedByUser]).
+  /// Why: the server's list may still show it (a removal whose outcome is
+  /// unknown, a kept list), and a reset must not undo the user's removal.
+  /// When that answer is unknown (the removal queue cannot be read), own
+  /// devices are added only when [ownFresh] says [own] is this reset's
+  /// fresh read; from a kept list none is (fail closed; nothing new is
+  /// reported). The peer's claims are never asked about (fix round 5, R2:
+  /// the marks are the user's own devices only).
   Future<_Created> _createReset(
     _Op op,
     String id,
     int g, {
     required DeviceList own,
+    required bool ownFresh,
     required DeviceList theirs,
     required List<kpb.ClaimedKeyPackage> claimedTheirs,
     required List<KeyPackageInfo?> inspectedTheirs,
@@ -299,6 +321,10 @@ extension _Reset on GroupStarter {
     const unavailable = _Created(_CreatedKind.unavailable);
     final next = g + 1;
     try {
+      // Asked before the write body (the answer may read the vault). The
+      // claims are still checked and deduplicated across both sides as
+      // claimed (PR 1 carryover); the removed ones are left out after.
+      final keptOut = await _ownKeptOut(claimedMine, ownFresh: ownFresh);
       final made = await _session.runWrite((v) async {
         op.check(v);
         final groups = await v.groups(id);
@@ -360,13 +386,23 @@ extension _Reset on GroupStarter {
         bool removedToday(UsableClaim c) =>
             daily != null &&
             daily.isUndoOfOwnChange(id, c.deviceId, removing: false);
+        // Final minor round, ruling 1 (CR R-1): never a peer claim with an
+        // own-list device's key.
         final usableTheirs = [
           for (final c in checkedTheirs.usable)
-            if (!onBoth(c, checkedMine.usable) && !removedToday(c)) c,
+            if (!onBoth(c, checkedMine.usable) &&
+                !removedToday(c) &&
+                !_ownListKey(own, c.signatureKey))
+              c,
         ];
+        // Task 11 follow-up: never an own device the user removed; none at
+        // all while that is unknown and the own list is a kept one.
         final usableMine = [
           for (final c in checkedMine.usable)
-            if (!onBoth(c, checkedTheirs.usable) && !removedToday(c)) c,
+            if (!onBoth(c, checkedTheirs.usable) &&
+                !removedToday(c) &&
+                !keptOut.keepsOut(c.deviceId))
+              c,
         ];
         if (usableTheirs.isEmpty) {
           return _Created(_CreatedKind.noDevice, emptyFor: emptyFor);

@@ -175,11 +175,22 @@ final $typed_data.Uint8List removeKeyDeviceRequestDescriptor = $convert.base64De
 @$core.Deprecated('Use removeKeyDeviceResponseDescriptor instead')
 const RemoveKeyDeviceResponse$json = {
   '1': 'RemoveKeyDeviceResponse',
+  '2': [
+    {
+      '1': 'other_sessions_ended',
+      '3': 1,
+      '4': 1,
+      '5': 8,
+      '10': 'otherSessionsEnded'
+    },
+  ],
 };
 
 /// Descriptor for `RemoveKeyDeviceResponse`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List removeKeyDeviceResponseDescriptor =
-    $convert.base64Decode('ChdSZW1vdmVLZXlEZXZpY2VSZXNwb25zZQ==');
+    $convert.base64Decode(
+        'ChdSZW1vdmVLZXlEZXZpY2VSZXNwb25zZRIwChRvdGhlcl9zZXNzaW9uc19lbmRlZBgBIAEoCF'
+        'ISb3RoZXJTZXNzaW9uc0VuZGVk');
 
 @$core.Deprecated('Use uploadKeyPackagesRequestDescriptor instead')
 const UploadKeyPackagesRequest$json = {

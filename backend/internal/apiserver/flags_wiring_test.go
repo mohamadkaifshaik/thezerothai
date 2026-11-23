@@ -6,6 +6,7 @@ import (
 
 	"github.com/dzeroth/dzeroth/backend/internal/beacons"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
+	"github.com/dzeroth/dzeroth/backend/internal/keys"
 	"github.com/dzeroth/dzeroth/backend/internal/search"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 )
@@ -220,6 +221,31 @@ func TestFeatureRegistry_IncludesE2EEDM(t *testing.T) {
 	}
 	if slices.Contains(reg.EnabledFeatures("uid-z"), "e2ee_dm") {
 		t.Error("e2ee_dm must not be reported for uid-z")
+	}
+}
+
+// TestFeatureRegistry_IncludesDeviceSignOut: the registry built from config knows `device_sign_out` under the name keys and
+// the session-cut interceptor ask (keys.DeviceSignOutFlag): globally off when unset, on for an allowlisted uid only.
+func TestFeatureRegistry_IncludesDeviceSignOut(t *testing.T) {
+	t.Setenv("FEATURE_DEVICE_SIGN_OUT", "")
+	t.Setenv("FEATURE_DEVICE_SIGN_OUT_ALLOWLIST", "")
+	t.Setenv("FEATURE_DEVICE_SIGN_OUT_PERCENT", "")
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	if reg := featureRegistry(cfg); !reg.GloballyOff(keys.DeviceSignOutFlag) || reg.Enabled("uid-a", keys.DeviceSignOutFlag) {
+		t.Error("device_sign_out must default globally off")
+	}
+	t.Setenv("FEATURE_DEVICE_SIGN_OUT", "allowlist")
+	t.Setenv("FEATURE_DEVICE_SIGN_OUT_ALLOWLIST", "uid-a")
+	cfg, err = config.Load()
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	reg := featureRegistry(cfg)
+	if !reg.Enabled("uid-a", keys.DeviceSignOutFlag) || reg.Enabled("uid-z", keys.DeviceSignOutFlag) || reg.GloballyOff(keys.DeviceSignOutFlag) {
+		t.Error("allowlist: want on for uid-a only and not globally off")
 	}
 }
 

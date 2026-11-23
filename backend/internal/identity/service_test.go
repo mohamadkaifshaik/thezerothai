@@ -48,6 +48,10 @@ type fakeRepo struct {
 	resolvePubCalls           int
 	resolvePubArgs            [][]string
 	createPublicIDs           []string // the publicID argument of every CreateProfile call
+
+	// Session cut (session_cut_test.go): EndSessionsBefore calls, the ones that wrote, and an injected error.
+	cutCalls, cutWrites int
+	cutErr              error
 }
 
 func newFakeRepo() *fakeRepo {

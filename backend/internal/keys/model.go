@@ -169,6 +169,11 @@ type Service interface {
 	// nothing written), so Register and Upload refuse it with DEVICE_REMOVED. Any other reason value is VALIDATION
 	// "reason".
 	Remove(ctx context.Context, uid, deviceID string, reason RemoveReason) error
+	// RemoveDevice is Remove that also reports the session cut (RemoveResult). With RemoveRemote and device_sign_out
+	// (DeviceSignOutFlag) on for the caller, a removal with a recent sign-in asks to cut the account's sessions at the
+	// caller's auth_time (recorded on the mark); a cut on the mark that is not done yet is written through SessionCutter
+	// (whatever the flag says now) and noted done, before the sweep. A failure of either is UNAVAILABLE (retry).
+	RemoveDevice(ctx context.Context, uid, deviceID string, reason RemoveReason) (RemoveResult, error)
 	// Upload adds packages to a registered device's pool (duplicates stored once, excess over MaxPoolSize dropped) and
 	// optionally replaces its last-resort package (nil or empty = keep). It returns the resulting pool size. A marked id
 	// is DEVICE_REMOVED, any other unknown device NOT_FOUND.
@@ -223,12 +228,31 @@ type Repo interface {
 	// LastSeenAt is not touched. A REMOTE removal that marks a device after the device read does not stop its package
 	// from being taken (the removal window, see FirestoreRepo.Claim).
 	Claim(ctx context.Context, targetUID, excludeDeviceID string, now time.Time) ([]Claimed, error)
-	// MarkRemoved is the REMOTE removal's transaction: it reads the device document and the mark, creates the mark when
-	// absent (removedAt = now, expireAt = now + RemovalMarkTTL; an existing mark keeps its times) and sets removedAt on
-	// the device document when it exists and lacks it. 2 reads, at most 2 writes. Idempotent. Without recent only a retry
-	// (the mark exists and the device document is missing or already carries removedAt) goes on; anything else is
-	// ErrReauthRequired with nothing written.
-	MarkRemoved(ctx context.Context, uid, deviceID string, now time.Time, recent bool) error
+	// MarkRemovedCut is the REMOTE removal's transaction: it reads the device document and the mark, creates the mark
+	// when absent (removedAt = now, expireAt = now + RemovalMarkTTL; an existing mark keeps its times) and sets removedAt
+	// on the device document when it exists and lacks it. A non-zero cut (the session cut H2 asks for) is stored as the
+	// mark's cutAt only when the mark has none yet; an existing cutAt is kept. 2 reads, at most 2 writes. Idempotent.
+	// Without recent only a retry (the mark exists and the device document is missing or already carries removedAt) goes
+	// on; anything else is ErrReauthRequired with nothing written. It returns the mark's cut state after the transaction.
+	MarkRemovedCut(ctx context.Context, uid, deviceID string, now time.Time, recent bool, cut time.Time) (MarkState, error)
+	// MarkCutDone sets the mark's cutDone once the session cut is written on the account: 1 write, no read. A missing
+	// mark is an error.
+	MarkCutDone(ctx context.Context, uid, deviceID string) error
+}
+
+// MarkState is the session-cut part of a removed mark (removal-server design 2.1): CutAt is the remover's auth_time the
+// removal asked to cut at (zero = no cut asked), CutDone that the cut was written on the account, so a retry neither
+// cuts again nor reports it undone.
+type MarkState struct {
+	CutAt   time.Time
+	CutDone bool
+}
+
+// RemoveResult is what RemoveDevice reports beyond success.
+type RemoveResult struct {
+	// OtherSessionsEnded is RemoveKeyDeviceResponse.other_sessions_ended: this call, or an earlier attempt of the same
+	// REMOTE removal, cut the account's other sessions. Always false for RemoveSignOut.
+	OtherSessionsEnded bool
 }
 
 // cloneBytes returns a copy of b (nil stays nil).

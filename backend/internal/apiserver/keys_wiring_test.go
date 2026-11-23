@@ -71,7 +71,7 @@ func TestKeysPermission_SharesEncryptedConversation(t *testing.T) {
 // TestNewKeysModule_RequiresConversationID: a nil conversation id function fails the wiring (keys never imports messaging,
 // so the composition root injects messaging.ConversationID).
 func TestNewKeysModule_RequiresConversationID(t *testing.T) {
-	if _, err := newKeysModule(unusedKeysRepo{}, nil, stubMessagingPermission{}, nil, ratelimit.NewDailyCap(2), keysLookupCap(4, 3, func(string) bool { return false }), testKeysReauth, nil); err == nil {
+	if _, err := newKeysModule(unusedKeysRepo{}, nil, stubMessagingPermission{}, nil, ratelimit.NewDailyCap(2), keysLookupCap(4, 3, func(string) bool { return false }), testKeysReauth, stubCutter{}, nil); err == nil {
 		t.Fatal("a nil conversation id function was accepted")
 	}
 }
@@ -82,8 +82,22 @@ const testKeysReauth = 5 * time.Minute
 // TestNewKeysModule_RequiresReauthMaxAge: a zero reauth window fails the wiring (it would refuse every REMOTE removal).
 func TestNewKeysModule_RequiresReauthMaxAge(t *testing.T) {
 	lookup := keysLookupCap(4, 3, func(string) bool { return false })
-	if _, err := newKeysModule(unusedKeysRepo{}, nil, stubMessagingPermission{}, messaging.ConversationID, ratelimit.NewDailyCap(2), lookup, 0, nil); err == nil {
+	if _, err := newKeysModule(unusedKeysRepo{}, nil, stubMessagingPermission{}, messaging.ConversationID, ratelimit.NewDailyCap(2), lookup, 0, stubCutter{}, nil); err == nil {
 		t.Fatal("a zero reauth max age was accepted")
+	}
+}
+
+// stubCutter satisfies keys.SessionCutter for wiring tests that never cut.
+type stubCutter struct{}
+
+func (stubCutter) EndSessionsBefore(context.Context, string, time.Time) error { return nil }
+
+// TestNewKeysModule_RequiresSessionCutter: a nil session cutter fails the wiring (a REMOTE removal with device_sign_out on
+// could not cut, keys never imports identity).
+func TestNewKeysModule_RequiresSessionCutter(t *testing.T) {
+	lookup := keysLookupCap(4, 3, func(string) bool { return false })
+	if _, err := newKeysModule(unusedKeysRepo{}, nil, stubMessagingPermission{}, messaging.ConversationID, ratelimit.NewDailyCap(2), lookup, testKeysReauth, nil, nil); err == nil {
+		t.Fatal("a nil session cutter was accepted")
 	}
 }
 
@@ -129,7 +143,7 @@ type unusedKeysRepo struct{ keys.Repo }
 func TestKeysLookupDailyCap(t *testing.T) {
 	isNew := true
 	cap := keysLookupCap(4, 3, func(string) bool { return isNew })
-	mod, err := newKeysModule(unusedKeysRepo{}, nil, stubMessagingPermission{}, messaging.ConversationID, ratelimit.NewDailyCap(2), cap, testKeysReauth, nil)
+	mod, err := newKeysModule(unusedKeysRepo{}, nil, stubMessagingPermission{}, messaging.ConversationID, ratelimit.NewDailyCap(2), cap, testKeysReauth, stubCutter{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,10 +188,10 @@ func TestKeysLookupDailyCap(t *testing.T) {
 func TestNewKeysModule_PerTargetClaimCapIsWired(t *testing.T) {
 	perm := stubMessagingPermission{err: messaging.ErrCannotMessage}
 	lookup := keysLookupCap(4, 3, func(string) bool { return false })
-	if _, err := newKeysModule(unusedKeysRepo{}, nil, perm, messaging.ConversationID, nil, lookup, testKeysReauth, nil); err == nil {
+	if _, err := newKeysModule(unusedKeysRepo{}, nil, perm, messaging.ConversationID, nil, lookup, testKeysReauth, stubCutter{}, nil); err == nil {
 		t.Fatal("a nil per-target claim cap was accepted")
 	}
-	mod, err := newKeysModule(unusedKeysRepo{}, nil, perm, messaging.ConversationID, ratelimit.NewDailyCap(2), lookup, testKeysReauth, nil)
+	mod, err := newKeysModule(unusedKeysRepo{}, nil, perm, messaging.ConversationID, ratelimit.NewDailyCap(2), lookup, testKeysReauth, stubCutter{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -342,6 +342,21 @@ class RigPeer {
     );
   }
 
+  /// A device named [name] that signs with [other]'s key under its own id
+  /// (a removed device's key reused under a new id).
+  static RigPeer withKeyOf(String name, RigPeer other) {
+    final engine = FakeCryptoEngine();
+    final id = rigBytes('peer-$name-device-0001');
+    final created = engine.createDeviceWithKey(id, other.key);
+    return RigPeer._(
+      name,
+      engine,
+      id,
+      created.deviceState,
+      created.signaturePublicKey,
+    );
+  }
+
   /// One key package for this device, as the server would hand it out.
   Future<Uint8List> keyPackage({bool lastResort = false}) async {
     final r = await engine.generateKeyPackages(
@@ -1962,6 +1977,12 @@ class RigCrypto {
   /// The own user reference the upkeep claims own devices with.
   String? ownUserId = 'user-a';
 
+  /// The `wasRemovedByUser` seam of the upkeep and the starter (Task 11
+  /// follow-up; Task 13 wires the removal queue runner's): read at each
+  /// call, so a test may set it any time. Default: no device was removed.
+  Future<bool> Function(Uint8List deviceId) wasRemovedByUser = (_) async =>
+      false;
+
   /// Membership upkeep (Task 9), over this rig's runner, crypto and
   /// directory.
   late MembershipUpkeep upkeep;
@@ -2155,6 +2176,7 @@ class RigCrypto {
       onChanged: changed.add,
       ownUserId: () => ownUserId,
       removedElsewhere: () => removedElsewhere,
+      wasRemovedByUser: (id) => wasRemovedByUser(id),
       schedule: (delay, run) {
         final entry = RigScheduled(delay, run);
         upkeepScheduled.add(entry);
