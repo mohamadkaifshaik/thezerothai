@@ -27,8 +27,11 @@ void main() {
 
   tearDown(() => expect(reported, isEmpty, reason: 'reported'));
 
+  // The coordinator's clock start (tests build their times on it).
+  late DateTime clockStart;
+
   SyncCoordinator build(FakeAsync async) {
-    final start = DateTime.now().toUtc();
+    final start = clockStart = DateTime.now().toUtc();
     return SyncCoordinator(
       work: work,
       now: () => start.add(async.elapsed),
@@ -236,7 +239,7 @@ void main() {
     'm2: held with a time already passed waits the minimum, never a spin',
     () => fakeAsync((async) {
       final sync = build(async);
-      final start = DateTime.now().toUtc();
+      final start = clockStart;
       work.groups.add(_c(1));
       unawaited(sync.onVaultReady());
       async.flushMicrotasks();

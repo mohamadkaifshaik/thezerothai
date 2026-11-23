@@ -41,8 +41,12 @@ void main() {
     if (!reportsExpected) expect(reported, isEmpty, reason: 'reported');
   });
 
+  // The coordinator's clock start: a test's own times are built on it, never
+  // on a second `DateTime.now()` (which drifts from it under load).
+  late DateTime clockStart;
+
   SyncCoordinator build(FakeAsync async) {
-    final start = DateTime.now().toUtc();
+    final start = clockStart = DateTime.now().toUtc();
     return SyncCoordinator(
       work: work,
       now: () => start.add(async.elapsed),
@@ -500,7 +504,7 @@ void main() {
       'item 54: held and stopped are honoured at their time',
       () => fakeAsync((async) {
         final sync = build(async);
-        final start = DateTime.now().toUtc();
+        final start = clockStart;
         DateTime at(Duration d) => start.add(async.elapsed).add(d);
         work.groups.add(_c(1));
         ready(async, sync);
@@ -561,7 +565,7 @@ void main() {
       'resume, open and push',
       () => fakeAsync((async) {
         final sync = build(async);
-        final start = DateTime.now().toUtc();
+        final start = clockStart;
         ready(async, sync);
         work.pulls[_c(1)] = [
           ReceiveOutcome.stopped(start.add(const Duration(minutes: 1))),
