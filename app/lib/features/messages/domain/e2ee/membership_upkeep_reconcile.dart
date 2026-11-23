@@ -651,7 +651,9 @@ extension _Reconcile on MembershipUpkeep {
         if (!fresh.readable || !identical(_session.vault, vault)) {
           return _OwnAdds(own, noOwnDevice: true);
         }
-        return _OwnAdds(fresh);
+        // Fix round 1, ruling 4 (CR M-1): the answers already given still
+        // count, as in the reset.
+        return _OwnAdds(fresh, removed: removed);
       }
     }
     return _OwnAdds(own, removed: removed);

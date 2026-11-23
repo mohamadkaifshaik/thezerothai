@@ -229,6 +229,29 @@ void main() {
     expect(await pin(sibling), isNull);
   });
 
+  test('a "removed" answer given before the queue turned unreadable still '
+      'keeps that device out of the fresh list\'s adds (fix round 1, '
+      'ruling 4, CR M-1)', () async {
+    final sibling = await RigPeer.create('sibling');
+    final sibling2 = await RigPeer.create('sibling2');
+    await setUpJoined(ownListed: [sibling, sibling2]);
+    ownClaims([sibling, sibling2]);
+    asked = [];
+    rig.wasRemovedByUser = (id) async {
+      asked.add(utf8.decode(id));
+      if (rigEq(id, sibling.id)) return true;
+      throw StateError('The removal record cannot be read.');
+    };
+
+    await rig.upkeep.reconcile(_c1);
+
+    expect(asked.take(2), [sibling.idString, sibling2.idString]);
+    expect(rig.server.commitRequests.single.welcomeDeviceIds, [
+      sibling2.idString,
+    ]);
+    expect(await pin(sibling), isNull);
+  });
+
   test('an unreadable removal queue and no fresh own list: reconcile adds '
       'no own device this pass, and still adds the peer\'s', () async {
     final sibling = await RigPeer.create('sibling');
