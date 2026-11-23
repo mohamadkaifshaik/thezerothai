@@ -205,6 +205,19 @@ void main() {
     );
   });
 
+  test('remove refuses REMOVE_REASON_UNSPECIFIED before any call (fix wave '
+      '8, SA L4)', () async {
+    await expectLater(
+      () => repo.removeDevice(
+        deviceId: _id,
+        idempotencyKey: _key1,
+        reason: pb.RemoveReason.REMOVE_REASON_UNSPECIFIED,
+      ),
+      throwsArgumentError,
+    );
+    expect(server.calls, isEmpty);
+  });
+
   // One call per method, in a fixed order: register, list, remove, upload,
   // get, claim.
   List<Future<Object?> Function()> allSix() => [
