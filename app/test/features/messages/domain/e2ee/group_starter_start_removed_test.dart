@@ -225,10 +225,9 @@ void main() {
     expect(await welcomed(), {bob.idString, sib.idString});
   });
 
-  test('a removal older than the queue\'s memory (expired mark) may be '
-      're-added at a start', () async {
-    final sib = await RigPeer.create('sib');
-    siblings([sib]);
+  /// The real runner, wired as the seam, over a stored removed mark for
+  /// [p] made [ago] (its key: [p]'s).
+  Future<RemovalQueueRunner> realRunnerWithMark(RigPeer p, Duration ago) async {
     final runner = RemovalQueueRunner(
       keys: rig.keys,
       directory: rig.directory,
@@ -245,28 +244,56 @@ void main() {
       schedule: (delay, run) => () {},
       onUnexpectedError: (e, _) => rig.unexpected.add(e),
     );
-    final at = rig.clock.now().subtract(
-      kRemovedByUserLimit + const Duration(minutes: 1),
-    );
+    final at = rig.clock.now().subtract(ago);
     await rig.device.vault.transaction(
       (tx) => tx.putSetting(
         kVaultSettingRemovalRecord,
         RemovalRecord(
           removed: [
             RemovalMark(
-              deviceId: sib.idString,
+              deviceId: p.idString,
               atMicros: at.microsecondsSinceEpoch,
-              signatureKey: sib.key,
+              signatureKey: p.key,
             ),
           ],
         ).encode(),
       ),
     );
     rig.wasRemovedByUser = runner.wasRemovedByUser;
+    return runner;
+  }
+
+  test('a removal older than the queue\'s memory (expired mark) may be '
+      're-added at a start', () async {
+    final sib = await RigPeer.create('sib');
+    siblings([sib]);
+    final runner = await realRunnerWithMark(
+      sib,
+      kRemovedByUserLimit + const Duration(minutes: 1),
+    );
 
     expect((await start()).result, StartResult.started);
 
     expect(await welcomed(), {bob.idString, sib.idString});
     await runner.idle();
   });
+
+  test(
+    'a mark inside the queue\'s memory keeps the device out of a start '
+    '(the real runner\'s answer; final minor round, ruling 2, CR R-2)',
+    () async {
+      final sib = await RigPeer.create('sib');
+      siblings([sib]);
+      final runner = await realRunnerWithMark(
+        sib,
+        kRemovedByUserLimit - const Duration(minutes: 1),
+      );
+
+      expect((await start()).result, StartResult.started);
+
+      expect(await welcomed(), {bob.idString});
+      expect(await pin(sib), isNull);
+      await runner.idle();
+    },
+  );
 }
