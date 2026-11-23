@@ -14,6 +14,7 @@ import (
 	"connectrpc.com/connect"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
+	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/identity/v1/identityv1connect"
 	messagingv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1/messagingv1connect"
 	"github.com/dzeroth/dzeroth/backend/internal/keys"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
@@ -116,20 +117,26 @@ func TestChain_SessionCutRunsBeforeTheRateLimiter(t *testing.T) {
 	})
 	var reached atomic.Int64
 	mux := http.NewServeMux()
-	mux.Handle(commit, connect.NewUnaryHandler(commit,
-		func(context.Context, *connect.Request[commonv1.ErrorDetail]) (*connect.Response[commonv1.ErrorDetail], error) {
-			reached.Add(1)
-			return connect.NewResponse(&commonv1.ErrorDetail{}), nil
-		}, connect.WithInterceptors(ics...)))
+	// CommitConversation, and a profile-exempt procedure (CheckHandleAvailability: AccountStatus skips it, the cut must
+	// not; CR M4).
+	exempt := identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure
+	for _, proc := range []string{commit, exempt} {
+		mux.Handle(proc, connect.NewUnaryHandler(proc,
+			func(context.Context, *connect.Request[commonv1.ErrorDetail]) (*connect.Response[commonv1.ErrorDetail], error) {
+				reached.Add(1)
+				return connect.NewResponse(&commonv1.ErrorDetail{}), nil
+			}, connect.WithInterceptors(ics...)))
+	}
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	invoke := func(tok string) error {
-		c := connect.NewClient[commonv1.ErrorDetail, commonv1.ErrorDetail](srv.Client(), srv.URL+commit)
+	invokeAt := func(proc, tok string) error {
+		c := connect.NewClient[commonv1.ErrorDetail, commonv1.ErrorDetail](srv.Client(), srv.URL+proc)
 		req := connect.NewRequest(&commonv1.ErrorDetail{})
 		req.Header().Set("Authorization", "Bearer "+tok)
 		_, err := c.CallUnary(context.Background(), req)
 		return err
 	}
+	invoke := func(tok string) error { return invokeAt(commit, tok) }
 	reasonOf := func(err error) commonv1.ErrorReason {
 		var ce *connect.Error
 		if !errors.As(err, &ce) {
@@ -151,6 +158,10 @@ func TestChain_SessionCutRunsBeforeTheRateLimiter(t *testing.T) {
 		if connect.CodeOf(err) != connect.CodeUnauthenticated || reasonOf(err) != commonv1.ErrorReason_ERROR_REASON_SESSION_ENDED {
 			t.Fatalf("call %d with the old session = %v, want UNAUTHENTICATED + SESSION_ENDED", i+1, err)
 		}
+	}
+	// A profile-exempt procedure is cut too: the check covers every RPC (deviation 7).
+	if err := invokeAt(exempt, "old"); connect.CodeOf(err) != connect.CodeUnauthenticated || reasonOf(err) != commonv1.ErrorReason_ERROR_REASON_SESSION_ENDED {
+		t.Fatalf("CheckHandleAvailability with the old session = %v, want UNAUTHENTICATED + SESSION_ENDED", err)
 	}
 	if reached.Load() != 0 {
 		t.Fatalf("a refused call reached the handler %d times", reached.Load())
@@ -177,11 +188,12 @@ func TestChain_SessionCutRunsBeforeTheRateLimiter(t *testing.T) {
 		t.Error("the gate let a refused provider reach the cut lookup")
 	}
 
-	// Globally off: nothing is read and an old session passes the cut.
+	// Globally off: the cut is not read, and the cut account's old session passes (CR N5: the account WITH a cut; on the
+	// exempt procedure, whose bucket the fresh calls above did not spend).
 	cutOn.Store(false)
 	before = cuts.calls.Load()
-	if err := invoke("old-free"); err != nil {
-		t.Fatalf("flag globally off: %v, want a pass", err)
+	if err := invokeAt(exempt, "old"); err != nil {
+		t.Fatalf("flag globally off: the cut account's old session = %v, want a pass", err)
 	}
 	if cuts.calls.Load() != before {
 		t.Error("globally off still read the cut")
