@@ -396,7 +396,8 @@ class RemovalQueueRunner {
   /// device's own id (use sign-out) and for an id a fresh own list does not
   /// name (review I1: callers pass an id from the own list; a stored intent
   /// for the id skips that check and is finished, ruling 3), [StateError]
-  /// with no call when there is no vault, or [kMaxRemovalIntents] intents
+  /// with no call when there is no vault, while this device is removed
+  /// elsewhere (fix wave 2, SA M2), or [kMaxRemovalIntents] intents
   /// are stored already (ruling 6; the removed-mark cap never refuses,
   /// fix round 4, ruling 10; reported as
   /// `removalQueue.intentCap`), and rethrows a failed own-list read
@@ -423,6 +424,12 @@ class RemovalQueueRunner {
   }
 
   Future<void> _removeDevice(String deviceId) async {
+    // Fix wave 2 (SA M2): a device the account removed elsewhere removes no
+    // other device: no own-list read, no RemoveKeyDevice, no intent stored
+    // (a stored one would go out once the fact clears).
+    if (_removedElsewhere()) {
+      throw StateError('This device was removed elsewhere.');
+    }
     if (deviceId.isEmpty) throw ArgumentError.value('', 'deviceId');
     final id = Uint8List.fromList(utf8.encode(deviceId));
     final vault = _session.vault;

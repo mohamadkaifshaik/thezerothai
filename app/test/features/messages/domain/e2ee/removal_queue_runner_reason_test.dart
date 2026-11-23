@@ -96,6 +96,29 @@ void main() {
     expect(requests(_c1), isNotEmpty);
   });
 
+  test('removed elsewhere, the user removal is refused before any read or '
+      'call, and stores nothing (fix wave 2, SA M2)', () async {
+    final sibling = await RigPeer.create('sibling');
+    await setUpRig(ownListed: [sibling]);
+    await join(_c1, others: [sibling]);
+    await synced();
+    final lists = rig.keys.listCalls;
+    final before = await rig.dump();
+    rig.removedElsewhere = true;
+
+    await expectLater(
+      runner.removeDevice(sibling.idString),
+      throwsA(isA<StateError>()),
+    );
+    await runner.idle();
+
+    expect(rig.keys.removeCalls, isEmpty);
+    expect(rig.keys.listCalls, lists);
+    expect(await storedRecord(), isNull);
+    expect(await rig.dump(), before);
+    expect(await runner.wasRemovedByUser(sibling.id), isFalse);
+  });
+
   group('REAUTH_REQUIRED (brief amendment 3)', () {
     test('a new removal answered REAUTH_REQUIRED parks its intent, never '
         'drops it, and asks for a re-sign-in; after it the same call '
