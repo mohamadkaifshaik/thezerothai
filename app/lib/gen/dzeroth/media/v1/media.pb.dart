@@ -93,7 +93,7 @@ class UploadItem extends $pb.GeneratedMessage {
   static UploadItem? _defaultInstance;
 
   /// image/webp or image/jpeg (client re-encodes everything else on device); or image/gif for MEDIA_PURPOSE_POST behind
-  /// FEATURE_GIF, uploaded unchanged so it keeps its animation.
+  /// FEATURE_GIF, or video/mp4 for a post clip.
   @$pb.TagNumber(1)
   $core.String get contentType => $_getSZ(0);
   @$pb.TagNumber(1)
@@ -791,7 +791,7 @@ class MediaServiceApi {
   MediaServiceApi(this._client);
 
   /// Reserve 1-4 media ids and get signed PUT URLs (full + thumb each), 10-minute TTL, bound to the exact object
-  /// path, Content-Type, Content-MD5 and x-goog-content-length-range (full <= 2 MiB, thumb <= 256 KiB).
+  /// path, Content-Type, Content-MD5 and x-goog-content-length-range (image <= 2 MiB, MP4 <= 96 MiB, thumb <= 256 KiB).
   /// A purpose other than POST or AVATAR (UNSPECIFIED, or the removed value 3) => INVALID_ARGUMENT + VALIDATION,
   /// metadata["field"] = "purpose".
   /// No daily upload quota: only the per-minute bucket limits how often a user can call it. Rejected with
@@ -803,6 +803,7 @@ class MediaServiceApi {
   /// VALIDATION field "content_type"); exactly one item in a request that carries a GIF (else VALIDATION field
   /// "items"); full <= 2 MiB (the same signed range); declared width and height <= 1,280; thumb_content_type must be
   /// "image/jpeg" or "image/webp" (else VALIDATION field "thumb_content_type").
+  /// A post video is uploaded alone: H.264 MP4, optional AAC, up to 5 minutes and 1920 pixels per side.
   $async.Future<CreateUploadResponse> createUpload(
           $pb.ClientContext? ctx, CreateUploadRequest request) =>
       _client.invoke<CreateUploadResponse>(
@@ -833,6 +834,7 @@ class MediaServiceApi {
   /// Vision-units cap (refused before any claim, nothing written, retry_after to IST midnight; do not retry sooner). A
   /// media item is REJECTED with reason "attempts" after 3 attempts that produced a valid assessment, or 8 claims in total;
   /// its objects are deleted. A busy GIF slot consumes no attempt.
+  /// For videos the server screens a sheet of 4-15 sampled frames and the still thumbnail before publication.
   $async.Future<FinalizeUploadResponse> finalizeUpload(
           $pb.ClientContext? ctx, FinalizeUploadRequest request) =>
       _client.invoke<FinalizeUploadResponse>(ctx, 'MediaService',

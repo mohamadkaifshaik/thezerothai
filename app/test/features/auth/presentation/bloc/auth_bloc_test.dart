@@ -545,4 +545,179 @@ void main() {
       await bloc.close();
     });
   });
+
+  // Ruling 1 (lane D PR 4): the network layer reports a session the server
+  // ended (SESSION_ENDED twice, after one forced refresh) through
+  // AuthRepository.onServerEndedSession; the bloc signs that uid out as a lost
+  // session (the vault is kept), once per burst, and the sign-in screens
+  // say why (ruling 2).
+  group('session ended by a device removal', () {
+    late StreamController<AppUser?> users;
+    late int beforeSignOut;
+    late int beforeExplicit;
+
+    setUp(() {
+      beforeSignOut = 0;
+      beforeExplicit = 0;
+      users = StreamController<AppUser?>();
+      when(() => authRepository.authStateChanges())
+          .thenAnswer((_) => users.stream);
+      when(() => authRepository.signOut()).thenAnswer((_) async {
+        await Future<void>.delayed(Duration.zero);
+        users.add(null);
+      });
+    });
+    tearDown(() => users.close());
+
+    /// The hook the bloc gave the repository.
+    void Function(String) hookOf() =>
+        verify(() => authRepository.onServerEndedSession = captureAny())
+                .captured
+                .last
+            as void Function(String);
+
+    Future<AuthBloc> signedIn() async {
+      final bloc = AuthBloc(
+        authRepository: authRepository,
+        beforeSignOut: () async => beforeSignOut++,
+        beforeExplicitSignOut: (_) async => beforeExplicit++,
+      )..add(const AuthSubscriptionRequested());
+      users.add(verifiedUser);
+      await pumpEventQueue();
+      expect(bloc.state.user, verifiedUser);
+      return bloc;
+    }
+
+    test('signs that uid out as sessionLost (vault kept) and marks the '
+        'state for the sign-in copy; no push unregister, no explicit '
+        'hook', () async {
+      final bloc = await signedIn();
+      hookOf()('uid-1');
+      await pumpEventQueue();
+
+      expect(bloc.state.status, AuthStatus.unauthenticated);
+      expect(bloc.state.lastSessionEnd, SessionEnd.sessionLost);
+      expect(bloc.state.signedOutByDeviceRemoval, isTrue);
+      verify(() => authRepository.signOut()).called(1);
+      expect(beforeSignOut, 0);
+      expect(beforeExplicit, 0);
+      await bloc.close();
+    });
+
+    // Fix round rulings 3 and 5 (CR M1, N8; SA L1): a cut sign-out that
+    // throws leaves the user signed in; the interceptor reports again on the
+    // next refusal, and that report signs out.
+    var signOutCalls = 0;
+    blocTest<AuthBloc, AuthState>(
+      'a cut sign-out that throws, then a later report signs out',
+      setUp: () {
+        signOutCalls = 0;
+        when(() => authRepository.currentUser).thenReturn(verifiedUser);
+        when(() => authRepository.signOut()).thenAnswer((_) async {
+          signOutCalls++;
+          if (signOutCalls == 1) throw StateError('platform');
+        });
+      },
+      build: () => AuthBloc(authRepository: authRepository),
+      seed: () =>
+          const AuthState(status: AuthStatus.authenticated, user: verifiedUser),
+      act: (bloc) async {
+        // Listens to the group's user stream (its tearDown closes it).
+        bloc.add(const AuthSubscriptionRequested());
+        bloc.add(const AuthSessionEndedByServer('uid-1'));
+        await pumpEventQueue();
+        bloc.add(const AuthSessionEndedByServer('uid-1'));
+        await pumpEventQueue();
+      },
+      errors: () => [isA<StateError>()],
+      verify: (_) => expect(signOutCalls, 2),
+    );
+
+    blocTest<AuthBloc, AuthState>(
+      'an explicit sign-out racing a cut wins: userSignedOut, no '
+      'device-removal copy',
+      build: () => AuthBloc(authRepository: authRepository),
+      act: (bloc) async {
+        bloc.add(const AuthSubscriptionRequested());
+        users.add(verifiedUser);
+        await pumpEventQueue();
+        bloc
+          ..add(const AuthSignOutRequested(uid: 'uid-1'))
+          ..add(const AuthSessionEndedByServer('uid-1'));
+        await pumpEventQueue();
+      },
+      verify: (bloc) {
+        expect(bloc.state.user, isNull);
+        expect(bloc.state.lastSessionEnd, SessionEnd.userSignedOut);
+        expect(bloc.state.signedOutByDeviceRemoval, isFalse);
+      },
+    );
+
+    test('a burst of reports signs out once', () async {
+      final bloc = await signedIn();
+      final hook = hookOf();
+      hook('uid-1');
+      hook('uid-1');
+      hook('uid-1');
+      await pumpEventQueue();
+
+      verify(() => authRepository.signOut()).called(1);
+      expect(bloc.state.signedOutByDeviceRemoval, isTrue);
+      await bloc.close();
+    });
+
+    test('a report for another account signs nobody out', () async {
+      final bloc = await signedIn();
+      hookOf()('uid-2');
+      await pumpEventQueue();
+
+      verifyNever(() => authRepository.signOut());
+      expect(bloc.state.user, verifiedUser);
+      expect(bloc.state.signedOutByDeviceRemoval, isFalse);
+      await bloc.close();
+    });
+
+    test('any other end (a revoked token, an explicit sign-out) does not '
+        'show the device-removal copy', () async {
+      final bloc = await signedIn();
+      users.add(null);
+      await pumpEventQueue();
+      expect(bloc.state.signedOutByDeviceRemoval, isFalse);
+      users.add(verifiedUser);
+      await pumpEventQueue();
+      bloc.add(const AuthSignOutRequested(uid: 'uid-1'));
+      await pumpEventQueue();
+      expect(bloc.state.lastSessionEnd, SessionEnd.userSignedOut);
+      expect(bloc.state.signedOutByDeviceRemoval, isFalse);
+      await bloc.close();
+    });
+
+    test('signing in again clears the copy, and a later cut signs out '
+        'again', () async {
+      final bloc = await signedIn();
+      final hook = hookOf();
+      hook('uid-1');
+      await pumpEventQueue();
+      expect(bloc.state.signedOutByDeviceRemoval, isTrue);
+
+      users.add(verifiedUser);
+      await pumpEventQueue();
+      expect(bloc.state.user, verifiedUser);
+      expect(bloc.state.signedOutByDeviceRemoval, isFalse);
+
+      hook('uid-1');
+      await pumpEventQueue();
+      verify(() => authRepository.signOut()).called(2);
+      expect(bloc.state.signedOutByDeviceRemoval, isTrue);
+      await bloc.close();
+    });
+
+    test('closing the bloc unhooks it from the repository', () async {
+      final bloc = await signedIn();
+      final hook = hookOf();
+      when(() => authRepository.onServerEndedSession).thenReturn(hook);
+      await bloc.close();
+      verify(() => authRepository.onServerEndedSession = null).called(1);
+    });
+  });
 }

@@ -5,10 +5,12 @@ go 1.26.0
 require (
 	cloud.google.com/go/firestore v1.29.2
 	cloud.google.com/go/storage v1.71.0
+	codeberg.org/gruf/go-ffmpreg v0.6.22
 	connectrpc.com/connect v1.21.1
 	connectrpc.com/cors v0.1.0
 	firebase.google.com/go/v4 v4.23.0
 	github.com/rs/cors v1.11.1
+	github.com/tetratelabs/wazero v1.12.0
 	go.uber.org/automaxprocs v1.6.0
 	golang.org/x/sync v0.25.0
 	golang.org/x/text v0.44.0

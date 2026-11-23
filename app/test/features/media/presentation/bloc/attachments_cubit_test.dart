@@ -45,16 +45,16 @@ void main() {
   });
 
   test(
-    'at most four photos; the picker is asked only for what is left',
+    'at most twenty photos; the picker is asked only for what is left',
     () async {
-      picker.next = [for (final t in 'abc'.split('')) imageBytes(t)];
+      picker.next = [for (var i = 0; i < 19; i++) imageBytes(i.toString())];
       await cubit.pick();
       picker.next = [for (final t in 'defg'.split('')) imageBytes(t)];
 
       await cubit.pick();
 
       expect(picker.lastLimit, 1);
-      expect(cubit.state.count, 4);
+      expect(cubit.state.count, 20);
       expect(cubit.state.isFull, isTrue);
       picker.calls = 0;
       await cubit.pick();

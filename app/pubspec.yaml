@@ -68,6 +68,8 @@ dependencies:
   dzmls_flutter:
     path: rust_builder
   flutter_rust_bridge: 2.13.0
+  video_player: ^2.14.1
+  get_thumbnail_video_plus: ^0.7.4
 
 dev_dependencies:
   flutter_test:

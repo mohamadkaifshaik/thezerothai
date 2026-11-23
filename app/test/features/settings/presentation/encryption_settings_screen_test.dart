@@ -8,6 +8,11 @@ import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/vault/vault_status.dart';
+import 'package:dzeroth/core/feature_flags/device_sign_out_feature_flag.dart';
+import 'package:dzeroth/features/auth/data/auth_repository.dart';
+import 'package:dzeroth/features/auth/domain/app_user.dart';
+import 'package:dzeroth/features/auth/domain/auth_failure.dart';
+import 'package:mocktail/mocktail.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
@@ -38,6 +43,8 @@ class _MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
 
 class _MockAuthBloc extends MockBloc<AuthEvent, AuthState>
     implements AuthBloc {}
+
+class _MockAuthRepository extends Mock implements AuthRepository {}
 
 // Relative to the real clock (the screen gets `now: () => _now`): no fixed date.
 final _now = DateTime.now().toUtc();
@@ -72,16 +79,52 @@ Finder _inDialog(String text) => find.descendant(
   matching: find.text(text),
 );
 
+/// A password-only account: its re-sign-in goes straight to the password
+/// prompt, so tests about other things see no extra "Confirm it's you" step.
+const _passwordUser = AppUser(
+  uid: 'uid-1',
+  email: 'a@example.com',
+  emailVerified: true,
+  isPasswordProvider: true,
+);
+
+/// A Google account: its re-sign-in shows "Confirm it's you" first.
+const _googleUser = AppUser(
+  uid: 'uid-1',
+  email: 'a@example.com',
+  emailVerified: true,
+  isPasswordProvider: false,
+);
+
 void main() {
   late FakeEncryptionDevice device;
   late FakeEncryptedMessaging port;
   late List<Object> reported;
+
+  /// The AuthRepository every pump provides (the app always does; lane D
+  /// PR 4 fix round ruling 1: every Remove tap re-signs in). Its re-sign-in
+  /// succeeds and is logged in [port.calls] as 'reauthenticate'.
+  late _MockAuthRepository defaultAuth;
+
+  setUpAll(() {
+    Future<String?> noPassword() async => null;
+    registerFallbackValue(noPassword);
+  });
 
   setUp(() {
     device = FakeEncryptionDevice();
     port = FakeEncryptedMessaging()
       ..setOwnDevices(OwnDeviceList(devices: [_mine, _older, _newer]));
     reported = [];
+    defaultAuth = _MockAuthRepository();
+    when(
+      () => defaultAuth.reauthenticate(
+        promptPassword: any(named: 'promptPassword'),
+      ),
+    ).thenAnswer((_) async {
+      port.calls.add('reauthenticate');
+      return const ReauthResult();
+    });
   });
 
   Future<void> pump(
@@ -94,7 +137,15 @@ void main() {
     double width = 900,
     bool settle = true,
     GoRouter? router,
+    bool deviceSignOut = false,
+    AuthRepository? authRepository,
+    AppUser? user = _passwordUser,
+    bool? passwordOnly,
   }) async {
+    // What the repository says its re-sign-in uses (by default: the user's
+    // password flag; a mixed account sets it apart).
+    when(() => defaultAuth.reauthUsesPassword)
+        .thenReturn(passwordOnly ?? user?.isPasswordProvider ?? false);
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = Size(width, 2400);
     addTearDown(tester.view.reset);
@@ -104,14 +155,19 @@ void main() {
       const Stream<OnboardingState>.empty(),
       initialState: OnboardingState(
         status: OnboardingStatus.ready,
-        enabledFeatures: {if (flagOn) kFeatureE2eeDm},
+        enabledFeatures: {
+          if (flagOn) kFeatureE2eeDm,
+          if (deviceSignOut) kFeatureDeviceSignOut,
+        },
       ),
     );
     final auth = _MockAuthBloc();
     whenListen(
       auth,
       const Stream<AuthState>.empty(),
-      initialState: const AuthState(status: AuthStatus.unauthenticated),
+      initialState: user == null
+          ? const AuthState(status: AuthStatus.unauthenticated)
+          : AuthState(status: AuthStatus.authenticated, user: user),
     );
     final status = EncryptionStatusCubit(
       device: device,
@@ -136,6 +192,9 @@ void main() {
             ),
             RepositoryProvider<UnexpectedErrorReporter?>.value(
               value: (e, _) => reported.add(e),
+            ),
+            RepositoryProvider<AuthRepository>.value(
+              value: authRepository ?? defaultAuth,
             ),
           ],
           child: router == null
@@ -240,6 +299,12 @@ void main() {
         await tester.tap(_inDialog(kDeviceRemoveAction));
         await tester.pumpAndSettle();
         expect(port.removedDevices, ['ref-older']);
+        // Fix round ruling 1: manage access re-signs in too (the server
+        // wants a recent sign-in for every REMOTE removal), and first.
+        expect(
+          port.calls.where((c) => c == 'reauthenticate' || c == 'removeDevice'),
+          ['reauthenticate', 'removeDevice'],
+        );
         expect(find.text(kDeviceRemovedText), findsOneWidget);
         // Manage access never starts encryption: no retry, no set up.
         expect(port.retryDeviceSetupCalls, 0);
@@ -444,6 +509,269 @@ void main() {
       await pump(tester);
       expect(find.text(kRemovalsNote), findsNothing);
     });
+  });
+
+  // Lane D PR 4 (fix round ruling 1): EVERY Remove tap (a REMOTE removal of
+  // another device) asks the user to sign in again BEFORE anything is sent,
+  // whatever device_sign_out says (the server wants a recent sign-in for
+  // every REMOTE removal). device_sign_out only adds the copy: the named
+  // title, "signed out on all your other devices" and the footer.
+  group('removal: confirm it is you', () {
+    late _MockAuthRepository authRepo;
+
+    setUp(() => authRepo = defaultAuth);
+
+    Future<void> openAndConfirmRemove(WidgetTester tester) async {
+      await tester.tap(_removeButtons().first);
+      await tester.pumpAndSettle();
+      await tester.tap(_inDialog(kDeviceRemoveAction));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('the dialog names the device and the sign-out; "Confirm '
+        'it\'s you" comes before the removal is sent', (tester) async {
+      await pump(tester, deviceSignOut: true, user: _googleUser);
+      expect(find.text(kDevicesUnrecognisedFooter), findsOneWidget);
+      await tester.tap(_removeButtons().first);
+      await tester.pumpAndSettle();
+      expect(
+        find.text(deviceRemoveTitleNamed(_date(_older.addedAt!))),
+        findsOneWidget,
+      );
+      expect(find.text(kDeviceRemoveSignOutMessage), findsOneWidget);
+      await tester.tap(_inDialog(kDeviceRemoveAction));
+      await tester.pumpAndSettle();
+
+      expect(find.text(kConfirmItsYouTitle), findsOneWidget);
+      expect(find.text(kConfirmItsYouBody), findsOneWidget);
+      expect(port.removedDevices, isEmpty);
+      expect(port.calls, isNot(contains('reauthenticate')));
+
+      await tester.tap(find.text(kConfirmItsYouAction));
+      await tester.pumpAndSettle();
+      final order = port.calls
+          .where((c) => c == 'reauthenticate' || c == 'removeDevice')
+          .toList();
+      expect(order, ['reauthenticate', 'removeDevice']);
+      expect(port.removedDevices, ['ref-older']);
+      expect(find.text(kDeviceRemovedText), findsOneWidget);
+    });
+
+    testWidgets('Cancel at "Confirm it\'s you" sends nothing and says '
+        'nothing', (tester) async {
+      await pump(tester, deviceSignOut: true, user: _googleUser);
+      await openAndConfirmRemove(tester);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(port.removedDevices, isEmpty);
+      expect(port.calls, isNot(contains('reauthenticate')));
+      expect(find.byType(SnackBar), findsNothing);
+      expect(_removeButtons(), findsNWidgets(2));
+    });
+
+    testWidgets('a failed sign-in sends nothing and shows its text', (
+      tester,
+    ) async {
+      when(
+        () => authRepo.reauthenticate(
+          promptPassword: any(named: 'promptPassword'),
+        ),
+      ).thenThrow(const AuthFailure.network());
+      await pump(tester, deviceSignOut: true, user: _googleUser);
+      await openAndConfirmRemove(tester);
+      await tester.tap(find.text(kConfirmItsYouAction));
+      await tester.pumpAndSettle();
+      expect(port.removedDevices, isEmpty);
+      expect(find.text(const AuthFailure.network().message), findsOneWidget);
+      expect(find.text(kDeviceRemoveFailedText), findsNothing);
+    });
+
+    testWidgets('a password account goes straight to the password sign-in', (
+      tester,
+    ) async {
+      await pump(tester, deviceSignOut: true, user: _passwordUser);
+      await openAndConfirmRemove(tester);
+      expect(find.text(kConfirmItsYouBody), findsNothing);
+      expect(port.calls.where((c) => c == 'reauthenticate'), hasLength(1));
+      expect(port.removedDevices, ['ref-older']);
+    });
+
+    // Fix round ruling 5.
+    testWidgets('N5: a second REAUTH_REQUIRED says the sign-in could not be '
+        'confirmed (not the conversation text)', (tester) async {
+      await pump(tester, user: _googleUser);
+      port.failNextOn(
+        'removeDevice',
+        const ReauthRequiredException('Please sign in again.'),
+      );
+      await openAndConfirmRemove(tester);
+      await tester.tap(find.text(kConfirmItsYouAction));
+      await tester.pumpAndSettle();
+      port.failNextOn(
+        'removeDevice',
+        const ReauthRequiredException('Please sign in again.'),
+      );
+      await tester.tap(find.text(kConfirmItsYouAction));
+      await tester.pumpAndSettle();
+      expect(find.text(kDeviceRemoveReauthFailedText), findsOneWidget);
+      expect(find.text(kDeviceRemoveFailedText), findsNothing);
+    });
+
+    testWidgets('N6: the password path says the sign-in expired before the '
+        'second password prompt', (tester) async {
+      await pump(tester, user: _passwordUser);
+      port.failNextOn(
+        'removeDevice',
+        const ReauthRequiredException('Please sign in again.'),
+      );
+      await openAndConfirmRemove(tester);
+      expect(find.text(kConfirmItsYouAgainBody), findsOneWidget);
+      await tester.tap(find.text(kConfirmItsYouAction));
+      await tester.pumpAndSettle();
+      expect(port.calls.where((c) => c == 'reauthenticate'), hasLength(2));
+      expect(port.removedDevices, ['ref-older', 'ref-older']);
+    });
+
+    testWidgets('N7: while a sign-in runs, no row offers Remove (as while a '
+        'removal runs)', (tester) async {
+      final signIn = Completer<ReauthResult>();
+      when(
+        () => defaultAuth.reauthenticate(
+          promptPassword: any(named: 'promptPassword'),
+        ),
+      ).thenAnswer((_) => signIn.future);
+      await pump(tester, user: _googleUser);
+      await openAndConfirmRemove(tester);
+      await tester.tap(find.text(kConfirmItsYouAction));
+      await tester.pumpAndSettle();
+      expect(_removeButtons(), findsNothing);
+      signIn.complete(const ReauthResult());
+      await tester.pumpAndSettle();
+      expect(port.removedDevices, ['ref-older']);
+    });
+
+    testWidgets('a double tap on Continue starts one sign-in', (tester) async {
+      await pump(tester, user: _googleUser);
+      await openAndConfirmRemove(tester);
+      await tester.tap(find.text(kConfirmItsYouAction));
+      await tester.tap(find.text(kConfirmItsYouAction), warnIfMissed: false);
+      await tester.pumpAndSettle();
+      expect(port.calls.where((c) => c == 'reauthenticate'), hasLength(1));
+      expect(port.removedDevices, ['ref-older']);
+    });
+
+    testWidgets('a mixed account (Google and a password) gets the Continue '
+        'step, so the Google popup opens on a tap', (tester) async {
+      await pump(tester, user: _passwordUser, passwordOnly: false);
+      await openAndConfirmRemove(tester);
+      expect(find.text(kConfirmItsYouBody), findsOneWidget);
+      expect(port.calls, isNot(contains('reauthenticate')));
+      await tester.tap(find.text(kConfirmItsYouAction));
+      await tester.pumpAndSettle();
+      expect(port.removedDevices, ['ref-older']);
+    });
+
+    testWidgets('REAUTH_REQUIRED (the call missed the window): the same '
+        'prompt again, and on success the removal is sent again', (
+      tester,
+    ) async {
+      await pump(tester, deviceSignOut: true, user: _googleUser);
+      port.failNextOn(
+        'removeDevice',
+        const ReauthRequiredException('Please sign in again.'),
+      );
+      await openAndConfirmRemove(tester);
+      await tester.tap(find.text(kConfirmItsYouAction));
+      await tester.pumpAndSettle();
+
+      expect(find.text(kConfirmItsYouAgainBody), findsOneWidget);
+      expect(find.text(kDeviceRemoveFailedText), findsNothing);
+      await tester.tap(find.text(kConfirmItsYouAction));
+      await tester.pumpAndSettle();
+      expect(port.calls.where((c) => c == 'reauthenticate'), hasLength(2));
+      expect(port.removedDevices, ['ref-older', 'ref-older']);
+      expect(find.text(kDeviceRemovedText), findsOneWidget);
+    });
+
+    testWidgets('device_sign_out off: the old dialog text and no footer, but '
+        'still "Confirm it\'s you" before the removal is sent', (tester) async {
+      await pump(tester, user: _googleUser);
+      expect(find.text(kDevicesUnrecognisedFooter), findsNothing);
+      await tester.tap(_removeButtons().first);
+      await tester.pumpAndSettle();
+      expect(find.text(kDeviceRemoveTitle), findsOneWidget);
+      expect(find.text(kDeviceRemoveMessage), findsOneWidget);
+      expect(find.text(kDeviceRemoveSignOutMessage), findsNothing);
+      await tester.tap(_inDialog(kDeviceRemoveAction));
+      await tester.pumpAndSettle();
+      expect(find.text(kConfirmItsYouTitle), findsOneWidget);
+      expect(port.removedDevices, isEmpty);
+      await tester.tap(find.text(kConfirmItsYouAction));
+      await tester.pumpAndSettle();
+      expect(
+        port.calls.where((c) => c == 'reauthenticate' || c == 'removeDevice'),
+        ['reauthenticate', 'removeDevice'],
+      );
+      expect(port.removedDevices, ['ref-older']);
+    });
+
+    testWidgets('manage access (e2ee_dm off, a vault here): "Confirm it\'s '
+        'you" before the removal too', (tester) async {
+      manageAccess();
+      await pump(tester, flagOn: false, user: _googleUser);
+      await openAndConfirmRemove(tester);
+      expect(find.text(kConfirmItsYouTitle), findsOneWidget);
+      expect(port.removedDevices, isEmpty);
+      await tester.tap(find.text(kConfirmItsYouAction));
+      await tester.pumpAndSettle();
+      expect(
+        port.calls.where((c) => c == 'reauthenticate' || c == 'removeDevice'),
+        ['reauthenticate', 'removeDevice'],
+      );
+    });
+
+    testWidgets('REAUTH_REQUIRED never re-sends without a prompt: a cancelled '
+        're-ask sends nothing more', (tester) async {
+      await pump(tester, user: _googleUser);
+      port.failNextOn(
+        'removeDevice',
+        const ReauthRequiredException('Please sign in again.'),
+      );
+      await openAndConfirmRemove(tester);
+      await tester.tap(find.text(kConfirmItsYouAction));
+      await tester.pumpAndSettle();
+      expect(find.text(kConfirmItsYouAgainBody), findsOneWidget);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(port.removedDevices, ['ref-older']);
+    });
+  });
+
+  test('the removed result is keyed on other_sessions_ended', () {
+    expect(
+      deviceRemovedText(otherSessionsEnded: true),
+      'Removed. Your other devices were signed out.',
+    );
+    expect(
+      deviceRemovedText(otherSessionsEnded: false),
+      'Removed. If this device was lost or stolen, change your password too.',
+    );
+    expect(deviceRemovedText(), kDeviceRemovedText);
+    expect(
+      kDeviceRemoveSignOutMessage,
+      startsWith(
+        'It will stop receiving your encrypted messages. You\'ll also be '
+        'signed out on all your other devices, and they\'ll need to sign in '
+        'again.',
+      ),
+    );
+    expect(
+      kDeviceRemoveSignOutMessage,
+      contains(
+        'Until each conversation has been updated, that device may still '
+        'receive and send messages.',
+      ),
+    );
   });
 
   group('list reading', () {
@@ -735,7 +1063,13 @@ void main() {
       port.calls.clear();
       await confirmRemoveFirst(tester);
       await tester.pumpAndSettle();
-      expect(port.calls, ['removeDevice', 'retryDeviceSetup', 'ownDevices']);
+      // The re-sign-in first (fix round ruling 1), then remove, retry, reload.
+      expect(port.calls, [
+        'reauthenticate',
+        'removeDevice',
+        'retryDeviceSetup',
+        'ownDevices',
+      ]);
     });
   });
 

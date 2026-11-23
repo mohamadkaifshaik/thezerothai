@@ -3,6 +3,7 @@ package media
 import (
 	"context"
 	"errors"
+	"io"
 	"time"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/objstore"
@@ -80,4 +81,8 @@ func (b *Buckets) DeletePublic(ctx context.Context, object string) error {
 // object is success.
 func (b *Buckets) SetPublicCustomTime(ctx context.Context, object string, t time.Time) error {
 	return b.Public.SetCustomTime(ctx, object, t)
+}
+
+func (b *Buckets) WriteUploadTo(ctx context.Context, object string, n, generation int64, w io.Writer) (int64, error) {
+	return b.Upload.WriteHeadTo(ctx, object, n, generation, w)
 }

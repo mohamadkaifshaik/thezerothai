@@ -125,3 +125,7 @@ Infrastructure changes go through `infra/terraform/`: plans run in CI and are ap
 Branch as `feat/<slug>`, `fix/<slug>`, `chore/<slug>`, `docs/<slug>` or `test/<slug>`; use conventional commit
 titles such as `feat(posts): ...`; one concern per pull request, squash-merged. Never put secrets in the repo:
 configuration is environment variables and secret-backed values come from Secret Manager.
+
+### Post videos
+
+The post composer accepts up to 20 photos or one H.264 MP4 clip up to 5 minutes, 96 MiB, and 1920 pixels per side, with optional AAC audio. Viewers tap the poster for inline playback. Before publication the media service checks 4 to 15 sampled frames according to the clip duration and the poster with SafeSearch. It decodes the private upload using the GPL-licensed [go-ffmpreg embedded FFmpeg build](https://codeberg.org/gruf/go-ffmpreg) in a bounded WebAssembly runtime.

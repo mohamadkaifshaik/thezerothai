@@ -308,8 +308,9 @@ final class DeviceRemovedException extends AppException {
 /// This session signed in before the account's session cut: a device was removed
 /// from the account on another device (UNAUTHENTICATED + SESSION_ENDED, any RPC).
 /// The text is fixed (removal-server-design §4) and carries no identifiers; never
-/// show the server's. Signing out on it (keeping the vault, once per burst) is
-/// lane D PR 4.
+/// show the server's. `SessionEndedInterceptor` (session_ended.dart) refreshes
+/// the token and retries once before it reports the end; the auth bloc then
+/// signs out as a lost session (the vault is kept), once per burst.
 final class SessionEndedException extends AppException {
   const SessionEndedException() : super(userMessage);
 

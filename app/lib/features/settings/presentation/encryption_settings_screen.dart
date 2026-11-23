@@ -1,8 +1,11 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:intl/intl.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../../app/session_wiring.dart' show UnexpectedErrorReporter;
+import '../../../core/feature_flags/device_sign_out_feature_flag.dart';
+import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
@@ -20,8 +23,10 @@ import '../../messages/presentation/e2ee/connected_encryption_status_card.dart';
 import '../../messages/presentation/e2ee/encryption_access_builder.dart';
 import '../../messages/presentation/e2ee/encryption_copy.dart';
 import '../../messages/presentation/e2ee/encryption_status.dart';
+import '../../auth/data/auth_repository.dart';
 import 'bloc/encryption_devices_cubit.dart';
 import 'settings_up.dart';
+import 'widgets/confirm_its_you.dart';
 import 'widgets/own_device_row.dart';
 
 /// Settings > Encrypted messages (`/settings/encryption`): the status card, this device, the other devices with
@@ -165,30 +170,71 @@ class _DevicesView extends StatelessWidget {
   ) async {
     final messenger = ScaffoldMessenger.of(context);
     final status = context.read<EncryptionStatusCubit?>();
+    // Lane D PR 4, fix round ruling 1: every Remove here is a REMOTE removal
+    // of another device (this device has no Remove: signing out removes it),
+    // and the server wants a recent sign-in for every REMOTE removal (H1),
+    // whatever the flags. So EVERY tap asks for a re-sign-in before anything
+    // is sent, in full and manage access alike. The repository is read
+    // non-null: a missing provider is a programming error and fails loudly,
+    // never a promptless send. device_sign_out (the removal also signs out
+    // the other sessions) only changes the copy.
+    final signOut = featureEnabledSnapshot(context, kFeatureDeviceSignOut);
+    final auth = context.read<AuthRepository>();
+    final added = device.addedAt;
     final confirmed = await showAppAlertConfirm(
       context,
-      title: kDeviceRemoveTitle,
-      message: kDeviceRemoveMessage,
+      title: signOut
+          ? deviceRemoveTitleNamed(
+              added == null ? null : DateFormat.yMMMd().format(added.toLocal()),
+            )
+          : kDeviceRemoveTitle,
+      message: signOut ? kDeviceRemoveSignOutMessage : kDeviceRemoveMessage,
       confirmLabel: kDeviceRemoveAction,
       destructive: true,
     );
-    if (!confirmed) return;
+    if (!confirmed || !context.mounted) return;
     // Registering this device again is only asked for at the 5-device limit
     // (read now, after the dialog), never from `manage` access.
     final atLimit =
         status?.state.kind == EncryptionStatusKind.deviceLimitReached;
-    final outcome = await cubit.remove(device.ref, retrySetup: atLimit);
-    // Nothing was attempted (a removal was already running): nothing to say.
-    if (outcome == RemoveOutcome.notAttempted) return;
+    Future<bool> Function() confirm(bool again) =>
+        () => context.mounted
+        ? confirmItsYou(context, auth, again: again)
+        : Future.value(false);
+    var outcome = await cubit.remove(
+      device.ref,
+      retrySetup: atLimit,
+      confirmItsYou: confirm(false),
+    );
+    // REAUTH_REQUIRED: the call missed the sign-in window and the removal
+    // waits. The same prompt is asked once more; on success the removal is
+    // sent again at once (the queue's parked intent for the same id).
+    if (outcome == RemoveOutcome.needsReauth && context.mounted) {
+      outcome = await cubit.remove(
+        device.ref,
+        retrySetup: atLimit,
+        confirmItsYou: confirm(true),
+      );
+    }
+    // Nothing was attempted (a removal was already running) or the user did
+    // not confirm it was them: nothing to say.
+    if (outcome == RemoveOutcome.notAttempted ||
+        outcome == RemoveOutcome.cancelled) {
+      return;
+    }
     messenger
       ..hideCurrentSnackBar()
       ..showSnackBar(
         SnackBar(
-          content: Text(
-            outcome == RemoveOutcome.removed
-                ? kDeviceRemovedText
-                : kDeviceRemoveFailedText,
-          ),
+          content: Text(switch (outcome) {
+            // `other_sessions_ended` is not passed on by the port yet
+            // (Task 13-ii): the plain text until it is.
+            RemoveOutcome.removed => deviceRemovedText(),
+            // N5: still outside the sign-in window after the second
+            // "Confirm it's you": about the sign-in, not conversations.
+            RemoveOutcome.needsReauth => kDeviceRemoveReauthFailedText,
+            _ => kDeviceRemoveFailedText,
+          }),
         ),
       );
   }
@@ -303,17 +349,35 @@ class _DevicesView extends StatelessWidget {
                       now: at,
                       directoryKnown: list.directoryKnown,
                       removing: state.removing == d.ref,
-                      // No Remove while the directory is unread or while
-                      // any removal runs.
+                      // No Remove while the directory is unread, while any
+                      // removal runs, or while a removal's "Confirm it's
+                      // you" is open (N7: never a tap that does nothing).
                       onRemove:
                           d.inDirectory &&
                               list.directoryKnown &&
-                              state.removing == null
+                              state.removing == null &&
+                              !state.confirming
                           ? () => _remove(context, cubit, d)
                           : null,
                     ),
               ],
             ),
+            if (others.isNotEmpty &&
+                isFeatureEnabled(context, kFeatureDeviceSignOut))
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.md,
+                  0,
+                  AppSpacing.md,
+                  AppSpacing.md,
+                ),
+                child: Text(
+                  kDevicesUnrecognisedFooter,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
             if (state.removalsPending > 0)
               Padding(
                 padding: const EdgeInsets.fromLTRB(

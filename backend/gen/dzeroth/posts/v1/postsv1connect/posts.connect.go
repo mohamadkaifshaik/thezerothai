@@ -108,7 +108,7 @@ type PostServiceClient interface {
 	// A refusal is PERMISSION_DENIED + ERROR_REASON_REPLY_NOT_ALLOWED with metadata "policy" = "following" | "mentioned_only",
 	// writes nothing and does the same lookups as the allowed path. A conversation root that is unusable for the caller (deleted, hidden, suspended or
 	// deleting author, or one who blocks the caller) is NOT_FOUND "post not found", never REPLY_NOT_ALLOWED.
-	// Media (FEATURE_MEDIA): media_ids are 1-4 distinct READY or READY_UNSCREENED POST images owned by the caller
+	// Media (FEATURE_MEDIA): media_ids are up to 20 distinct READY or READY_UNSCREENED POST photos, or one GIF or video, owned by the caller
 	// and not yet attached to a post; any other id (missing, someone else's, an avatar, PENDING, REJECTED, already
 	// used) => FAILED_PRECONDITION + MEDIA_NOT_READY, one answer for every cause. media_alt_texts is empty or
 	// parallel to media_ids, each <= 1,000 characters. A post with at least one image may have empty text. The
@@ -472,7 +472,7 @@ type PostServiceHandler interface {
 	// A refusal is PERMISSION_DENIED + ERROR_REASON_REPLY_NOT_ALLOWED with metadata "policy" = "following" | "mentioned_only",
 	// writes nothing and does the same lookups as the allowed path. A conversation root that is unusable for the caller (deleted, hidden, suspended or
 	// deleting author, or one who blocks the caller) is NOT_FOUND "post not found", never REPLY_NOT_ALLOWED.
-	// Media (FEATURE_MEDIA): media_ids are 1-4 distinct READY or READY_UNSCREENED POST images owned by the caller
+	// Media (FEATURE_MEDIA): media_ids are up to 20 distinct READY or READY_UNSCREENED POST photos, or one GIF or video, owned by the caller
 	// and not yet attached to a post; any other id (missing, someone else's, an avatar, PENDING, REJECTED, already
 	// used) => FAILED_PRECONDITION + MEDIA_NOT_READY, one answer for every cause. media_alt_texts is empty or
 	// parallel to media_ids, each <= 1,000 characters. A post with at least one image may have empty text. The
