@@ -1,8 +1,15 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/vault/secure_vault.dart';
 import 'package:dzeroth/features/keys/domain/device_keys_service.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/group_starter.dart'
+    show kInitResendMargin;
+import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
+import 'package:dzeroth/gen/dzeroth/keys/v1/keys.pb.dart' as kpb;
+import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
+import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../../support/e2ee_pipeline_harness.dart';
@@ -105,6 +112,55 @@ void main() {
       expect(await v.messages(_c1), isEmpty);
       expect(h.pipeline.known.contains(_c2), isFalse);
     });
+  });
+
+  test('m4: a delete of a conversation whose first message is still a '
+      'pending init goes through the starter\'s discard, never deletes the '
+      'init row under it', () async {
+    final v = h.rig.device.vault;
+    // Bob's 1:1 conversation is _c1; one claimable package.
+    h.rig.keys.claims['ref-bob'] = () async => kpb.ClaimKeyPackagesResponse(
+      conversationId: _c1,
+      keyPackages: [
+        kpb.ClaimedKeyPackage(
+          deviceId: bob.idString,
+          signaturePublicKey: bob.key,
+          keyPackage: await bob.keyPackage(),
+          hasKeyPackage_4: true,
+        ),
+      ],
+    );
+    h.rig.server.recipients['ref-bob'] = _c1;
+    h.rig.server.rows[_c1] = pb.Conversation(
+      id: _c1,
+      peer: common.AuthorSnapshot(userId: 'ref-bob'),
+      folder: Folder.FOLDER_INBOX,
+      canReply: true,
+      state: ConversationState.CONVERSATION_STATE_ACCEPTED,
+    );
+    await h.ready();
+    // Two attempts with no answer: the group stays provisional with its
+    // init row; the server stored nothing.
+    const unknown = (error: NetworkException('timed out'), stored: false);
+    h.rig.server.sendScript.addAll([unknown, unknown]);
+    await h.pipeline.starter.startOrRoute(
+      localId: 'local-1',
+      peerUserId: 'ref-bob',
+      text: 'hello',
+    );
+    await h.pipeline.starter.settled(_c1);
+    await h.pipeline.sender.settled(_c1);
+    expect((await v.group(_c1, 1))!.provisional, isTrue);
+    expect((await v.outbox()).items.single.init, isNotNull);
+    h.rig.clock.advance(kInitResendMargin);
+
+    final done = h.pipeline.changes.firstWhere((id) => id == _c1);
+    h.pipeline.noteDeleted(_c1);
+    await done;
+    await _until(() async => (await v.outbox()).items.isEmpty);
+
+    expect(await v.group(_c1, 1), isNull, reason: 'discarded by the starter');
+    expect(await h.pipeline.starter.pendingInit(conversationId: _c1), isNull);
   });
 
   test('I3: a push, an open and an encrypted hint during the start window '

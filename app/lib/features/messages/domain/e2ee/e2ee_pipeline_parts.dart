@@ -292,14 +292,26 @@ class _Parts {
   /// same transaction (a durable mark stays: a deleted message is never
   /// decrypted later). The group, the marks, the rest of the sync record and
   /// the known set stay.
+  ///
+  /// Review m4: a provisional group's init row (addressed by conversation
+  /// or by recipient) is the starter's: it is never deleted here, under the
+  /// starter's resume. After the transaction the starter's discard decides
+  /// ([GroupStarter.discardInit]); when it discards, the row (now the
+  /// sender's, failed) is discarded too. When the server may still hold
+  /// the init (`held`, `notDecided`, `settled`) the first message cannot be
+  /// recalled and its row stays.
   Future<void> deleteLocal(String conversationId, int atMicros) async {
     // Review I2: not made is never "done" (the caller keeps it remembered).
     if (!live) throw StateError('The vault changed.');
     final id = conversationId;
+    final init = await starter.pendingInit(conversationId: id);
     await locks.run(id, () async {
       await _p._session.runWrite((v) async {
         if (!identical(v, vault)) throw StateError('The vault changed.');
-        final rows = (await v.outbox(conversationId: id)).items;
+        final rows = [
+          for (final r in (await v.outbox(conversationId: id)).items)
+            if (r.init == null) r,
+        ];
         final record = await v.conversation(id);
         final sync = record?.sync ?? const ConversationSync();
         final before = sync.clearedAtMicros;
@@ -318,6 +330,13 @@ class _Parts {
       });
     });
     _p._onPartChanged(id);
+    if (init != null && live) {
+      // Outside the lock: the discard takes it.
+      if (await starter.discardInit(id) == InitDiscard.discarded && live) {
+        await sender.discard(init.localId);
+        _p._onPartChanged(id);
+      }
+    }
   }
 
   /// Sign-out, a user change or a new vault (gate item 41): every part's
