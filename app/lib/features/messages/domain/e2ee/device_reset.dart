@@ -23,8 +23,9 @@ const FormerPins _formerPins = FormerPins();
 /// conversation with group state or pins: every group state (every
 /// generation, provisional ones and their pending commits included), every
 /// pin and the sent log; every stage-`encrypted` outbox row returns to stage
-/// `plain` (same key, same addressing, no ciphertext, no init: whoever
-/// encrypts it makes a new key, as after a provisional discard).
+/// `plain` (same idempotency key, never put on the wire for a plain row;
+/// same addressing; no ciphertext, no init: whoever encrypts it makes a new
+/// idempotency key, as after a provisional discard).
 ///
 /// **What stays.** Every stored message (owner choice), the marks (after
 /// pairs, join high-water marks: a replayed old welcome is still refused),
