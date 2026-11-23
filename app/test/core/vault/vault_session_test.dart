@@ -1734,6 +1734,29 @@ void main() {
       expect(next.status.value, VaultStatus.ready);
     });
 
+    test('a resume retry never confirms a key-loss wipe; the next launch '
+        'does', () async {
+      await keyLostLaunch();
+      world.advance(_hour);
+      world.loseKey(_a);
+      // A soft block at sign-in (a failed known-marker read): nothing open.
+      world.markers.failKnownReads = true;
+      final s = await signIn(_a, flag: E2eeFlag.off);
+      expect(s.status.value, VaultStatus.unavailable);
+      world.markers.failKnownReads = false;
+      world.calls.clear();
+
+      // Plan 5a Task 13 (item 36): the app-resume retry.
+      await s.retry(allowConfirmedWipe: false);
+
+      expect(world.calls.where(_destructive), isEmpty);
+      expect(s.status.value, VaultStatus.keyLost);
+      expect(world.files[_a]!.rows['k'], 'history');
+      final next = await keyLostLaunch();
+      expect(world.calls, containsAllInOrder(['wipeFile:$_a', 'key:$_a']));
+      expect(next.status.value, VaultStatus.ready);
+    });
+
     test('Android-style key loss (the cipher reports it) needs two launches '
         'an hour apart too', () async {
       // The stored key exists but no longer unwraps.
