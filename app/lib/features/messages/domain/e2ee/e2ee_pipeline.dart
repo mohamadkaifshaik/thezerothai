@@ -243,6 +243,9 @@ class E2eePipeline {
         }
       }
     }
+    // Review I2: a delete the user made before the vault was ready is a
+    // local write: made now, whatever the device state.
+    await _applyDeletes(parts);
     await _maybeStart();
   }
 
@@ -284,7 +287,15 @@ class E2eePipeline {
     }
     _startedFor = (vault: vault, mayStart: mayStart);
     _wasRemoved = false;
-    await _applyNotes(parts);
+    final window = onStartWindowForTest;
+    if (window != null) await window();
+    try {
+      await _applyNotes(parts);
+    } on Object catch (e, s) {
+      // Review I2: nothing a remembered note does may keep the start from
+      // running.
+      if (e is! StateError) _report('pipeline.notes', s);
+    }
     await parts.sync.onVaultReady();
     _afterStartNotes(parts);
   }
@@ -356,12 +367,13 @@ class E2eePipeline {
     parts.dispose();
   }
 
-  /// Drops every remembered hint (sign-out; bootstrap may call it for a
-  /// session that never had a vault).
+  /// Drops the remembered hints (sign-out; bootstrap may call it for a
+  /// session that never had a vault). Remembered DELETES are kept (review
+  /// I2, controller ruling 2): a delete-for-me the user made is never lost
+  /// to a sign-out of the same account; it is dropped only once made.
   void forgetNotes() {
     _notedEncrypted.clear();
     _notedAccepted.clear();
-    _notedDeleted.clear();
     _notedPushes.clear();
   }
 
@@ -402,20 +414,62 @@ class E2eePipeline {
   /// local copy and unsent row of [conversationId] goes in one transaction;
   /// the group, the marks and the sync record stay, with `cleared_at` now
   /// (gate item 47). Done as soon as the vault is ready, whatever the device
-  /// state (a local write the user asked for).
+  /// state (a local write the user asked for). Before that, and after a
+  /// failed attempt, it is remembered (review I2) and made at the next vault
+  /// ready or resume.
   void noteDeleted(String conversationId) {
     if (_disposed || conversationId.isEmpty) return;
     final at = _now().microsecondsSinceEpoch;
     final parts = _parts;
-    if (parts == null || !identical(parts.vault, _session.vault)) {
-      _notedDeleted.remove(conversationId);
-      _notedDeleted[conversationId] = at;
-      while (_notedDeleted.length > kPipelineNotesMax) {
-        _notedDeleted.remove(_notedDeleted.keys.first);
-      }
+    if (parts == null || !parts.live) {
+      _rememberDelete(conversationId, at);
       return;
     }
-    _inRoot(() => parts.deleteLocal(conversationId, at));
+    _inRoot(() async {
+      await _deleteNow(parts, conversationId, at);
+    });
+  }
+
+  void _rememberDelete(String id, int at) {
+    final before = _notedDeleted.remove(id);
+    _notedDeleted[id] = before != null && before > at ? before : at;
+    while (_notedDeleted.length > kPipelineNotesMax) {
+      _notedDeleted.remove(_notedDeleted.keys.first);
+    }
+  }
+
+  /// One delete; on any failure it is remembered again (a [StateError] is
+  /// quiet, anything else reported). Never throws.
+  Future<bool> _deleteNow(_Parts parts, String id, int at) async {
+    try {
+      await parts.deleteLocal(id, at);
+      return true;
+    } on Object catch (e, s) {
+      if (e is! StateError) _report('pipeline.delete', s);
+      _rememberDelete(id, at);
+      return false;
+    }
+  }
+
+  Future<void>? _deleting;
+
+  /// Makes every remembered delete (one pass at a time). Never throws.
+  Future<void> _applyDeletes(_Parts parts) {
+    final running = _deleting;
+    if (running != null) return running;
+    final pass = _applyDeletesOnce(parts);
+    _deleting = pass;
+    return pass.whenComplete(() {
+      if (identical(_deleting, pass)) _deleting = null;
+    });
+  }
+
+  Future<void> _applyDeletesOnce(_Parts parts) async {
+    for (final e in [..._notedDeleted.entries]) {
+      if (!parts.live) return;
+      _notedDeleted.remove(e.key);
+      await _deleteNow(parts, e.key, e.value);
+    }
   }
 
   /// A message push (`PushCubit`'s `lastMessageConversationId` when
@@ -445,16 +499,12 @@ class E2eePipeline {
   }
 
   /// At start, before the coordinator's sequence: the remembered ids join
-  /// the known set (gate item 24) and the remembered deletes are made.
+  /// the known set (gate item 24). The remembered deletes were made at
+  /// vault ready ([_applyDeletes]).
   Future<void> _applyNotes(_Parts parts) async {
     final encrypted = [..._notedEncrypted];
-    final deleted = {..._notedDeleted};
-    _notedDeleted.clear();
     for (final id in encrypted) {
       await _addKnown(parts, id);
-    }
-    for (final e in deleted.entries) {
-      await parts.deleteLocal(e.key, e.value);
     }
   }
 
@@ -506,6 +556,10 @@ class E2eePipeline {
     }
     // Gate item 37: a new receive run right after the engine's.
     parts.receiver.onAppResumed();
+    // Review I2: a delete that failed earlier is tried again.
+    if (_notedDeleted.isNotEmpty && parts.live) {
+      _inRoot(() => _applyDeletes(parts));
+    }
     final owed = [..._owedWhilePaused];
     _owedWhilePaused.clear();
     if (started) parts.sync.onAppResumed();
@@ -651,6 +705,12 @@ class E2eePipeline {
   SyncBudget get readBudget => _parts!.readBudget;
   @visibleForTesting
   bool get hasParts => _parts != null;
+
+  /// Awaited inside the start window (after this start is claimed, before
+  /// the remembered notes are applied): a test holds it to send hints into
+  /// the window. Null in production.
+  @visibleForTesting
+  Future<void> Function()? onStartWindowForTest;
 
   /// How many hints are remembered (a count only).
   @visibleForTesting

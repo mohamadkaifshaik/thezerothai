@@ -136,6 +136,10 @@ class PipelineHarness {
   /// The pipeline's budget multiplier (see `E2eePipeline.budgetScale`).
   static const int budgetScale = 50;
 
+  /// The signed-in user the pipeline's `ownUserId` answers (a test switches
+  /// it to model another account on the same device).
+  String? ownUser = 'user-a';
+
   /// How many times the pipeline asked for the engine.
   int engineAsked = 0;
 
@@ -181,7 +185,7 @@ class PipelineHarness {
     },
     messaging: messaging,
     keys: rig.keys,
-    ownUserId: () => 'user-a',
+    ownUserId: () => ownUser,
     now: rig.clock.now,
     // The rig clock stands still: no call may wait for a real minute.
     budgetScale: budgetScale,

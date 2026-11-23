@@ -291,7 +291,8 @@ class _Parts {
   /// decrypted later). The group, the marks, the rest of the sync record and
   /// the known set stay.
   Future<void> deleteLocal(String conversationId, int atMicros) async {
-    if (!live) return;
+    // Review I2: not made is never "done" (the caller keeps it remembered).
+    if (!live) throw StateError('The vault changed.');
     final id = conversationId;
     await locks.run(id, () async {
       await _p._session.runWrite((v) async {
