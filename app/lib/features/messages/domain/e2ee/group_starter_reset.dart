@@ -318,20 +318,7 @@ extension _Reset on GroupStarter {
       // Asked before the write body (the answer may read the vault). The
       // claims are still checked and deduplicated across both sides as
       // claimed (PR 1 carryover); the removed ones are left out after.
-      final removedMine = <String>{};
-      var noOwnDevice = false;
-      for (final c in claimedMine) {
-        final deviceId = Uint8List.fromList(utf8.encode(c.deviceId));
-        try {
-          if (await _wasRemovedByUser(deviceId)) {
-            removedMine.add(vaultDeviceIdHex(deviceId));
-          }
-        } on StateError {
-          // Unknown: a fresh own list is all that may add own devices.
-          noOwnDevice = !ownFresh;
-          break;
-        }
-      }
+      final keptOut = await _ownKeptOut(claimedMine, ownFresh: ownFresh);
       final made = await _session.runWrite((v) async {
         op.check(v);
         final groups = await v.groups(id);
@@ -399,13 +386,11 @@ extension _Reset on GroupStarter {
         ];
         // Task 11 follow-up: never an own device the user removed; none at
         // all while that is unknown and the own list is a kept one.
-        bool removedByUser(UsableClaim c) =>
-            noOwnDevice || removedMine.contains(vaultDeviceIdHex(c.deviceId));
         final usableMine = [
           for (final c in checkedMine.usable)
             if (!onBoth(c, checkedTheirs.usable) &&
                 !removedToday(c) &&
-                !removedByUser(c))
+                !keptOut.keepsOut(c.deviceId))
               c,
         ];
         if (usableTheirs.isEmpty) {

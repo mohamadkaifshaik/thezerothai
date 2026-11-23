@@ -179,6 +179,7 @@ extension _Start on GroupStarter {
         priority: priority,
         verified: verified,
         own: own,
+        ownFresh: ownAnswer.readable,
         theirs: theirs,
         claimedTheirs: claimed.keyPackages,
         inspectedTheirs: inspectedTheirs,
@@ -350,6 +351,36 @@ extension _Start on GroupStarter {
     return null;
   }
 
+  /// Task 11 follow-up (CR2 M-6; fix round 1, ruling 1): which of the
+  /// claimed own devices a start or a reset leaves out. Each one is asked
+  /// about ([GroupStarter._wasRemovedByUser]); one the user removed is
+  /// left out. When the answer is unknown (StateError: the removal queue
+  /// cannot be read), every own device is left out unless [ownFresh] says
+  /// the own list the claims are checked against is the server's answer to
+  /// this run's read (not a kept list `_lastReadable` accepted); the
+  /// answers already given still count. The peer's claims are never asked
+  /// about (fix round 5, R2). Asked before the write body (the answer may
+  /// read the vault); the caller filters AFTER `checkClaims` and the
+  /// cross-side dedupe, so a peer claim carrying a removed own device's
+  /// key or id is still dropped with it (PR 1 carryover).
+  Future<_OwnKeptOut> _ownKeptOut(
+    List<kpb.ClaimedKeyPackage> claimedMine, {
+    required bool ownFresh,
+  }) async {
+    final removed = <String>{};
+    for (final c in claimedMine) {
+      final deviceId = Uint8List.fromList(utf8.encode(c.deviceId));
+      try {
+        if (await _wasRemovedByUser(deviceId)) {
+          removed.add(vaultDeviceIdHex(deviceId));
+        }
+      } on StateError {
+        return _OwnKeptOut(removed, noOwnDevice: !ownFresh);
+      }
+    }
+    return _OwnKeptOut(removed);
+  }
+
   /// Whether any of [devices] had no empty claim recorded today.
   Future<bool> _anyUnclaimed(List<DirectoryDevice> devices) async {
     for (final d in devices) {
@@ -412,6 +443,7 @@ extension _Start on GroupStarter {
     required BudgetPriority priority,
     required bool verified,
     required DeviceList own,
+    required bool ownFresh,
     required DeviceList theirs,
     required List<kpb.ClaimedKeyPackage> claimedTheirs,
     required List<KeyPackageInfo?> inspectedTheirs,
@@ -465,6 +497,10 @@ extension _Start on GroupStarter {
           return const _Created(_CreatedKind.unavailable);
         }
       }
+      // Fix round 1, ruling 1 (CR I-1, SA M1): the reset's own-device rule
+      // holds for a start too (the third add site). Asked here, under the
+      // lock and before the write body.
+      final keptOut = await _ownKeptOut(claimedMine, ownFresh: ownFresh);
       return await _session.runWrite((v) async {
         op.check(v);
         final groups = await v.groups(id);
@@ -563,9 +599,13 @@ extension _Start on GroupStarter {
           for (final c in checkedTheirs.usable)
             if (!onBoth(c, checkedMine.usable)) c,
         ];
+        // After the dedupe: a peer claim with a removed device's key or id
+        // is still dropped with it.
         final usableMine = [
           for (final c in checkedMine.usable)
-            if (!onBoth(c, checkedTheirs.usable)) c,
+            if (!onBoth(c, checkedTheirs.usable) &&
+                !keptOut.keepsOut(c.deviceId))
+              c,
         ];
         if (usableTheirs.isEmpty) {
           return _Created(_CreatedKind.noDevice, emptyFor: emptyFor);
@@ -780,4 +820,18 @@ class _Created {
 
   /// The cache session captured before the write.
   final int session;
+}
+
+/// What [_Start._ownKeptOut] decided: the claimed own devices the user
+/// removed ([removed], hex ids), or every own device while that is unknown
+/// and the own list is a kept one ([noOwnDevice]). Memory only; no
+/// `toString` (it holds device ids).
+class _OwnKeptOut {
+  _OwnKeptOut(this.removed, {this.noOwnDevice = false});
+
+  final Set<String> removed;
+  final bool noOwnDevice;
+
+  bool keepsOut(Uint8List deviceId) =>
+      noOwnDevice || removed.contains(vaultDeviceIdHex(deviceId));
 }
