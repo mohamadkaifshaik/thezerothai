@@ -1331,6 +1331,10 @@ class Other { void notAMember() {} }
         ),
         ['step', 'row.localId'],
       );
+      // SA R1: a prefixed construction is read too.
+      expect(pipelineErrorForwards('types.E2eePipelineError(row.id);'), [
+        'row.id',
+      ]);
       expect(
         aliasAssignments(
           'final report = _p._onUnexpectedError; '
