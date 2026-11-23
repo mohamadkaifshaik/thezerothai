@@ -1,4 +1,6 @@
 import 'package:dzeroth/core/network/app_exception.dart';
+import 'package:dzeroth/core/vault/secure_vault.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/removal_queue_runner.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/removal_record.dart';
 import 'package:dzeroth/gen/dzeroth/keys/v1/keys.pb.dart' as kpb;
 import 'package:flutter_test/flutter_test.dart';
@@ -35,6 +37,64 @@ void main() {
     expect(call.reason, kpb.RemoveReason.REMOVE_REASON_REMOTE);
     expect(await pin(sibling), isNull);
     expect(runner.needsReauth.value, isFalse);
+  });
+
+  test('removed elsewhere, a pass sends no RemoveKeyDevice and no commit; '
+      'once the fact clears it does (fix round 1, M4)', () async {
+    final sibling = await RigPeer.create('sibling');
+    final other = await RigPeer.create('other');
+    await setUpRig(ownListed: [sibling, other]);
+    await join(_c1, others: [sibling, other]);
+    await synced();
+    final now = rig.clock.now().microsecondsSinceEpoch;
+    // A queued removal of the sibling (with its mark) and a leftover
+    // intent for the other device, whose outcome is unknown.
+    await rig.device.vault.transaction((tx) async {
+      await tx.putSetting(
+        kVaultSettingRemovalQueue,
+        RemovalQueue(
+          entries: [
+            RemovalQueueEntry(deviceId: sibling.id, conversationId: _c1),
+          ],
+        ).encode(),
+      );
+      await tx.putSetting(
+        kVaultSettingRemovalRecord,
+        RemovalRecord(
+          intents: [
+            RemovalMark(
+              deviceId: other.idString,
+              atMicros: now,
+              signatureKey: other.key,
+            ),
+          ],
+          removed: [
+            RemovalMark(
+              deviceId: sibling.idString,
+              atMicros: now,
+              signatureKey: sibling.key,
+            ),
+          ],
+        ).encode(),
+      );
+    });
+    rig.keys.own.removeWhere((d) => d.deviceId == sibling.idString);
+    runner = build();
+    rig.removedElsewhere = true;
+
+    await runner.runPass();
+    await runner.idle();
+
+    expect(rig.keys.removeCalls, isEmpty);
+    expect(requests(), isEmpty);
+    expect((await pin(sibling))!.side, MemberSide.mine);
+
+    rig.removedElsewhere = false;
+    await runner.runPass();
+    await runner.idle();
+
+    expect(rig.keys.removeCalls.map((c) => c.deviceId), [other.idString]);
+    expect(requests(_c1), isNotEmpty);
   });
 
   group('REAUTH_REQUIRED (brief amendment 3)', () {
