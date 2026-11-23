@@ -99,6 +99,16 @@ class FakeDeviceKeys implements DeviceKeysService {
 
   bool _latched = false;
 
+  /// Calls of the port's two device-keys maps (Task 13b).
+  int checkAgainCalls = 0;
+  int retryNowCalls = 0;
+
+  @override
+  Future<void> checkAgainNow() async => checkAgainCalls++;
+
+  @override
+  Future<void> retryNow() async => retryNowCalls++;
+
   /// Lets "set up again" start without the removed fact (a test of its
   /// order with a running coordinator).
   bool allowSetUpAgain = false;

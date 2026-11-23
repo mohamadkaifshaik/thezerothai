@@ -237,6 +237,24 @@ class E2eePipeline {
   /// [opened], [closed] and [refresh] through the pipeline); null before.
   SyncCoordinator? get coordinator => _parts?.sync;
 
+  /// Plan 5a Task 13b: what the port (`EncryptedMessagingImpl`) reads: the
+  /// same collaborators this pipeline was built with.
+  VaultSession get session => _session;
+  DeviceKeysService get deviceKeys => _deviceKeys;
+  MessagingRepository get messaging => _messaging;
+
+  /// Plan 5a Task 13b: the parts of the open vault, for the port; null
+  /// before [onVaultReady] built them, and once that vault closed or
+  /// changed (sign-out, another user, a lost lock).
+  PipelineParts? get parts {
+    final p = _parts;
+    return p != null && p.live ? PipelineParts._(p) : null;
+  }
+
+  /// Plan 5a Task 13b: the port's unexpected failure, reported as
+  /// [E2eePipelineError] with the step name only.
+  void reportPortError(String step, StackTrace stack) => _report(step, stack);
+
   /// The pipeline started for the open vault (parts built, device usable,
   /// not removed elsewhere) and its coordinator runs. Review I3: false while
   /// a start applies the remembered notes (the start window): a hint then
