@@ -198,11 +198,24 @@ class E2eePipeline {
   SyncCoordinator? get coordinator => _parts?.sync;
 
   /// The pipeline started for the open vault (parts built, device usable,
-  /// not removed elsewhere).
+  /// not removed elsewhere) and its coordinator runs. Review I3: false while
+  /// a start applies the remembered notes (the start window): a hint then
+  /// is remembered and replayed right after the coordinator started.
   bool get started {
     final s = _startedFor;
-    return s != null && identical(s.vault, _session.vault);
+    return s != null &&
+        identical(s.vault, _session.vault) &&
+        _starting == 0 &&
+        (_parts?.sync.running ?? false);
   }
+
+  /// Starts inside their window (review I3), and what an [opened] in the
+  /// window waits for.
+  int _starting = 0;
+  Completer<void>? _startGate;
+
+  /// A list change arrived in the start window: re-read after the start.
+  bool _inboxOwed = false;
 
   // -------------------------------------------------------------------------
   // Start
@@ -287,17 +300,35 @@ class E2eePipeline {
     }
     _startedFor = (vault: vault, mayStart: mayStart);
     _wasRemoved = false;
-    final window = onStartWindowForTest;
-    if (window != null) await window();
+    // Review I3: the start window. Hints arriving in it are remembered
+    // (`started` is false) and replayed once the coordinator runs.
+    if (_starting++ == 0) _startGate = Completer<void>();
+    Future<void>? sequence;
     try {
-      await _applyNotes(parts);
-    } on Object catch (e, s) {
-      // Review I2: nothing a remembered note does may keep the start from
-      // running.
-      if (e is! StateError) _report('pipeline.notes', s);
+      final window = onStartWindowForTest;
+      if (window != null) await window();
+      try {
+        await _applyNotes(parts);
+      } on Object catch (e, s) {
+        // Review I2: nothing a remembered note does may keep the start from
+        // running.
+        if (e is! StateError) _report('pipeline.notes', s);
+      }
+      if (parts.live && identical(_startedFor?.vault, vault)) {
+        // The coordinator is running once this call returns (it sets its
+        // state before its first await).
+        sequence = parts.sync.onVaultReady();
+      }
+    } finally {
+      if (--_starting == 0) {
+        final gate = _startGate;
+        _startGate = null;
+        gate?.complete();
+      }
     }
-    await parts.sync.onVaultReady();
+    if (sequence == null) return;
     _afterStartNotes(parts);
+    await sequence;
   }
 
   /// Gate item 28: this device's id is in the vault, the vault says it
@@ -361,6 +392,7 @@ class E2eePipeline {
     _parts = null;
     _startedFor = null;
     _wasRemoved = false;
+    _inboxOwed = false;
     _owedWhilePaused.clear();
     if (parts == null) return;
     if (identical(_owners[parts.vault], this)) _owners[parts.vault] = null;
@@ -508,8 +540,9 @@ class E2eePipeline {
     }
   }
 
-  /// After the coordinator's sequence: the remembered encrypted hints,
-  /// accepts and pushes.
+  /// Once the coordinator runs: the remembered encrypted hints (those that
+  /// arrived in the start window join the known set first), accepts,
+  /// pushes, and a list change of the window.
   void _afterStartNotes(_Parts parts) {
     if (!started || !identical(_parts, parts)) return;
     final encrypted = [..._notedEncrypted];
@@ -518,11 +551,20 @@ class E2eePipeline {
     _notedEncrypted.clear();
     _notedAccepted.clear();
     _notedPushes.clear();
-    encrypted.forEach(parts.sync.onEncrypted);
+    for (final id in encrypted) {
+      _inRoot(() async {
+        await _addKnown(parts, id);
+        parts.sync.onEncrypted(id);
+      });
+    }
     for (final id in accepted) {
       _inRoot(() => parts.accepted(id));
     }
     pushes.forEach(parts.sync.onPush);
+    if (_inboxOwed) {
+      _inboxOwed = false;
+      _inRoot(parts.rereadInbox);
+    }
   }
 
   Future<void> _addKnown(_Parts parts, String id) async {
@@ -538,7 +580,13 @@ class E2eePipeline {
 
   void _onConversationsChanged() {
     final parts = _parts;
-    if (_disposed || parts == null || !started) return;
+    if (_disposed || parts == null) return;
+    if (_starting > 0) {
+      // Review I3: replayed once the coordinator runs.
+      _inboxOwed = true;
+      return;
+    }
+    if (!started) return;
     _inRoot(parts.rereadInbox);
   }
 
@@ -581,6 +629,9 @@ class E2eePipeline {
 
   /// Task 13b's first `watchThread` listener of [conversationId].
   Future<void> opened(String conversationId) async {
+    // Review I3: an open in the start window waits for the start.
+    final gate = _startGate;
+    if (gate != null) await gate.future;
     final parts = _parts;
     if (_disposed || parts == null || !started) return;
     await parts.sync.opened(conversationId);
