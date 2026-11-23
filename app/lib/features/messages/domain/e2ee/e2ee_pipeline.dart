@@ -39,6 +39,10 @@ part 'e2ee_pipeline_work.dart';
 /// before a vault is ready (gate item 42): the oldest goes first.
 const int kPipelineNotesMax = 256;
 
+/// Fix wave ruling 5 (code review M2): the most passes the start window
+/// makes over the owed init discards before the coordinator starts.
+const int kOwedDiscardPasses = 4;
+
 /// The vault each pipeline runs for (gate item 1): one main-isolate
 /// pipeline per vault object. A second pipeline handed the same vault (a
 /// second wiring, a background handler) runs nothing.
@@ -347,14 +351,12 @@ class E2eePipeline {
       }
       // Fix round 2 (r1-I1): never throws.
       await _applyOwedDiscards(parts);
-      // Re-review r2-m1: a delete made in this window (after the snapshot
-      // above) owes its discard only once its local transaction ends: wait
-      // for those, then look again, right before the coordinator's
-      // resumeProvisional could resend that conversation's init.
-      while (_deletesInFlight.isNotEmpty) {
-        await Future.wait([..._deletesInFlight]);
-      }
-      await _applyOwedDiscards(parts);
+      // Re-review r2-m1, fix wave ruling 5 (M2): a delete made in this
+      // window owes its discard only once its local transaction ends: wait
+      // for those and look again until quiet (bounded), right before the
+      // coordinator's resumeProvisional (which since ruling 1 also refuses
+      // to resend a deleted conversation's init).
+      await _settleOwedDiscards(parts);
       if (parts.live && identical(_startedFor?.vault, vault)) {
         // The coordinator is running once this call returns (it sets its
         // state before its first await).
@@ -556,15 +558,19 @@ class E2eePipeline {
     if (_notedDeleted.isNotEmpty && parts.live) {
       _inRoot(() => _applyDeletes(parts));
     }
-    // Re-review r2-m1: an owed init discard (one that could not decide, or
-    // one owed while not started) is tried again, before the coordinator's
-    // resume (which may resend a provisional group's init).
-    if (_owedDiscards.isNotEmpty && started && !_deviceKeys.stopsPipeline) {
-      _inRoot(() => _applyOwedDiscards(parts));
-    }
+    // Re-review r2-m1, fix wave ruling 5 (M3): an owed init discard (one
+    // that could not decide, or one owed while not started) is tried again,
+    // and the coordinator's resume is CHAINED after it.
     final owed = [..._owedWhilePaused];
     _owedWhilePaused.clear();
-    if (started) parts.sync.onAppResumed();
+    if (_owedDiscards.isNotEmpty && started && !_deviceKeys.stopsPipeline) {
+      _inRoot(() async {
+        await _applyOwedDiscards(parts);
+        if (started && identical(_parts, parts)) parts.sync.onAppResumed();
+      });
+    } else if (started) {
+      parts.sync.onAppResumed();
+    }
     for (final run in owed) {
       run();
     }

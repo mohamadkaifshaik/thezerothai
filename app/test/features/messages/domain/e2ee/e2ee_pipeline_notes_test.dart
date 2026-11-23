@@ -118,41 +118,55 @@ void main() {
   /// 1:1 conversation is _c1) got no answer to either attempt: the group is
   /// provisional with its init row, and the server stored nothing.
   /// [margin]: the resend margin has passed (a discard may decide).
-  Future<void> unansweredInit({bool margin = true}) async {
+  /// [peer] / [ref] / [conversation]: another peer's conversation (the
+  /// vault is then already ready: [ready] false).
+  Future<void> unansweredInit({
+    bool margin = true,
+    RigPeer? peer,
+    String ref = 'ref-bob',
+    String conversation = _c1,
+    String localId = 'local-1',
+    bool ready = true,
+  }) async {
     final v = h.rig.device.vault;
-    h.rig.keys.claims['ref-bob'] = () async => kpb.ClaimKeyPackagesResponse(
-      conversationId: _c1,
+    final p = peer ?? bob;
+    h.rig.keys.peers[ref] = [rigKeyDevice(p.idString, p.key)];
+    h.rig.keys.claims[ref] = () async => kpb.ClaimKeyPackagesResponse(
+      conversationId: conversation,
       keyPackages: [
         kpb.ClaimedKeyPackage(
-          deviceId: bob.idString,
-          signaturePublicKey: bob.key,
-          keyPackage: await bob.keyPackage(),
+          deviceId: p.idString,
+          signaturePublicKey: p.key,
+          keyPackage: await p.keyPackage(),
           hasKeyPackage_4: true,
         ),
       ],
     );
-    h.rig.server.recipients['ref-bob'] = _c1;
-    h.rig.server.rows[_c1] = pb.Conversation(
-      id: _c1,
-      peer: common.AuthorSnapshot(userId: 'ref-bob'),
+    h.rig.server.recipients[ref] = conversation;
+    h.rig.server.rows[conversation] = pb.Conversation(
+      id: conversation,
+      peer: common.AuthorSnapshot(userId: ref),
       folder: Folder.FOLDER_INBOX,
       canReply: true,
       state: ConversationState.CONVERSATION_STATE_ACCEPTED,
     );
-    await h.ready();
+    if (ready) await h.ready();
     // Two attempts with no answer: the group stays provisional with its
     // init row; the server stored nothing.
     const unknown = (error: NetworkException('timed out'), stored: false);
     h.rig.server.sendScript.addAll([unknown, unknown]);
     await h.pipeline.starter.startOrRoute(
-      localId: 'local-1',
-      peerUserId: 'ref-bob',
+      localId: localId,
+      peerUserId: ref,
       text: 'hello',
     );
-    await h.pipeline.starter.settled(_c1);
-    await h.pipeline.sender.settled(_c1);
-    expect((await v.group(_c1, 1))!.provisional, isTrue);
-    expect((await v.outbox()).items.single.init, isNotNull);
+    await h.pipeline.starter.settled(conversation);
+    await h.pipeline.sender.settled(conversation);
+    expect((await v.group(conversation, 1))!.provisional, isTrue);
+    expect(
+      (await v.outbox()).items.where((r) => r.localId == localId).single.init,
+      isNotNull,
+    );
     if (margin) h.rig.clock.advance(kInitResendMargin);
   }
 
@@ -258,6 +272,72 @@ void main() {
     expect(h.rig.server.sends, hasLength(sends), reason: 'never resent');
     expect(await v.group(_c1, 1), isNull, reason: 'discarded');
     expect(h.pipeline.notedCount, 0);
+  });
+
+  test('CR M2: a delete made during the start window\'s last owed pass is '
+      'discarded before the window closes, not left owed', () async {
+    final v = h.rig.device.vault;
+    final carol = await RigPeer.create('carol');
+    await unansweredInit(margin: false);
+    await unansweredInit(
+      peer: carol,
+      ref: 'ref-carol',
+      conversation: _c2,
+      localId: 'local-2',
+      ready: false,
+    );
+    h.rig.clock.advance(kInitResendMargin);
+    h.deviceKeys.markRemoved();
+    // _c1's discard is owed, and its first try in the window cannot decide.
+    final done = h.pipeline.changes.firstWhere((id) => id == _c1);
+    h.pipeline.noteDeleted(_c1);
+    await done;
+    await h.settle();
+    var commitsCalls = 0;
+    h.rig.server.onCall = (call) async {
+      if (call != 'listConversationCommits') return;
+      commitsCalls++;
+      if (commitsCalls == 1) throw const NetworkException('rig: no network');
+      // The window's last look at the owed set: the user deletes _c2.
+      if (commitsCalls == 2) h.pipeline.noteDeleted(_c2);
+    };
+
+    h.deviceKeys.clearRemoved();
+    await _until(() async => h.pipeline.started);
+    await h.settle();
+    await _until(() async => await v.group(_c2, 1) == null);
+
+    expect(h.pipeline.notedCount, 0, reason: 'nothing left owed');
+    expect(await v.group(_c1, 1), isNull);
+  });
+
+  test('CR M3: the resume\'s owed discard runs before the coordinator\'s '
+      'resume', () async {
+    final v = h.rig.device.vault;
+    await unansweredInit();
+    var fail = true;
+    h.rig.server.onCall = (call) async {
+      if (call == 'listConversationCommits' && fail) {
+        fail = false;
+        throw const NetworkException('rig: no network');
+      }
+    };
+    final done = h.pipeline.changes.firstWhere((id) => id == _c1);
+    h.pipeline.noteDeleted(_c1);
+    await done;
+    await h.settle();
+    expect(h.pipeline.notedCount, 1, reason: 'owed');
+    final before = h.rig.server.calls.length;
+
+    h.pipeline.onAppResumed();
+    await _until(() async => await v.group(_c1, 1) == null);
+    await h.settle();
+
+    final calls = h.rig.server.calls.skip(before).toList();
+    final discard = calls.indexOf('listConversationCommits');
+    final welcomes = calls.indexOf('listWelcomes');
+    expect(discard, greaterThanOrEqualTo(0));
+    expect(welcomes, greaterThan(discard), reason: 'the resume waited');
   });
 
   test(

@@ -76,9 +76,10 @@ extension _PipelineNotes on E2eePipeline {
   /// win the race against the coordinator's `resumeProvisional`, which would
   /// otherwise resend a first message the user deleted. A priority parameter
   /// on `discardInit` is a starter API change, left for later.
-  Future<void> _applyOwedDiscards(_Parts parts) async {
+  /// Returns the ids it tried.
+  Future<Set<String>> _applyOwedDiscards(_Parts parts) async {
     _dropOtherAccountsNotes(parts.vault);
-    final owed = [..._owedDiscards];
+    final owed = {..._owedDiscards};
     _owedDiscards.clear();
     for (final id in owed) {
       if (!parts.live || _deviceKeys.stopsPipeline) {
@@ -86,6 +87,25 @@ extension _PipelineNotes on E2eePipeline {
         continue;
       }
       await _discardOne(parts, id);
+    }
+    return owed;
+  }
+
+  /// The start window's last look before the coordinator's sequence (re-
+  /// review r2-m1; fix wave ruling 5, code review M2): waits for the deletes
+  /// in flight and runs the owed discards, again while a pass leaves a
+  /// delete in flight or a NEW owed id (one it did not try), at most
+  /// [kOwedDiscardPasses] times. An id that could not decide is owed again
+  /// but is not new, so it never loops. Never throws.
+  Future<void> _settleOwedDiscards(_Parts parts) async {
+    for (var pass = 0; pass < kOwedDiscardPasses; pass++) {
+      while (_deletesInFlight.isNotEmpty) {
+        await Future.wait([..._deletesInFlight]);
+      }
+      final tried = await _applyOwedDiscards(parts);
+      if (_deletesInFlight.isEmpty && _owedDiscards.every(tried.contains)) {
+        return;
+      }
     }
   }
 
