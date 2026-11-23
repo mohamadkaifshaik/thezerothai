@@ -15,8 +15,8 @@
 // absent = none), poolCount, removedAt (absent while live)) and its subcollection
 // users/{uid}/keyDevices/{deviceId}/keyPackages/{id} (the one-time pool; data (bytes) and createdAt; id = the first 32
 // hex characters of the SHA-256 of the bytes); and the removed marks users/{uid}/keyDeviceRemovals/{deviceId} (removedAt,
-// expireAt = removedAt + 90 days, the Firestore TTL field; doc id = the device id), written by RemoveKeyDevice with
-// reason REMOTE. A device document that carries removedAt (a REMOTE removal in progress) is not a registered device:
+// expireAt = removedAt + 90 days, the Firestore TTL field; cutAt and cutDone, absent unless the removal cut the
+// account's sessions; doc id = the device id), written by RemoveKeyDevice with reason REMOTE. A device document that carries removedAt (a REMOTE removal in progress) is not a registered device:
 // every read and claim skips it, but it keeps its place under the cap of 5 until the removal (or its retry) deletes it,
 // so a user never has more than 5 device documents; a RegisterKeyDevice at the cap finishes such stuck removals first
 // (see RegisterKeyDevice). All three are erased with the account; the account export lists device metadata and counts
