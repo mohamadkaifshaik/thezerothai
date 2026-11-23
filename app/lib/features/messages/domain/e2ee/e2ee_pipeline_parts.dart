@@ -247,7 +247,9 @@ class _Parts {
     final peer = row.hasPeer() ? row.peer.userId : '';
     if (row.canReply && peer.isNotEmpty) directory.markUsable(peer);
     Zone.root.run(() => unawaited(runner.noteConversation(row.id)));
-    sync.onInboxRow(row);
+    // Review m1: the coordinator's work (a poll, a refresh, a timer it
+    // arms) must not inherit a zone that reads as holding the lock.
+    Zone.root.run(() => sync.onInboxRow(row));
   }
 
   /// `conversationsChanged`: the cached inbox rows are read again (no

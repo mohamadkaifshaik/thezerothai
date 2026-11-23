@@ -298,6 +298,23 @@ void main() {
       await _until(() async => !h.pipeline.directory.isParked('ref-bob'));
     });
 
+    test('review m1: a header noted under the conversation lock starts no '
+        'coordinator work in the lock\'s zone', () async {
+      await h.ready();
+      final heldAtPoll = <bool>[];
+      h.messaging.onListWelcomes = () =>
+          heldAtPoll.add(h.pipeline.locks.isHeld(_c2));
+
+      await h.pipeline.locks.run(_c2, () async {
+        // A receiver's header read under the lock (no group here: a poll).
+        h.pipeline.contexts.note(_header(_c2));
+      });
+      await _until(() async => heldAtPoll.isNotEmpty);
+      await h.settle();
+
+      expect(heldAtPoll, everyElement(isFalse));
+    });
+
     test('noteEncrypted for a conversation without a group polls welcomes '
         '(item 24: and joins the known set)', () async {
       await h.ready();

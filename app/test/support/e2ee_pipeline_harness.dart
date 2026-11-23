@@ -31,6 +31,15 @@ class PipelineMessaging extends RigMessaging {
   /// `cachedConversations(FOLDER_INBOX)`'s rows.
   List<pb.Conversation> inbox = [];
 
+  /// Runs at every `listWelcomes` call, in the caller's zone.
+  void Function()? onListWelcomes;
+
+  @override
+  Future<pb.ListWelcomesResponse> listWelcomes({required String deviceId}) {
+    onListWelcomes?.call();
+    return super.listWelcomes(deviceId: deviceId);
+  }
+
   @override
   Stream<void> get conversationsChanged => changed.stream;
 
