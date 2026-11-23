@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	cloud.google.com/go/firestore v1.29.2
-	cloud.google.com/go/storage v1.70.0
+	cloud.google.com/go/storage v1.71.0
 	codeberg.org/gruf/go-ffmpreg v0.6.22
 	connectrpc.com/connect v1.21.1
 	connectrpc.com/cors v0.1.0
@@ -14,8 +14,8 @@ require (
 	go.uber.org/automaxprocs v1.6.0
 	golang.org/x/sync v0.25.0
 	golang.org/x/text v0.44.0
-	golang.org/x/tools v0.52.0
-	google.golang.org/api v0.314.0
+	golang.org/x/tools v0.53.0
+	google.golang.org/api v0.316.0
 	google.golang.org/grpc v1.85.0
 	google.golang.org/protobuf v1.36.12
 )
@@ -23,7 +23,7 @@ require (
 require (
 	cel.dev/expr v0.26.0 // indirect
 	cloud.google.com/go v0.123.0 // indirect
-	cloud.google.com/go/auth v0.24.3 // indirect
+	cloud.google.com/go/auth v0.24.4 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.3.1 // indirect
 	cloud.google.com/go/compute/metadata v0.10.0 // indirect
 	cloud.google.com/go/iam v1.15.1 // indirect
@@ -58,9 +58,9 @@ require (
 	go.opentelemetry.io/otel/sdk v1.47.0 // indirect
 	go.opentelemetry.io/otel/sdk/metric v1.47.0 // indirect
 	go.opentelemetry.io/otel/trace v1.47.0 // indirect
-	golang.org/x/crypto v0.58.0 // indirect
+	golang.org/x/crypto v0.59.0 // indirect
 	golang.org/x/mod v0.43.0 // indirect
-	golang.org/x/net v0.62.0 // indirect
+	golang.org/x/net v0.63.0 // indirect
 	golang.org/x/oauth2 v0.38.0 // indirect
 	golang.org/x/sys v0.50.0 // indirect
 	golang.org/x/time v0.16.0 // indirect

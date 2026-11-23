@@ -82,17 +82,34 @@ class KeysRepository {
 
   /// Removes one of the caller's devices with its pool (a missing device is
   /// success).
+  ///
+  /// [reason] is required (removal design section 4, security audit L3):
+  /// `REMOVE_REASON_SIGN_OUT` for this device's own sign-out (no removed
+  /// mark, so a failed sign-out may register the same id again);
+  /// `REMOVE_REASON_REMOTE` for another device of the user (the server keeps
+  /// a removed mark, answers DEVICE_REMOVED to that id's Register and Upload,
+  /// and needs a recent sign-in: REAUTH_REQUIRED unless the id is already
+  /// marked). Never `REMOVE_REASON_UNSPECIFIED` (the server reads it as
+  /// SIGN_OUT): an [ArgumentError] before any call (fix wave 8, SA L4);
+  /// `test/guards/remove_reason_guard_test.dart` scans for it.
   Future<pb.RemoveKeyDeviceResponse> removeDevice({
     required String deviceId,
     required String idempotencyKey,
-  }) => _open(
-    () => _apiClient.keys.removeKeyDevice(
-      pb.RemoveKeyDeviceRequest(
-        idempotencyKey: idempotencyKey,
-        deviceId: deviceId,
+    required pb.RemoveReason reason,
+  }) {
+    if (reason == pb.RemoveReason.REMOVE_REASON_UNSPECIFIED) {
+      throw ArgumentError.value(reason, 'reason', 'A removal names its reason');
+    }
+    return _open(
+      () => _apiClient.keys.removeKeyDevice(
+        pb.RemoveKeyDeviceRequest(
+          idempotencyKey: idempotencyKey,
+          deviceId: deviceId,
+          reason: reason,
+        ),
       ),
-    ),
-  );
+    );
+  }
 
   /// Adds [keyPackages] (0-100) to the device's pool and, when given,
   /// replaces its last-resort package. The private parts of every package

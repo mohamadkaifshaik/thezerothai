@@ -218,4 +218,19 @@ enum ErrorReason {
   // FAILED_PRECONDITION code mapping, so its messaging screens show their generic failure text, not an update prompt:
   // telling such an app to update is the app version floor's job, not this error's.
   ERROR_REASON_ENCRYPTION_REQUIRED = 24;
+  // FAILED_PRECONDITION, KeyService: RegisterKeyDevice or UploadKeyPackages for a device id the account removed from
+  // another device (RemoveKeyDevice with reason REMOTE). No metadata, no retry hint. Refused for at least 90 days after
+  // the removal. Do not retry with the same id: this device must be set up again under a new device id. A client built
+  // before this value sees UNSPECIFIED and falls back to the FAILED_PRECONDITION code mapping.
+  ERROR_REASON_DEVICE_REMOVED = 25;
+  // UNAUTHENTICATED, every RPC: the caller's sign-in (the ID token's auth_time) is older than a "sign out other
+  // devices" cut on the account (KeyService.RemoveKeyDevice with reason REMOTE, FEATURE_DEVICE_SIGN_OUT on for the
+  // remover). No metadata. Refreshing the ID token does not help (a refresh keeps auth_time): the user must sign in
+  // again, after which every RPC works as before. Local data may be kept. Checked before the per-account rate limits,
+  // so a refused call uses up none of the per-account limits or daily caps (the pre-auth per-IP limit still counts
+  // it). Another server instance may still accept the old session for up to 60 s after the last profile read that
+  // started before the cut.
+  // A client built before this value sees UNSPECIFIED and falls back to the UNAUTHENTICATED code mapping (sign in
+  // again).
+  ERROR_REASON_SESSION_ENDED = 26;
 }

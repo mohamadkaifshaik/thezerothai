@@ -74,6 +74,24 @@ type Profile struct {
 	// account, set together by DeleteAccount. Never serialized to clients or exports.
 	DeletionRequestedAt time.Time
 	DeletionJob         *DeletionJob
+	// SessionsValidAfter is users/{uid}.sessionsValidAfter, the session cut (removal-server design 3.3): a request whose
+	// ID token auth_time is older is refused with SESSION_ENDED (authn.SessionCutInterceptor, while device_sign_out is not
+	// globally off). Zero = no cut. Written only by SessionCuts.EndSessionsBefore (it only moves forward) and cleared
+	// only by `opsctl identity sessions clear-cut`. Carried so the 60 s cache has it and a whole-document rewrite keeps it.
+	SessionsValidAfter time.Time
+}
+
+// SessionCuts is the account's session cut, for the composition root: keys' REMOTE removal writes it (as
+// keys.SessionCutter) and the authn session-cut interceptor reads it (as authn.SessionCutProvider). *service implements it.
+type SessionCuts interface {
+	// EndSessionsBefore ends every session of uid that signed in before t: one transaction (1 read, at most 1 write)
+	// that stores max(existing, t), so it is idempotent and never moves the cut back; it then drops this instance's
+	// cached profile of uid (other instances serve theirs for up to the 60 s cache TTL). A missing users/{uid} is
+	// success with nothing written (no session passes account status without a profile). A zero t is an error.
+	EndSessionsBefore(ctx context.Context, uid string, t time.Time) error
+	// SessionsValidAfter is uid's cut from the cached profile (the same 60 s cache and 10 s negative cache account status
+	// uses, so it adds no read to a request): zero when there is none or uid has no profile. A failed read is an error.
+	SessionsValidAfter(ctx context.Context, uid string) (time.Time, error)
 }
 
 // ReadReceiptsFlag is the wire name of FEATURE_READ_RECEIPTS (F3). It gates SETTING read_receipts=true through UpdateProfile
@@ -196,6 +214,10 @@ type Service interface {
 	// AccountStatus backs pkg/platform/authn.AccountStatusProvider (wired in main.go): whether uid has a
 	// profile yet, and its current status, read from the same 60s instance cache as GetMe/GetProfile.
 	AccountStatus(ctx context.Context, uid string) (exists bool, status AccountStatus, err error)
+
+	// SessionCuts is part of Service so the composition root gets it at compile time, not from a type assertion that
+	// could fail at Build (CR N4).
+	SessionCuts
 }
 
 // Counters lets other modules atomically adjust denormalized counters on users/{uid} inside their own
@@ -278,6 +300,10 @@ type Repo interface {
 	// GetProfiles batch-reads users/{uid} for every id in uids via one GetAll (<= 50 ids). Ids
 	// with no document are simply absent from the result map (not an error).
 	GetProfiles(ctx context.Context, uids []string) (map[string]Profile, error)
+	// EndSessionsBefore is the session-cut transaction: it reads users/{uid} and, when t is after the stored
+	// sessionsValidAfter (or there is none), sets it to t with a field-level update. It returns the profile as written
+	// (or as read, wrote false). ErrNotFound when the document is absent (nothing is written, never re-created).
+	EndSessionsBefore(ctx context.Context, uid string, t time.Time) (profile Profile, wrote bool, err error)
 }
 
 // FeatureFlags reports which server feature flags are enabled for a caller, for

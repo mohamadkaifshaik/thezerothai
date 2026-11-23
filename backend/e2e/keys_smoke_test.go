@@ -13,7 +13,8 @@ package e2e
 // bytes, content type) to each other, to the answers for an unknown user and to those for a SUSPENDED user.
 // A caller without the flag (not in the allowlist, flag not globally off) gets FEATURE_DISABLED on the three gated RPCs
 // and can still list, remove and look up (an empty success without a shared encrypted conversation). No credentials
-// answer 401 on all six procedures. Account deletion erases users/{A}/keyDevices.
+// answer 401 on all six procedures. Account deletion erases users/{A}/keyDevices and users/{A}/keyDeviceRemovals (a
+// mark left by a REMOTE removal, whose id is then refused with DEVICE_REMOVED, and an orphan mark).
 
 import (
 	"bytes"
@@ -415,6 +416,28 @@ func TestE2E_KeysSmoke_AccountDeletionErasesKeyDevices(t *testing.T) {
 	})); err != nil {
 		t.Fatalf("UploadKeyPackages: %v", err)
 	}
+	// A second device removed from "another device" (REMOTE, with the token's fresh sign-in): it leaves a removed mark, and
+	// the same id is then refused with DEVICE_REMOVED through the real handler.
+	lost := keysDeviceID("lost")
+	if _, err := keys.RegisterKeyDevice(ctx, authedRequest(tokA, &keysv1.RegisterKeyDeviceRequest{IdempotencyKey: keysKey("reg-lost"), DeviceId: lost, SignaturePublicKey: keysRandBytes(32)})); err != nil {
+		t.Fatalf("RegisterKeyDevice (lost): %v", err)
+	}
+	if _, err := keys.RemoveKeyDevice(ctx, authedRequest(tokA, &keysv1.RemoveKeyDeviceRequest{IdempotencyKey: keysKey("rm-lost"), DeviceId: lost, Reason: keysv1.RemoveReason_REMOVE_REASON_REMOTE})); err != nil {
+		t.Fatalf("RemoveKeyDevice REMOTE: %v", err)
+	}
+	_, err = keys.RegisterKeyDevice(ctx, authedRequest(tokA, &keysv1.RegisterKeyDeviceRequest{IdempotencyKey: keysKey("reg-lost2"), DeviceId: lost, SignaturePublicKey: keysRandBytes(32)}))
+	keysWantReason(t, err, commonv1.ErrorReason_ERROR_REASON_DEVICE_REMOVED, "", "")
+	// A mark with no device document behind it (a REMOTE removal of an id that was never registered).
+	orphanMark := keysDeviceID("orphanmark")
+	if _, err := e.fs.Doc("users/"+uidA+"/keyDeviceRemovals/"+orphanMark).Set(ctx, map[string]any{"removedAt": time.Now(), "expireAt": time.Now().Add(90 * 24 * time.Hour)}); err != nil {
+		t.Fatalf("seed orphan mark: %v", err)
+	}
+	markPaths := []string{"users/" + uidA + "/keyDeviceRemovals/" + lost, "users/" + uidA + "/keyDeviceRemovals/" + orphanMark}
+	for _, path := range markPaths {
+		if snap, err := e.fs.Doc(path).Get(ctx); err != nil || !snap.Exists() {
+			t.Fatalf("before the deletion: %s missing (the positive control): %v", path, err)
+		}
+	}
 	// A pool under a device document that does not exist (what a concurrent remove can leave behind).
 	ghost := keysDeviceID("ghost")
 	if _, err := e.fs.Doc("users/"+uidA+"/keyDevices/"+ghost+"/keyPackages/orphan1").Set(ctx, map[string]any{"data": keysRandBytes(8)}); err != nil {
@@ -460,9 +483,12 @@ func TestE2E_KeysSmoke_AccountDeletionErasesKeyDevices(t *testing.T) {
 	if d, p := residue(); d != 0 || p != 0 {
 		t.Errorf("after the deletion: %d device docs and %d pool docs remain under users/%s/keyDevices, want 0 and 0", d, p, uidA)
 	}
-	for _, path := range []string{"users/" + uidA + "/keyDevices/" + dev, "users/" + uidA + "/keyDevices/" + ghost + "/keyPackages/orphan1"} {
+	for _, path := range append([]string{"users/" + uidA + "/keyDevices/" + dev, "users/" + uidA + "/keyDevices/" + ghost + "/keyPackages/orphan1"}, markPaths...) {
 		if snap, err := e.fs.Doc(path).Get(ctx); err == nil && snap.Exists() {
 			t.Errorf("%s survived the deletion", path)
 		}
+	}
+	if refs, err := e.fs.Collection("users/" + uidA + "/keyDeviceRemovals").DocumentRefs(ctx).GetAll(); err != nil || len(refs) != 0 {
+		t.Errorf("after the deletion: %d refs under users/%s/keyDeviceRemovals (%v), want 0", len(refs), uidA, err)
 	}
 }

@@ -255,6 +255,11 @@ type Config struct {
 	// end-to-end-encrypted direct messages: on for the caller. FEATURE_E2EE_DM[_ALLOWLIST|_PERCENT], default off in
 	// every environment.
 	FeatureE2EEDM flags.Spec
+	// FeatureDeviceSignOut is the flag (wire name `device_sign_out`) of the session cut (security audit H2): on for the
+	// remover, a RemoveKeyDevice with reason REMOTE and a recent sign-in ends the account's other sessions; the cut check
+	// on every RPC (authn.SessionCutInterceptor) enforces a stored cut unless the flag is globally off, which is the
+	// emergency lever. FEATURE_DEVICE_SIGN_OUT[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeatureDeviceSignOut flags.Spec
 	// FeaturePostViews is the flag (wire name `post_views`) gating F1 post view counts: EngagementService.RecordImpressions
 	// on for the caller, and Post.view_count on every read while it is not globally off (globally off is the kill switch:
 	// no count on any surface, the author's own included). FEATURE_POST_VIEWS[_ALLOWLIST|_PERCENT], default off in every
@@ -563,6 +568,13 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf(
 			"config: CACHE_TTL %v exceeds the maximum of %.0fs: the account-deletion start gate is 120s and the instance cache TTL must stay below it so PurgeUser cannot race stale caches (ADR-0009)",
 			cacheTTL, MaxCacheTTL.Seconds())
+	}
+	// The instance caches treat a TTL <= 0 as "never expires" (cache/lru.go): a session cut or a status change written
+	// on one instance would then stay hidden from the others until LRU eviction (security audit L2, PR 3 of H2).
+	if cacheTTL <= 0 {
+		return Config{}, fmt.Errorf(
+			"config: CACHE_TTL %v must be positive: a zero or negative TTL makes the instance caches never expire, so a session cut or status change on one instance would stay hidden from the others",
+			cacheTTL)
 	}
 	cachePostsEntries, err := getInt("CACHE_POSTS_ENTRIES", 20_000)
 	if err != nil {
@@ -1125,6 +1137,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featureDeviceSignOut, err := flags.LoadSpec("DEVICE_SIGN_OUT", "device_sign_out", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	featurePostViews, err := flags.LoadSpec("POST_VIEWS", "post_views", flags.Off)
 	if err != nil {
 		return Config{}, err
@@ -1353,6 +1369,7 @@ func Load() (Config, error) {
 		FeatureLocation:              featureLocation,
 		FeatureDMSuggestions:         featureDMSuggestions,
 		FeatureE2EEDM:                featureE2EEDM,
+		FeatureDeviceSignOut:         featureDeviceSignOut,
 		FeaturePostViews:             featurePostViews,
 		FeatureCreatorInsights:       featureCreatorInsights,
 		PostViewsPublicThreshold:     int64(postViewsPublicThreshold),

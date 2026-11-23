@@ -18,6 +18,21 @@ import 'dart:typed_data' as $typed_data;
 import 'package:protobuf/well_known_types/google/protobuf/timestamp.pbjson.dart'
     as $0;
 
+@$core.Deprecated('Use removeReasonDescriptor instead')
+const RemoveReason$json = {
+  '1': 'RemoveReason',
+  '2': [
+    {'1': 'REMOVE_REASON_UNSPECIFIED', '2': 0},
+    {'1': 'REMOVE_REASON_SIGN_OUT', '2': 1},
+    {'1': 'REMOVE_REASON_REMOTE', '2': 2},
+  ],
+};
+
+/// Descriptor for `RemoveReason`. Decode as a `google.protobuf.EnumDescriptorProto`.
+final $typed_data.Uint8List removeReasonDescriptor = $convert.base64Decode(
+    'CgxSZW1vdmVSZWFzb24SHQoZUkVNT1ZFX1JFQVNPTl9VTlNQRUNJRklFRBAAEhoKFlJFTU9WRV'
+    '9SRUFTT05fU0lHTl9PVVQQARIYChRSRU1PVkVfUkVBU09OX1JFTU9URRAC');
+
 @$core.Deprecated('Use keyDeviceDescriptor instead')
 const KeyDevice$json = {
   '1': 'KeyDevice',
@@ -140,23 +155,42 @@ const RemoveKeyDeviceRequest$json = {
   '2': [
     {'1': 'idempotency_key', '3': 1, '4': 1, '5': 9, '10': 'idempotencyKey'},
     {'1': 'device_id', '3': 2, '4': 1, '5': 9, '10': 'deviceId'},
+    {
+      '1': 'reason',
+      '3': 3,
+      '4': 1,
+      '5': 14,
+      '6': '.dzeroth.keys.v1.RemoveReason',
+      '10': 'reason'
+    },
   ],
 };
 
 /// Descriptor for `RemoveKeyDeviceRequest`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List removeKeyDeviceRequestDescriptor =
-    $convert.base64Decode(
-        'ChZSZW1vdmVLZXlEZXZpY2VSZXF1ZXN0EicKD2lkZW1wb3RlbmN5X2tleRgBIAEoCVIOaWRlbX'
-        'BvdGVuY3lLZXkSGwoJZGV2aWNlX2lkGAIgASgJUghkZXZpY2VJZA==');
+final $typed_data.Uint8List removeKeyDeviceRequestDescriptor = $convert.base64Decode(
+    'ChZSZW1vdmVLZXlEZXZpY2VSZXF1ZXN0EicKD2lkZW1wb3RlbmN5X2tleRgBIAEoCVIOaWRlbX'
+    'BvdGVuY3lLZXkSGwoJZGV2aWNlX2lkGAIgASgJUghkZXZpY2VJZBI1CgZyZWFzb24YAyABKA4y'
+    'HS5kemVyb3RoLmtleXMudjEuUmVtb3ZlUmVhc29uUgZyZWFzb24=');
 
 @$core.Deprecated('Use removeKeyDeviceResponseDescriptor instead')
 const RemoveKeyDeviceResponse$json = {
   '1': 'RemoveKeyDeviceResponse',
+  '2': [
+    {
+      '1': 'other_sessions_ended',
+      '3': 1,
+      '4': 1,
+      '5': 8,
+      '10': 'otherSessionsEnded'
+    },
+  ],
 };
 
 /// Descriptor for `RemoveKeyDeviceResponse`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List removeKeyDeviceResponseDescriptor =
-    $convert.base64Decode('ChdSZW1vdmVLZXlEZXZpY2VSZXNwb25zZQ==');
+    $convert.base64Decode(
+        'ChdSZW1vdmVLZXlEZXZpY2VSZXNwb25zZRIwChRvdGhlcl9zZXNzaW9uc19lbmRlZBgBIAEoCF'
+        'ISb3RoZXJTZXNzaW9uc0VuZGVk');
 
 @$core.Deprecated('Use uploadKeyPackagesRequestDescriptor instead')
 const UploadKeyPackagesRequest$json = {

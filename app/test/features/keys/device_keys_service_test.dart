@@ -749,7 +749,10 @@ void main() {
       expect(rig.session.status.value, VaultStatus.ready);
       expect(
         rig.service.status.value,
-        const DeviceKeysStatus.failed(retryable: false),
+        const DeviceKeysStatus.failed(
+          retryable: false,
+          localRecordUnusable: true,
+        ),
       );
       expect(rig.storedId(), id);
       expect(rig.file()!.commits, commits);

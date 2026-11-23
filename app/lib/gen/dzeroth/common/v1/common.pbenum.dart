@@ -198,6 +198,25 @@ class ErrorReason extends $pb.ProtobufEnum {
   static const ErrorReason ERROR_REASON_ENCRYPTION_REQUIRED = ErrorReason._(
       24, _omitEnumNames ? '' : 'ERROR_REASON_ENCRYPTION_REQUIRED');
 
+  /// FAILED_PRECONDITION, KeyService: RegisterKeyDevice or UploadKeyPackages for a device id the account removed from
+  /// another device (RemoveKeyDevice with reason REMOTE). No metadata, no retry hint. Refused for at least 90 days after
+  /// the removal. Do not retry with the same id: this device must be set up again under a new device id. A client built
+  /// before this value sees UNSPECIFIED and falls back to the FAILED_PRECONDITION code mapping.
+  static const ErrorReason ERROR_REASON_DEVICE_REMOVED =
+      ErrorReason._(25, _omitEnumNames ? '' : 'ERROR_REASON_DEVICE_REMOVED');
+
+  /// UNAUTHENTICATED, every RPC: the caller's sign-in (the ID token's auth_time) is older than a "sign out other
+  /// devices" cut on the account (KeyService.RemoveKeyDevice with reason REMOTE, FEATURE_DEVICE_SIGN_OUT on for the
+  /// remover). No metadata. Refreshing the ID token does not help (a refresh keeps auth_time): the user must sign in
+  /// again, after which every RPC works as before. Local data may be kept. Checked before the per-account rate limits,
+  /// so a refused call uses up none of the per-account limits or daily caps (the pre-auth per-IP limit still counts
+  /// it). Another server instance may still accept the old session for up to 60 s after the last profile read that
+  /// started before the cut.
+  /// A client built before this value sees UNSPECIFIED and falls back to the UNAUTHENTICATED code mapping (sign in
+  /// again).
+  static const ErrorReason ERROR_REASON_SESSION_ENDED =
+      ErrorReason._(26, _omitEnumNames ? '' : 'ERROR_REASON_SESSION_ENDED');
+
   static const $core.List<ErrorReason> values = <ErrorReason>[
     ERROR_REASON_UNSPECIFIED,
     ERROR_REASON_VALIDATION,
@@ -224,10 +243,12 @@ class ErrorReason extends $pb.ProtobufEnum {
     ERROR_REASON_COMMUNITY_STATE,
     ERROR_REASON_STALE_EPOCH,
     ERROR_REASON_ENCRYPTION_REQUIRED,
+    ERROR_REASON_DEVICE_REMOVED,
+    ERROR_REASON_SESSION_ENDED,
   ];
 
   static final $core.List<ErrorReason?> _byValue =
-      $pb.ProtobufEnum.$_initByValueList(values, 24);
+      $pb.ProtobufEnum.$_initByValueList(values, 26);
   static ErrorReason? valueOf($core.int value) =>
       value < 0 || value >= _byValue.length ? null : _byValue[value];
 

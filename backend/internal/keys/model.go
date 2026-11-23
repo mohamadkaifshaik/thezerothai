@@ -3,6 +3,7 @@ package keys
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -38,7 +39,79 @@ var (
 	// ErrExcludeNotFound is a claim whose non-empty exclude device id names none of the target's devices (inactive ones
 	// included); nothing is consumed.
 	ErrExcludeNotFound = errors.New("keys: excluded device not found")
+	// ErrDeviceRemoved is a register or upload of a device id that carries a removed mark (a REMOTE removal), or whose
+	// device document carries removedAt (a REMOTE removal in progress). It never names the id.
+	ErrDeviceRemoved = errors.New("keys: device removed")
+	// ErrDeviceStamped is Register's ErrDeviceRemoved (errors.Is holds) for a live device document under a removed mark,
+	// after it stamped removedAt on it and committed: the service then finishes that removal (Minor 2).
+	ErrDeviceStamped = fmt.Errorf("keys: live device under a removed mark, stamped: %w", ErrDeviceRemoved)
+	// ErrReauthRequired is MarkRemoved without a recent sign-in for an id that is not a retry (no mark yet, or a mark
+	// over a live device document); nothing is written. The service answers REAUTH_REQUIRED.
+	ErrReauthRequired = errors.New("keys: recent sign-in required")
 )
+
+// StuckRemovalsError is Register's ErrDeviceLimit when some of the device documents it counted carry removedAt: REMOTE
+// removals that stopped after their mark transaction (code review I-1, security audit M2). Such a document holds a slot
+// that no list shows and no client can free, so the service finishes those removals (their ids are already marked, so
+// no sign-in is needed) and runs Register once more. errors.Is(err, ErrDeviceLimit) holds, so a caller that does not
+// look for it answers LIMIT_REACHED. DeviceIDs (in the count query's order) are for the service only: Error() never
+// names them.
+type StuckRemovalsError struct {
+	DeviceIDs []string
+}
+
+func (e *StuckRemovalsError) Error() string {
+	return ErrDeviceLimit.Error() + " (removals in progress)"
+}
+
+// Unwrap makes the error ErrDeviceLimit to errors.Is.
+func (e *StuckRemovalsError) Unwrap() error { return ErrDeviceLimit }
+
+// RemoveReason says why a device is removed (keysv1.RemoveReason); it decides whether the id is remembered.
+type RemoveReason int
+
+const (
+	// RemoveSignOut is the device removing itself as it signs out (and REMOVE_REASON_UNSPECIFIED, which builds before the
+	// field send): no mark, the same id may register again.
+	RemoveSignOut RemoveReason = iota
+	// RemoveRemote is the user removing another device of theirs: the id is marked for RemovalMarkTTL, and an id not yet
+	// marked needs a recent sign-in.
+	RemoveRemote
+)
+
+// String is the request-line value of the reason.
+func (r RemoveReason) String() string {
+	switch r {
+	case RemoveSignOut:
+		return "sign_out"
+	case RemoveRemote:
+		return "remote"
+	}
+	return "unknown"
+}
+
+// RemovalMarkTTL is how long a removed mark refuses its id: expireAt = removedAt + 90 days (owner decision 2026-11-23). It
+// is the Firestore TTL field; the code never reads expireAt, so a mark refuses until Firestore deletes it (TTL deletion
+// can lag by a day or more, which only makes the mark last longer).
+const RemovalMarkTTL = 90 * 24 * time.Hour
+
+// StuckRemovalMinAge is how old a device document's removedAt must be before Register at the cap treats it as stuck and
+// finishes it (Minor 3): a younger one may belong to a REMOTE removal still in flight, which is left to finish itself.
+const StuckRemovalMinAge = 60 * time.Second
+
+// RemovalMark is users/{uid}/keyDeviceRemovals/{deviceId} as the export reads it.
+type RemovalMark struct {
+	DeviceID  string
+	RemovedAt time.Time
+	ExpireAt  time.Time
+}
+
+// PendingRemoval is a device document carrying removedAt (a REMOTE removal that has not deleted it yet) as the export
+// reads it: the stored metadata (Device; key bytes are never exported) and the document's removedAt.
+type PendingRemoval struct {
+	Device    Device
+	RemovedAt time.Time
+}
 
 // ValidDeviceID reports whether s matches [A-Za-z0-9_-]{16,64}.
 func ValidDeviceID(s string) bool {
@@ -85,14 +158,25 @@ func (d Device) Active(now time.Time) bool { return now.Sub(d.LastSeenAt) < Inac
 // passed in are copied, and byte slices returned never alias the caller's.
 type Service interface {
 	// Register publishes (or refreshes) the caller's device. ErrKeyMismatch is VALIDATION signature_public_key, a sixth
-	// device is LIMIT_REACHED key_devices.
+	// device is LIMIT_REACHED key_devices, a marked id (ErrDeviceRemoved, decided first) is DEVICE_REMOVED. At the cap it
+	// first finishes REMOTE removals that stopped after their mark (StuckRemovalsError) and tries once more. A live
+	// document under a mark is stamped by the repository (ErrDeviceStamped) and then removed here before DEVICE_REMOVED.
 	Register(ctx context.Context, uid, deviceID string, signatureKey []byte) (Device, error)
 	// ListMine returns the caller's devices, at most MaxDevicesPerUser, oldest first, inactive ones included (Inactive set).
 	ListMine(ctx context.Context, uid string) ([]Device, error)
-	// Remove deletes a device with its pool and last-resort package; a missing device is success.
-	Remove(ctx context.Context, uid, deviceID string) error
+	// Remove deletes a device with its pool and last-resort package; a missing device is success. RemoveRemote first
+	// marks the id (MarkRemoved, told whether the sign-in is recent: only a retry needs none, else REAUTH_REQUIRED with
+	// nothing written), so Register and Upload refuse it with DEVICE_REMOVED. Any other reason value is VALIDATION
+	// "reason".
+	Remove(ctx context.Context, uid, deviceID string, reason RemoveReason) error
+	// RemoveDevice is Remove that also reports the session cut (RemoveResult). With RemoveRemote and device_sign_out
+	// (DeviceSignOutFlag) on for the caller, a removal with a recent sign-in asks to cut the account's sessions at the
+	// caller's auth_time (recorded on the mark); a cut on the mark that is not done yet is written through SessionCutter
+	// (whatever the flag says now) and noted done, before the sweep. A failure of either is UNAVAILABLE (retry).
+	RemoveDevice(ctx context.Context, uid, deviceID string, reason RemoveReason) (RemoveResult, error)
 	// Upload adds packages to a registered device's pool (duplicates stored once, excess over MaxPoolSize dropped) and
-	// optionally replaces its last-resort package (nil or empty = keep). It returns the resulting pool size.
+	// optionally replaces its last-resort package (nil or empty = keep). It returns the resulting pool size. A marked id
+	// is DEVICE_REMOVED, any other unknown device NOT_FOUND.
 	Upload(ctx context.Context, uid, deviceID string, packages [][]byte, lastResort []byte) (poolCount int, hasLastResort bool, err error)
 	// GetDevices answers the devices of 1 to 10 distinct users, keyed by every requested id. For every user other than
 	// the caller the caller must pass Permission.CanMessage first (in request order, before anything else); any refusal is
@@ -116,14 +200,23 @@ type Service interface {
 // Repo is the storage seam (repo_firestore.go).
 type Repo interface {
 	// Register creates the device (ErrDeviceLimit past the cap) or, for an existing id with the same key, refreshes
-	// LastSeenAt when older than seenRefreshInterval; a different key is ErrKeyMismatch.
+	// LastSeenAt when older than seenRefreshInterval; a different key is ErrKeyMismatch. ErrDeviceRemoved comes before
+	// both: a device document carrying removedAt, a live device document under a removed mark (stamped removedAt in the
+	// same transaction, then ErrDeviceStamped), or a new id with a removed mark (read before the count). At the cap,
+	// when some counted documents carry removedAt since at least StuckRemovalMinAge, the error is a StuckRemovalsError
+	// naming them.
 	Register(ctx context.Context, uid string, d Device, now time.Time) (Device, error)
-	// List returns at most MaxDevicesPerUser devices, oldest first.
+	// List returns at most MaxDevicesPerUser devices, oldest first. Every reader (List, ActiveDevices, Claim) skips a
+	// device document carrying removedAt.
 	List(ctx context.Context, uid string) ([]Device, error)
 	// Remove deletes the device, its pool and its last-resort package; a missing device is nil.
 	Remove(ctx context.Context, uid, deviceID string) error
+	// RemoveRemoving is Remove for a document that carries removedAt only (the stuck-removal finish): a live device
+	// document is never deleted, nor its pool swept, and the answer is nil. A missing one is nil (orphans deleted).
+	RemoveRemoving(ctx context.Context, uid, deviceID string) error
 	// Upload stores packages (deduplicated by bytes, oldest stay when the pool is full), sets lastResort when non-nil and
-	// refreshes LastSeenAt on the same rule as Register. An unknown device is ErrNotFound.
+	// refreshes LastSeenAt on the same rule as Register. A device document carrying removedAt, or a missing one with a
+	// removed mark, is ErrDeviceRemoved; any other unknown device is ErrNotFound.
 	Upload(ctx context.Context, uid, deviceID string, packages [][]byte, lastResort []byte, now time.Time) (int, bool, error)
 	// ActiveDevices returns the user's devices active at now, oldest first (one query, Limit MaxDevicesPerUser). Nothing
 	// is written.
@@ -132,8 +225,34 @@ type Repo interface {
 	// (nothing written). For every other device active at now it takes one pool document (any one) by compare-and-delete,
 	// deleting it and decrementing poolCount in one atomic write, else returns the last-resort package (LastResort),
 	// else HasKeyPackage false; a device deleted meanwhile is left out. Contention on a device is never an error.
-	// LastSeenAt is not touched.
+	// LastSeenAt is not touched. A REMOTE removal that marks a device after the device read does not stop its package
+	// from being taken (the removal window, see FirestoreRepo.Claim).
 	Claim(ctx context.Context, targetUID, excludeDeviceID string, now time.Time) ([]Claimed, error)
+	// MarkRemovedCut is the REMOTE removal's transaction: it reads the device document and the mark, creates the mark
+	// when absent (removedAt = now, expireAt = now + RemovalMarkTTL; an existing mark keeps its times) and sets removedAt
+	// on the device document when it exists and lacks it. A non-zero cut (the session cut H2 asks for) is stored as the
+	// mark's cutAt only when the mark has none yet; an existing cutAt is kept. 2 reads, at most 2 writes. Idempotent.
+	// Without recent only a retry (the mark exists and the device document is missing or already carries removedAt) goes
+	// on; anything else is ErrReauthRequired with nothing written. It returns the mark's cut state after the transaction.
+	MarkRemovedCut(ctx context.Context, uid, deviceID string, now time.Time, recent bool, cut time.Time) (MarkState, error)
+	// MarkCutDone sets the mark's cutDone once the session cut is written on the account: 1 write, no read. A missing
+	// mark is an error.
+	MarkCutDone(ctx context.Context, uid, deviceID string) error
+}
+
+// MarkState is the session-cut part of a removed mark (removal-server design 2.1): CutAt is the remover's auth_time the
+// removal asked to cut at (zero = no cut asked), CutDone that the cut was written on the account, so a retry neither
+// cuts again nor reports it undone.
+type MarkState struct {
+	CutAt   time.Time
+	CutDone bool
+}
+
+// RemoveResult is what RemoveDevice reports beyond success.
+type RemoveResult struct {
+	// OtherSessionsEnded is RemoveKeyDeviceResponse.other_sessions_ended: this call, or an earlier attempt of the same
+	// REMOTE removal, cut the account's other sessions. Always false for RemoveSignOut.
+	OtherSessionsEnded bool
 }
 
 // cloneBytes returns a copy of b (nil stays nil).

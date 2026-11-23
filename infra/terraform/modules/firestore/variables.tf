@@ -99,6 +99,15 @@ variable "ttl_fields" {
       collection = "dailyStats"
       field      = "expireAt"
     }
+    # A removed device mark (users/{uid}/keyDeviceRemovals/{deviceId}, E2EE key directory, security audit H1);
+    # expireAt = removedAt + 90 days (keys.RemovalMarkTTL, owner-approved 2026-11-23). Collection-group key. The code
+    # never reads expireAt: a mark refuses its device id until the TTL deletes it, so a lagging TTL only keeps it longer.
+    # The account erasure deletes marks outright. Edited only, not applied: apply it before FEATURE_E2EE_DM leaves off
+    # in a project (otherwise marks simply stay).
+    key_device_removals_expire_at = {
+      collection = "keyDeviceRemovals"
+      field      = "expireAt"
+    }
   }
 }
 

@@ -9,6 +9,10 @@ extension _Attribution on ConversationCrypto {
   /// The attribution entry points' body (the lock is held): the known set is
   /// loaded for the current vault like every other entry point. Never throws.
   Future<void> _attributeEntry(String id, BudgetPriority priority) async {
+    // Task 12 fix round 1, I1: no device list (ListMyKeyDevices,
+    // GetKeyDevices) and no pin while removed elsewhere. Pending stays as
+    // it is: attribution runs again once the fact clears.
+    if (_removedElsewhere()) return;
     try {
       final pass = await _startOperation(priority);
       if (pass == null) return;
@@ -32,7 +36,8 @@ extension _Attribution on ConversationCrypto {
   Future<void> _attributeMembersLocked(_Operation pass, String id) async {
     final priority = pass.priority;
     final vault = pass.vault;
-    if (!pass.live) return;
+    // I1: also for the callers inside a catch-up or a join.
+    if (!pass.live || _removedElsewhere()) return;
     final context = _contexts.of(id);
     if (!(await vault.members(id))
         .any((m) => m.side == MemberSide.unattributed)) {
@@ -43,6 +48,19 @@ extension _Attribution on ConversationCrypto {
       return;
     }
     final ref = await _peerRef(id, priority);
+    // Plan 5a Task 12, brief amendment 8 (pre-flag fix round 3): the peer
+    // ref the vault stored for this conversation binds attribution. A
+    // header or first page naming another user decides nothing: no list
+    // is fetched and nothing is attributed; the list reads as
+    // unverifiable until the refs agree again.
+    final stored = _known.peerOf(id);
+    if (ref != null && stored != null && ref != stored) {
+      context
+        ..listUnverifiable = true
+        ..attributionPending = false
+        ..attributionConcluded = false;
+      return;
+    }
     final own = await _directory.own(fresh: true, priority: priority);
     final peer = ref == null
         ? const DeviceList.unreadable()

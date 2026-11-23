@@ -18,8 +18,8 @@ dependencies:
   # Navigation
   go_router: ^18.1.4
   # Material and Cupertino moved out of the framework in Flutter 3.50.
-  material_ui: ^1.11.0
-  cupertino_ui: ^1.1.6
+  material_ui: ^1.11.1
+  cupertino_ui: ^1.1.7
   # usePathUrlStrategy on web; a no-op on mobile.
   flutter_web_plugins:
     sdk: flutter
@@ -56,14 +56,14 @@ dependencies:
   share_plus: ^13.3.1
   # NFC for the composer's code-point counter (ADR-0010 D9 step 3). Pure Dart.
   unorm_dart: ^0.3.0
-  image: ^4.12.0
+  image: ^4.13.1
   image_picker: ^1.2.4
   blurhash_dart: ^1.2.1
   http: ^1.6.0
   firebase_crashlytics: ^5.4.1
   firebase_analytics: ^12.6.1
-  purchases_flutter: ^11.0.1
-  purchases_ui_flutter: ^11.0.1
+  purchases_flutter: ^11.0.4
+  purchases_ui_flutter: ^11.0.4
   connectivity_plus: ^7.3.2
   dzmls_flutter:
     path: rust_builder

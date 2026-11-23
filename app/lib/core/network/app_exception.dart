@@ -295,6 +295,30 @@ final class EncryptionRequiredException extends AppException {
   final String? conversationId;
 }
 
+/// This device's key id was removed from the account by another device
+/// (FAILED_PRECONDITION + DEVICE_REMOVED, KeyService). Never retried with the same
+/// id. The text is fixed and carries no identifiers; never show the server's.
+final class DeviceRemovedException extends AppException {
+  const DeviceRemovedException() : super(userMessage);
+
+  /// The only text ever shown for this error.
+  static const userMessage = 'This device was removed from your account.';
+}
+
+/// This session signed in before the account's session cut: a device was removed
+/// from the account on another device (UNAUTHENTICATED + SESSION_ENDED, any RPC).
+/// The text is fixed (removal-server-design §4) and carries no identifiers; never
+/// show the server's. Signing out on it (keeping the vault, once per burst) is
+/// lane D PR 4.
+final class SessionEndedException extends AppException {
+  const SessionEndedException() : super(userMessage);
+
+  /// The only text ever shown for this error.
+  static const userMessage =
+      'You were signed out because a device was removed from your account. '
+      'Sign in again to continue.';
+}
+
 /// Why a role-gated community action was refused (PERMISSION_DENIED +
 /// FORBIDDEN; the server's `metadata["reason"]`).
 enum CommunityForbiddenReason {

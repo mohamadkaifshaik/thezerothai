@@ -67,6 +67,10 @@ func (f *fakeService) ChangeHandle(context.Context, string, string, string) (Pro
 func (f *fakeService) AccountStatus(context.Context, string) (bool, AccountStatus, error) {
 	return true, AccountStatusActive, f.err
 }
+func (f *fakeService) EndSessionsBefore(context.Context, string, time.Time) error { return f.err }
+func (f *fakeService) SessionsValidAfter(context.Context, string) (time.Time, error) {
+	return time.Time{}, f.err
+}
 
 // authInjectClaims stands in for authn.IDTokenInterceptor for server.go tests, giving full control over
 // every claim a handler might read (uid, email_verified, sign-in provider — the last needed by H1's

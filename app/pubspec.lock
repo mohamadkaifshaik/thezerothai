@@ -301,10 +301,10 @@ packages:
     dependency: "direct main"
     description:
       name: cupertino_ui
-      sha256: "369e39a1c5c030a6212589c3da1809920b1c2cfade7b02aade7695bfa4b88c3a"
+      sha256: c3eaf7f5bdfee36deb0b14a4cbf7602f1b6b8d8b8576b81f38fc08c25881c94c
       url: "https://pub.dev"
     source: hosted
-    version: "1.1.6"
+    version: "1.1.7"
   dart_style:
     dependency: transitive
     description:
@@ -802,10 +802,10 @@ packages:
     dependency: "direct main"
     description:
       name: image
-      sha256: "89ed75b2f8231fe676808c5564f9590d728024ded7ac782a7ed8474f1c95b72a"
+      sha256: bc13f61f0f5cb77936e78ae5dae3800f442718dac5d2bc4654f03c239230ed0c
       url: "https://pub.dev"
     source: hosted
-    version: "4.12.0"
+    version: "4.13.1"
   image_picker:
     dependency: "direct main"
     description:
@@ -999,10 +999,10 @@ packages:
     dependency: "direct main"
     description:
       name: material_ui
-      sha256: "474c135fd46b56ff1d35ca982155e8863d28fbc6464d1192acf4ee53a738680e"
+      sha256: a6b19012df437a356cbc01f8ea22a105e07194c47c9a6009da0032a0ce35c4ab
       url: "https://pub.dev"
     source: hosted
-    version: "1.11.0"
+    version: "1.11.1"
   meta:
     dependency: transitive
     description:
@@ -1223,18 +1223,18 @@ packages:
     dependency: "direct main"
     description:
       name: purchases_flutter
-      sha256: "90458e8171fee73a45197453c8beb8403238a07dcfc4d7d8a1e63a7ca43fa06f"
+      sha256: bb41c8938153258f9d1b7a77eaac8a9869d87563dcac8b379d4a29531a075a08
       url: "https://pub.dev"
     source: hosted
-    version: "11.0.1"
+    version: "11.0.4"
   purchases_ui_flutter:
     dependency: "direct main"
     description:
       name: purchases_ui_flutter
-      sha256: "44e4379744107ad1f41aca72c7e850c94a2b8c49401586458ba1581f32ee86e9"
+      sha256: d78950734967c20a2fbd9380507a96bdfd18e09797b06f0685a26f96d1d8d792
       url: "https://pub.dev"
     source: hosted
-    version: "11.0.1"
+    version: "11.0.4"
   recase:
     dependency: transitive
     description:

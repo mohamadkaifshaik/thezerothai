@@ -187,6 +187,7 @@ class GroupStarter {
     required bool Function() removedElsewhere,
     required String? Function() ownUserId,
     required bool Function() publicIdsOff,
+    required Future<bool> Function(Uint8List deviceId) wasRemovedByUser,
     void Function(Duration delay, void Function() run)? schedule,
     void Function(Object error, StackTrace stack)? onUnexpectedError,
   }) : _crypto = crypto,
@@ -207,6 +208,7 @@ class GroupStarter {
        _removedElsewhere = removedElsewhere,
        _ownUserId = ownUserId,
        _publicIdsOff = publicIdsOff,
+       _wasRemovedByUser = wasRemovedByUser,
        _schedule = schedule ?? ((delay, run) => Timer(delay, run)),
        _onUnexpectedError = onUnexpectedError,
        _resetCalls = CommitCallTracker(messaging: messaging, now: now) {
@@ -277,6 +279,16 @@ class GroupStarter {
   final bool Function() _removedElsewhere;
   final String? Function() _ownUserId;
   final bool Function() _publicIdsOff;
+
+  /// Task 11 follow-up (CR2 M-6, flag-on gate): whether the user removed
+  /// the own device [deviceId] (the removal queue runner's
+  /// `wasRemovedByUser`; Task 13 wires it). A reset never adds an own
+  /// device it answers true for. It throws [StateError] when the answer is
+  /// unknown (the queue cannot be read): the reset then adds own devices
+  /// only from a fresh own list, else none. A function, so the starter does
+  /// not import the runner. Own-list devices only (Task 11 fix round 5,
+  /// R2): never asked for a peer's device.
+  final Future<bool> Function(Uint8List deviceId) _wasRemovedByUser;
   final void Function(Duration delay, void Function() run) _schedule;
   final void Function(Object error, StackTrace stack)? _onUnexpectedError;
 
@@ -779,12 +791,20 @@ class GroupStarter {
   Future<_Op?> _op() async {
     final vault = _session.vault;
     if (vault == null) return null;
+    // Before the first await (fix wave 4).
+    final generation = deviceGenerationOf(vault);
     try {
       final deviceId = await vault.deviceId();
       if (deviceId == null) return null;
       // Loaded for THIS vault: a set of another vault is never written.
       if (!_known.isLoadedFor(vault)) await _known.load(vault);
-      return _Op(_session, vault, vault.uid, deviceId);
+      return _Op(
+        _session,
+        vault,
+        vault.uid,
+        deviceId,
+        deviceGeneration: generation,
+      );
     } on Object catch (e, s) {
       _reportIfBug(e, s, 'start.op');
       return null;

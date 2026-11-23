@@ -50,6 +50,21 @@ class FakeCryptoEngine implements CryptoEngine {
     );
   }
 
+  /// Test only: a device [deviceId] that signs with [signatureKey], another
+  /// device's key (a thief or a server reusing a removed device's key under
+  /// a new id). Not part of [CryptoEngine].
+  DeviceCreated createDeviceWithKey(
+    Uint8List deviceId,
+    Uint8List signatureKey,
+  ) {
+    _checkId(deviceId, 'device id');
+    final device = _Device(id: deviceId, signatureKey: signatureKey);
+    return DeviceCreated(
+      deviceState: device.encode(),
+      signaturePublicKey: device.signatureKey,
+    );
+  }
+
   @override
   Future<KeyPackagesResult> generateKeyPackages(
     Uint8List deviceState, {

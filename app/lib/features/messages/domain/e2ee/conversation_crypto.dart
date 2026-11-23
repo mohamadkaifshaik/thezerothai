@@ -22,6 +22,7 @@ import 'join_baselines.dart';
 import 'device_key_history.dart';
 import 'known_conversations.dart';
 import 'membership_rules.dart';
+import 'pipeline_support.dart' show deviceGenerationOf;
 import 'sync_budget.dart';
 
 // The service's private steps, one concern per part (private extensions on
@@ -33,6 +34,7 @@ part 'conversation_acceptance.dart';
 part 'conversation_attribution.dart';
 part 'conversation_catch_up.dart';
 part 'conversation_commit_apply.dart';
+part 'conversation_describe.dart';
 part 'conversation_join.dart';
 part 'conversation_provisional.dart';
 part 'conversation_reset.dart';
@@ -191,6 +193,10 @@ class ConversationCrypto {
   final void Function(String conversationId) _onChanged;
   final bool Function() _removedElsewhere;
   final void Function(Object error, StackTrace stack)? _onUnexpectedError;
+
+  /// Task 12's fact, as this service was handed it: the receiver (which
+  /// holds this service) reads it here, so the pipeline has one fact.
+  bool get removedElsewhere => _removedElsewhere();
 
   /// Set by Task 6.
   EpochMessageSink? sink;
@@ -515,180 +521,8 @@ class ConversationCrypto {
 
   /// Builds the 5b state from the vault and the context. Takes no lock (a
   /// read only); never throws for a closed vault.
-  Future<ConversationCryptoState> describeState(String conversationId) async {
-    final id = conversationId;
-    final context = _contexts.of(id);
-    final engine = _engine();
-    final engineDown =
-        engine is GuardedCryptoEngine && engine.unavailable.value;
-    final vault = _session.vault;
-    final List<GroupRecord> groups;
-    final ConversationRecord? record;
-    final List<MemberRecord> pins;
-    try {
-      if (vault == null) throw StateError('No vault.');
-      groups = await vault.groups(id);
-      record = await vault.conversation(id);
-      pins = await vault.members(id);
-    } on Object catch (e, s) {
-      _reportIfBug(e, s, 'describeState');
-      return ConversationCryptoState(
-        phase: ConversationPhase.notEncrypted,
-        sendBlock: SendBlock.unavailable,
-        requestAccepted: false,
-        incomingRequest: context.incomingRequest ?? true,
-        deviceListUnverifiable: false,
-        unknownDevicePresent: false,
-        committingPausedToday: false,
-        unattributedPresent: false,
-        myDeviceCount: 0,
-        theirDeviceCount: 0,
-        canReset: false,
-      );
-    }
-    // The key history's state (a read only; false for both when it cannot
-    // be read: the allowance is no exit from an unreadable history). No
-    // lock is held here, so a first join can commit between these reads
-    // and make the history look missing: this read never reports, and so
-    // never spends the conversation's one `keyHistory.read` report.
-    var keyHistoryClosed = false;
-    var mayAllowMoreDevices = false;
-    try {
-      final history = await _keyHistory.of(
-        vault,
-        id,
-        currentPins: pins,
-        formerPins: await _formerPins.of(vault, id),
-        report: false,
-      );
-      keyHistoryClosed = !history.unreadable && history.closed;
-      mayAllowMoreDevices = history.mayAllowMore;
-    } on Object catch (e, s) {
-      _reportIfBug(e, s, 'describeState');
-    }
-    final sync = record?.sync ?? const ConversationSync();
-    final accepted = sync.requestAccepted;
-    GroupRecord? current;
-    for (final group in groups) {
-      if (!group.provisional) current = group;
-    }
-    final server = context.serverPair;
-    final ConversationPhase phase;
-    // The brief's order: a remembered stuck answer before a provisional
-    // group.
-    if (context.stuck) {
-      phase = ConversationPhase.stuck;
-    } else if (groups.any((x) => x.provisional)) {
-      phase = ConversationPhase.provisional;
-    } else if (current != null &&
-        (server == null || current.generation >= server.generation) &&
-        (sync.firstSawGeneration ?? 0) <= current.generation) {
-      phase = ConversationPhase.ready;
-    } else if (current != null || record != null || _known.contains(id)) {
-      phase = ConversationPhase.waitingForWelcome;
-    } else {
-      phase = ConversationPhase.notEncrypted;
-    }
-    final unattributed = pins.any((p) => p.side == MemberSide.unattributed);
-    final unknown =
-        accepted &&
-        pins.any(
-          (p) =>
-              p.side == MemberSide.unattributed &&
-              context.unknownDevices.contains(vaultDeviceIdHex(p.deviceId)),
-        );
-    final now = _now();
-    final unverifiable =
-        context.listUnverifiable ||
-        deferralOutlasted(
-          deferredSince: context.deferredSince,
-          unattributedPresent: unattributed,
-          now: now,
-        );
-    final SendBlock block;
-    if (engineDown) {
-      block = SendBlock.unavailable;
-    } else if (phase == ConversationPhase.stuck) {
-      block = SendBlock.stuck;
-    } else if (phase == ConversationPhase.waitingForWelcome) {
-      block = SendBlock.waitingForWelcome;
-    } else if (phase == ConversationPhase.provisional) {
-      block = SendBlock.provisional;
-    } else if (phase == ConversationPhase.notEncrypted) {
-      block = context.canReply ? SendBlock.none : SendBlock.cannotMessage;
-    } else if (unknown) {
-      block = SendBlock.unknownDevice;
-    } else if (sync.epochMustAdvance) {
-      block = SendBlock.epochMustAdvance;
-    } else if (!context.syncedSinceStart ||
-        context.attributionPending ||
-        unattributed) {
-      block = SendBlock.notSynced;
-    } else if (!context.canReply) {
-      block = SendBlock.cannotMessage;
-    } else {
-      block = SendBlock.none;
-    }
-    final seenAt = sync.firstSawGenerationAtMicros;
-    // M5: this device makes no membership commit here for the rest of the
-    // IST day. A read only (`readLocked` with no transaction opens no write
-    // and stores nothing). A ledger that cannot be asked reads as paused
-    // (fail closed, as the ledger itself does for an unreadable value).
-    var committingPaused = true;
-    try {
-      committingPaused =
-          (await _ledger.readLocked(vault)).undoneIn(id) >=
-          kAntiFlapUndosPerDay;
-    } on Object catch (e, s) {
-      _reportIfBug(e, s, 'describeState');
-    }
-    // Task 10, R12, the plan's "who may reset, and when": the flag is on
-    // (a flag-off device never resets: it stays stuck and says so here),
-    // the conversation is accepted, and one of: catch-up answered `stuck`;
-    // waiting for a welcome for at least [kResetWaitWithoutWelcome] since
-    // the first sighting of that generation (never earlier; a device that
-    // recorded no sighting has no time to count from and waits); M5's
-    // pause (`committingPausedToday`, the anti-flap offer). Decision: never
-    // while a provisional group is stored (a reset or a start in progress:
-    // a second reset would race the first, whose call may still land),
-    // whatever the remembered stuck answer says. Audit M2 / L5: never while
-    // this device is removed elsewhere (Task 12's seam: a removed device
-    // must not reset itself back in) or the engine is unavailable (the
-    // reset could not be built, and an automatic one would count an
-    // attempt that cannot run).
-    final resetAt =
-        phase == ConversationPhase.waitingForWelcome && seenAt != null
-        ? DateTime.fromMicrosecondsSinceEpoch(
-            seenAt,
-            isUtc: true,
-          ).add(kResetWaitWithoutWelcome)
-        : null;
-    final canReset =
-        _session.mayStart &&
-        !_removedElsewhere() &&
-        !engineDown &&
-        accepted &&
-        !groups.any((x) => x.provisional) &&
-        (phase == ConversationPhase.stuck ||
-            (resetAt != null && !now.isBefore(resetAt)) ||
-            (committingPaused && phase != ConversationPhase.notEncrypted));
-    return ConversationCryptoState(
-      phase: phase,
-      sendBlock: block,
-      requestAccepted: accepted,
-      incomingRequest: context.incomingRequest ?? !accepted,
-      deviceListUnverifiable: unverifiable,
-      unknownDevicePresent: unknown,
-      committingPausedToday: committingPaused,
-      unattributedPresent: unattributed,
-      myDeviceCount: pins.where((p) => p.side == MemberSide.mine).length,
-      theirDeviceCount: pins.where((p) => p.side == MemberSide.theirs).length,
-      canReset: canReset,
-      resetAllowedAt: resetAt,
-      keyHistoryClosed: keyHistoryClosed,
-      mayAllowMoreDevices: mayAllowMoreDevices,
-    );
-  }
+  Future<ConversationCryptoState> describeState(String conversationId) =>
+      _describeState(conversationId);
 
   // ---------------------------------------------------------------------
   // Welcomes (R5, R8)
@@ -711,6 +545,8 @@ class ConversationCrypto {
   }) async {
     final vault = _session.vault;
     if (vault == null) return null;
+    // Before the first await (fix wave 4, CR Minor A / SA L3).
+    final generation = deviceGenerationOf(vault);
     try {
       final uid = vault.uid;
       final id = await vault.deviceId();
@@ -731,6 +567,7 @@ class ConversationCrypto {
         serverPairs: serverPairs,
         handled: parent?.handled,
         fromSwitch: fromSwitch,
+        deviceGeneration: generation,
       );
     } on Object catch (e, s) {
       // A closed or changed vault: nothing to do now.
@@ -819,12 +656,17 @@ class ConversationCrypto {
   // ---------------------------------------------------------------------
 
   /// One unit of the sync budget; false (make no call) while paused, when a
-  /// pause released the wait, or after a reset.
+  /// pause released the wait, or after a reset. Task 12 (brief amendment
+  /// 6): false while this device is removed elsewhere, so no welcome poll,
+  /// catch-up listing, settle listing or attribution list goes out (every
+  /// sync RPC of this service takes a unit first), and so no commit is
+  /// applied and no epoch is walked.
   Future<bool> _takeSyncUnit(BudgetPriority priority) async {
-    if (_syncBudget.paused) return false;
+    if (_removedElsewhere() || _syncBudget.paused) return false;
     try {
       await _syncBudget.take(priority);
-      return true;
+      // Fix round 1, M5: detection may have come while the take waited.
+      return !_removedElsewhere();
     } on BudgetPaused {
       return false;
     } on StateError {
@@ -892,8 +734,14 @@ class _Operation {
     Map<String, MlsPair>? serverPairs,
     Set<String>? handled,
     this.fromSwitch = false,
+    required this.deviceGeneration,
   }) : serverPairs = serverPairs ?? {},
        handled = handled ?? {};
+
+  /// The vault's device generation when the operation started, read before
+  /// its first await (Task 12 fix round 1, I2: a body after "set up again"
+  /// writes nothing; fix wave 4: and no RPC follows).
+  final int deviceGeneration;
 
   /// The poll of catch-up's generation switch (the held conversation was
   /// just walked): its welcome never starts another walk (I-1's gate is
@@ -921,13 +769,22 @@ class _Operation {
   final int cacheSession;
   final BudgetPriority priority;
 
+  /// Also false once "set up again" ran (fix wave 4): a stale operation
+  /// stops its RPCs too, not only its writes.
   bool get live {
     final v = session.vault;
-    return identical(v, vault) && v?.uid == uid;
+    return identical(v, vault) &&
+        v?.uid == uid &&
+        deviceGenerationOf(vault) == deviceGeneration;
   }
 
   /// The first thing every runWrite body of the operation does.
   void check(SecureVault v) {
-    if (!identical(v, vault) || v.uid != uid || !live) throw const _Stopped();
+    if (!identical(v, vault) ||
+        v.uid != uid ||
+        !live ||
+        deviceGenerationOf(v) != deviceGeneration) {
+      throw const _Stopped();
+    }
   }
 }

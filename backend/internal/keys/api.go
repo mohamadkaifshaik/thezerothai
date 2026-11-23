@@ -2,13 +2,15 @@
 // Each encryption device publishes a public signature key and a pool of opaque key packages; the server stores and hands
 // out opaque bytes and never parses a key package or sees message content.
 //
-// It owns users/{uid}/keyDevices/{deviceId} and its keyPackages subcollection. The flag gates (Guard, GuardNotOff) are the
+// It owns users/{uid}/keyDevices/{deviceId} and its keyPackages subcollection, and the removed marks
+// users/{uid}/keyDeviceRemovals/{deviceId} (a REMOTE RemoveKeyDevice; TTL expireAt). The flag gates (Guard, GuardNotOff) are the
 // handler's, before the service runs. Other modules reach it through the interfaces in this package only.
 package keys
 
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
@@ -18,6 +20,18 @@ import (
 // FlagName is the wire name of FEATURE_E2EE_DM, the `feature` metadata of FEATURE_DISABLED and the string in
 // GetMe.enabled_features.
 const FlagName = "e2ee_dm"
+
+// DeviceSignOutFlag is the wire name of FEATURE_DEVICE_SIGN_OUT (security audit H2). On for the remover, a REMOTE removal
+// with a recent sign-in cuts the account's other sessions (SessionCutter). The composition root also gives it to the authn
+// session-cut interceptor, which enforces a stored cut unless the flag is globally off.
+const DeviceSignOutFlag = "device_sign_out"
+
+// SessionCutter is the seam to identity's session cut (identity.SessionCuts); the composition root fills it, keys never
+// imports identity. EndSessionsBefore ends every session of uid that signed in before t; it is idempotent (keeps the
+// maximum) and a failure is an error.
+type SessionCutter interface {
+	EndSessionsBefore(ctx context.Context, uid string, t time.Time) error
+}
 
 // Permission is the seam to the messaging send rules; the composition root fills it.
 type Permission interface {
