@@ -208,8 +208,10 @@ class ErrorReason extends $pb.ProtobufEnum {
   /// UNAUTHENTICATED, every RPC: the caller's sign-in (the ID token's auth_time) is older than a "sign out other
   /// devices" cut on the account (KeyService.RemoveKeyDevice with reason REMOTE, FEATURE_DEVICE_SIGN_OUT on for the
   /// remover). No metadata. Refreshing the ID token does not help (a refresh keeps auth_time): the user must sign in
-  /// again, after which every RPC works as before. Local data may be kept. Checked before the rate limits, so a refused
-  /// call uses up none of them. Another server instance may still accept the old session for up to 60 s after the cut.
+  /// again, after which every RPC works as before. Local data may be kept. Checked before the per-account rate limits,
+  /// so a refused call uses up none of the per-account limits or daily caps (the pre-auth per-IP limit still counts
+  /// it). Another server instance may still accept the old session for up to 60 s after the last profile read that
+  /// started before the cut.
   /// A client built before this value sees UNSPECIFIED and falls back to the UNAUTHENTICATED code mapping (sign in
   /// again).
   static const ErrorReason ERROR_REASON_SESSION_ENDED =
