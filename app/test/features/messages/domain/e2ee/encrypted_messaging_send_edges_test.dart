@@ -1,4 +1,6 @@
 import 'package:dzeroth/core/crypto/crypto_types.dart';
+import 'package:dzeroth/core/session/session_end.dart';
+import 'package:dzeroth/core/vault/vault_status.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_crypto.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging_impl.dart';
@@ -142,6 +144,56 @@ void main() {
         expect(out.kind, SendOutcomeKind.notEncrypted);
       },
     );
+  });
+
+  group('a ready vault whose parts are not built yet (review M3)', () {
+    ThreadRef carol() =>
+        ThreadRef.recipientOf(common.AuthorSnapshot(userId: 'ref-carol'));
+
+    test(
+      'a send waits for the parts and is routed once they come up',
+      () async {
+        h.rig.keys.peers['ref-carol'] = [];
+        expect(h.rig.device.session.status.value, VaultStatus.ready);
+        expect(h.pipeline.parts, isNull);
+        final pending = port.send(to: carol(), localId: 'local-1', text: 'hi');
+        await Future<void>.delayed(Duration.zero);
+        await h.ready();
+        final out = await pending;
+        expect(out.kind, SendOutcomeKind.notEncrypted);
+      },
+    );
+
+    test('a send whose wait runs out is refused blocked, nothing looked '
+        'up', () async {
+      h.rig.keys.peers['ref-carol'] = [];
+      final short = EncryptedMessagingImpl(
+        h.pipeline,
+        partsWait: Duration.zero,
+      );
+      final gets = h.rig.keys.getCalls.length;
+      final out = await short.send(to: carol(), localId: 'local-1', text: 'hi');
+      expect(
+        (out.kind, out.problem),
+        (SendOutcomeKind.refused, SendProblem.blocked),
+      );
+      expect(h.pipeline.parts, isNull);
+      expect(h.rig.keys.getCalls, hasLength(gets));
+    });
+
+    test('a send stops waiting when the vault stops being ready', () async {
+      h.rig.keys.peers['ref-carol'] = [];
+      final pending = port.send(to: carol(), localId: 'local-1', text: 'hi');
+      await Future<void>.delayed(Duration.zero);
+      await h.rig.device.session.onSessionEnded(
+        'user-a',
+        SessionEnd.sessionLost,
+      );
+      expect(h.rig.device.session.status.value, VaultStatus.off);
+      // Never the full wait (the default is 30 s).
+      final out = await pending.timeout(const Duration(seconds: 5));
+      expect(out.kind, isNot(SendOutcomeKind.queued));
+    });
   });
 
   group('failures (review M6)', () {

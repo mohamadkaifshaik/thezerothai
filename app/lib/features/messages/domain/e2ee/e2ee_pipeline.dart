@@ -233,6 +233,14 @@ class E2eePipeline {
   /// delete made here). Never carries content.
   Stream<String> get changes => _changes.stream;
 
+  /// 13b-i review M3: an event (synchronous, no payload) each time the
+  /// parts of a vault are built in [onVaultReady]; the port's `send` waits
+  /// on it, bounded, while the vault is ready and the parts are not yet.
+  Stream<void> get partsBuilt => _partsBuilt.stream;
+  final StreamController<void> _partsBuilt = StreamController.broadcast(
+    sync: true,
+  );
+
   /// The coordinator of the open vault (Task 13b's `watchThread` calls
   /// [opened], [closed] and [refresh] through the pipeline); null before.
   SyncCoordinator? get coordinator => _parts?.sync;
@@ -321,6 +329,7 @@ class E2eePipeline {
       parts = _parts = _Parts(this, vault);
       _startedFor = null;
       _watchRemovals(parts);
+      if (!_partsBuilt.isClosed) _partsBuilt.add(null);
     }
     try {
       if (!parts.known.isLoadedFor(vault)) await parts.known.load(vault);
@@ -738,6 +747,7 @@ class E2eePipeline {
     _teardown();
     forgetNotes(SessionEnd.sessionLost);
     unawaited(_changes.close());
+    unawaited(_partsBuilt.close());
   }
 
   // -------------------------------------------------------------------------

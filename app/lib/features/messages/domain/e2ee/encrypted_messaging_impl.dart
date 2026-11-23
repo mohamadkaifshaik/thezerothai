@@ -15,6 +15,7 @@ import 'encrypted_messaging.dart';
 import 'group_starter.dart' show StartOutcome, StartResult;
 import 'membership_rules.dart' show codeParties;
 import 'message_content_codec.dart';
+import 'pipeline_support.dart' show kServerRequestDeadline;
 import 'thread_view.dart';
 
 part 'encrypted_messaging_reads.dart';
@@ -46,7 +47,13 @@ part 'encrypted_messaging_threads.dart';
 /// `E2eePipelineError` with a fixed step name only, and the member gives
 /// its "unavailable" answer. Defines no `toString`.
 class EncryptedMessagingImpl implements EncryptedMessaging {
-  EncryptedMessagingImpl(E2eePipeline pipeline) : _pipeline = pipeline {
+  /// [partsWait]: how long a send waits for the parts of a ready vault
+  /// (13b-i review M3); tests shorten it.
+  EncryptedMessagingImpl(
+    E2eePipeline pipeline, {
+    Duration partsWait = kServerRequestDeadline,
+  }) : _pipeline = pipeline,
+       _partsWait = partsWait {
     _pipeline.changes.listen(_onChanged);
     _session.status.addListener(_onStatus);
     _pipeline.deviceKeys.status.addListener(_onStatus);
@@ -54,6 +61,7 @@ class EncryptedMessagingImpl implements EncryptedMessaging {
   }
 
   final E2eePipeline _pipeline;
+  final Duration _partsWait;
   final StreamController<String> _previewChanged = StreamController.broadcast();
 
   VaultSession get _session => _pipeline.session;
@@ -240,7 +248,7 @@ class EncryptedMessagingImpl implements EncryptedMessaging {
       throw ArgumentError('A recipient needs a reference.');
     }
     try {
-      final parts = _pipeline.parts;
+      final parts = await _partsForSend();
       if (parts == null) {
         return await _sendWithoutVault(conversationId, recipient);
       }
@@ -272,6 +280,42 @@ class EncryptedMessagingImpl implements EncryptedMessaging {
       _pipeline.reportPortError('port.send', s);
       return _refused(SendProblem.retryable);
     }
+  }
+
+  /// 13b-i review M3, decision: while the session's vault is ready and its
+  /// parts are not built yet (they come after the device keys' network
+  /// run, at every launch), a send waits for them, at most [_partsWait]
+  /// (the server request deadline), and gives up at once when the status
+  /// leaves `ready`. Why: the hook order stays fail-closed (parts after the
+  /// device check), and a send typed right after launch no longer needs a
+  /// resend by hand. With no parts after the wait, [_sendWithoutVault]
+  /// answers `refused(blocked)` as before (the vault is known).
+  Future<PipelineParts?> _partsForSend() async {
+    final now = _pipeline.parts;
+    final status = _session.status;
+    if (now != null || status.value != VaultStatus.ready) return now;
+    final done = Completer<void>();
+    void finish() {
+      if (!done.isCompleted) done.complete();
+    }
+
+    void onStatus() {
+      if (status.value != VaultStatus.ready) finish();
+    }
+
+    // Subscribed with no await after the check above: parts built from
+    // here on are seen.
+    final sub = _pipeline.partsBuilt.listen((_) => finish(), onDone: finish);
+    status.addListener(onStatus);
+    final timer = Timer(_partsWait, finish);
+    try {
+      await done.future;
+    } finally {
+      timer.cancel();
+      status.removeListener(onStatus);
+      await sub.cancel();
+    }
+    return _pipeline.parts;
   }
 
   static SendOutcome _refused(SendProblem problem, [AppException? error]) =>
