@@ -1944,6 +1944,12 @@ class RigCrypto {
   /// The own user reference the upkeep claims own devices with.
   String? ownUserId = 'user-a';
 
+  /// The `wasRemovedByUser` seam of the upkeep and the starter (Task 11
+  /// follow-up; Task 13 wires the removal queue runner's): read at each
+  /// call, so a test may set it any time. Default: no device was removed.
+  Future<bool> Function(Uint8List deviceId) wasRemovedByUser = (_) async =>
+      false;
+
   /// Membership upkeep (Task 9), over this rig's runner, crypto and
   /// directory.
   late MembershipUpkeep upkeep;
@@ -2132,6 +2138,7 @@ class RigCrypto {
       onChanged: changed.add,
       ownUserId: () => ownUserId,
       removedElsewhere: () => removedElsewhere,
+      wasRemovedByUser: (id) => wasRemovedByUser(id),
       schedule: (delay, run) {
         final entry = RigScheduled(delay, run);
         upkeepScheduled.add(entry);
