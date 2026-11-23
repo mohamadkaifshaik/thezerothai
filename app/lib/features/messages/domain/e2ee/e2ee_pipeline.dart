@@ -246,6 +246,11 @@ class E2eePipeline {
   /// Plan 5a Task 13b: the parts of the open vault, for the port; null
   /// before [onVaultReady] built them, and once that vault closed or
   /// changed (sign-out, another user, a lost lock).
+  ///
+  /// 13b-i review M5: these are the mutating parts, public only because the
+  /// port is its own library. `test/guards/e2ee_port_parts_guard_test.dart`
+  /// allows [parts] and [reportPortError] only in the port's files under
+  /// lib/ (`@internal` would not stop a reader in the same package).
   PipelineParts? get parts {
     final p = _parts;
     return p != null && p.live ? PipelineParts._(p) : null;
