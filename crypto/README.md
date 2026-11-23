@@ -449,6 +449,8 @@ pipeline rules cover the whole directory, so a new file is checked without a lis
 - No `Uuid` in the pipeline. Only the commit runner, membership rules, membership upkeep and the removal queue runner
   (and their part files) pass `removeDeviceIds:`.
 - No `BlocObserver` in the app, and no `pb.Message` is built except the id-only one that opens an encrypted search hit.
+- `MessageSearchState` keeps `@Freezed(toStringOverride: false)` and its generated file declares no `toString` (the
+  generated one printed the typed search query).
 
 ## Key package and leaf lifetime
 

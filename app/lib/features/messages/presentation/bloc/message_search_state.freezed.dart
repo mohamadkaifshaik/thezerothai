@@ -39,11 +39,6 @@ int get hashCode {
   return Object.hash(runtimeType,_this.query,_this.status,const DeepCollectionEquality().hash(_this.groups),_this.canLoadOlder,_this.loadingOlder,_this.olderPages,_this.olderError);
 }
 
-@override
-String toString() {
-  final _this = this as MessageSearchState;
-  return 'MessageSearchState(query: ${_this.query}, status: ${_this.status}, groups: ${_this.groups}, canLoadOlder: ${_this.canLoadOlder}, loadingOlder: ${_this.loadingOlder}, olderPages: ${_this.olderPages}, olderError: ${_this.olderError})';
-}
 
 
 }
@@ -258,10 +253,6 @@ int get hashCode {
     return Object.hash(runtimeType,query,status,const DeepCollectionEquality().hash(_groups),canLoadOlder,loadingOlder,olderPages,olderError);
 }
 
-@override
-String toString() {
-    return 'MessageSearchState(query: $query, status: $status, groups: $groups, canLoadOlder: $canLoadOlder, loadingOlder: $loadingOlder, olderPages: $olderPages, olderError: $olderError)';
-}
 
 
 }

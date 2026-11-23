@@ -364,6 +364,20 @@ const Map<String, List<String>> _messageConstructionExempt = {
   ],
 };
 
+/// Gate item 12 (#1062; plan 5a Task 15): the freezed MessageSearchState
+/// holds the typed query, and its generated toString printed it. The state
+/// opts out (`@Freezed(toStringOverride: false)`), so its generated file
+/// declares no toString at all.
+const String _searchStateFile =
+    'lib/features/messages/presentation/bloc/message_search_state.dart';
+const String _searchStateGenerated =
+    'lib/features/messages/presentation/bloc/message_search_state.freezed.dart';
+
+/// `toString` declarations in [source] (generated code included), comments
+/// and strings ignored.
+List<String> _toStringDecls(String source) =>
+    codeMatches(source, RegExp(r'(?<![\w$.])String\s+toString\s*\('));
+
 final RegExp _blocObserver = RegExp(
   r'(?<![\w$])BlocObserver\b|(?<![\w$])Bloc\s*\.\s*observer\b',
 );
@@ -1742,6 +1756,57 @@ class Other { void notAMember() {} }
             'A BlocObserver logs every state; the freezed MessageSearchState '
             'prints its query and other states hold decrypted content. Do '
             'not observe states.\n${bad.join('\n')}',
+      );
+    });
+
+    test('MessageSearchState opts out of the generated toString, and its '
+        'freezed file declares none (it printed the typed query)', () {
+      expect(
+        codeMatches(
+          _libFiles()[_searchStateFile]!,
+          RegExp(r'@Freezed\s*\(\s*toStringOverride\s*:\s*false\s*\)'),
+        ),
+        hasLength(1),
+        reason: 'Keep @Freezed(toStringOverride: false) on MessageSearchState.',
+      );
+      final generated = _libFiles()[_searchStateGenerated]!;
+      expect(
+        RegExp(r'\bMessageSearchState\b').hasMatch(generated),
+        isTrue,
+        reason: 'the scan reads the right generated file',
+      );
+      expect(
+        _toStringDecls(generated),
+        isEmpty,
+        reason:
+            'The generated toString of MessageSearchState prints the typed '
+            'query; run build_runner after keeping the opt-out.',
+      );
+    });
+
+    test('self-test: a generated or hand-written toString is seen; a '
+        'comment, a string or a call is not', () {
+      for (final bad in [
+        '@override\nString toString() {\n  return '
+            "'MessageSearchState(query: \$query)';\n}",
+        "@override\nString toString() => 'MessageSearchState(\$query)';",
+        'String  toString ()=> x;',
+      ]) {
+        expect(_toStringDecls(bad), isNotEmpty, reason: bad);
+      }
+      for (final ok in [
+        '// String toString() => query;',
+        "final s = 'String toString()';",
+        'final t = state.toString();',
+      ]) {
+        expect(_toStringDecls(ok), isEmpty, reason: ok);
+      }
+      expect(
+        codeMatches(
+          '@freezed\nabstract class MessageSearchState {}',
+          RegExp(r'@Freezed\s*\(\s*toStringOverride\s*:\s*false\s*\)'),
+        ),
+        isEmpty,
       );
     });
 
