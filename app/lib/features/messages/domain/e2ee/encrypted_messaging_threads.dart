@@ -236,7 +236,15 @@ class _Thread {
     final unsent =
         await impl.unsentEntries(ThreadRef.conversation(id)) ??
         _unsentOf(_latest);
-    entries.addAll(unsent);
+    // Branch review m2, decision: the port's promise "nothing at or before
+    // cleared_at" holds for own unsent rows too. A row kept after a
+    // delete-for-me (the init discard answered `held`) stays in the vault,
+    // since it may still go out, but this thread does not show it.
+    for (final e in unsent) {
+      if (cleared == null || e.at.microsecondsSinceEpoch > cleared) {
+        entries.add(e);
+      }
+    }
     return EncryptedThread(
       conversationId: id,
       entries: _newestFirst(entries),

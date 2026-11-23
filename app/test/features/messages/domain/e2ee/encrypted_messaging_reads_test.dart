@@ -212,6 +212,30 @@ void main() {
       await psub.cancel();
     });
 
+    test('own unsent rows timed at or before cleared_at are not shown, and '
+        'stay in the vault (branch review m2)', () async {
+      await joined();
+      const ref = ThreadRef.conversation(_c1);
+      h.rig.server.beforeSend = (_) => Completer<void>().future;
+      await port.send(to: ref, localId: 'local-old', text: 'old');
+      final cut = h.rig.clock.now().microsecondsSinceEpoch;
+      h.rig.clock.advance(const Duration(seconds: 5));
+      await port.send(to: ref, localId: 'local-new', text: 'new');
+      await vault().transaction(
+        (tx) => tx.putConversationSync(
+          _c1,
+          ConversationSync(requestAccepted: true, clearedAtMicros: cut),
+        ),
+      );
+      final t = await port.watchThread(ref).first;
+      expect(t.entries.map((e) => e.id), ['local-new']);
+      // The row itself is kept (it may still go out).
+      final unsent = await port.unsentEntries(ref);
+      expect(unsent!.map((e) => e.id), containsAll(['local-old', 'local-new']));
+      h.rig.server.beforeSend = null;
+      await h.settle();
+    });
+
     test('rows at or before cleared_at never appear', () async {
       await joined();
       await store(_c1, 1, text: 'old');
