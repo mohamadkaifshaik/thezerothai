@@ -5,6 +5,7 @@ import 'dart:async';
 
 import 'package:dzeroth/app/e2ee_wiring.dart';
 import 'package:dzeroth/core/feature_flags/public_ids_feature_flag.dart';
+import 'package:dzeroth/core/vault/vault_status.dart';
 import 'package:dzeroth/features/notifications/presentation/bloc/push_cubit.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -55,6 +56,90 @@ void main() {
         expect(reported, hasLength(2));
       },
     );
+  });
+
+  group('the resume throttle (fix wave ruling 3: CR I2, SA L1)', () {
+    late DateTime now;
+    late List<String> calls;
+    late VaultStatus status;
+
+    setUp(() {
+      now = DateTime.utc(2026, 11, 23, 12);
+      calls = [];
+      status = VaultStatus.off;
+    });
+
+    void resume(E2eeResumeThrottle throttle) => resumeE2ee(
+      engineResumed: () => calls.add('engine'),
+      retryVault: ({required bool allowConfirmedWipe}) async {
+        calls.add('retry');
+      },
+      deviceKeysResumed: () async => calls.add('deviceKeys'),
+      pipelineResumed: () => calls.add('pipeline'),
+      throttle: throttle,
+      vaultStatus: () => status,
+    );
+
+    test('two resumes within the floor (a web focus, a shade pull): the '
+        'engine twice, the retry and the pipeline once', () {
+      final t = E2eeResumeThrottle(isWeb: true, now: () => now);
+      resume(t);
+      now = now.add(kE2eeResumeFloor - const Duration(seconds: 1));
+      resume(t);
+      expect(calls, [
+        'engine',
+        'retry',
+        'deviceKeys',
+        'pipeline',
+        'engine',
+        'deviceKeys',
+      ]);
+    });
+
+    test('a resume after the floor runs again', () {
+      final t = E2eeResumeThrottle(isWeb: true, now: () => now);
+      resume(t);
+      now = now.add(kE2eeResumeFloor);
+      calls.clear();
+      resume(t);
+      expect(calls, ['engine', 'retry', 'deviceKeys', 'pipeline']);
+    });
+
+    test('a resume after a real pause runs at once (the pipeline is never '
+        'left paused)', () {
+      final t = E2eeResumeThrottle(isWeb: false, now: () => now);
+      resume(t);
+      t.notePaused();
+      calls.clear();
+      resume(t);
+      expect(calls, ['engine', 'retry', 'deviceKeys', 'pipeline']);
+    });
+
+    for (final s in [VaultStatus.storageChanged, VaultStatus.unsupported]) {
+      test('never an automatic retry while $s; the rest still runs', () {
+        final t = E2eeResumeThrottle(isWeb: false, now: () => now);
+        status = s;
+        resume(t);
+        expect(calls, ['engine', 'deviceKeys', 'pipeline']);
+      });
+    }
+
+    test('web: after a refused open (unavailable) no automatic retry for '
+        'the rest of the process', () {
+      final t = E2eeResumeThrottle(isWeb: true, now: () => now)
+        ..noteStatus(VaultStatus.unavailable)
+        ..noteStatus(VaultStatus.off);
+      resume(t);
+      expect(calls, ['engine', 'deviceKeys', 'pipeline']);
+    });
+
+    test('Android: an unavailable vault is retried (a key store failure)', () {
+      final t = E2eeResumeThrottle(isWeb: false, now: () => now)
+        ..noteStatus(VaultStatus.unavailable);
+      status = VaultStatus.unavailable;
+      resume(t);
+      expect(calls, ['engine', 'retry', 'deviceKeys', 'pipeline']);
+    });
   });
 
   group('flagTurnedOnWithOpenVault (gate item 29)', () {

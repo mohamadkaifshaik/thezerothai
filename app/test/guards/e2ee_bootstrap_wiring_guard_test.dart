@@ -47,10 +47,17 @@ final _required = <String, RegExp>{
     r'resumeE2ee\([^;]*?\bengineResumed:\s*cryptoEngine\.onAppResumed\s*,'
     r'[^;]*?\bretryVault:\s*vaultSession\.retry\s*,'
     r'[^;]*?\bdeviceKeysResumed:\s*deviceKeys\.onAppResumed\s*,'
-    r'[^;]*?\bpipelineResumed:\s*e2eePipeline\?\.onAppResumed\b',
+    r'[^;]*?\bpipelineResumed:\s*e2eePipeline\?\.onAppResumed\s*,'
+    r'[^;]*?\bthrottle:\s*resumeThrottle\s*,'
+    r'[^;]*?\bvaultStatus:\s*\(\)\s*=>\s*vaultSession\.status\.value\b',
   ),
-  'onPause: () => e2eePipeline?.onAppPaused()': RegExp(
-    r'onPause:\s*\(\)\s*=>\s*e2eePipeline\?\.onAppPaused\(\)',
+  'the resume throttle sees every vault status': RegExp(
+    r'vaultSession\.status\.addListener\(\s*\(\)\s*=>\s*'
+    r'resumeThrottle\.noteStatus\(\s*vaultSession\.status\.value\s*\)',
+  ),
+  'onPause: resumeThrottle.notePaused(); e2eePipeline?.onAppPaused()': RegExp(
+    r'onPause:\s*\(\)\s*\{\s*resumeThrottle\.notePaused\(\);\s*'
+    r'e2eePipeline\?\.onAppPaused\(\);\s*\}',
   ),
   'flagTurnedOnWithOpenVault(ensureDeviceReady: deviceKeys.ensureReady, '
       'startPipeline: e2eePipeline?.start)': RegExp(

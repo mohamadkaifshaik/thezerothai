@@ -385,16 +385,28 @@ Future<void> bootstrap() async {
     ..addVaultReadyHook(deviceKeys.onVaultReady)
     ..beforeExplicitWipe = deviceKeys.removeThisDevice;
   // Lives as long as the app (the binding keeps it). Gate items 35-37: the
-  // engine, one non-confirming vault retry, the device keys, the pipeline.
+  // engine, one non-confirming vault retry, the device keys, the pipeline;
+  // the retry and the pipeline's resume at most once a minute, at once after
+  // a real pause, and the retry never for a storage it must not touch (fix
+  // wave ruling 3).
+  final resumeThrottle = E2eeResumeThrottle(isWeb: kIsWeb);
+  vaultSession.status.addListener(
+    () => resumeThrottle.noteStatus(vaultSession.status.value),
+  );
   AppLifecycleListener(
     onResume: () => resumeE2ee(
       engineResumed: cryptoEngine.onAppResumed,
       retryVault: vaultSession.retry,
       deviceKeysResumed: deviceKeys.onAppResumed,
       pipelineResumed: e2eePipeline?.onAppResumed,
+      throttle: resumeThrottle,
+      vaultStatus: () => vaultSession.status.value,
       onUnexpectedError: reportUnexpectedError,
     ),
-    onPause: () => e2eePipeline?.onAppPaused(),
+    onPause: () {
+      resumeThrottle.notePaused();
+      e2eePipeline?.onAppPaused();
+    },
   );
 
   // Posts + timeline: the gate reads `GetMe.enabled_features` via

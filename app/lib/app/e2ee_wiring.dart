@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import '../core/feature_flags/public_ids_feature_flag.dart';
+import '../core/vault/vault_status.dart';
 import '../features/notifications/presentation/bloc/push_cubit.dart';
 import '../features/onboarding/presentation/bloc/onboarding_state.dart';
 
@@ -20,19 +21,97 @@ typedef E2eeWiringErrorReporter = void Function(Object error, StackTrace stack);
 ///
 /// The two futures are not awaited (as before); a failure of either is
 /// reported, never thrown.
+///
+/// Fix wave ruling 3 (code review I2, security audit L1): with a
+/// [throttle] (bootstrap always passes one), steps 2 and 4 run only when
+/// [E2eeResumeThrottle.takeResume] allows, and step 2 only when
+/// [E2eeResumeThrottle.mayRetry] allows for [vaultStatus]. The engine's
+/// resume (1) and the device keys' (3, which throttle themselves) run on
+/// every resume, as before this branch.
 void resumeE2ee({
   required void Function() engineResumed,
   required Future<void> Function({required bool allowConfirmedWipe}) retryVault,
   required Future<void> Function() deviceKeysResumed,
   void Function()? pipelineResumed,
+  E2eeResumeThrottle? throttle,
+  VaultStatus Function()? vaultStatus,
   E2eeWiringErrorReporter? onUnexpectedError,
 }) {
   engineResumed();
-  unawaited(
-    _reported(retryVault(allowConfirmedWipe: false), onUnexpectedError),
-  );
+  final due = throttle?.takeResume() ?? true;
+  final status = vaultStatus?.call();
+  final retry =
+      due && (throttle == null || status == null || throttle.mayRetry(status));
+  if (retry) {
+    unawaited(
+      _reported(retryVault(allowConfirmedWipe: false), onUnexpectedError),
+    );
+  }
   unawaited(_reported(deviceKeysResumed(), onUnexpectedError));
-  pipelineResumed?.call();
+  if (due) pipelineResumed?.call();
+}
+
+/// The floor between two throttled resumes ([E2eeResumeThrottle]); the
+/// welcome poll's floor.
+const kE2eeResumeFloor = Duration(seconds: 60);
+
+/// Fix wave ruling 3 (code review I2, security audit L1): which app resumes
+/// run the automatic vault retry and the pipeline's resume.
+///
+/// Decision: at most once per [kE2eeResumeFloor], and at once after a real
+/// pause ([notePaused]). Why: on the web the engine maps every window focus
+/// to `resumed` and never reports `paused`, and on Android a notification
+/// shade or a system dialog is `inactive` → `resumed`; a time floor works
+/// the same on both, while "only after a real background" would need two
+/// different lifecycle mappings. A real pause always opens the floor, so a
+/// paused pipeline (Android) is never left paused by the throttle.
+///
+/// [mayRetry]: never an automatic retry while the vault is
+/// `storageChanged` (only a user reset ends it) or `unsupported`, and on
+/// the web never again in this process once an open was refused
+/// (`unavailable`): each refused web open can leave an idle worker until
+/// the page unloads (`vault_open_web.dart`). The web cannot tell a refused
+/// probe from another `unavailable`, so any web `unavailable` counts. A
+/// user's own retry (5b) and a new sign-in still open.
+class E2eeResumeThrottle {
+  E2eeResumeThrottle({
+    required bool isWeb,
+    DateTime Function() now = DateTime.now,
+  }) : _isWeb = isWeb,
+       _now = now;
+
+  final bool _isWeb;
+  final DateTime Function() _now;
+  DateTime? _last;
+  bool _paused = false;
+  bool _webRefused = false;
+
+  /// Every vault status change (bootstrap's listener on the session).
+  void noteStatus(VaultStatus status) {
+    if (_isWeb && status == VaultStatus.unavailable) _webRefused = true;
+  }
+
+  /// The app was paused (a real background).
+  void notePaused() => _paused = true;
+
+  /// Whether this resume runs the throttled steps; if so it counts.
+  bool takeResume() {
+    final now = _now();
+    final last = _last;
+    final due =
+        _paused || last == null || !now.isBefore(last.add(kE2eeResumeFloor));
+    if (due) {
+      _last = now;
+      _paused = false;
+    }
+    return due;
+  }
+
+  /// Whether an automatic vault retry may run in [status].
+  bool mayRetry(VaultStatus status) =>
+      status != VaultStatus.storageChanged &&
+      status != VaultStatus.unsupported &&
+      !_webRefused;
 }
 
 /// Plan 5a Task 13 (gate item 29): the e2ee_dm answer turned `on` with a
