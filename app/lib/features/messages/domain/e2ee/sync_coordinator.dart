@@ -313,7 +313,7 @@ class SyncCoordinator {
     // more for this start.
     await _pollWelcomes(p, floor: false);
     if (!live()) return;
-    final passed = await _appOpenPass(run);
+    final passed = await _appOpenPass(live);
     if (!live()) return;
     await _step('removal', () => _work.removalPass(RemovalTrigger.vaultReady));
     if (!live()) return;
@@ -355,7 +355,7 @@ class SyncCoordinator {
     if (!_live(run)) return;
     final last = _lastPassAt;
     if (last == null || !_now().isBefore(last.add(kDeviceListReuse))) {
-      await _appOpenPass(run);
+      await _appOpenPass(() => _live(run));
       if (!_live(run)) return;
     }
     await _pollWelcomes(p, floor: false);
@@ -555,25 +555,28 @@ class SyncCoordinator {
 
   // -------------------------------------------------------------------------
 
-  /// The app-open pass; answers the conversations it covered.
-  Future<Set<String>> _appOpenPass(int run) async {
+  /// The app-open pass; answers the conversations it covered. [live] is the
+  /// caller's check (re-review r1-m1: a vault-ready sequence passes its
+  /// start token too, so an older start's pass stops at a restart instead
+  /// of running beside the newer one).
+  Future<Set<String>> _appOpenPass(bool Function() live) async {
     final ids = await _value(
       'recent',
       () => _work.recentAccepted(kAppOpenPassConversations),
       const <String>[],
     );
     _lastPassAt = _now();
-    if (!_live(run) || ids.isEmpty) return ids.toSet();
+    if (!live() || ids.isEmpty) return ids.toSet();
     await _step('peers', () => _work.lookUpPeers(ids));
     for (final id in ids) {
-      if (!_live(run)) break;
+      if (!live()) break;
       const p = BudgetPriority.background;
       final o = await _pull(id, p);
-      if (!_live(run)) break;
+      if (!live()) break;
       final c = await _catchUp(id, p);
-      if (!_live(run)) break;
+      if (!live()) break;
       await _step('reconcile', () => _work.reconcile(id, priority: p));
-      if (!_live(run)) break;
+      if (!live()) break;
       await _afterPass(id, o);
       await _afterCatchUp(id, c);
     }

@@ -135,6 +135,36 @@ void main() {
     );
 
     test(
+      'r1-m1: the older start\'s app-open pass stops at a restart; only the '
+      'newer pass covers the rest',
+      () => fakeAsync((async) {
+        final sync = build(async);
+        work
+          ..groups.addAll([_c(1), _c(2)])
+          ..recent = [_c(1), _c(2)];
+        final hold = work.holdPull[_c(1)] = Completer<void>();
+        unawaited(sync.onVaultReady());
+        async.flushMicrotasks();
+        expect(work.named('pullLive'), ['pullLive:${_c(1)}:background']);
+
+        unawaited(sync.onVaultReady());
+        async.flushMicrotasks();
+        hold.complete();
+        async.flushMicrotasks();
+
+        expect(
+          work.named('pullLive').where((c) => c.contains(_c(2))),
+          hasLength(1),
+          reason: 'one pass reaches the second conversation',
+        );
+        expect(
+          work.named('reconcile').where((c) => c.contains(_c(1))),
+          hasLength(1),
+        );
+      }),
+    );
+
+    test(
       'a push in flight across a restart still pulls',
       () => fakeAsync((async) {
         final sync = build(async);
