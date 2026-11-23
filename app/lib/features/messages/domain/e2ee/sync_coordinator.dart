@@ -286,6 +286,7 @@ class SyncCoordinator {
       stop();
       return;
     }
+    final wake = !_started;
     _started = true;
     final run = _run;
     final seq = ++_starts;
@@ -320,6 +321,13 @@ class SyncCoordinator {
       if (passed.contains(id)) continue;
       _catchUpOnce.add(id);
       _enqueue(id, _now());
+    }
+    if (wake) {
+      // Review m3: a thread still on screen across a stop (a wake) is
+      // refreshed; 13b calls `opened` only for a first listener.
+      for (final id in [..._watched]) {
+        _track(refresh(id));
+      }
     }
   }
 
@@ -520,7 +528,9 @@ class SyncCoordinator {
     _catchUpWaits.clear();
     _chained.clear();
     _catchUpOnce.clear();
-    _watched.clear();
+    // Review m3: the watched set is kept (it is the screen's state, not
+    // this run's memory): a wake refreshes those threads. The pipeline drops
+    // the whole coordinator at sign-out.
     _rowPolled.clear();
     _pollToken = null;
     _poll = null;
