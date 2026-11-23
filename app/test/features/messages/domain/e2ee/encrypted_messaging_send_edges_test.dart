@@ -1,3 +1,5 @@
+import 'package:dzeroth/core/crypto/crypto_types.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/conversation_crypto.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging_impl.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
@@ -11,6 +13,7 @@ import '../../../../support/e2ee_pipeline_rig.dart';
 // Plan 5a Task 13b, fix round of the 13b-i review (task-13b-review.md,
 // controller rulings 1-5): the send branches the review found untested.
 
+const _c1 = '11111111111111111111111111111111';
 const _c2 = '22222222222222222222222222222222';
 
 void main() {
@@ -139,5 +142,50 @@ void main() {
         expect(out.kind, SendOutcomeKind.notEncrypted);
       },
     );
+  });
+
+  group('failures (review M6)', () {
+    test('resetConversation throws ResetRefusedException(peerHasNoDevice) '
+        'when the peer lists no device', () async {
+      await h.offer(_c1, bob);
+      await h.ready();
+      // Bob's next commit cannot be processed here: the conversation is
+      // stuck, so a reset is offered.
+      final garbage = rigBytes('a commit no engine can process');
+      h.rig.device.engine.failWireAlways[RigEngine.key(garbage)] =
+          const MlsException(MlsErrorCode.badInput, 'rig');
+      h.rig.server.addCommit(
+        _c1,
+        h.rig.server.current(_c1),
+        garbage,
+        fromUser: 'user-b',
+      );
+      expect(await h.pipeline.crypto.catchUp(_c1), CatchUpResult.stuck);
+      h.rig.keys.peers['ref-bob'] = [];
+      await expectLater(
+        port.resetConversation(_c1),
+        throwsA(
+          isA<ResetRefusedException>().having(
+            (e) => e.reason,
+            'reason',
+            ResetRefusal.peerHasNoDevice,
+          ),
+        ),
+      );
+    });
+
+    test('unsentEntries is null, and nothing is reported, while a live '
+        "vault's cipher cannot run", () async {
+      await h.offer(_c1, bob);
+      await h.ready();
+      const ref = ThreadRef.conversation(_c1);
+      expect(await port.unsentEntries(ref), isEmpty);
+      h.rig.device.cipher.unavailable = true;
+      expect(h.pipeline.parts, isNotNull);
+      final read = await port.unsentEntries(ref);
+      h.rig.device.cipher.unavailable = false;
+      expect(read, isNull);
+      expect(h.reported, isEmpty);
+    });
   });
 }
