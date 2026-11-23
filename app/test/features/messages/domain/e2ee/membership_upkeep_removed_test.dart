@@ -22,6 +22,7 @@ const _c1 = '11111111111111111111111111111111';
 void main() {
   late RigCrypto rig;
   late RigPeer bob;
+  late RigOffer offer;
 
   /// Every id the seam was asked about, as the server shows it.
   var asked = <String>[];
@@ -57,7 +58,7 @@ void main() {
       state: ConversationState.CONVERSATION_STATE_ACCEPTED,
       canReply: true,
     );
-    await rig.offer(_c1, bob);
+    offer = await rig.offer(_c1, bob);
     expect(await rig.crypto.processWelcomes(), [_c1]);
     expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
     await rig.receiver.pullLive(_c1);
@@ -244,6 +245,78 @@ void main() {
     expect(ownClaimCalls(), isEmpty);
     expect(rig.server.commitRequests.single.welcomeDeviceIds, [bob2.idString]);
     expect(await pin(sibling), isNull);
+  });
+
+  test('a removed device re-pinned by a peer\'s commit is removed with no '
+      'queue entry, though a hostile own list shows it (fix round 1, '
+      'ruling 3, SA M2)', () async {
+    final sibling = await RigPeer.create('sibling');
+    // The own list keeps showing the removed sibling (hostile or stale),
+    // so M3 alone would keep it.
+    await setUpJoined(ownListed: [sibling]);
+    final runner = realRunner();
+    await markRemoved(sibling, const Duration(days: 1));
+    expect(await runner.wasRemovedByUser(sibling.id), isTrue);
+    expect(runner.queuedFor(_c1), isEmpty, reason: 'no queue entry');
+    // Bob's commit adds the removed device back; it is pinned on this
+    // user's side.
+    final at = rig.server.current(_c1);
+    final c = await rigCommit(
+      offer.add.group,
+      add: [await sibling.keyPackage()],
+    );
+    rig.server.addCommit(_c1, at, c.commit, fromUser: 'user-b');
+    expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+    await rig.receiver.pullLive(_c1);
+    expect((await pin(sibling))!.side, MemberSide.mine);
+    rig.server.commitRequests.clear();
+
+    await rig.upkeep.reconcile(_c1);
+
+    expect(rig.server.commitRequests, hasLength(1));
+    expect(await pin(sibling), isNull);
+    await runner.idle();
+  });
+
+  test('a re-pinned own device whose key is not the removed mark\'s key is '
+      'kept (an id alone is no proof)', () async {
+    final sibling = await RigPeer.create('sibling');
+    await setUpJoined(ownListed: [sibling]);
+    final runner = realRunner();
+    await rig.device.vault.transaction(
+      (tx) => tx.putSetting(
+        kVaultSettingRemovalRecord,
+        RemovalRecord(
+          removed: [
+            RemovalMark(
+              deviceId: sibling.idString,
+              atMicros: rig.clock
+                  .now()
+                  .subtract(const Duration(days: 1))
+                  .microsecondsSinceEpoch,
+              signatureKey: bob.key,
+            ),
+          ],
+        ).encode(),
+      ),
+    );
+    expect(await runner.wasRemovedByUser(sibling.id), isTrue);
+    final at = rig.server.current(_c1);
+    final c = await rigCommit(
+      offer.add.group,
+      add: [await sibling.keyPackage()],
+    );
+    rig.server.addCommit(_c1, at, c.commit, fromUser: 'user-b');
+    expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+    await rig.receiver.pullLive(_c1);
+    expect((await pin(sibling))!.side, MemberSide.mine);
+    rig.server.commitRequests.clear();
+
+    await rig.upkeep.reconcile(_c1);
+
+    expect(rig.server.commitRequests, isEmpty);
+    expect((await pin(sibling))!.side, MemberSide.mine);
+    await runner.idle();
   });
 
   test('a removal older than the queue\'s memory (expired mark) may be '

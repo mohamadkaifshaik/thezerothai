@@ -300,6 +300,32 @@ extension _Reconcile on MembershipUpkeep {
         exempt(m.deviceId);
       }
     }
+    // Fix round 1, ruling 3 (SA M2): a `mine` pin whose id has an unexpired
+    // "removed by the user" mark with this very key is removed with NO
+    // queue entry. Why: the entry is pruned once the pins no longer name
+    // the device, and a later commit (a peer's, or a reset built before
+    // the mark) can pin it again; an own list that still shows it (hostile
+    // or stale) keeps M3 from removing it, and the add checks never see a
+    // member. The key must match the mark's (an id alone is no proof), and
+    // M2's key-history guard holds as on the mark path above. The user's
+    // removal is exempt from the M5 pause (ruling H).
+    for (final m in members) {
+      if (m.side != MemberSide.mine || _same(m.deviceId, thisDevice)) continue;
+      final hex = vaultDeviceIdHex(m.deviceId);
+      if (removing.contains(hex)) continue;
+      final key = removedKeyOf?.call(m.deviceId);
+      if (key == null || !_same(key, m.signatureKey)) continue;
+      if (keyHistoryRefuses(
+        member: m,
+        refusal: history.refusal(hex, m.signatureKey),
+        ownList: own,
+        peerList: peer,
+      )) {
+        continue;
+      }
+      remove(m.deviceId);
+      exempt(m.deviceId);
+    }
     // M3: one readable own list decides.
     for (final m in members) {
       if (mayRemoveOwnDevice(
