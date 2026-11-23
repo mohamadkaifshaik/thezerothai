@@ -90,14 +90,19 @@ class DeviceReset {
   /// could not be made, the call may be made again (the transaction finds
   /// nothing left to delete and changes no history again).
   Future<void> setUpAgain() async {
-    if (!_deviceKeys.removedElsewhere) {
-      throw StateError('This device is not removed elsewhere.');
-    }
     if (!_session.mayStart) {
+      if (!_deviceKeys.removedElsewhere) {
+        throw StateError('This device is not removed elsewhere.');
+      }
       throw const FeatureDisabledException(
         'Setting this device up again is not available.',
         feature: 'e2ee_dm',
       );
+    }
+    // Fix wave 6 (CR Minor C): the latch holds back a listed-again clear
+    // until the new device exists, and keeps a failed set-up retryable.
+    if (!_deviceKeys.beginSetUpAgain()) {
+      throw StateError('This device is not removed elsewhere.');
     }
     final vault = _session.vault;
     if (vault == null) throw StateError('The vault is not ready.');

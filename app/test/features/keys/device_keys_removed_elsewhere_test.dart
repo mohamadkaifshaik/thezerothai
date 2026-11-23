@@ -469,6 +469,52 @@ void main() {
       expect(rig.service.status.value, DeviceKeysStatus.ready);
     });
 
+    test('a listed-again clear that lands during "set up again" waits; the '
+        'new device is still made (fix wave 6, CR Minor C)', () async {
+      final id = await removedElsewhere();
+      final key = Uint8List.fromList(
+        rig.server.registrations.first.signaturePublicKey,
+      );
+      // The server lists the device again: one answer counted already.
+      rig.server.removedMarks.remove(id);
+      rig.devices[id] = FakeKeyDevice(
+        id: id,
+        signatureKey: key,
+        createdAt: rig.now,
+      );
+      await rig.service.checkAgainNow(); // 1
+
+      // The user taps "set up again"; its transaction runs, and the second
+      // listed answer arrives meanwhile.
+      expect(rig.service.beginSetUpAgain(), isTrue);
+      await rig.service.checkAgainNow(); // 2: held back by the latch
+      expect(rig.service.removedElsewhere, isTrue);
+      expect(rig.setting(kVaultSettingRemovedElsewhere), '\u0001');
+
+      await rig.service.recreateDevice();
+
+      expect(rig.storedId(), isNot(id));
+      expect(rig.service.removedElsewhere, isFalse);
+      expect(rig.service.beginSetUpAgain(), isFalse);
+    });
+
+    test('beginSetUpAgain is refused when not removed elsewhere, and the '
+        'latch keeps a failed set-up retryable', () async {
+      await rig.signIn(_a);
+      expect(rig.service.beginSetUpAgain(), isFalse);
+      await expectLater(rig.service.recreateDevice(), throwsStateError);
+
+      rig.reported.clear();
+      final id = rig.storedId()!;
+      rig.devices.remove(id);
+      rig.server.removedMarks.add(id);
+      rig.advance(const Duration(hours: 1));
+      await rig.service.ensureReady();
+      expect(rig.service.beginSetUpAgain(), isTrue);
+      // A second begin while held (a retry after a failure) is allowed.
+      expect(rig.service.beginSetUpAgain(), isTrue);
+    });
+
     test('recreateDevice is refused when not removed elsewhere', () async {
       await rig.signIn(_a);
       final id = rig.storedId();

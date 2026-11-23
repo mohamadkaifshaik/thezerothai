@@ -339,6 +339,9 @@ class DeviceKeysService {
 
   /// The vault whose marker was read and says "not removed" (fix wave 3).
   SecureVault? _clearVault;
+
+  /// The vault "set up again" is running for (fix wave 6).
+  SecureVault? _settingUpVault;
   int _listedAgain = 0;
   final ValueNotifier<bool> _removedFact = ValueNotifier(false);
   final _reportedPending = Expando<bool>();
@@ -432,9 +435,16 @@ class DeviceKeysService {
   /// registered-once and removed-elsewhere markers 0x00 and no pending
   /// upload; then a normal run registers the new id with a fresh pool
   /// (completes when that run ends; its outcome is in [status]). Needs the
-  /// flag on (creating a device, R1) and [removedElsewhere]: a
-  /// [StateError] otherwise, with nothing written.
+  /// flag on (creating a device, R1) and [removedElsewhere] or the latch of
+  /// [beginSetUpAgain]: a [StateError] otherwise, with nothing written.
   Future<void> recreateDevice() => _recreateDevice();
+
+  /// Fix wave 6 (CR Minor C): `DeviceReset.setUpAgain` takes this latch
+  /// before its own transaction. False (nothing held) unless removed
+  /// elsewhere or already held for the open vault (a retry). While held,
+  /// a listed-again clear is not applied, so the cleared vault always gets
+  /// its new id; [recreateDevice] releases it.
+  bool beginSetUpAgain() => _beginSetUpAgain();
 
   /// A [VaultSession.addVaultReadyHook] hook: a vault was opened and
   /// published. Reads the vault's removed-elsewhere marker first (so

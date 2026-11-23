@@ -214,6 +214,9 @@ extension _Elsewhere on DeviceKeysService {
       return;
     }
     if (++_listedAgain < kRemovedElsewhereListedAgain) return;
+    // Fix wave 6 (CR Minor C): "set up again" is running; its cleared
+    // vault needs the new id, so the clear waits (the count stays).
+    if (identical(_settingUpVault, vault)) return;
     await _persist(
       vault,
       uid,
@@ -231,13 +234,23 @@ extension _Elsewhere on DeviceKeysService {
     _status.value = DeviceKeysStatus.idle;
   }
 
+  bool _beginSetUpAgain() {
+    final vault = _session.vault;
+    if (_disposed || vault == null) return false;
+    if (!removedElsewhere && !identical(_settingUpVault, vault)) return false;
+    _settingUpVault = vault;
+    return true;
+  }
+
   Future<void> _recreateDevice() async {
     final vault = _session.vault;
     if (_disposed || vault == null) throw StateError('No vault is open.');
     if (!_repo.enabled || !_session.mayStart) {
       throw StateError('Setting a device up needs e2ee_dm on.');
     }
-    if (!removedElsewhere) throw StateError('Not removed elsewhere.');
+    if (!removedElsewhere && !identical(_settingUpVault, vault)) {
+      throw StateError('Not removed elsewhere.');
+    }
     final uid = vault.uid;
     // A run in flight (a read-only list) ends first; it never throws.
     final running = _run;
@@ -279,6 +292,7 @@ extension _Elsewhere on DeviceKeysService {
       });
     });
     _setClear(vault);
+    if (identical(_settingUpVault, vault)) _settingUpVault = null;
     _forceRegister = false;
     _successVault = null;
     _lastSuccess = null;

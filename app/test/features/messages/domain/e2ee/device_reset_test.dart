@@ -40,6 +40,15 @@ class _FakeDeviceKeys implements DeviceKeysService {
   @override
   bool get removedElsewhere => removed;
 
+  bool latched = false;
+
+  @override
+  bool beginSetUpAgain() {
+    if (!removed && !latched) return false;
+    latched = true;
+    return true;
+  }
+
   /// Awaited before the new device row is written (a race in between).
   Future<void> Function()? beforeRecreate;
 
@@ -55,6 +64,7 @@ class _FakeDeviceKeys implements DeviceKeysService {
     );
     newId = id;
     removed = false;
+    latched = false;
     rig.removedElsewhere = false;
   }
 
