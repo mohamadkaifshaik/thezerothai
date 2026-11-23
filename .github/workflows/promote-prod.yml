@@ -250,7 +250,7 @@ jobs:
 
       - name: Capture the rollback baseline
         if: steps.stage.outputs.stage == '10'
-        env: &canary_smoke_env
+        env:
           SERVICE: ${{ vars.PROD_SERVICE_NAME }}
           PROJECT: ${{ vars.PROD_PROJECT_ID }}
           REGION: ${{ vars.PROD_REGION }}
@@ -277,7 +277,16 @@ jobs:
 
       - name: Record verified 10 percent traffic
         if: steps.stage.outputs.stage == '10'
-        env: *canary_smoke_env
+        env:
+          SERVICE: ${{ vars.PROD_SERVICE_NAME }}
+          PROJECT: ${{ vars.PROD_PROJECT_ID }}
+          REGION: ${{ vars.PROD_REGION }}
+          REVISION: ${{ steps.rc_rev.outputs.revision }}
+          DIGEST: ${{ steps.rc_rev.outputs.digest }}
+          SMOKE_EMAIL: ${{ secrets.PROD_SMOKE_EMAIL }}
+          SMOKE_PASSWORD: ${{ secrets.PROD_SMOKE_PASSWORD }}
+          FIREBASE_API_KEY: ${{ vars.PROD_FIREBASE_API_KEY }}
+          SMOKE_REFERER: ${{ vars.PROD_SMOKE_REFERER }}
         run: bash scripts/promotion/prod-canary.sh record
 
       - name: Preserve immutable canary evidence
@@ -359,7 +368,16 @@ jobs:
 
       - name: Verify soak, rollback target and authenticated candidate read
         if: steps.stage.outputs.stage == '100'
-        env: *canary_smoke_env
+        env:
+          SERVICE: ${{ vars.PROD_SERVICE_NAME }}
+          PROJECT: ${{ vars.PROD_PROJECT_ID }}
+          REGION: ${{ vars.PROD_REGION }}
+          REVISION: ${{ steps.rc_rev.outputs.revision }}
+          DIGEST: ${{ steps.rc_rev.outputs.digest }}
+          SMOKE_EMAIL: ${{ secrets.PROD_SMOKE_EMAIL }}
+          SMOKE_PASSWORD: ${{ secrets.PROD_SMOKE_PASSWORD }}
+          FIREBASE_API_KEY: ${{ vars.PROD_FIREBASE_API_KEY }}
+          SMOKE_REFERER: ${{ vars.PROD_SMOKE_REFERER }}
         run: bash scripts/promotion/prod-canary.sh verify
 
       - name: Shift 100% traffic to the verified revision

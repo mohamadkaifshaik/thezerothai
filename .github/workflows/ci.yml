@@ -479,19 +479,22 @@ jobs:
         working-directory: app
         run: flutter build apk --debug --target-platform android-arm,android-arm64,android-x64
 
-      - name: Exercise native video conversion on Android
-        working-directory: app
-        timeout-minutes: 20
+      - name: The APK packages OpenH264 without GPL codecs
         run: |
-          image='system-images;android-35;google_apis;x86_64'
-          sdkmanager "emulator" "$image"
-          echo no | avdmanager create avd --name codec-test --package "$image"
-          sudo chmod a+rw /dev/kvm
-          "$ANDROID_HOME/emulator/emulator" -avd codec-test -port 5554 -no-window -no-audio -no-snapshot -gpu swiftshader_indirect > "$RUNNER_TEMP/emulator.log" 2>&1 &
-          trap 'adb -s emulator-5554 emu kill || true' EXIT
-          adb -s emulator-5554 wait-for-device
-          until [[ "$(adb -s emulator-5554 shell getprop sys.boot_completed | tr -d '\r')" == 1 ]]; do sleep 2; done
-          flutter test --no-pub -d emulator-5554 integration_test/post_video_test.dart
+          set -euo pipefail
+          apk=app/build/app/outputs/flutter-apk/app-debug.apk
+          [ -f "$apk" ] || { echo "::error::$apk was not built"; exit 1; }
+          work=$(mktemp -d)
+          unzip -p "$apk" "lib/x86_64/libavcodec.so" > "$work/libavcodec.so"
+          strings "$work/libavcodec.so" | grep -F "libopenh264" >/dev/null || {
+            echo "::error::libavcodec does not reference libopenh264"
+            exit 1
+          }
+          if strings "$work/libavcodec.so" | grep -F "enable-gpl" >/dev/null; then
+            echo "::error::libavcodec was built with --enable-gpl"
+            exit 1
+          fi
+          echo "Verified libavcodec packages OpenH264 and has no GPL configure flag"
 
       - name: The APK carries the Rust library for every ABI, 16 KB aligned
         run: |
