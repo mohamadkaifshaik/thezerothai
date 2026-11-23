@@ -273,7 +273,8 @@ if [ -f "$wf" ]; then
     # the fieldOverrides gate must run before any cloud access, and must not be conditional
     fo=$(grep -n 'check-field-overrides.sh' <<<"$code" | head -1 | cut -d: -f1); auth=$(grep -n 'google-github-actions/auth@' <<<"$code" | head -1 | cut -d: -f1)
     if [ -n "$fo" ] && [ -n "$auth" ] && [ "$fo" -lt "$auth" ]; then pass=$((pass+1)); else echo "FAIL deploy-dev.yml must run check-field-overrides.sh before the GCP auth step"; failed=$((failed+1)); fi
-    if grep -B4 'check-field-overrides.sh' <<<"$code" | grep -q 'if:'; then echo "FAIL deploy-dev.yml: the fieldOverrides gate must not be conditional (no if:)"; failed=$((failed+1)); else pass=$((pass+1)); fi
+    # here-strings, not pipes: under pipefail an early `grep -q` exit can SIGPIPE the first grep and flip the result
+    if grep -q 'if:' <<<"$(grep -B4 'check-field-overrides.sh' <<<"$code")"; then echo "FAIL deploy-dev.yml: the fieldOverrides gate must not be conditional (no if:)"; failed=$((failed+1)); else pass=$((pass+1)); fi
     # every live-change step must be gated on the effective mode, and the recover step must exist
     gated=$(grep -c "steps.mode.outputs.dry_run == 'false'" <<<"$code" || true)
     if [ "$gated" -ge 7 ]; then pass=$((pass+1)); else echo "FAIL deploy-dev.yml: only $gated steps are gated on dry_run == 'false' (need install, indexes, wait, stale check, recover, rules, hosting)"; failed=$((failed+1)); fi
@@ -322,7 +323,7 @@ if [ -f "$wf" ]; then
   # the script's patterns must be exactly the workflow's on.push.paths-ignore list
   wf_pat=$(tr -d '\r' <"$wf" | awk '/^    paths-ignore:/ { on = 1; next } on && /^      - / { sub(/^      - /, ""); gsub(/"/, ""); print; next } on { exit }')
   if [ -n "$wf_pat" ] && [ "$wf_pat" = "$(bash "$S" --print-patterns)" ]; then pass=$((pass+1)); else echo "FAIL check-stale-commit.sh PATTERNS differ from deploy-dev.yml paths-ignore"; failed=$((failed+1)); fi
-  if grep -v '^[[:space:]]*#' "$wf" | grep -q 'check-stale-commit.sh "\$SHA" "\$head"'; then pass=$((pass+1)); else echo "FAIL deploy-dev.yml must run check-stale-commit.sh in the stale-commit step"; failed=$((failed+1)); fi
+  if grep -q 'check-stale-commit.sh "\$SHA" "\$head"' <<<"$(grep -v '^[[:space:]]*#' "$wf")"; then pass=$((pass+1)); else echo "FAIL deploy-dev.yml must run check-stale-commit.sh in the stale-commit step"; failed=$((failed+1)); fi
 fi
 
 # --- authenticated-smoke.sh and prod-smoke.sh: their own fixture file (fake curl), run here so the required CI step covers it
