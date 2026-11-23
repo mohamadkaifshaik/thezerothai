@@ -8,10 +8,11 @@ extension _RemovalStore on RemovalQueueRunner {
   /// One `RemoveKeyDevice` with a fresh key, bounded by [kMlsRpcTimeout].
   /// Always REMOTE (removal design section 4): the user removes another
   /// device of theirs, so the server remembers the id and refuses its
-  /// Register and Upload.
-  Future<void> _sendRemove(String deviceId) async {
+  /// Register and Upload. Answers the server's `other_sessions_ended` (lane
+  /// D H2; port additions).
+  Future<bool> _sendRemove(String deviceId) async {
     final key = hexOf(await randomOf(_engine(), 16));
-    await _keys
+    final answer = await _keys
         .removeDevice(
           deviceId: deviceId,
           idempotencyKey: key,
@@ -21,6 +22,7 @@ extension _RemovalStore on RemovalQueueRunner {
           kMlsRpcTimeout,
           onTimeout: () => throw const NetworkException('timed out'),
         );
+    return answer.otherSessionsEnded;
   }
 
   /// [deviceId] was removed from the directory: it is queued for every
@@ -509,7 +511,7 @@ extension _RemovalStore on RemovalQueueRunner {
   /// Brief amendment 3: [deviceId]'s intent waits for a re-sign-in.
   void _parkForReauth(String deviceId) {
     _reauthParked.add(deviceId);
-    _needsReauth.value = true;
+    _publishReauth();
   }
 
   /// Fix wave 10 (CR Nit 3): a rebuild-path ask (no intent stored). Kept
@@ -517,13 +519,13 @@ extension _RemovalStore on RemovalQueueRunner {
   /// gone, so only the user's call for the id (or [reset]) clears it.
   void _parkRebuild(String deviceId) {
     _rebuildReauth.add(deviceId);
-    _needsReauth.value = true;
+    _publishReauth();
   }
 
   /// An intent park whose intent is gone (a pass's prune).
   void _unparkIntent(String deviceId) {
     if (!_reauthParked.remove(deviceId)) return;
-    _needsReauth.value = _reauthParked.isNotEmpty || _rebuildReauth.isNotEmpty;
+    _publishReauth();
   }
 
   /// [deviceId]'s RemoveKeyDevice went through, or the user dropped it:
@@ -531,7 +533,18 @@ extension _RemovalStore on RemovalQueueRunner {
   void _unparkReauth(String deviceId) {
     _rebuildReauth.remove(deviceId);
     _reauthParked.remove(deviceId);
-    _needsReauth.value = _reauthParked.isNotEmpty || _rebuildReauth.isNotEmpty;
+    _publishReauth();
+  }
+
+  /// [needsReauth] and [parkedRefs] from the two park sets (port
+  /// additions): the refs in a stable order, a new list only when they
+  /// changed (a second park is heard although the ask was already raised).
+  void _publishReauth() {
+    final refs = {..._reauthParked, ..._rebuildReauth}.toList()..sort();
+    if (!listEquals(refs, _parkedRefs.value)) {
+      _parkedRefs.value = List.unmodifiable(refs);
+    }
+    _needsReauth.value = refs.isNotEmpty;
   }
 
   /// Fix wave 9 (SA L5): parks [deviceId] and marks its stored intent as

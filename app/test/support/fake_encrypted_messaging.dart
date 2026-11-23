@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:dzeroth/core/network/app_exception.dart'
+    show ReauthRequiredException;
 import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/message_content_codec.dart';
 import 'package:flutter/foundation.dart';
@@ -88,6 +90,33 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
   @override
   final CountingNotifier removalsPending = CountingNotifier(0);
 
+  /// True while [parkedRemovals] is not empty (set by [park] and
+  /// [dropRemoval]).
+  @override
+  final ValueNotifier<bool> needsReauth = ValueNotifier(false);
+  @override
+  final ValueNotifier<List<String>> parkedRemovals = ValueNotifier(const []);
+
+  /// Parks [refs] as removals waiting for a re-sign-in (REAUTH_REQUIRED).
+  void park(List<String> refs) {
+    parkedRemovals.value = List.unmodifiable({
+      ...parkedRemovals.value,
+      ...refs,
+    });
+    needsReauth.value = parkedRemovals.value.isNotEmpty;
+  }
+
+  /// The answer of every `discardUnsent` (scripted).
+  UnsentDiscard nextDiscard = UnsentDiscard.discarded;
+
+  /// The answer of every `removeDevice` that does not fail (scripted).
+  DeviceRemoval nextRemoval = const DeviceRemoval();
+
+  /// Call logs (recorded before a scripted failure throws).
+  final List<String> discardedUnsent = [];
+  final List<(String, String)> deletedUnreadable = [];
+  final List<String> droppedRemovals = [];
+
   /// When set, `removeDevice` records the call, then awaits it before
   /// answering.
   Completer<void>? holdRemoveDevice;
@@ -158,6 +187,10 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
           !e.waitingToDecrypt ||
               (e.state == EncryptedMessageState.undecryptable && !e.mine),
           'waitingToDecrypt only for an undecryptable row that is not mine',
+        );
+        assert(
+          e.checkDetail == null || e.checkDetail!.check == e.check,
+          'checkDetail agrees with check',
         );
       }
     }
@@ -322,6 +355,51 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
     _throwIfFailing();
   }
 
+  /// Never throws, as the port promises (CR m2): a scripted failure
+  /// answers `notDecided`.
+  @override
+  Future<UnsentDiscard> discardUnsent(String localId) async {
+    calls.add('discardUnsent');
+    discardedUnsent.add(localId);
+    try {
+      _throwIfFailing();
+    } on Object {
+      return UnsentDiscard.notDecided;
+    }
+    return nextDiscard;
+  }
+
+  /// True only for a ref the scripted thread of [conversationId] lists in
+  /// `unreadableUnsent`; that thread is then emitted without it. Never
+  /// throws, as the port promises (CR m2): a scripted failure answers false.
+  @override
+  Future<bool> deleteUnreadableUnsent(String conversationId, String ref) async {
+    calls.add('deleteUnreadableUnsent');
+    deletedUnreadable.add((conversationId, ref));
+    try {
+      _throwIfFailing();
+    } on Object {
+      return false;
+    }
+    final key = ThreadRef.conversation(conversationId);
+    final t = _threads[key];
+    if (t == null || !t.unreadableUnsent.contains(ref)) return false;
+    setThread(
+      key,
+      EncryptedThread(
+        conversationId: t.conversationId,
+        entries: t.entries,
+        hasMore: t.hasMore,
+        security: t.security,
+        unreadableUnsent: [
+          for (final r in t.unreadableUnsent)
+            if (r != ref) r,
+        ],
+      ),
+    );
+    return true;
+  }
+
   @override
   Future<void> resetConversation(String conversationId) async {
     calls.add('resetConversation');
@@ -387,7 +465,7 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
   }
 
   @override
-  Future<void> removeDevice(String ref) async {
+  Future<DeviceRemoval> removeDevice(String ref) async {
     calls.add('removeDevice');
     if (_own.devices.any((d) => d.ref == ref && d.thisDevice)) {
       throw ArgumentError.value(ref, 'ref', 'is this device');
@@ -395,7 +473,37 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
     removedDevices.add(ref);
     final hold = holdRemoveDevice;
     if (hold != null) await hold.future;
+    try {
+      _throwIfFailing();
+    } on ReauthRequiredException {
+      // As the port (CR m1): REAUTH_REQUIRED parks the removal first.
+      park([ref]);
+      rethrow;
+    }
+    // As the port (CR m1): a removal that went through is no longer parked.
+    _unpark(ref);
+    return nextRemoval;
+  }
+
+  void _unpark(String ref) {
+    if (!parkedRemovals.value.contains(ref)) return;
+    parkedRemovals.value = List.unmodifiable([
+      for (final r in parkedRemovals.value)
+        if (r != ref) r,
+    ]);
+    needsReauth.value = parkedRemovals.value.isNotEmpty;
+  }
+
+  /// StateError for a ref that is not parked (the port's rule).
+  @override
+  Future<void> dropRemoval(String ref) async {
+    calls.add('dropRemoval');
+    droppedRemovals.add(ref);
+    if (!parkedRemovals.value.contains(ref)) {
+      throw StateError('Not a parked removal.');
+    }
     _throwIfFailing();
+    _unpark(ref);
   }
 }
 

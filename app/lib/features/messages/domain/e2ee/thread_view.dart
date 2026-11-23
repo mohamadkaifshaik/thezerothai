@@ -86,27 +86,31 @@ ConversationSecurity securityOf(
 
 /// A stored message row as the port's entry. Gate item 26: the stored check
 /// `badReportKey` (a matching commitment over content whose report key has
-/// the wrong length) is `unverified`, as a real mismatch is; the port has no
-/// field for the detail (recorded for the port-additions PR). Text and
-/// shared post only for a visible row whose check is ok and whose bytes
-/// decode; `canReport` for the peer's visible row whose bytes are here.
+/// the wrong length) is `unverified`, as a real mismatch is, and the port's
+/// `checkDetail` tells the two apart (port additions; owner decision b: the
+/// report sheet's "couldn't confirm" sentence is for a real mismatch only).
+/// A stored name this build does not know is a mismatch (fail closed: the
+/// sentence stays). Text and shared post only for a visible row whose check
+/// is ok and whose bytes decode; `canReport` for the peer's visible row
+/// whose bytes are here.
 DecryptedMessage entryOfStored(StoredMessage row) {
   final state = _stateOf(row.state);
   final visible = state == EncryptedMessageState.visible;
   final content = row.content;
-  var check = switch (row.check) {
-    StoredMessageCheck.ok => MessageCheck.ok,
-    StoredMessageCheck.undecodable => MessageCheck.undecodable,
-    _ => MessageCheck.unverified,
+  var detail = switch (row.check) {
+    StoredMessageCheck.ok => MessageCheckDetail.ok,
+    StoredMessageCheck.undecodable => MessageCheckDetail.undecodable,
+    StoredMessageCheck.badReportKey => MessageCheckDetail.badReportKey,
+    _ => MessageCheckDetail.mismatch,
   };
   var text = '';
   var shared = '';
-  if (visible && check == MessageCheck.ok) {
+  if (visible && detail == MessageCheckDetail.ok) {
     final decoded = content == null
         ? null
         : decodeMessageContentLenient(content);
     if (decoded == null || !decoded.wireOk) {
-      check = MessageCheck.undecodable;
+      detail = MessageCheckDetail.undecodable;
     } else {
       text = decoded.text;
       shared = decoded.sharedPostId;
@@ -117,7 +121,8 @@ DecryptedMessage entryOfStored(StoredMessage row) {
     at: DateTime.fromMicrosecondsSinceEpoch(row.createdAtMicros, isUtc: true),
     mine: row.mine,
     state: state,
-    check: check,
+    check: detail.check,
+    checkDetail: detail,
     text: text,
     sharedPostId: shared,
     canReport: !row.mine && visible && content != null,

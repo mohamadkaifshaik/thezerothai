@@ -351,13 +351,19 @@ extension _Reads on EncryptedMessagingImpl {
     return OwnDeviceList(devices: devices, directoryKnown: known);
   }
 
-  /// R17 (gate item 37): only a ref of the last [ownDevices] answer, never
-  /// this device ([ArgumentError] otherwise), then the removal queue's
+  /// R17 (gate item 37): only a ref of the last [ownDevices] answer or (port
+  /// additions, lane D) a removal parked for a re-sign-in, never this
+  /// device ([ArgumentError] otherwise), then the removal queue's
   /// `removeDevice`: completes when RemoveKeyDevice answered and the queue
-  /// is stored; rethrows its failure (nothing queued then).
-  Future<void> _removeDevice(String ref) async {
+  /// is stored, with the server's `other_sessions_ended`; rethrows its
+  /// failure (nothing queued then). Why a parked ref is accepted without a
+  /// fresh own list: the user asked for that removal already and its intent
+  /// is stored; the runner finishes it with no list check (fix round 2,
+  /// ruling 3), and a screen opened after a restart has its ask to answer.
+  Future<DeviceRemoval> _removeDevice(String ref) async {
     final refs = _ownRefs;
-    if (ref.isEmpty || refs == null || !refs.contains(ref)) {
+    final parked = _pipeline.parkedRemovals.value.contains(ref);
+    if (ref.isEmpty || (!parked && (refs == null || !refs.contains(ref)))) {
       throw ArgumentError('Not a device of the own list.');
     }
     final parts = _pipeline.parts;
@@ -366,7 +372,19 @@ extension _Reads on EncryptedMessagingImpl {
     if (own != null && utf8.decode(own, allowMalformed: true) == ref) {
       throw ArgumentError('This device is removed by signing out.');
     }
-    await parts.runner.removeDevice(ref);
+    return DeviceRemoval(
+      otherSessionsEnded: await parts.runner.removeDevice(ref),
+    );
+  }
+
+  /// Lane D (port additions; gate item 37): the runner's `dropRemoval`,
+  /// which refuses ([StateError]) anything not parked for a re-sign-in and
+  /// a removal whose call is in flight; [StateError] with no ready vault.
+  Future<void> _dropRemoval(String ref) async {
+    final parts = _pipeline.parts;
+    if (parts == null) throw StateError('The vault is not ready.');
+    if (ref.isEmpty) throw StateError('Not a parked removal.');
+    await parts.runner.dropRemoval(ref);
   }
 }
 

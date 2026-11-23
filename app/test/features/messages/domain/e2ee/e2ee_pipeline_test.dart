@@ -245,6 +245,14 @@ void main() {
       expect(devices.directoryKnown, isFalse);
       await expectLater(port.removeDevice('d' * 32), throwsArgumentError);
       expect(port.removalsPending.value, 0);
+      // The port-additions PR (gate items 14, 15, 18, 26, lane D): every
+      // new member answers empty, no-op or refuses, and calls nothing.
+      expect(thread.unreadableUnsent, isEmpty);
+      expect(await port.discardUnsent('local-1'), UnsentDiscard.none);
+      expect(await port.deleteUnreadableUnsent(_c1, 'k' * 32), isFalse);
+      expect(port.needsReauth.value, isFalse);
+      expect(port.parkedRemovals.value, isEmpty);
+      await expectLater(port.dropRemoval('d' * 32), throwsStateError);
       await Future<void>.delayed(Duration.zero);
       await previewSub.cancel();
       expect(previewIds, isEmpty);

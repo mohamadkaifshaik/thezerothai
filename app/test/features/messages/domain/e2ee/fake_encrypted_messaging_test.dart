@@ -597,6 +597,160 @@ void main() {
     expect(fake.calls, containsAllInOrder(['ownDevices', 'removeDevice']));
     fake.dispose();
   });
+
+  group('port additions', () {
+    test(
+      'discardUnsent answers the scripted outcome and logs the id',
+      () async {
+        final fake = FakeEncryptedMessaging();
+        expect(await fake.discardUnsent('u1'), UnsentDiscard.discarded);
+        fake.nextDiscard = UnsentDiscard.held;
+        expect(await fake.discardUnsent('u2'), UnsentDiscard.held);
+        expect(fake.discardedUnsent, ['u1', 'u2']);
+        expect(fake.calls.where((c) => c == 'discardUnsent'), hasLength(2));
+      },
+    );
+
+    test('discardUnsent never throws, as the port promises: a scripted '
+        'failure answers notDecided (CR m2)', () async {
+      final fake = FakeEncryptedMessaging()
+        ..failNextOn('discardUnsent', StateError('x'));
+      expect(await fake.discardUnsent('u1'), UnsentDiscard.notDecided);
+      fake.failNext = const NetworkException('x');
+      expect(await fake.discardUnsent('u2'), UnsentDiscard.notDecided);
+      expect(await fake.discardUnsent('u3'), UnsentDiscard.discarded);
+    });
+
+    test('deleteUnreadableUnsent never throws, as the port promises: a '
+        'scripted failure answers false and keeps the row (CR m2)', () async {
+      final fake = FakeEncryptedMessaging()
+        ..setThread(
+          ref,
+          const EncryptedThread(
+            conversationId: 'c1',
+            security: ready,
+            unreadableUnsent: ['k1'],
+          ),
+        )
+        ..failNextOn('deleteUnreadableUnsent', StateError('x'));
+      expect(await fake.deleteUnreadableUnsent('c1', 'k1'), isFalse);
+      expect(await fake.deleteUnreadableUnsent('c1', 'k1'), isTrue);
+    });
+
+    test('a successful removeDevice of a parked ref unparks it, as the port '
+        'does (CR m1)', () async {
+      final fake = FakeEncryptedMessaging()..park(['a', 'b']);
+      await fake.removeDevice('a');
+      expect(fake.parkedRemovals.value, ['b']);
+      expect(fake.needsReauth.value, isTrue);
+      await fake.removeDevice('b');
+      expect(fake.parkedRemovals.value, isEmpty);
+      expect(fake.needsReauth.value, isFalse);
+    });
+
+    test('a scripted ReauthRequiredException from removeDevice parks the ref '
+        'before it is thrown, as the port does (CR m1)', () async {
+      final fake = FakeEncryptedMessaging()
+        ..failNextOn('removeDevice', const ReauthRequiredException('x'));
+      await expectLater(
+        fake.removeDevice('a'),
+        throwsA(isA<ReauthRequiredException>()),
+      );
+      expect(fake.parkedRemovals.value, ['a']);
+      expect(fake.needsReauth.value, isTrue);
+      // Another scripted failure parks nothing.
+      fake.failNextOn('removeDevice', const NetworkException('x'));
+      await expectLater(
+        fake.removeDevice('b'),
+        throwsA(isA<NetworkException>()),
+      );
+      expect(fake.parkedRemovals.value, ['a']);
+    });
+
+    test('deleteUnreadableUnsent removes a listed ref from the thread and '
+        'answers false for any other', () async {
+      final fake = FakeEncryptedMessaging()
+        ..setThread(
+          ref,
+          const EncryptedThread(
+            conversationId: 'c1',
+            security: ready,
+            unreadableUnsent: ['k1', 'k2'],
+          ),
+        );
+      final seen = <EncryptedThread>[];
+      final sub = fake.watchThread(ref).listen(seen.add);
+      await pumpEventQueue();
+      expect(await fake.deleteUnreadableUnsent('c1', 'nope'), isFalse);
+      expect(await fake.deleteUnreadableUnsent('c2', 'k1'), isFalse);
+      expect(await fake.deleteUnreadableUnsent('c1', 'k1'), isTrue);
+      await pumpEventQueue();
+      expect(seen.last.unreadableUnsent, ['k2']);
+      expect(fake.deletedUnreadable, [
+        ('c1', 'nope'),
+        ('c2', 'k1'),
+        ('c1', 'k1'),
+      ]);
+      await sub.cancel();
+      fake.dispose();
+    });
+
+    test('removeDevice answers the scripted removal', () async {
+      final fake = FakeEncryptedMessaging();
+      expect((await fake.removeDevice('o')).otherSessionsEnded, isNull);
+      fake.nextRemoval = const DeviceRemoval(otherSessionsEnded: true);
+      expect((await fake.removeDevice('o')).otherSessionsEnded, isTrue);
+    });
+
+    test('dropRemoval drops only a parked ref and clears needsReauth with '
+        'the last one; anything else is a StateError', () async {
+      final fake = FakeEncryptedMessaging();
+      expect(fake.needsReauth.value, isFalse);
+      expect(fake.parkedRemovals.value, isEmpty);
+      await expectLater(fake.dropRemoval('a'), throwsStateError);
+      fake.park(['a', 'b']);
+      expect(fake.needsReauth.value, isTrue);
+      await fake.dropRemoval('a');
+      expect(fake.parkedRemovals.value, ['b']);
+      expect(fake.needsReauth.value, isTrue);
+      await fake.dropRemoval('b');
+      expect(fake.parkedRemovals.value, isEmpty);
+      expect(fake.needsReauth.value, isFalse);
+      // A call log: the refused first call is in it too.
+      expect(fake.droppedRemovals, ['a', 'a', 'b']);
+    });
+
+    test('a checkDetail that disagrees with check is refused', () {
+      final fake = FakeEncryptedMessaging();
+      expect(
+        () => fake.setThread(
+          ref,
+          thread0(
+            DecryptedMessage(
+              id: 'm',
+              at: _at,
+              mine: false,
+              check: MessageCheck.ok,
+              checkDetail: MessageCheckDetail.badReportKey,
+            ),
+          ),
+        ),
+        throwsA(isA<AssertionError>()),
+      );
+      fake.setThread(
+        ref,
+        thread0(
+          DecryptedMessage(
+            id: 'm',
+            at: _at,
+            mine: false,
+            check: MessageCheck.unverified,
+            checkDetail: MessageCheckDetail.badReportKey,
+          ),
+        ),
+      );
+    });
+  });
 }
 
 EncryptedThread thread0(DecryptedMessage m) => EncryptedThread(
