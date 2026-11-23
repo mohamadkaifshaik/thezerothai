@@ -1798,6 +1798,31 @@ class RigKeys implements KeysRepository {
     return answer == null ? kpb.ClaimKeyPackagesResponse() : answer();
   }
 
+  /// Every `RemoveKeyDevice` call, in order (a refused one too).
+  final List<({String deviceId, String key})> removeCalls = [];
+
+  /// Thrown by every `RemoveKeyDevice` call while set.
+  Object? removeError;
+
+  /// Runs after a `RemoveKeyDevice` the server carried out, before the
+  /// answer reaches the caller (a crash or a vault change in between).
+  Future<void> Function()? onRemoved;
+
+  /// `RemoveKeyDevice` (Task 11): as the server does, the device leaves the
+  /// own list.
+  @override
+  Future<kpb.RemoveKeyDeviceResponse> removeDevice({
+    required String deviceId,
+    required String idempotencyKey,
+  }) async {
+    removeCalls.add((deviceId: deviceId, key: idempotencyKey));
+    final error = removeError;
+    if (error != null) throw error;
+    own.removeWhere((d) => d.deviceId == deviceId);
+    await onRemoved?.call();
+    return kpb.RemoveKeyDeviceResponse();
+  }
+
   @override
   Future<kpb.ListMyKeyDevicesResponse> listMine() async {
     listCalls++;
@@ -1873,6 +1898,10 @@ class RigCrypto {
   /// The receiver's probe budget (Task 13 builds the real one).
   late SyncBudget readBudget;
   late DeviceDirectory directory;
+
+  /// The [directory]'s own sync budget (a test pauses it to defer the
+  /// directory's list calls only).
+  late SyncBudget directoryBudget;
 
   /// The locks of this app run: a [restart] starts with new ones (memory
   /// starts again; a pass that was in flight holds only the old ones).
@@ -1989,13 +2018,14 @@ class RigCrypto {
       ownDeviceCount: () => 1,
       now: clock.now,
     );
+    rig.directoryBudget = SyncBudget(
+      perMinute: 100000,
+      ownDeviceCount: () => 1,
+      now: clock.now,
+    );
     rig.directory = DeviceDirectory(
       keys: rig.keys,
-      budget: SyncBudget(
-        perMinute: 100000,
-        ownDeviceCount: () => 1,
-        now: clock.now,
-      ),
+      budget: rig.directoryBudget,
       now: clock.now,
     );
     rig.keys.own.add(

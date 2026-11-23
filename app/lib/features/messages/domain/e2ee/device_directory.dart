@@ -319,6 +319,17 @@ class DeviceDirectory {
     _parked.clear();
   }
 
+  /// The last readable own list when it was fetched less than [age] ago;
+  /// else null. No call, nothing taken from the budget (Task 11 fix round
+  /// 4, ruling 6: the removal pass reuses a list this young instead of a
+  /// fresh `ListMyKeyDevices`).
+  DeviceList? ownYoungerThan(Duration age) {
+    final own = _own;
+    final at = own?.fetchedAt;
+    if (own == null || !own.readable || at == null) return null;
+    return _now().difference(at) < age ? own : null;
+  }
+
   // ---------------------------------------------------------------------
 
   DeviceList? _youngOwn() {
