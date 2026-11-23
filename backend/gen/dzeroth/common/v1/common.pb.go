@@ -201,6 +201,14 @@ const (
 	// the removal. Do not retry with the same id: this device must be set up again under a new device id. A client built
 	// before this value sees UNSPECIFIED and falls back to the FAILED_PRECONDITION code mapping.
 	ErrorReason_ERROR_REASON_DEVICE_REMOVED ErrorReason = 25
+	// UNAUTHENTICATED, every RPC: the caller's sign-in (the ID token's auth_time) is older than a "sign out other
+	// devices" cut on the account (KeyService.RemoveKeyDevice with reason REMOTE, FEATURE_DEVICE_SIGN_OUT on for the
+	// remover). No metadata. Refreshing the ID token does not help (a refresh keeps auth_time): the user must sign in
+	// again, after which every RPC works as before. Local data may be kept. Checked before the rate limits, so a refused
+	// call uses up none of them. Another server instance may still accept the old session for up to 60 s after the cut.
+	// A client built before this value sees UNSPECIFIED and falls back to the UNAUTHENTICATED code mapping (sign in
+	// again).
+	ErrorReason_ERROR_REASON_SESSION_ENDED ErrorReason = 26
 )
 
 // Enum value maps for ErrorReason.
@@ -232,6 +240,7 @@ var (
 		23: "ERROR_REASON_STALE_EPOCH",
 		24: "ERROR_REASON_ENCRYPTION_REQUIRED",
 		25: "ERROR_REASON_DEVICE_REMOVED",
+		26: "ERROR_REASON_SESSION_ENDED",
 	}
 	ErrorReason_value = map[string]int32{
 		"ERROR_REASON_UNSPECIFIED":            0,
@@ -260,6 +269,7 @@ var (
 		"ERROR_REASON_STALE_EPOCH":            23,
 		"ERROR_REASON_ENCRYPTION_REQUIRED":    24,
 		"ERROR_REASON_DEVICE_REMOVED":         25,
+		"ERROR_REASON_SESSION_ENDED":          26,
 	}
 )
 
@@ -699,7 +709,7 @@ const file_dzeroth_common_v1_common_proto_rawDesc = "" +
 	"\vHomeTabKind\x12\x1d\n" +
 	"\x19HOME_TAB_KIND_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12HOME_TAB_KIND_LIST\x10\x01\x12\x1b\n" +
-	"\x17HOME_TAB_KIND_COMMUNITY\x10\x02*\xf4\x06\n" +
+	"\x17HOME_TAB_KIND_COMMUNITY\x10\x02*\x94\a\n" +
 	"\vErrorReason\x12\x1c\n" +
 	"\x18ERROR_REASON_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17ERROR_REASON_VALIDATION\x10\x01\x12\x1d\n" +
@@ -727,7 +737,8 @@ const file_dzeroth_common_v1_common_proto_rawDesc = "" +
 	"\x1cERROR_REASON_COMMUNITY_STATE\x10\x16\x12\x1c\n" +
 	"\x18ERROR_REASON_STALE_EPOCH\x10\x17\x12$\n" +
 	" ERROR_REASON_ENCRYPTION_REQUIRED\x10\x18\x12\x1f\n" +
-	"\x1bERROR_REASON_DEVICE_REMOVED\x10\x19BCZAgithub.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1;commonv1b\x06proto3"
+	"\x1bERROR_REASON_DEVICE_REMOVED\x10\x19\x12\x1e\n" +
+	"\x1aERROR_REASON_SESSION_ENDED\x10\x1aBCZAgithub.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1;commonv1b\x06proto3"
 
 var (
 	file_dzeroth_common_v1_common_proto_rawDescOnce sync.Once

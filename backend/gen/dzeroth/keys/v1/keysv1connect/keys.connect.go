@@ -77,6 +77,9 @@
 //   - FAILED_PRECONDITION + REAUTH_REQUIRED (RemoveKeyDevice with reason REMOTE that is not a retry, see RemoveReason):
 //     the ID token's auth_time is older than ACCOUNT_DELETE_REAUTH_MAX_AGE (5 min) or missing; nothing was written. Sign
 //     in again, then retry.
+//   - UNAUTHENTICATED + SESSION_ENDED (every RPC, common.proto): the caller's sign-in is older than the account's
+//     session cut, which a RemoveKeyDevice with reason REMOTE writes when FEATURE_DEVICE_SIGN_OUT is on for the remover.
+//     Sign in again.
 //   - NOT_FOUND: UploadKeyPackages for a device the caller has not registered (RemoveKeyDevice of a missing device is
 //     success, not NOT_FOUND).
 //   - UNAVAILABLE (retry after the hinted delay): possible on any RPC for a real storage failure (contention on a
@@ -174,6 +177,9 @@ type KeyServiceClient interface {
 	// the document exists and lacks it), at most 2 writes, before the pool sweep and the delete above. From that
 	// transaction on the device is skipped by every read and claim (a claim already past its device read can still take
 	// one package, see ClaimKeyPackages), and RegisterKeyDevice and UploadKeyPackages refuse the id with DEVICE_REMOVED.
+	// With FEATURE_DEVICE_SIGN_OUT on for the caller the mark also records the session cut (see REMOVE_REASON_REMOTE),
+	// and before the sweep the server writes the cut on the account (1 read, at most 1 write) and then notes it done on
+	// the mark (1 write). RemoveKeyDeviceResponse.other_sessions_ended says whether the cut was made.
 	RemoveKeyDevice(context.Context, *connect.Request[v1.RemoveKeyDeviceRequest]) (*connect.Response[v1.RemoveKeyDeviceResponse], error)
 	// Add key packages to a registered device's pool and optionally replace its last-resort package. Needs the flag on
 	// for the caller. Naturally idempotent: a key package's document id is derived from its bytes, so a replay stores
@@ -368,6 +374,9 @@ type KeyServiceHandler interface {
 	// the document exists and lacks it), at most 2 writes, before the pool sweep and the delete above. From that
 	// transaction on the device is skipped by every read and claim (a claim already past its device read can still take
 	// one package, see ClaimKeyPackages), and RegisterKeyDevice and UploadKeyPackages refuse the id with DEVICE_REMOVED.
+	// With FEATURE_DEVICE_SIGN_OUT on for the caller the mark also records the session cut (see REMOVE_REASON_REMOTE),
+	// and before the sweep the server writes the cut on the account (1 read, at most 1 write) and then notes it done on
+	// the mark (1 write). RemoveKeyDeviceResponse.other_sessions_ended says whether the cut was made.
 	RemoveKeyDevice(context.Context, *connect.Request[v1.RemoveKeyDeviceRequest]) (*connect.Response[v1.RemoveKeyDeviceResponse], error)
 	// Add key packages to a registered device's pool and optionally replace its last-resort package. Needs the flag on
 	// for the caller. Naturally idempotent: a key package's document id is derived from its bytes, so a replay stores

@@ -79,6 +79,9 @@
 // - FAILED_PRECONDITION + REAUTH_REQUIRED (RemoveKeyDevice with reason REMOTE that is not a retry, see RemoveReason):
 //   the ID token's auth_time is older than ACCOUNT_DELETE_REAUTH_MAX_AGE (5 min) or missing; nothing was written. Sign
 //   in again, then retry.
+// - UNAUTHENTICATED + SESSION_ENDED (every RPC, common.proto): the caller's sign-in is older than the account's
+//   session cut, which a RemoveKeyDevice with reason REMOTE writes when FEATURE_DEVICE_SIGN_OUT is on for the remover.
+//   Sign in again.
 // - NOT_FOUND: UploadKeyPackages for a device the caller has not registered (RemoveKeyDevice of a missing device is
 //   success, not NOT_FOUND).
 // - UNAVAILABLE (retry after the hinted delay): possible on any RPC for a real storage failure (contention on a
@@ -127,6 +130,13 @@ const (
 	// ACCOUNT_DELETE_REAUTH_MAX_AGE, 5 min, or missing; nothing is written) unless this is a retry: the id is already
 	// marked and its device document is gone or already being removed; a retry finishes the removal without one. An id
 	// that was never registered is marked too (the answer does not tell whether the id existed).
+	// With FEATURE_DEVICE_SIGN_OUT (wire name "device_sign_out") on for the caller, a REMOTE removal with a recent sign-in
+	// also ends every session of the account that signed in before the caller did (the cut is the caller's own
+	// auth_time, so the caller's session is kept): such sessions get UNAUTHENTICATED + SESSION_ENDED on every RPC until
+	// they sign in again (another server instance may accept them for up to 60 s). The cut is remembered on the mark, so
+	// a retry without a recent sign-in finishes a cut that failed; a retry never asks for a new cut. A repeated REMOTE
+	// removal of an id marked without a cut (the flag was off then) asks for the cut when the caller signed in recently.
+	// A failure of the cut answers UNAVAILABLE (retry). With the flag off for the caller nothing is cut.
 	RemoveReason_REMOVE_REASON_REMOTE RemoveReason = 2
 )
 
@@ -521,9 +531,14 @@ func (x *RemoveKeyDeviceRequest) GetReason() RemoveReason {
 }
 
 type RemoveKeyDeviceResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// REMOTE only: true when the account's other sessions were ended by this removal (by this call, or by an earlier
+	// attempt of the same removal), so every other device must sign in again (SESSION_ENDED). False: they keep working
+	// (FEATURE_DEVICE_SIGN_OUT was off for the caller); tell the user to sign out on the lost device or change their
+	// password. Always false for SIGN_OUT and UNSPECIFIED.
+	OtherSessionsEnded bool `protobuf:"varint,1,opt,name=other_sessions_ended,json=otherSessionsEnded,proto3" json:"other_sessions_ended,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *RemoveKeyDeviceResponse) Reset() {
@@ -554,6 +569,13 @@ func (x *RemoveKeyDeviceResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use RemoveKeyDeviceResponse.ProtoReflect.Descriptor instead.
 func (*RemoveKeyDeviceResponse) Descriptor() ([]byte, []int) {
 	return file_dzeroth_keys_v1_keys_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *RemoveKeyDeviceResponse) GetOtherSessionsEnded() bool {
+	if x != nil {
+		return x.OtherSessionsEnded
+	}
+	return false
 }
 
 type UploadKeyPackagesRequest struct {
@@ -1061,8 +1083,9 @@ const file_dzeroth_keys_v1_keys_proto_rawDesc = "" +
 	"\x16RemoveKeyDeviceRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x1b\n" +
 	"\tdevice_id\x18\x02 \x01(\tR\bdeviceId\x125\n" +
-	"\x06reason\x18\x03 \x01(\x0e2\x1d.dzeroth.keys.v1.RemoveReasonR\x06reason\"\x19\n" +
-	"\x17RemoveKeyDeviceResponse\"\xba\x01\n" +
+	"\x06reason\x18\x03 \x01(\x0e2\x1d.dzeroth.keys.v1.RemoveReasonR\x06reason\"K\n" +
+	"\x17RemoveKeyDeviceResponse\x120\n" +
+	"\x14other_sessions_ended\x18\x01 \x01(\bR\x12otherSessionsEnded\"\xba\x01\n" +
 	"\x18UploadKeyPackagesRequest\x12'\n" +
 	"\x0fidempotency_key\x18\x01 \x01(\tR\x0eidempotencyKey\x12\x1b\n" +
 	"\tdevice_id\x18\x02 \x01(\tR\bdeviceId\x12!\n" +
