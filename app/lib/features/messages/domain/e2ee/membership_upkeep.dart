@@ -245,10 +245,21 @@ class MembershipUpkeep {
   /// then ONE more pass on the caught-up group (no rebuilt add is sent;
   /// review I1 a). Takes the conversation lock (never call it with the lock
   /// held). Never throws.
+  ///
+  /// [renewLeaf] false (Task 13, gate item 51; Task 9 Deviation 17 / m6):
+  /// step 4's self-update is skipped, so the app-open sweep and every
+  /// background reconcile never renew this device's leaf. Only an open
+  /// (through [selfUpdateIfDue]) and the default renew it.
   Future<void> reconcile(
     String conversationId, {
     BudgetPriority priority = BudgetPriority.background,
-  }) => _reconcileUnheld(conversationId, priority, recheck: false);
+    bool renewLeaf = true,
+  }) => _reconcileUnheld(
+    conversationId,
+    priority,
+    recheck: false,
+    renewLeaf: renewLeaf,
+  );
 
   // Review m-5: no held `reconcileLocked` or `selfUpdateIfDueLocked` entry.
   // Nothing called them, and a held reconcile cannot pull, so it is the

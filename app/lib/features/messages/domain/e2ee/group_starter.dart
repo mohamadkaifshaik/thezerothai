@@ -434,6 +434,14 @@ class GroupStarter {
     _runSerial++;
   }
 
+  /// Plan 5a Task 13 (gate item 20, Task 11 follow-up SA L6): called,
+  /// synchronously and with [conversationId]'s lock held, when this class
+  /// settled this device's own reset (the server stored it). A removal
+  /// queued while the reset was provisional waited for it (the runner's
+  /// provisional wait arms no timer), so the pipeline starts a removal
+  /// pass then. It must not wait for anything.
+  void Function(String conversationId)? onResetSettled;
+
   /// [id]'s provisional reset is gone (settled or discarded, here or by the
   /// join path, audit L6): what this run remembered for it goes.
   void _forgetReset(String id) {

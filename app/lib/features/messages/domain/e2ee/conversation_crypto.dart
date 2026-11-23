@@ -49,6 +49,10 @@ const String kVaultSettingWelcomeSkew = 'messages.e2ee.welcomeSkew';
 /// permanent (security read L1, owner-approved).
 const int kWelcomeSkewRetries = 3;
 
+/// The most welcome ids the clock-skew counters hold (Task 13, gate item
+/// 13): a full map drops its oldest counter for a new id.
+const int kWelcomeSkewEntriesMax = 256;
+
 /// The most ids one `AckWelcomes` call carries (the contract's 1-50).
 const int kAckWelcomesMaxIds = 50;
 
