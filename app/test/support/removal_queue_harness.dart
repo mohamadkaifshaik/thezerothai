@@ -43,6 +43,7 @@ RemovalQueueRunner build() => RemovalQueueRunner(
   contexts: rig.contexts,
   now: rig.clock.now,
   removedElsewhere: () => rig.removedElsewhere,
+  removedDefinitely: () => rig.removedDefinitely ?? rig.removedElsewhere,
   schedule: (delay, run) {
     final entry = RigScheduled(delay, run);
     runnerScheduled.add(entry);

@@ -119,6 +119,26 @@ void main() {
     expect(await runner.wasRemovedByUser(sibling.id), isFalse);
   });
 
+  test('an unknown fact (an unreadable marker) stops the pipeline but still '
+      'lets the user remove a lost device (final round 5, SA L8)', () async {
+    final sibling = await RigPeer.create('sibling');
+    await setUpRig(ownListed: [sibling]);
+    await join(_c1, others: [sibling]);
+    await synced();
+    // stopsPipeline is true; the definite fact (a DEVICE_REMOVED answer)
+    // is not.
+    rig.removedElsewhere = true;
+    rig.removedDefinitely = false;
+
+    await runner.removeDevice(sibling.idString);
+    await runner.idle();
+
+    expect(rig.keys.removeCalls.single.deviceId, sibling.idString);
+    expect(await runner.wasRemovedByUser(sibling.id), isTrue);
+    // The queued commit still waits for the pipeline.
+    expect(requests(), isEmpty);
+  });
+
   group('REAUTH_REQUIRED (brief amendment 3)', () {
     test('a new removal answered REAUTH_REQUIRED parks its intent, never '
         'drops it, and asks for a re-sign-in; after it the same call '

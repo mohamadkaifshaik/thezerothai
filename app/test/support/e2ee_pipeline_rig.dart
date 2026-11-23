@@ -1983,8 +1983,13 @@ class RigCrypto {
   /// run by the rig; a test runs an entry itself.
   final List<RigScheduled> commitScheduled = [];
 
-  /// Task 12's "removed elsewhere" fact, as the sender reads it.
+  /// Task 12's "removed elsewhere" fact, as the sender reads it (the
+  /// pipeline's `stopsPipeline`).
   bool removedElsewhere = false;
+
+  /// The definite fact (a DEVICE_REMOVED answer), as the removal queue's
+  /// user removal reads it (final round 5, SA L8); null: [removedElsewhere].
+  bool? removedDefinitely;
 
   /// The engine every component of this rig is handed instead of the
   /// device's (a guarded engine that answers `unavailable`, say); null: the

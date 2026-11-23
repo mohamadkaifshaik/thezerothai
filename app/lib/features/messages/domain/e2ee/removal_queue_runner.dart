@@ -185,6 +185,7 @@ class RemovalQueueRunner {
     required ConversationContexts contexts,
     required DateTime Function() now,
     required bool Function() removedElsewhere,
+    required bool Function() removedDefinitely,
     void Function() Function(Duration delay, void Function() run)? schedule,
     void Function(Object error, StackTrace stack)? onUnexpectedError,
   }) : _keys = keys,
@@ -198,6 +199,7 @@ class RemovalQueueRunner {
        _contexts = contexts,
        _now = now,
        _removedElsewhere = removedElsewhere,
+       _removedDefinitely = removedDefinitely,
        _schedule = schedule ?? ((delay, run) => Timer(delay, run).cancel),
        _onUnexpectedError = onUnexpectedError {
     upkeep
@@ -216,7 +218,13 @@ class RemovalQueueRunner {
   final ConversationLocks _locks;
   final ConversationContexts _contexts;
   final DateTime Function() _now;
+
+  /// Task 13 passes `DeviceKeysService.stopsPipeline` here (passes, commits)
+  /// and `.removedElsewhere` (definite) to [_removedDefinitely], the user
+  /// removal's gate (final round 5, SA L8: an unreadable marker must not
+  /// stop the user removing a lost device).
   final bool Function() _removedElsewhere;
+  final bool Function() _removedDefinitely;
   final void Function() Function(Duration delay, void Function() run) _schedule;
   final void Function(Object error, StackTrace stack)? _onUnexpectedError;
 
@@ -429,7 +437,7 @@ class RemovalQueueRunner {
     // Fix wave 2 (SA M2): a device the account removed elsewhere removes no
     // other device: no own-list read, no RemoveKeyDevice, no intent stored
     // (a stored one would go out once the fact clears).
-    if (_removedElsewhere()) {
+    if (_removedDefinitely()) {
       throw StateError('This device was removed elsewhere.');
     }
     if (deviceId.isEmpty) throw ArgumentError.value('', 'deviceId');
