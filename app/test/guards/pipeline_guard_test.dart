@@ -25,9 +25,10 @@ const String _pipelineDir = pipelineDir;
 
 /// What pipeline code may not import: the plaintext cache and outbox, the
 /// drift storage layer and drift, any other place that can persist or send
-/// (files, preferences, browser storage, secure storage, the raw network
-/// client and the generated Connect clients). The pipeline talks to the
-/// server only through MessagingRepository / KeysRepository.
+/// (files, preferences, browser storage and JS interop, secure storage, local
+/// databases, HTTP clients, the raw network client and the generated Connect
+/// clients). The pipeline talks to the server only through
+/// MessagingRepository / KeysRepository.
 bool _forbiddenPipelineImport(String t) =>
     t.endsWith('/messaging_store.dart') ||
     t.endsWith('/message_outbox.dart') ||
@@ -35,10 +36,17 @@ bool _forbiddenPipelineImport(String t) =>
     t.startsWith('package:drift') ||
     t == 'dart:io' ||
     t == 'dart:html' ||
+    t.startsWith('dart:js') || // dart:js, dart:js_util, dart:js_interop...
     t.startsWith('package:web/') ||
+    t.startsWith('package:universal_html') ||
     t.startsWith('package:shared_preferences') ||
     t.startsWith('package:path_provider') ||
     t.startsWith('package:flutter_secure_storage') ||
+    t.startsWith('package:hive') || // hive, hive_flutter, hive_ce
+    t.startsWith('package:sqflite') ||
+    t.startsWith('package:sqlite3') ||
+    t.startsWith('package:http/') ||
+    t.startsWith('package:dio') ||
     t == 'lib/core/network/api_client.dart' ||
     t.endsWith('.connect.client.dart');
 
@@ -205,6 +213,57 @@ List<String> _doorImportViolations(String path, String source) => [
       if (_doorLibraries.any((d) => t == '$_pipelineDir$d')) t,
 ];
 
+/// `export` of a door library from anywhere in lib/, the pipeline included
+/// (SA R6): a re-export would let a file outside import a door through it.
+List<String> _doorExportViolations(String path, String source) {
+  final exports = RegExp(r'\bexport\s[^;]*;')
+      .allMatches(stripSource(source, keepStrings: true))
+      .map((m) => m.group(0)!)
+      .join('\n');
+  return [
+    for (final t in importTargets(path, exports))
+      if (_doorLibraries.any((d) => t == '$_pipelineDir$d')) t,
+  ];
+}
+
+/// The removal entry points every other pipeline function goes through.
+const Set<String> _removalRoots = {'change', 'changeLocked'};
+
+/// Every public pipeline function that reaches [_removalRoots] (directly or
+/// through another pipeline function, on any receiver), by file (SA R6). A
+/// new one fails until it is reviewed and pinned here.
+const Map<String, List<String>> _removalReachers = {
+  // The membership upkeep (plan; #1082 moved reconcile into a part): an
+  // acceptance and the reconcile pass commit the decided removals.
+  'lib/features/messages/domain/e2ee/membership_upkeep.dart': [
+    'acceptForReply',
+    'acceptForReplyLocked',
+    'noteAcceptedSeen',
+    'onAccepted',
+    'reconcile',
+  ],
+  // The removal queue runner (plan; #1095 part): the user's own removal and
+  // the pass its triggers start.
+  'lib/features/messages/domain/e2ee/removal_queue_runner.dart': [
+    'noteConversation',
+    'onAccepted',
+    'onAppResumed',
+    'onVaultReady',
+    'removeDevice',
+    'runPass',
+  ],
+};
+
+/// The public names among [functionsReaching] over the pipeline.
+Map<String, List<String>> _publicRemovalReachers(Map<String, String> files) => {
+  for (final e in functionsReaching(files, _removalRoots).entries)
+    if (e.value.any((n) => !n.startsWith('_')))
+      e.key: [
+        for (final n in e.value)
+          if (!n.startsWith('_')) n,
+      ],
+};
+
 // ---------------------------------------------------------------------------
 // Errors and reports (Task 15 fix round, ruling 3: the positive rule).
 
@@ -228,10 +287,18 @@ const Map<String, List<String>> _interpolatedErrorExempt = {
 /// Error constructor arguments that are not fixed text but are allowed, by
 /// file (exact source fragments; each with why).
 const Map<String, List<String>> _errorArgumentExempt = {
-  // #1083 (reset): the refusal carries the typed AppException the repository
-  // threw (its kind decides the copy); no id, key or content is added.
   'lib/features/messages/domain/e2ee/group_starter_reset.dart': [
-    'E2eeActionException(E2eeRefusal.unavailable, cause: e)',
+    // #1083 (reset): the refusal carries the typed AppException the
+    // repository threw (its kind decides the copy); no id, key or content.
+    'throw E2eeActionException(E2eeRefusal.unavailable, cause: e)',
+    // #1083: the run's own E2eeActionException (a typed refusal built from
+    // the fixed E2eeRefusal values above), thrown again to the caller.
+    'throw refusal',
+  ],
+  // #1074 (receive walks): `pending()` notes the catch-up pair in memory and
+  // returns `const _WalkPending()`, a field-less control-flow signal.
+  'lib/features/messages/domain/e2ee/message_receiver_sink.dart': [
+    'throw pending()',
   ],
 };
 
@@ -274,21 +341,12 @@ const Map<String, List<String>> _pinnedReportAliases = {
 
 const Set<String> _callbackNames = {'onUnexpectedError', '_onUnexpectedError'};
 
-/// What a `_report...(` helper call may pass besides a step literal: the
-/// caught error and stack it was handed (the helper reports only
-/// `E2eePipelineError(step)`; the sink rule checks that).
-const Set<String> _caughtNames = {
-  'e',
-  'err',
-  'error',
-  's',
-  'st',
-  'stack',
-  'stackTrace',
-  'StackTrace.current',
-  'stack ?? StackTrace.current',
-};
+/// What a `_report...(` helper call may pass where the helper takes the
+/// caught error (an `Object` parameter). The helper reports only
+/// `E2eePipelineError(step)`; the sink rule checks that.
+const Set<String> _errorNames = {'e', 'err', 'error'};
 
+/// What a report call may pass where it takes a stack (a `StackTrace`).
 const Set<String> _stackNames = {
   's',
   'st',
@@ -298,9 +356,33 @@ const Set<String> _stackNames = {
   'stack ?? StackTrace.current',
 };
 
-final RegExp _privateReporter = RegExp(
-  r'(?<![\w$.])(?:this\s*\.\s*)?_report\w*\s*\(',
-);
+/// The parameter kinds of every `_report...` helper declared in [sources],
+/// by name, each signature as declared ('step' for a String, 'stack' for a
+/// StackTrace, 'error' for an Object, else 'other'). A name declared twice
+/// lists each signature (the guard requires one).
+Map<String, Set<String>> _reporterSignatures(Iterable<String> sources) {
+  final out = <String, Set<String>>{};
+  for (final s in sources) {
+    final code = stripSource(s, keepStrings: false);
+    for (final m in RegExp(
+      r'\b(?:void|Future<void>|bool)\s+(_report\w*)\s*\(([^)]*)\)',
+    ).allMatches(code)) {
+      final kinds = [
+        for (final p
+            in m.group(2)!.replaceAll(RegExp(r'[\[\]{}]'), '').split(','))
+          if (p.trim().isNotEmpty)
+            switch (p.trim().split(RegExp(r'\s+')).first.replaceAll('?', '')) {
+              'String' => 'step',
+              'StackTrace' => 'stack',
+              'Object' || 'dynamic' => 'error',
+              _ => 'other',
+            },
+      ];
+      (out[m.group(1)!] ??= {}).add(kinds.join(','));
+    }
+  }
+  return out;
+}
 
 /// Any `report...Error(` call, also on a receiver (`_pipeline.reportPortError(`).
 final RegExp _reportErrorCall = RegExp(r'(?<![\w$])report\w*Error\s*\(');
@@ -310,12 +392,60 @@ final RegExp _reportErrorCall = RegExp(r'(?<![\w$])report\w*Error\s*\(');
 /// forwarder's callers are checked like any other report call. Empty today.
 const Map<String, List<String>> _pinnedReportForwards = {};
 
-/// Report calls in [source] that pass something other than a step name and
-/// the caught error / stack.
-List<String> _reportCallViolations(String source) => [
-  for (final args in callArguments(source, _privateReporter))
-    for (final a in args)
-      if (!stepLiteral.hasMatch(a) && !_caughtNames.contains(a)) '_report*($a)',
+/// Report calls in [source] that pass anything but, position by position,
+/// what the helper's declaration takes there (SA R2): a step literal for a
+/// String, the caught error for an Object, the stack for a StackTrace. A
+/// helper call on any receiver counts (`this._report(`, `_p._report(`, SA
+/// R1); a helper with no known declaration takes step literals only.
+/// [signatures] defaults to the helpers declared in [source].
+List<String> _reportCallViolations(
+  String source, [
+  Map<String, Set<String>>? signatures,
+]) {
+  final sigs = signatures ?? _reporterSignatures([source]);
+  final bad = <String>[];
+  void check(List<String> args, List<String> kinds) {
+    for (var k = 0; k < args.length; k++) {
+      final a = args[k];
+      final ok = switch (k < kinds.length ? kinds[k] : 'none') {
+        'step' => stepLiteral.hasMatch(a),
+        'error' => _errorNames.contains(a),
+        'stack' => _stackNames.contains(a),
+        _ => false,
+      };
+      if (!ok) bad.add('_report*($a)');
+    }
+  }
+
+  for (final e in sigs.entries) {
+    final kinds = e.value.length == 1
+        ? e.value.single.split(',')
+        : const <String>[];
+    for (final args in callArguments(
+      source,
+      RegExp(r'(?<![\w$])' + RegExp.escape(e.key) + r'\s*\('),
+    )) {
+      check(args, kinds);
+    }
+  }
+  final known = sigs.keys.map(RegExp.escape).join('|');
+  for (final args in callArguments(
+    source,
+    RegExp(
+      r'(?<![\w$])' +
+          (known.isEmpty ? '' : r'(?!(?:' + known + r')\s*\()') +
+          r'_report\w*\s*\(',
+    ),
+  )) {
+    check(args, [for (final _ in args) 'step']);
+  }
+  bad.addAll(_reportErrorCallViolations(source));
+  return bad;
+}
+
+/// `report...Error(` calls in [source] that pass anything but a step literal
+/// or `E2eePipelineError('<literal>')`, then stack names.
+List<String> _reportErrorCallViolations(String source) => [
   for (final args in callArguments(source, _reportErrorCall))
     for (var k = 0; k < args.length; k++)
       if (k == 0
@@ -398,10 +528,30 @@ final RegExp _freezedOptOut = RegExp(
 /// Freezed annotations in [source] that keep the generated toString.
 List<String> _freezedWithToString(String source) => [
   for (final m in RegExp(
-    r'@(?:freezed|Freezed\s*\([^)]*\))',
+    r'@(?:(?:freezed|unfreezed)(?![\w$])|Freezed\s*\([^)]*\))',
   ).allMatches(stripSource(source, keepStrings: true)))
     if (!_freezedOptOut.hasMatch(m.group(0)!)) m.group(0)!,
 ];
+
+/// The writes of a preview field (`snippet`, `lastMessage`) under
+/// lib/features/messages/, whatever the file imports (SA R3), by file.
+/// Filled from the tree; each with why.
+const Map<String, List<String>> _pinnedPbNameMutations = {
+  // The encrypted marker: the preview copy gets `encrypted` and an EMPTY
+  // snippet (#1071); never filled.
+  'lib/features/messages/data/messaging_repository.dart': [
+    '..lastMessage =',
+    '..snippet =',
+  ],
+  'lib/features/messages/data/messaging_store.dart': [
+    // The cache merge keeps the server's own cached preview when a page has
+    // none (a copy of a server row, no decrypted text).
+    '.lastMessage =',
+    // The same encrypted marker on read (#1071).
+    '..lastMessage =',
+    '..snippet =',
+  ],
+};
 
 final RegExp _blocObserver = RegExp(
   r'(?<![\w$])BlocObserver\b|(?<![\w$])Bloc\s*\.\s*observer\b',
@@ -517,6 +667,16 @@ void main() {
         "import '../../../../core/network/api_client.dart';",
         "import '../../../../gen/dzeroth/messaging/v1/"
             "messaging.connect.client.dart';",
+        // SA R4.
+        "import 'package:http/http.dart' as http;",
+        "import 'package:dio/dio.dart';",
+        "import 'dart:js_interop';",
+        "import 'dart:js_util';",
+        "import 'package:universal_html/html.dart';",
+        "import 'package:hive/hive.dart';",
+        "import 'package:hive_flutter/hive_flutter.dart';",
+        "import 'package:sqflite/sqflite.dart';",
+        "import 'package:sqlite3/sqlite3.dart';",
       ]) {
         expect(_pipelineImportViolations(p, src), isNotEmpty, reason: src);
       }
@@ -560,6 +720,13 @@ void main() {
         'void f(MessagingRepository? m) {}',
         'MessagingRepository get repository => _messaging;',
         'final r = _p._messaging;',
+        // SA R1 / code Nit 4: `!`, `as`, `??` and getter aliases.
+        'final r = _pipeline.messaging!;',
+        'final r = _p._messaging as MessagingRepository;',
+        'final r = other ?? _messaging;',
+        'final r = _messaging ?? other;',
+        'get repo => _messaging;',
+        'Object get repo => _p.messaging;',
       ]) {
         expect(_repositoryViolations(bad, forbidden), isNotEmpty, reason: bad);
       }
@@ -712,10 +879,20 @@ class Other { void notAMember() {} }
             e.key: functionsDeclaring(e.value, 'removeDeviceIds'),
       };
       expect(found, _removalMethods);
+      expect(
+        _publicRemovalReachers(_pipelineFiles()),
+        _removalReachers,
+        reason:
+            'Every public pipeline function that reaches change / '
+            'changeLocked is pinned; a new one is reviewed first.',
+      );
       final bad = <String>[
-        for (final e in _handWrittenLib().entries)
+        for (final e in _handWrittenLib().entries) ...[
           for (final t in _doorImportViolations(e.key, e.value))
             '${e.key} imports $t',
+          for (final t in _doorExportViolations(e.key, e.value))
+            '${e.key} exports $t',
+        ],
       ];
       expect(bad, isEmpty, reason: bad.join('\n'));
     });
@@ -782,6 +959,53 @@ class Other { void notAMember() {} }
         ),
         isEmpty,
       );
+      // SA R6: a door is exported nowhere, the pipeline included.
+      expect(
+        _doorExportViolations(
+          'lib/features/messages/domain/e2ee/e2ee.dart',
+          "export 'commit_runner.dart' show CommitRunner;",
+        ),
+        isNotEmpty,
+      );
+      expect(
+        _doorExportViolations(
+          'lib/features/messages/domain/e2ee/x.dart',
+          "import 'commit_runner.dart';\nexport 'e2ee_types.dart';",
+        ),
+        isEmpty,
+      );
+      // SA R6: whatever its parameter is called, a function reaching change
+      // (directly, through another function, on any receiver) is listed.
+      final reach = functionsReaching({
+        'a.dart':
+            'class Runner {\n'
+            '  Future<void> change(String id, {List<int> removeDeviceIds = '
+            'const []}) async {}\n'
+            '  Future<void> changeLocked(String id) async {}\n'
+            '}\n',
+        'b.dart':
+            'class Upkeep {\n'
+            '  Future<void> dropAll(List<int> gone) => '
+            '_runner.change(id, removeDeviceIds: gone);\n'
+            '  Future<void> _inner(List<int> x) async {\n'
+            '    await _r.changeLocked(id);\n  }\n'
+            '  Future<void> sweep() async { await _inner(const []); }\n'
+            '  void unrelated() { exchange(1); onChange(); }\n'
+            '}\n',
+        // A part of b.dart reaches through b's private helper; c.dart's
+        // `_inner` is another library's name.
+        'b_part.dart':
+            "part of 'b.dart';\n"
+            'extension on Upkeep { Future<void> viaPart() => _inner(x); }\n',
+        'c.dart':
+            'Future<void> outer() async => upkeep.sweep();\n'
+            'Future<void> other() async => _inner(1);\n'
+            'T apply<T>(T Function(T) change, T x) => change(x);\n',
+      }, _removalRoots);
+      expect(reach, {
+        'b.dart': ['_inner', 'dropAll', 'sweep'],
+        'b_part.dart': ['viaPart'],
+      });
     });
   });
 
@@ -860,6 +1084,15 @@ class Other { void notAMember() {} }
       final forwards = <String, List<String>>{};
       final aliases = <String, List<String>>{};
       final reports = <String, List<String>>{};
+      final signatures = _reporterSignatures(_pipelineFiles().values);
+      expect(signatures, isNotEmpty);
+      for (final s in signatures.entries) {
+        expect(
+          s.value,
+          hasLength(1),
+          reason: '${s.key} is declared with different parameters',
+        );
+      }
       for (final e in _pipelineFiles().entries) {
         for (final v in sinkArgumentViolations(e.value)) {
           sinks.add('${e.key}: $v');
@@ -868,7 +1101,7 @@ class Other { void notAMember() {} }
         if (f.isNotEmpty) forwards[e.key] = f;
         final a = aliasAssignments(e.value, _callbackNames);
         if (a.isNotEmpty) aliases[e.key] = a;
-        final r = _reportCallViolations(e.value);
+        final r = _reportCallViolations(e.value, signatures);
         if (r.isNotEmpty) reports[e.key] = r;
       }
       expect(sinks, isEmpty, reason: sinks.join('\n'));
@@ -993,8 +1226,34 @@ class Other { void notAMember() {} }
         'throw Error(conversationId);',
         "throw FormatException('bad', bytes);",
         "throw StateError(message: deviceId);",
+        // Code Nit 2: only a real constructor declaration is skipped.
+        'throw StateError(this.conversationId);',
+        "throw ArgumentError.value({'id': id});",
+        'throw ArgumentError([conversationId]);',
+        'final e = StateError(String id);',
+        // SA R7 / code Nit 1: a static field is not an enum value.
+        'throw ArgumentError(Uri.base);',
+        'throw StateError(Limits.maxText);',
+        // SA R7: what is thrown or forwarded.
+        'throw e;',
+        'throw refusal;',
+        'throw pending();',
+        "throw 'lost';",
+        'throw _Stopped(conversationId);',
+        'throw const _Stopped(id);',
+        'completer.completeError(e, s);',
+        'w.completeError(StateError(id));',
+        "w.completeError(StateError('x'), deviceId);",
+        'controller.addError(err);',
+        'return Future.error(error);',
+        "return Future<void>.error(StateError('x' + id));",
+        'return Future<bool>.error(Wrapped(row.text));',
       ]) {
-        expect(errorArgumentViolations(bad), isNotEmpty, reason: bad);
+        expect(
+          errorArgumentViolations(bad, enumNames: const {'E2eeRefusal'}),
+          isNotEmpty,
+          reason: bad,
+        );
       }
       for (final ok in [
         "throw StateError('no row');",
@@ -1003,20 +1262,46 @@ class Other { void notAMember() {} }
         "throw RangeError.range(1, 0, 32);",
         "throw const NetworkException('timed out');",
         "throw StateError(r'raw');",
-        'const FooError(this.step);',
-        'FooException({required this.code, this.detail});',
-        'BarError(String step) : super(step);',
+        'class FooError { const FooError(this.step); final String step; }',
+        'class FooException {\n  @literal\n'
+            '  FooException({required this.code, this.detail});\n}',
+        'class BarError extends Error { BarError(String step) : super(step); }',
+        'class B2Error { factory B2Error.of(String s) => const B2Error(); '
+            'const B2Error(); }',
         "throw const E2eePipelineError('x');",
         'throw const E2eeActionException(E2eeRefusal.unavailable);',
         'Error.throwWithStackTrace(failure, failureStack!);',
         'RateLimitedException(:final retryAfter) => retryAfter,',
+        'case RateLimitedException(retryAfter: final r):',
+        'rethrow;',
+        'throw const _Stopped();',
+        'x ?? (throw const _Malformed());',
+        'w.completeError(const BudgetPaused());',
+        "w.completeError(StateError('The budget was reset.'));",
+        "w.completeError(StateError('x'), StackTrace.current);",
+        "return Future<bool>.error(StateError('not ready'));",
+        'void addError(Object error, [StackTrace? s]) {}',
       ]) {
-        expect(errorArgumentViolations(ok), isEmpty, reason: ok);
+        expect(
+          errorArgumentViolations(ok, enumNames: const {'E2eeRefusal'}),
+          isEmpty,
+          reason: ok,
+        );
       }
-      // A constant is allowed only by name.
+      // A constant is allowed only by name; an enum value only of an enum
+      // declared in lib/ (the default reads lib/).
       const limit = "throw const RateLimitedException('x', limitName: kLimit);";
       expect(errorArgumentViolations(limit), isNotEmpty);
       expect(errorArgumentViolations(limit, allowedNames: {'kLimit'}), isEmpty);
+      expect(declaredEnums(), contains('E2eeRefusal'));
+      expect(declaredEnums(), isNot(contains('Uri')));
+      expect(
+        errorArgumentViolations(
+          'throw const E2eeActionException(E2eeRefusal.unavailable);',
+          enumNames: const {},
+        ),
+        isNotEmpty,
+      );
     });
 
     test('self-test: the callback, forwards, aliases and report helpers', () {
@@ -1024,6 +1309,10 @@ class Other { void notAMember() {} }
         '_onUnexpectedError?.call(e, s);',
         'onUnexpectedError(error, stack);',
         '_onUnexpectedError!.call(StateError(id), s);',
+        // SA R1: on a receiver.
+        '_p._onUnexpectedError?.call(e, s);',
+        'this._onUnexpectedError(error, s);',
+        'widget.onUnexpectedError?.call(StateError(id), s);',
       ]) {
         expect(sinkArgumentViolations(bad), isNotEmpty, reason: bad);
       }
@@ -1046,10 +1335,16 @@ class Other { void notAMember() {} }
         aliasAssignments(
           'final report = _p._onUnexpectedError; '
           '_onUnexpectedError = onUnexpectedError, '
-          'final cb = onUnexpectedError;',
+          'final cb = onUnexpectedError; '
+          'get _g => _onUnexpectedError; '
+          'final b = _p._onUnexpectedError!; '
+          'final c = onUnexpectedError as Reporter; '
+          'final d = x ?? _onUnexpectedError; '
+          'final f = (_onUnexpectedError ?? fallback); '
+          'final same = a == onUnexpectedError;',
           _callbackNames,
         ),
-        ['report', 'cb'],
+        ['report', 'cb', '_g', 'b', 'c', 'd', 'f'],
       );
       expect(
         _aliasMisuse(
@@ -1066,6 +1361,19 @@ class Other { void notAMember() {} }
         ),
         isNotEmpty,
       );
+      // The helpers as the pipeline declares them.
+      final sigs = _reporterSignatures([
+        'void _reportIfBug(Object e, StackTrace s, String step) {}',
+        'void _reportBug(String step) => x;',
+        'void _reportOnce(String step, [StackTrace? stack]) {}',
+        'void _report(String step, StackTrace stack) => x;',
+      ]);
+      expect(sigs, {
+        '_reportIfBug': {'error,stack,step'},
+        '_reportBug': {'step'},
+        '_reportOnce': {'step,stack'},
+        '_report': {'step,stack'},
+      });
       for (final bad in [
         '_reportIfBug(e, s, row.localId);',
         "_reportOnce('a' + id);",
@@ -1077,12 +1385,24 @@ class Other { void notAMember() {} }
         "reportPortError(const E2eePipelineError('a'), deviceId);",
         '_pipeline.reportPortError(conversationId, s);',
         'void reportPortError(String step, StackTrace s) => _report(step, s);',
+        // SA R2 / code Nit 3: a caught name in the step position.
+        "_reportIfBug('commit.x', s, e);",
+        '_reportBug(e);',
+        '_reportOnce(error, s);',
+        "_reportIfBug(e, e, 'commit.x');",
+        "_reportIfBug(s, s, 'commit.x');",
+        "_reportBug('a', s);", // more arguments than declared
+        // SA R1: on a receiver.
+        '_p._report(conversationId, s);',
+        'this._reportOnce(e);',
+        "_unknownReporter('a'); _reportNew(e, s);",
       ]) {
-        expect(_reportCallViolations(bad), isNotEmpty, reason: bad);
+        expect(_reportCallViolations(bad, sigs), isNotEmpty, reason: bad);
       }
       expect(
         _reportCallViolations(
           'void reportPortError(String step, StackTrace s) => _report(step, s);',
+          sigs,
         ),
         ['_report*(step)'],
       );
@@ -1090,22 +1410,26 @@ class Other { void notAMember() {} }
         "_reportIfBug(e, s, 'commit.mayCommit');",
         "_reportBug('commit.random');",
         "_reportOnce('send.outbox.unreadable', stack);",
+        "_reportOnce('send.outbox.unreadable');",
+        "_p._report('port.send', s);",
         'void _reportIfBug(Object e, StackTrace s, String step) {}',
         "reportPortError(const E2eePipelineError('port.send'), s);",
         "_pipeline.reportPortError('port.send', s);",
+        "_reportNew('a.b');",
       ]) {
-        expect(_reportCallViolations(ok), isEmpty, reason: ok);
+        expect(_reportCallViolations(ok, sigs), isEmpty, reason: ok);
       }
       // The coordinator's literal check sees ternary, ?? and this. calls.
       expect(
         firstArguments(
           "await _step('drain', f); x ? _step(name, f) : null;\n"
               'y ?? this._step(other, f);\n'
+              '_p._step(third, f);\n'
               'Future<void> _step(String name, F step) => '
               '_value<void>(name, step, null);',
           '_step',
         ),
-        ["'drain'", 'name', 'other'],
+        ["'drain'", 'name', 'other', 'third'],
       );
       expect(
         firstArguments(
@@ -1214,6 +1538,7 @@ class Other { void notAMember() {} }
         '@Freezed()\nabstract class S {}',
         '@Freezed(copyWith: false)\nabstract class S {}',
         '@Freezed(toStringOverride: true)\nabstract class S {}',
+        '@unfreezed\nabstract class S {}', // SA R5
       ]) {
         expect(_freezedWithToString(bad), isNotEmpty, reason: bad);
       }
@@ -1280,6 +1605,64 @@ class Other { void notAMember() {} }
             'Decrypted text must never be written into a messaging proto '
             '(it would reach the cache or a request).',
       );
+    });
+
+    test('no file under lib/features/messages writes a preview field '
+        '(snippet, lastMessage), whatever it imports, but the pinned ones', () {
+      final found = <String, List<String>>{
+        for (final e in _handWrittenLib().entries)
+          if (e.key.startsWith('lib/features/messages/') &&
+              pbNameMutations(e.value).isNotEmpty)
+            e.key: pbNameMutations(e.value),
+      };
+      expect(found, _pinnedPbNameMutations);
+    });
+
+    test('no record typedef in the pipeline has a field named like content, '
+        'an id or a key (a record prints every field)', () {
+      final bad = <String>[
+        for (final e in _pipelineFiles().entries)
+          for (final f in recordFieldViolations(e.value)) '${e.key}: $f',
+      ];
+      expect(bad, isEmpty, reason: bad.join('\n'));
+    });
+
+    test('self-test: preview writes without the import and text-named record '
+        'fields are flagged', () {
+      for (final bad in [
+        'row.lastMessage.deepCopy()..snippet = decrypted;',
+        'c.lastMessage = preview;',
+        'c..lastMessage = p;',
+        'p.snippet = hit.text;',
+        'Preview(snippet: hit.text);',
+      ]) {
+        expect(pbNameMutations(bad), isNotEmpty, reason: bad);
+      }
+      for (final ok in [
+        "Preview(snippet: '');",
+        '// p.snippet = x;',
+        'final same = p.snippet == other;',
+        'final s = p.lastMessage.snippet;',
+      ]) {
+        expect(pbNameMutations(ok), isEmpty, reason: ok);
+      }
+      for (final bad in [
+        'typedef _Row = ({String text, int at});',
+        'typedef _Pair = (Uint8List plaintext, int n);',
+        'typedef F = Future<({String conversationId})?> Function(int a);',
+        'typedef _K = ({Uint8List reportKey});',
+      ]) {
+        expect(recordFieldViolations(bad), isNotEmpty, reason: bad);
+      }
+      for (final ok in [
+        'typedef _Fail = ({_FailKind kind, int stamp});',
+        'typedef _TokenSave = ({String token, String expect});',
+        'typedef F = void Function(GroupState state, String text);',
+        'typedef _Op = PipelineOp;',
+        '// typedef _Row = ({String text});',
+      ]) {
+        expect(recordFieldViolations(ok), isEmpty, reason: ok);
+      }
     });
 
     test('self-test: observers, constructions and mutations are flagged', () {

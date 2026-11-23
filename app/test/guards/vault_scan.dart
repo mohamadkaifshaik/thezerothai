@@ -901,8 +901,8 @@ List<String> _splitArguments(String text, String masked, int open) {
   ];
 }
 
-/// The first argument of every call of [function] (`f(`, `f<T>(`,
-/// `this.f(`) in [source]; see [callArguments].
+/// The first argument of every call of [function] (`f(`, `f<T>(`, also on
+/// a receiver: `this.f(`, `_p.f(`) in [source]; see [callArguments].
 List<String> firstArguments(
   String source,
   String function, {
@@ -910,11 +910,7 @@ List<String> firstArguments(
 }) => [
   for (final args in callArguments(
     source,
-    RegExp(
-      r'(?<![\w$.])(?:this\s*\.\s*)?' +
-          RegExp.escape(function) +
-          r'\s*(?:<[^()]*?>)?\s*\(',
-    ),
+    RegExp(r'(?<![\w$])' + RegExp.escape(function) + r'\s*(?:<[^()]*?>)?\s*\('),
     exemptSnippets: exemptSnippets,
   ))
     args.isEmpty ? '' : args.first,
@@ -923,18 +919,56 @@ List<String> firstArguments(
 /// A plain step name literal (`'commit.send'`).
 final RegExp stepLiteral = RegExp(r"^'[A-Za-z.]+'$");
 
-/// Error and exception constructor calls in [source] whose arguments are not
-/// all fixed. Each argument (a named one by its value) must be a string
-/// literal (adjacent ones too) with no `$` interpolation and no `+`, an
-/// expression ending in `.length`, a number, `null`, `true`, `false`, or one
-/// of [allowedNames]. `E2eePipelineError(` is judged by [pipelineErrorForwards]
-/// instead, and a constructor declaration (`this.x`, typed parameters) is
-/// skipped. [exemptSnippets] (exact, source form) are removed first.
+Set<String>? _enumCache;
+
+/// The enum types declared in hand-written lib/.
+Set<String> declaredEnums() => _enumCache ??= {
+  for (final s in handWrittenLib().values)
+    for (final m in RegExp(
+      r'\benum\s+([A-Za-z_$][\w$]*)',
+    ).allMatches(stripSource(s, keepStrings: false)))
+      m.group(1)!,
+};
+
+/// The stack trace names an error forward may pass after the error.
+const Set<String> stackArgumentNames = {
+  's',
+  'st',
+  'stack',
+  'stackTrace',
+  'StackTrace.current',
+};
+
+/// A thrown or forwarded error expression that is a constructor call
+/// (`StateError(`, `const _Stopped(`, `ArgumentError.value(`).
+final RegExp _constructorHead = RegExp(
+  r'(?:const\s+|new\s+)?(_?[A-Z][\w$]*(?:\s*\.\s*[A-Za-z_$][\w$]*)?)\s*'
+  r'(?:<[^()]*?>)?\s*\(',
+);
+
+/// What every error built or forwarded in [source] is made of. Findings:
+/// - an `...Error(` / `...Exception(` constructor call (bare and named ones
+///   too), or the constructor a `throw`, `completeError(`, `addError(` or
+///   `Future.error(` starts with, whose arguments are not all fixed. Each
+///   argument (a named one by its value) must be a string literal (adjacent
+///   ones too) with no `$` interpolation and no `+`, an expression ending in
+///   `.length`, a number, `null`, `true`, `false`, a value of an enum
+///   declared in lib/ ([enumNames]), or one of [allowedNames];
+/// - a `throw` of anything but a constructor call (use `rethrow`, or
+///   `Error.throwWithStackTrace` for a caught error);
+/// - an error forward (`completeError`, `addError`, `Future.error`) whose
+///   error is not a constructor call, or whose stack is not a stack name.
+/// `E2eePipelineError(` is judged by [pipelineErrorForwards] instead. Skipped:
+/// a constructor declaration (inside its own class, at a member start) and
+/// an object pattern (`case RateLimitedException(:final retryAfter)`).
+/// [exemptSnippets] (exact, source form) are removed first.
 List<String> errorArgumentViolations(
   String source, {
   Set<String> allowedNames = const {},
   List<String> exemptSnippets = const [],
+  Set<String>? enumNames,
 }) {
+  final enums = enumNames ?? declaredEnums();
   final text = _removeSnippets(
     stripSource(source, keepStrings: true),
     exemptSnippets,
@@ -942,15 +976,13 @@ List<String> errorArgumentViolations(
   final masked = _maskStrings(text);
   final code = masked.code;
   final bad = <String>[];
-  for (final m in _errorConstructor.allMatches(code)) {
-    final name = m.group(0)!.replaceAll(RegExp(r'[\s(]'), '');
-    if (name.startsWith('E2eePipelineError')) continue;
-    // A rethrow of a caught error with its stack builds no message.
-    if (name == 'Error.throwWithStackTrace') continue;
-    final open = m.end - 1;
+  final checked = <int>{};
+
+  void checkArguments(String name, int open) {
+    if (!checked.add(open)) return;
     final args = _splitArguments(text, code, open);
     final codeArgs = _splitArguments(code, code, open);
-    if (codeArgs.any(_isParameterDeclaration)) continue;
+    if (codeArgs.isNotEmpty && codeArgs.every(_isPatternField)) return;
     final close = _groupEnd(code, open);
     final interpolated = masked.interpolations.any(
       (p) => p > open && p < close,
@@ -964,12 +996,13 @@ List<String> errorArgumentViolations(
       final isLiteral =
           RegExp(r'''^(?:r?['"]+[\s]*['"]+\s*)+$''').hasMatch(maskedValue) &&
           !interpolated;
+      final enumValue = RegExp(r'^([A-Za-z_$][\w$]*)\.[a-z]\w*$')
+          .firstMatch(value);
       final ok =
           isLiteral ||
           RegExp(r'^[\w$.?!]+\.length$').hasMatch(value) ||
           RegExp(r'^-?\d+(?:\.\d+)?$').hasMatch(value) ||
-          // An enum value or a static constant of a type (`E2eeRefusal.x`).
-          RegExp(r'^[A-Z]\w*\.[a-z]\w*$').hasMatch(value) ||
+          (enumValue != null && enums.contains(enumValue.group(1))) ||
           const {'null', 'true', 'false'}.contains(value) ||
           allowedNames.contains(value);
       if (!ok) {
@@ -977,20 +1010,114 @@ List<String> errorArgumentViolations(
       }
     }
   }
+
+  /// The error expression at [from] (to [end]): a constructor call whose
+  /// arguments are checked, else a finding.
+  void checkThrown(String what, int from, int end) {
+    var start = from;
+    while (start < end && code[start].trim().isEmpty) {
+      start++;
+    }
+    final expr = text.substring(start, end).trim();
+    final head = _constructorHead.matchAsPrefix(code, start);
+    if (head != null) {
+      final open = head.end - 1;
+      final close = _groupEnd(code, open);
+      final rest = code.substring(close, end).trim();
+      if (rest.isEmpty || rest == ';') {
+        final name = head.group(1)!.replaceAll(RegExp(r'\s'), '');
+        if (!name.startsWith('E2eePipelineError')) checkArguments(name, open);
+        return;
+      }
+    }
+    bad.add('$what ${expr.replaceAll(RegExp(r'\s+'), ' ')}');
+  }
+
+  for (final m in _errorConstructor.allMatches(code)) {
+    final name = m.group(0)!.replaceAll(RegExp(r'[\s(]'), '');
+    if (name.startsWith('E2eePipelineError')) continue;
+    // A rethrow of a caught error with its stack builds no message.
+    if (name == 'Error.throwWithStackTrace') continue;
+    if (_isConstructorDeclaration(code, m.start, name)) continue;
+    checkArguments(name, m.end - 1);
+  }
+  for (final m in RegExp(r'(?<![\w$.])throw\b').allMatches(code)) {
+    checkThrown('throw', m.end, _argumentEnd(code, m.end));
+  }
+  for (final m in RegExp(
+    r'(?<![\w$])(?:completeError|addError)\s*\('
+    r'|(?<![\w$.])Future\s*(?:<[^()]*?>)?\s*\.\s*error\s*\(',
+  ).allMatches(code)) {
+    if (!_isCallAt(code, m.start)) continue;
+    final open = m.end - 1;
+    final close = _groupEnd(code, open) - 1;
+    final what = m.group(0)!.replaceAll(RegExp(r'\s'), '');
+    // The first top-level argument's span, then the rest.
+    var depth = 0;
+    var comma = close;
+    for (var i = open + 1; i < close; i++) {
+      final c = code[i];
+      if (c == '(' || c == '[' || c == '{') depth++;
+      if (c == ')' || c == ']' || c == '}') depth--;
+      if (c == ',' && depth == 0) {
+        comma = i;
+        break;
+      }
+    }
+    checkThrown(what, open + 1, comma);
+    final rest = _splitArguments(text, code, open).skip(1);
+    for (final r in rest) {
+      if (!stackArgumentNames.contains(r)) bad.add('$what(... $r)');
+    }
+  }
   return bad;
 }
 
-/// A parameter list (`this.x`, typed, `{...}`) or an object pattern
-/// (`case RateLimitedException(:final retryAfter)`), not a call.
-bool _isParameterDeclaration(String arg) {
+/// The end of the expression starting at [from] in [code]: before a `,`, a
+/// `;` or a closing bracket at its own level (`_ => throw X(),` in a
+/// switch expression ends at the comma).
+int _argumentEnd(String code, int from) {
+  var depth = 0;
+  for (var i = from; i < code.length; i++) {
+    final c = code[i];
+    if (c == '(' || c == '[' || c == '{') depth++;
+    if (c == ')' || c == ']' || c == '}') {
+      if (depth == 0) return i;
+      depth--;
+    }
+    if ((c == ',' || c == ';') && depth == 0) return i;
+  }
+  return code.length;
+}
+
+/// An object pattern field (`:final retryAfter`, `kind: final k`).
+bool _isPatternField(String arg) {
   final a = arg.trim();
-  return a.startsWith('{') ||
-      a.startsWith('[') ||
-      a.startsWith(':') ||
-      RegExp(r'^\w*\s*:\s*(?:final|var)\b').hasMatch(a) ||
-      RegExp(r'^(?:required\s+)?(?:this|super)\s*\.').hasMatch(a) ||
-      RegExp(r'^(?:required\s+)?(?:final\s+)?[A-Z][\w<>?, ]*\s+[a-z_]\w*$')
-          .hasMatch(a);
+  return a.startsWith(':') ||
+      RegExp(r'^[A-Za-z_$][\w$]*\s*:\s*(?:final|var)\b').hasMatch(a);
+}
+
+/// Whether the `name(` at [start] in [code] declares a constructor: it is
+/// inside the body of `class <type>` and starts a member (after `;`, `{`,
+/// `}` or an annotation, a `const` / `factory` keyword allowed).
+bool _isConstructorDeclaration(String code, int start, String name) {
+  final type = name.split('.').first;
+  for (final m in RegExp(
+    r'\bclass\s+' + RegExp.escape(type) + r'\b[^{;]*\{',
+  ).allMatches(code)) {
+    final open = m.end - 1;
+    if (start <= open || start >= _groupEnd(code, open)) continue;
+    final before = code
+        .substring(0, start)
+        .trimRight()
+        .replaceFirst(RegExp(r'(?:\b(?:const|factory)\s*)+$'), '')
+        .trimRight();
+    return before.endsWith(';') ||
+        before.endsWith('{') ||
+        before.endsWith('}') ||
+        RegExp(r'@[\w$.]+(?:\([^()]*\))?$').hasMatch(before);
+  }
+  return false;
 }
 
 /// The argument of every `E2eePipelineError(` in [source] that is not a
@@ -1001,7 +1128,7 @@ bool _isParameterDeclaration(String arg) {
 List<String> pipelineErrorForwards(String source) => [
   for (final args in callArguments(
     source,
-    RegExp(r'(?<![\w$.])E2eePipelineError\s*\('),
+    RegExp(r'(?<![\w$])E2eePipelineError\s*\('),
   ))
     if (args.isEmpty)
       '(none)'
@@ -1011,12 +1138,13 @@ List<String> pipelineErrorForwards(String source) => [
 ];
 
 /// The first argument of every call of the injected error callback in
-/// [source] (`onUnexpectedError(`, `_onUnexpectedError?.call(` ...) that is
-/// not an `E2eePipelineError(...)` (const or not).
+/// [source] (`onUnexpectedError(`, `_onUnexpectedError?.call(`, also on a
+/// receiver: `_p._onUnexpectedError?.call(`, `this._onUnexpectedError(`)
+/// that is not an `E2eePipelineError(...)` (const or not).
 List<String> sinkArgumentViolations(String source) => [
   for (final args in callArguments(
     source,
-    RegExp(r'(?<![\w$.])_?onUnexpectedError\s*[?!]?\s*(?:\.\s*call\s*)?\('),
+    RegExp(r'(?<![\w$])_?onUnexpectedError\s*[?!]?\s*(?:\.\s*call\s*)?\('),
   ))
     if (args.isEmpty ||
         !RegExp(r'^(?:const\s+)?E2eePipelineError\s*\(').hasMatch(args.first))
@@ -1024,19 +1152,155 @@ List<String> sinkArgumentViolations(String source) => [
 ];
 
 /// Local names bound to any of [names] in [source] (`x = names;`,
-/// `x = a.b.names;`), except names that are themselves in [names] (the
-/// constructor's `_x = x`). Comments and strings ignored.
+/// `x = a.b.names;`, `x = a.names!;`, `x = names as T;`, `x = names ?? y;`,
+/// `x = y ?? names;`, a getter `get x => names;`), except names that are
+/// themselves in [names] (the constructor's `_x = x`). Comments and strings
+/// ignored.
 List<String> aliasAssignments(String source, Set<String> names) {
   final alt = names.map(RegExp.escape).join('|');
   final text = stripSource(source, keepStrings: false);
+  const head =
+      r'(?<![\w$.])([A-Za-z_$][\w$]*)\s*(?:=>|=(?![=>]))\s*'
+      r'(?:[\w$.?!\s]*\?\?\s*)?\(?\s*(?:[\w$]+\s*[?!]?\s*\.\s*)*';
+  const tail = r'(?![\w$])\s*!?\s*(?:\bas\b[^;,)]*|\?\?[^;,)]*)?\)?\s*[;,)]';
   return [
-    for (final m in RegExp(
-      r'(?<![\w$.])([A-Za-z_$][\w$]*)\s*=\s*(?:[\w$]+\s*[?!]?\s*\.\s*)*(?:' +
-          alt +
-          r')\s*[;,)]',
-    ).allMatches(text))
+    for (final m in RegExp('$head(?:$alt)$tail').allMatches(text))
       if (!names.contains(m.group(1)!)) m.group(1)!,
   ];
+}
+
+/// Writes of a messaging proto's preview fields in [source], whatever it
+/// imports (SA R3, for files under lib/features/messages/): `.snippet =` /
+/// `..snippet =`, `.lastMessage =` / `..lastMessage =`, and a `snippet:`
+/// argument that is not `''`. Comments and string text are ignored.
+List<String> pbNameMutations(String source) {
+  final code = _maskStrings(stripSource(source, keepStrings: true)).code;
+  return [
+    for (final m in RegExp(
+      r'(\.\.?)\s*(snippet|lastMessage)\s*=(?![=>])',
+    ).allMatches(code))
+      '${m.group(1)}${m.group(2)} =',
+    for (final m in RegExp(r'(?<![\w$.])snippet\s*:\s*').allMatches(code))
+      if (!RegExp(r'''^(?:''|"")\s*[,)]''').hasMatch(code.substring(m.end)))
+        'snippet:',
+  ];
+}
+
+/// Record type fields in the typedefs of [source] whose name holds a
+/// [sensitiveFragments] entry (`typedef _Row = ({String text, int at});`): a
+/// record's toString prints every field. Function parameter lists inside a
+/// typedef are not records and are skipped.
+List<String> recordFieldViolations(String source) {
+  final code = stripSource(source, keepStrings: false);
+  final bad = <String>[];
+  for (final t in RegExp(r'\btypedef\s+[^;=]*=([^;]*);').allMatches(code)) {
+    final rhs = t.group(1)!;
+    for (final g in RegExp(r'\(([^()]*)\)').allMatches(rhs)) {
+      final before = rhs.substring(0, g.start).trimRight();
+      // `Function(...)` / `Function<T>(...)`: parameters, not a record.
+      if (RegExp(r'Function\s*(?:<[^()]*>)?$').hasMatch(before)) continue;
+      for (final part
+          in g.group(1)!.replaceAll(RegExp(r'[{}]'), '').split(',')) {
+        final tokens = part.trim().split(RegExp(r'\s+'));
+        if (tokens.length < 2) continue;
+        final name = tokens.last.toLowerCase();
+        if (sensitiveFragments.any(name.contains)) bad.add(tokens.last);
+      }
+    }
+  }
+  return bad;
+}
+
+/// Function and method bodies in [source]: (name, body) for every
+/// declaration with a `{...}` or `=> ...;` body (constructors excluded).
+/// Comments and string text are ignored.
+List<(String, String)> functionBodies(String source) {
+  final code = _maskStrings(stripSource(source, keepStrings: true)).code;
+  const notNames = {
+    'if', 'for', 'while', 'switch', 'catch', 'on', 'assert', 'super', //
+    'this', 'return', 'await', 'Function',
+  };
+  final out = <(String, String)>[];
+  for (final m in RegExp(
+    r'(?<![\w$.])([A-Za-z_$][\w$]*)\s*(?:<[^()]*?>)?\s*\(',
+  ).allMatches(code)) {
+    final name = m.group(1)!;
+    if (notNames.contains(name) || _isCallAt(code, m.start)) continue;
+    var i = _groupEnd(code, m.end - 1);
+    final rest = RegExp(r'\s*(?:async\s*\*?|sync\s*\*)?\s*')
+        .matchAsPrefix(code, i);
+    if (rest != null) i = rest.end;
+    if (i < code.length && code[i] == '{') {
+      out.add((name, code.substring(i, _groupEnd(code, i))));
+    } else if (code.startsWith('=>', i)) {
+      out.add((name, code.substring(i + 2, _expressionEnd(code, i + 2))));
+    }
+  }
+  return out;
+}
+
+/// The library [path] belongs to: its own path, or for a part file
+/// (`part of 'x.dart';`) the path of `x.dart` beside it.
+String libraryOf(String path, String source) {
+  final m = RegExp(r'''\bpart\s+of\s+['"]([^'"]+)['"]''')
+      .firstMatch(stripSource(source, keepStrings: true));
+  return m == null ? path : Uri.parse(path).resolve(m.group(1)!).path;
+}
+
+/// For each file of [files], the functions whose body calls one of [roots]
+/// (on any receiver) directly, or through a private function of the same
+/// library (its part files included) that does, by name. Public functions
+/// are not followed further: a door library is not imported outside the
+/// pipeline, and its public reachers are what the caller pins. The roots
+/// themselves are not listed.
+Map<String, List<String>> functionsReaching(
+  Map<String, String> files,
+  Set<String> roots,
+) {
+  final bodies = {
+    for (final e in files.entries) e.key: functionBodies(e.value),
+  };
+  final library = {
+    for (final e in files.entries) e.key: libraryOf(e.key, e.value),
+  };
+  // A bare `change(` counts only in the library that declares the root (a
+  // callback parameter named `change` elsewhere is another function); a
+  // call on a receiver (`_commits.change(`) counts everywhere.
+  final rootLibraries = {
+    for (final e in bodies.entries)
+      if (e.value.any((b) => roots.contains(b.$1))) library[e.key]!,
+  };
+  final rootAlt = roots.map(RegExp.escape).join('|');
+  final onReceiver = RegExp(r'\.\s*(?:' + rootAlt + r')\s*(?:<[^()]*?>)?\s*\(');
+  final privateReached = <String, Set<String>>{};
+  final found = <String, Set<String>>{};
+  var grew = true;
+  while (grew) {
+    grew = false;
+    for (final e in bodies.entries) {
+      final lib = library[e.key]!;
+      final names = {
+        if (rootLibraries.contains(lib)) ...roots,
+        ...?privateReached[lib],
+      };
+      final call = names.isEmpty
+          ? onReceiver
+          : RegExp(
+              r'(?<![\w$])(?:' +
+                  names.map(RegExp.escape).join('|') +
+                  r')\s*(?:<[^()]*?>)?\s*\(',
+            );
+      for (final (name, body) in e.value) {
+        if (roots.contains(name)) continue;
+        if (!call.hasMatch(body) && !onReceiver.hasMatch(body)) continue;
+        if ((found[e.key] ??= {}).add(name)) grew = true;
+        if (name.startsWith('_') && (privateReached[lib] ??= {}).add(name)) {
+          grew = true;
+        }
+      }
+    }
+  }
+  return {for (final e in found.entries) e.key: e.value.toList()..sort()};
 }
 
 /// Functions in [source] that declare a parameter named [param] (typed:
