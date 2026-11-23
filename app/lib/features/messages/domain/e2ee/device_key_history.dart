@@ -322,6 +322,19 @@ class KeyHistory {
   KeyRefusal admit(String deviceIdHex, Uint8List signatureKey) {
     // This device first: never refused, also by an unreadable history.
     if (deviceIdHex == _thisHex) return KeyRefusal.none;
+    return _admitOther(deviceIdHex, signatureKey);
+  }
+
+  /// Plan 5a Task 12, "set up again" (carryovers from Task 5): this
+  /// device's OLD (id, key) is recorded as [admit] records any other
+  /// device's, although the history still reads it as this device. Its
+  /// pin becomes a former pin while the device takes a new id, and from
+  /// then on the cross-check holds the old id to that key like any other
+  /// pin. Nothing else in the record changes; no id or taint is dropped.
+  KeyRefusal admitFormerSelf(String deviceIdHex, Uint8List signatureKey) =>
+      _admitOther(deviceIdHex, signatureKey);
+
+  KeyRefusal _admitOther(String deviceIdHex, Uint8List signatureKey) {
     if (unreadable) return KeyRefusal.unreadable;
     if (_changed.contains(deviceIdHex)) return KeyRefusal.tainted;
     final key = base64Encode(signatureKey);
