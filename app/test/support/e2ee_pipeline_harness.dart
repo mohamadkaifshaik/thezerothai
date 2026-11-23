@@ -157,6 +157,10 @@ class PipelineHarness {
   /// it to model another account on the same device).
   String? ownUser = 'user-a';
 
+  /// The authenticated uid the pipeline's `currentUid` answers (the rig
+  /// vault is 'user-a''s).
+  String? uid = 'user-a';
+
   /// How many times the pipeline asked for the engine.
   int engineAsked = 0;
 
@@ -203,6 +207,7 @@ class PipelineHarness {
     messaging: messaging,
     keys: rig.keys,
     ownUserId: () => ownUser,
+    currentUid: () => uid,
     now: rig.clock.now,
     // The rig clock stands still: no call may wait for a real minute.
     budgetScale: budgetScale,

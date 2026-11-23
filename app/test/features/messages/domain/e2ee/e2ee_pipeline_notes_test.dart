@@ -190,18 +190,21 @@ void main() {
     expect(h.pipeline.notedCount, 0);
   });
 
-  test('I5: another account\'s remembered hints are dropped, never applied '
-      'to this vault', () async {
+  test('I5, r1-I2: another account\'s remembered hints (by authenticated '
+      'uid) are dropped, never applied to this vault', () async {
     final v = h.rig.device.vault;
     await h.offer(_c1, bob, accepted: false);
     await _storeMessage(v, _c1);
+    // Account X (signed in with no vault) makes the hints; its own user
+    // reference happens to read like this vault's.
+    h.uid = 'user-x';
     h.pipeline
       ..noteDeleted(_c1)
       ..noteAccepted(_c1)
       ..noteEncrypted(_c2)
       ..onPush(_c1);
-    // Account A signed out with no vault; account B signs in with one.
-    h.ownUser = 'user-b';
+    // X signed out; the vault that opens is user-a's.
+    h.uid = 'user-a';
 
     await h.ready();
 
@@ -214,6 +217,34 @@ void main() {
     );
     expect(h.pipeline.known.contains(_c2), isFalse, reason: 'A\'s hint');
     expect(h.pipeline.notedCount, 0);
+  });
+
+  test('r1-I2: a delete made while the user reference is not known yet '
+      '(null early in a run) is still remembered and made', () async {
+    final v = h.rig.device.vault;
+    await _storeMessage(v, _c1);
+    h.ownUser = null;
+    h.pipeline.noteDeleted(_c1);
+    expect(h.pipeline.notedCount, 1);
+
+    await h.ready();
+
+    expect(await v.messages(_c1), isEmpty);
+  });
+
+  test('r1-I2: the user reference changing form (uid to public id) for the '
+      'same account keeps its remembered notes', () async {
+    final v = h.rig.device.vault;
+    await _storeMessage(v, _c1);
+    h.pipeline.noteDeleted(_c1);
+    h.ownUser = 'pub-a-public-id';
+    h.pipeline.noteEncrypted(_c2);
+    expect(h.pipeline.notedCount, 2);
+
+    await h.ready();
+
+    expect(await v.messages(_c1), isEmpty, reason: 'the same account');
+    expect(h.pipeline.known.contains(_c2), isTrue);
   });
 }
 

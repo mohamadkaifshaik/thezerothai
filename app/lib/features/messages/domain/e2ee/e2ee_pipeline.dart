@@ -119,6 +119,7 @@ class E2eePipeline {
     required MessagingRepository messaging,
     required KeysRepository keys,
     required String? Function() ownUserId,
+    required String? Function() currentUid,
     bool Function() publicIdsOff = _never,
     DateTime Function() now = DateTime.now,
     SyncSchedule? schedule,
@@ -132,6 +133,7 @@ class E2eePipeline {
        _messaging = messaging,
        _keys = keys,
        _ownUserId = ownUserId,
+       _currentUid = currentUid,
        _publicIdsOff = publicIdsOff,
        _now = now,
        _schedule = schedule ?? _timer,
@@ -155,6 +157,12 @@ class E2eePipeline {
   final MessagingRepository _messaging;
   final KeysRepository _keys;
   final String? Function() _ownUserId;
+
+  /// The authenticated uid (Firebase Auth's, as `DeviceKeysService` takes
+  /// it): the account remembered notes belong to (fix round 2, r1-I2).
+  /// Never the `ownUserId` reference, which may be null early in a run or
+  /// change form (uid / public id) for the same account.
+  final String? Function() _currentUid;
   final bool Function() _publicIdsOff;
   final DateTime Function() _now;
   final SyncSchedule _schedule;
@@ -189,16 +197,17 @@ class E2eePipeline {
   final LinkedHashMap<String, int> _notedDeleted = LinkedHashMap();
   final LinkedHashSet<String> _notedPushes = LinkedHashSet();
 
-  /// Review I5: the account every remembered note belongs to (the
-  /// `ownUserId` when it was noted). Notes are applied only while that
-  /// account is signed in; a note made for another account first drops them
-  /// all, and so does any apply under another account.
+  /// Review I5, fix round 2 (r1-I2): the account every remembered note
+  /// belongs to, the AUTHENTICATED uid ([_currentUid]) when it was noted.
+  /// Notes are applied only to a vault whose `uid` is that account; a note
+  /// made under another account first drops them all, and so does any apply
+  /// to another account's vault.
   String? _notesUser;
 
-  /// Whether a note may be remembered now: there is a signed-in account,
-  /// and another account's notes are dropped first.
+  /// Whether a note may be remembered now: there is an authenticated
+  /// account, and another account's notes are dropped first.
   bool _claimNotes() {
-    final uid = _ownUserId();
+    final uid = _currentUid();
     if (uid == null || uid.isEmpty) return false;
     if (_notesUser != uid) {
       _dropAllNotes();
@@ -207,11 +216,10 @@ class E2eePipeline {
     return true;
   }
 
-  /// Before any apply: notes of an account other than the signed-in one
-  /// are dropped, never applied (review I5).
-  void _dropOtherAccountsNotes() {
-    final uid = _ownUserId();
-    if (_notesUser != null && _notesUser != uid) _dropAllNotes();
+  /// Before any apply to [vault]: notes of an account other than the
+  /// vault's are dropped, never applied (review I5, r1-I2).
+  void _dropOtherAccountsNotes(SecureVault vault) {
+    if (_notesUser != null && _notesUser != vault.uid) _dropAllNotes();
   }
 
   void _dropAllNotes() {
@@ -531,7 +539,7 @@ class E2eePipeline {
   }
 
   Future<void> _applyDeletesOnce(_Parts parts) async {
-    _dropOtherAccountsNotes();
+    _dropOtherAccountsNotes(parts.vault);
     for (final e in [..._notedDeleted.entries]) {
       if (!parts.live) return;
       _notedDeleted.remove(e.key);
@@ -570,7 +578,7 @@ class E2eePipeline {
   /// the known set (gate item 24). The remembered deletes were made at
   /// vault ready ([_applyDeletes]).
   Future<void> _applyNotes(_Parts parts) async {
-    _dropOtherAccountsNotes();
+    _dropOtherAccountsNotes(parts.vault);
     final encrypted = [..._notedEncrypted];
     for (final id in encrypted) {
       await _addKnown(parts, id);
@@ -582,7 +590,7 @@ class E2eePipeline {
   /// pushes, and a list change of the window.
   void _afterStartNotes(_Parts parts) {
     if (!started || !identical(_parts, parts)) return;
-    _dropOtherAccountsNotes();
+    _dropOtherAccountsNotes(parts.vault);
     final encrypted = [..._notedEncrypted];
     final accepted = [..._notedAccepted];
     final pushes = [..._notedPushes];

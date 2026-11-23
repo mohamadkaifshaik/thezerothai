@@ -102,6 +102,7 @@ void main() {
         messaging: messaging,
         keys: keys,
         ownUserId: () => 'user-a',
+        currentUid: () => 'user-a',
         onUnexpectedError: (e, _) => reported.add(e),
       );
       session
