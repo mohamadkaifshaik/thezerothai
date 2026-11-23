@@ -1,6 +1,8 @@
 import 'package:dzeroth/core/crypto/crypto_types.dart';
 import 'package:dzeroth/core/session/session_end.dart';
+import 'package:dzeroth/core/vault/vault_session.dart';
 import 'package:dzeroth/core/vault/vault_status.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/e2ee_pipeline.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_crypto.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging_impl.dart';
@@ -11,6 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../../../support/e2ee_pipeline_harness.dart';
 import '../../../../support/e2ee_pipeline_rig.dart';
+import '../../../../support/fake_vault_world.dart';
 
 // Plan 5a Task 13b, fix round of the 13b-i review (task-13b-review.md,
 // controller rulings 1-5): the send branches the review found untested.
@@ -192,7 +195,52 @@ void main() {
       expect(h.rig.device.session.status.value, VaultStatus.off);
       // Never the full wait (the default is 30 s).
       final out = await pending.timeout(const Duration(seconds: 5));
-      expect(out.kind, isNot(SendOutcomeKind.queued));
+      // Signed out: no sign-in step is done, so "try again" (review M4).
+      expect(
+        (out.kind, out.problem),
+        (SendOutcomeKind.refused, SendProblem.retryable),
+      );
+    });
+  });
+
+  group('before the sign-in step (review M4)', () {
+    test('a send before the first sign-in step is refused retryable, never '
+        'notEncrypted; after it the session decides', () async {
+      final session = FakeVaultWorld().launch();
+      await session.start(restoredUid: 'user-a', restoreDefinitive: true);
+      expect(session.status.value, VaultStatus.off);
+      expect(session.vaultKnown, isFalse);
+      final pipeline = E2eePipeline(
+        session: session,
+        deviceKeys: h.deviceKeys,
+        engine: () => h.guarded,
+        messaging: h.messaging,
+        keys: h.rig.keys,
+        ownUserId: () => 'user-a',
+        currentUid: () => 'user-a',
+        now: h.rig.clock.now,
+        onUnexpectedError: (e, _) => h.reported.add(e),
+      );
+      addTearDown(pipeline.dispose);
+      final early = EncryptedMessagingImpl(pipeline);
+      for (final to in [
+        const ThreadRef.conversation(_c2),
+        ThreadRef.recipientOf(common.AuthorSnapshot(userId: 'ref-dave')),
+      ]) {
+        final out = await early.send(to: to, localId: 'local-1', text: 'hi');
+        expect(
+          (out.kind, out.problem),
+          (SendOutcomeKind.refused, SendProblem.retryable),
+        );
+      }
+      await session.onSignedIn('user-a', flag: E2eeFlag.off);
+      expect(session.status.value, VaultStatus.off);
+      final out = await early.send(
+        to: const ThreadRef.conversation(_c2),
+        localId: 'local-1',
+        text: 'hi',
+      );
+      expect(out.kind, SendOutcomeKind.notEncrypted);
     });
   });
 

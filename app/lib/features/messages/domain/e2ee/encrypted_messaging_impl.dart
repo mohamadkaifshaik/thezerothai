@@ -329,6 +329,12 @@ class EncryptedMessagingImpl implements EncryptedMessaging {
     // (1) C1 step 5: a vault on this device that is not ready (opening
     // included): no conversation can be classified.
     if (session.vaultKnown) return _refused(SendProblem.blocked);
+    // 13b-i review M4 (Task 8 review N2): before the signed-in user's
+    // sign-in step finished, the status is the initial `off`, which cannot
+    // be told from "no vault here" (a vault-known conversation whose cache
+    // mark is gone would go out plaintext): "try again". No send can be
+    // made before sign-in, so this costs nothing.
+    if (!session.signInStepDone) return _refused(SendProblem.retryable);
     // F5 / Task 8 review N2: "no vault" only from a session that says so
     // (`off`, or `unsupported`). A marker that could not be read (or a
     // vault being created) may hide a vault: "try again", never plaintext.
