@@ -307,6 +307,56 @@ void main() {
     });
   });
 
+  // Ruling 2 (lane D PR 4): after a SESSION_ENDED sign-out, and only then,
+  // Welcome and the sign-in form say why.
+  group('signed out because a device was removed', () {
+    const removed = AuthState(
+      status: AuthStatus.unauthenticated,
+      lastSessionEnd: SessionEnd.sessionLost,
+      signedOutByDeviceRemoval: true,
+    );
+    const lost = AuthState(
+      status: AuthStatus.unauthenticated,
+      lastSessionEnd: SessionEnd.sessionLost,
+    );
+    const copy =
+        'You were signed out because a device was removed from your '
+        'account. Sign in again to continue.';
+
+    for (final (name, size) in [
+      ('phone', phone),
+      ('tablet', tablet),
+      ('desktop', desktop),
+    ]) {
+      testWidgets('$name: Welcome shows the copy', (tester) async {
+        await pump(tester, size: size, state: removed);
+        expect(find.text(copy), findsOneWidget);
+      });
+    }
+
+    testWidgets('the sign-in form shows it too', (tester) async {
+      await pump(tester, state: removed, realForms: true);
+      router.go(AppRouter.signInPath);
+      await tester.pumpAndSettle();
+      expect(find.text(copy), findsOneWidget);
+    });
+
+    testWidgets('the sign-up form does not', (tester) async {
+      await pump(tester, state: removed, realForms: true);
+      router.go(AppRouter.signUpPath);
+      await tester.pumpAndSettle();
+      expect(find.text(copy), findsNothing);
+    });
+
+    testWidgets('any other end shows nothing', (tester) async {
+      await pump(tester, state: lost, realForms: true);
+      expect(find.text(copy), findsNothing);
+      router.go(AppRouter.signInPath);
+      await tester.pumpAndSettle();
+      expect(find.text(copy), findsNothing);
+    });
+  });
+
   testWidgets('phone: nothing overflows at text scale 2.0', (tester) async {
     await asMac(() async {
       await pump(tester, textScale: 2);

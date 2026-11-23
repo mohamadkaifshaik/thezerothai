@@ -12,6 +12,7 @@ import 'bloc/auth_bloc.dart';
 import 'bloc/auth_event.dart';
 import 'bloc/auth_state.dart';
 import 'widgets/auth_page_layout.dart';
+import 'widgets/session_ended_notice.dart';
 import 'widgets/social_sign_in_buttons.dart';
 
 /// Where a signed-out visitor lands (the Main mocks): the same Google and
@@ -81,6 +82,10 @@ class WelcomeScreen extends StatelessWidget {
           ],
         ),
         children: [
+          if (state.signedOutByDeviceRemoval) ...const [
+            SessionEndedNotice(),
+            SizedBox(height: AppSpacing.sm),
+          ],
           Text(
             'Share what you want to do. Someone nearby wants that too.',
             style: theme.textTheme.bodyLarge?.copyWith(

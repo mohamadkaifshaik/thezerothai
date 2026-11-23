@@ -40,9 +40,43 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     on<AuthEmailVerificationResendRequested>(_onVerificationResendRequested);
     on<AuthEmailVerificationCheckRequested>(_onVerificationCheckRequested);
     on<AuthSignOutRequested>(_onSignOutRequested);
+    on<AuthSessionEndedByServer>(_onSessionEndedByServer);
     on<AuthFailureDismissed>((event, emit) {
       emit(state.copyWith(failure: null));
     });
+    // The network layer reports a session the server ended (SESSION_ENDED,
+    // and again after one forced refresh) through the repository: the one
+    // place both already share, so bootstrap needs no new wiring.
+    authRepository.onSessionEnded = _sessionEndedHook;
+  }
+
+  late final void Function(String uid) _sessionEndedHook = (uid) {
+    if (!isClosed) add(AuthSessionEndedByServer(uid));
+  };
+
+  /// The uid being signed out for SESSION_ENDED; cleared by its end (or a
+  /// failed sign-out). Deduplicates a burst of reports.
+  String? _endingForCut;
+
+  /// Ruling 1 (lane D PR 4): signs [AuthSessionEndedByServer.uid] out as a
+  /// lost session (no intent is armed, so the vault is kept), once per
+  /// burst. No push unregister: the server refuses this session's calls.
+  Future<void> _onSessionEndedByServer(
+    AuthSessionEndedByServer event,
+    Emitter<AuthState> emit,
+  ) async {
+    final uid = state.user?.uid;
+    if (uid == null || uid != event.uid || _endingForCut == uid) return;
+    _endingForCut = uid;
+    try {
+      await _authRepository.signOut();
+    } catch (_) {
+      // Still signed in: a later report may try again.
+      if (_endingForCut == uid && _authRepository.currentUser?.uid == uid) {
+        _endingForCut = null;
+      }
+      rethrow;
+    }
   }
 
   final AuthRepository _authRepository;
@@ -110,21 +144,32 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     };
     final previous = state.user;
     var lastSessionEnd = state.lastSessionEnd;
+    var byRemoval = state.signedOutByDeviceRemoval;
     if (user?.uid != previous?.uid) {
       final intent = _intent;
       _intent = null;
+      final cut = _endingForCut;
+      _endingForCut = null;
       if (user == null) {
         lastSessionEnd = _endOf(previous?.uid, intent, event.fromStreamError);
+        // Ruling 2: the sign-in copy only for this cause (an explicit
+        // sign-out that raced it reads as that sign-out).
+        byRemoval =
+            cut != null &&
+            cut == previous?.uid &&
+            lastSessionEnd == SessionEnd.sessionLost;
       }
     } else if (event.fromStreamError) {
       lastSessionEnd = SessionEnd.sessionLost;
     }
+    if (user != null) byRemoval = false;
     emit(
       state.copyWith(
         status: status,
         user: user,
         isSubmitting: false,
         lastSessionEnd: lastSessionEnd,
+        signedOutByDeviceRemoval: byRemoval,
       ),
     );
   }
@@ -305,6 +350,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   Future<void> close() {
     _unknownTimer?.cancel();
     _userSubscription?.cancel();
+    if (identical(_authRepository.onSessionEnded, _sessionEndedHook)) {
+      _authRepository.onSessionEnded = null;
+    }
     return super.close();
   }
 }

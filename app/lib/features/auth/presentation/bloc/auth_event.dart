@@ -90,6 +90,16 @@ final class AuthSignOutRequested extends AuthEvent {
   int get hashCode => Object.hash(reason, uid, arm);
 }
 
+/// Internal: the server ended [uid]'s session (SESSION_ENDED, and again after
+/// one forced token refresh; `SessionEndedInterceptor`). Dispatched through
+/// `AuthRepository.onSessionEnded`. Signs [uid] out as
+/// [SessionEnd.sessionLost] (the vault is kept), once per burst; ignored when
+/// another account (or nobody) is signed in.
+final class AuthSessionEndedByServer extends AuthEvent {
+  const AuthSessionEndedByServer(this.uid);
+  final String uid;
+}
+
 /// Clears a transient [AuthState.failure] after the UI has shown it.
 final class AuthFailureDismissed extends AuthEvent {
   const AuthFailureDismissed();
