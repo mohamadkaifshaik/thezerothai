@@ -15,9 +15,11 @@ import (
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	messagingv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1/messagingv1connect"
+	"github.com/dzeroth/dzeroth/backend/internal/keys"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/degraded"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
 // The chain order of the session cut (security audit H2; removal-server design 3.3 and 5, "apiserver chain-order
@@ -55,6 +57,30 @@ func (chainActive) AccountStatus(context.Context, string) (bool, authn.AccountSt
 }
 
 var passThrough = connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc { return next })
+
+// TestSessionCutEnforced: the cut check runs in every mode but globally off: an allowlist that does not list the cut
+// user still enforces (dropping a user from the allowlist must not reopen the thief), on enforces, unset/off does not.
+func TestSessionCutEnforced(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		spec flags.Spec
+		want bool
+	}{
+		{"off", flags.Spec{Name: keys.DeviceSignOutFlag, Mode: flags.Off}, false},
+		{"allowlist without the cut user", flags.Spec{Name: keys.DeviceSignOutFlag, Mode: flags.Allowlist, Allowlist: map[string]struct{}{"someone-else": {}}}, true},
+		{"percent 0", flags.Spec{Name: keys.DeviceSignOutFlag, Mode: flags.Percent}, true},
+		{"on", flags.Spec{Name: keys.DeviceSignOutFlag, Mode: flags.On}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := sessionCutEnforced(flags.NewRegistry(tc.spec))(); got != tc.want {
+				t.Errorf("enforced = %v, want %v", got, tc.want)
+			}
+		})
+	}
+	if sessionCutEnforced(flags.NewRegistry())() {
+		t.Error("an unregistered flag must read as globally off")
+	}
+}
 
 func TestChain_SessionCutRunsBeforeTheRateLimiter(t *testing.T) {
 	const (

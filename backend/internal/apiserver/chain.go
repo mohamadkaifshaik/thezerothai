@@ -5,6 +5,7 @@ import (
 
 	"connectrpc.com/connect"
 
+	"github.com/dzeroth/dzeroth/backend/internal/keys"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/degraded"
@@ -31,6 +32,13 @@ type chainDeps struct {
 	accountStatus authn.AccountStatusProvider
 	restricted    []string
 	publicIDs     connect.Interceptor
+}
+
+// sessionCutEnforced is the enforcement switch of the session cut: on unless device_sign_out is GLOBALLY off. Never "on
+// for the caller": dropping a user from the allowlist (or a percent change) must not reopen that user's cut thief, and
+// globally off is the emergency lever if the check locks people out.
+func sessionCutEnforced(fl interface{ GloballyOff(name string) bool }) func() bool {
+	return func() bool { return !fl.GloballyOff(keys.DeviceSignOutFlag) }
 }
 
 // chainInterceptors is the Connect interceptor chain in order (outermost first). It is a function of its inputs alone so

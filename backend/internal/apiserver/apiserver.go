@@ -667,7 +667,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		idVerifier:    idVerifier,
 		profileExempt: profileExempt, allowAnonymous: cfg.AuthEmulator,
 		sessionCuts:  sessionCuts,
-		sessionCutOn: func() bool { return !featureFlags.GloballyOff(keys.DeviceSignOutFlag) },
+		sessionCutOn: sessionCutEnforced(featureFlags),
 		rateLimit:    rlCfg,
 		degradedMode: cfg.Degraded, media: mediaProcedures(),
 		accountStatus: accountStatusProvider, restricted: RestrictedAllowedProcedures(),
