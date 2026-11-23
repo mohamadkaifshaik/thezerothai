@@ -99,15 +99,23 @@ class FakeDeviceKeys implements DeviceKeysService {
 
   bool _latched = false;
 
+  /// Lets "set up again" start without the removed fact (a test of its
+  /// order with a running coordinator).
+  bool allowSetUpAgain = false;
+
+  /// Runs first in [recreateDevice].
+  void Function()? onRecreate;
+
   @override
   bool beginSetUpAgain() {
-    if (!removedElsewhere && !_latched) return false;
+    if (!removedElsewhere && !_latched && !allowSetUpAgain) return false;
     _latched = true;
     return true;
   }
 
   @override
   Future<void> recreateDevice() async {
+    onRecreate?.call();
     final id = '${'cd' * 15}01';
     final bytes = Uint8List.fromList(utf8.encode(id));
     final created = await _rig.device.engine.inner.createDevice(bytes);

@@ -160,6 +160,27 @@ void main() {
       );
     });
 
+    test('item 34, review m6: the coordinator stops before the device is '
+        'recreated, and the crypto forgets its own commits directly as well '
+        'as through the commit runner', () async {
+      await h.offer(_c1, bob);
+      await h.ready();
+      expect(h.pipeline.coordinator!.running, isTrue);
+      h.deviceKeys.allowSetUpAgain = true;
+      bool? runningAtRecreate;
+      h.deviceKeys.onRecreate = () =>
+          runningAtRecreate = h.pipeline.coordinator!.running;
+      final forgets = h.pipeline.crypto.ownCommitForgets;
+
+      await h.pipeline.setUpAgain();
+      await h.settle();
+
+      expect(runningAtRecreate, isFalse, reason: 'stopped first');
+      // One through CommitRunner.reset, one by the pipeline itself.
+      expect(h.pipeline.crypto.ownCommitForgets, forgets + 2);
+      expect(h.pipeline.coordinator!.running, isTrue, reason: 'started again');
+    });
+
     test('items 41, 42: sign-out resets every part and drops the remembered '
         'hints', () async {
       await h.offer(_c1, bob);
