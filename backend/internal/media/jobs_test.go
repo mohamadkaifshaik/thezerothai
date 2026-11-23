@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -35,7 +36,10 @@ func msg(t *testing.T, m PostDeleteMessage) []byte {
 }
 
 func TestJobsHandle(t *testing.T) {
-	five := []string{"0000000000000000601", "0000000000000000602", "0000000000000000603", "0000000000000000604", "0000000000000000605"}
+	oversized := make([]string, 21)
+	for i := range oversized {
+		oversized[i] = fmt.Sprintf("%019d", 601+i)
+	}
 	tests := []struct {
 		name        string
 		data        func(t *testing.T) []byte
@@ -134,8 +138,10 @@ func TestJobsHandle(t *testing.T) {
 			wantOutcome: "noop",
 		},
 		{
-			name:        "more than four ids is dropped",
-			data:        func(t *testing.T) []byte { return msg(t, PostDeleteMessage{UID: uidA, PostID: postP, MediaIDs: five}) },
+			name: "more than twenty ids is dropped",
+			data: func(t *testing.T) []byte {
+				return msg(t, PostDeleteMessage{UID: uidA, PostID: postP, MediaIDs: oversized})
+			},
 			setup:       func(*fakeRepo, *fakeObjects) {},
 			wantOutcome: "dropped:invalid_message",
 		},

@@ -5,6 +5,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../shared/widgets/post/gif_badge.dart';
+import '../../../../shared/widgets/post/post_video.dart';
+import '../../data/video_source.dart';
 import '../../domain/unusual_aspect.dart';
 import '../bloc/attachments_cubit.dart';
 import '../media_error_messages.dart';
@@ -126,7 +128,11 @@ class _AttachmentTileState extends State<AttachmentTile> {
   }
 
   String get _label {
-    final base = attachment.isGif ? 'GIF' : 'Photo $position of $total';
+    final base = attachment.kind == AttachmentKind.video
+        ? 'Video'
+        : attachment.isGif
+        ? 'GIF'
+        : 'Photo $position of $total';
     if (attachment.status == AttachmentStatus.rejected &&
         attachment.rejectionReason.isNotEmpty) {
       final reason = attachment.rejectionReason.replaceAll(RegExp(r'\.$'), '');
@@ -162,6 +168,7 @@ class _AttachmentTileState extends State<AttachmentTile> {
   /// Whether the photo can be opened in the editor now.
   bool get _editable =>
       enabled &&
+      attachment.kind != AttachmentKind.video &&
       attachment.image != null &&
       (attachment.status == AttachmentStatus.ready ||
           attachment.status == AttachmentStatus.uploaded ||
@@ -205,6 +212,7 @@ class _AttachmentTileState extends State<AttachmentTile> {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final preview = attachment.previewBytes;
+    final videoPath = attachment.image?.videoPreviewPath;
     final problem =
         attachment.status == AttachmentStatus.failed ||
         attachment.status == AttachmentStatus.unchecked ||
@@ -279,7 +287,9 @@ class _AttachmentTileState extends State<AttachmentTile> {
                   top: 0,
                   end: 0,
                   child: IconButton(
-                    tooltip: attachment.isGif
+                    tooltip: attachment.kind == AttachmentKind.video
+                        ? 'Remove video'
+                        : attachment.isGif
                         ? 'Remove GIF'
                         : 'Remove photo $position',
                     icon: const Icon(Icons.close, size: AppIconSize.md),
@@ -318,6 +328,36 @@ class _AttachmentTileState extends State<AttachmentTile> {
                             ),
                           ),
                         ),
+                      ),
+                    ),
+                  ),
+                if (videoPath != null && preview != null && !busy && !problem)
+                  Center(
+                    child: IconButton.filled(
+                      tooltip: 'Preview video',
+                      icon: const Icon(Icons.play_arrow),
+                      onPressed: () => showDialog<void>(
+                        context: context,
+                        builder: (context) {
+                          final image = attachment.image!;
+                          return AlertDialog(
+                            content: AspectRatio(
+                              aspectRatio: image.width / image.height,
+                              child: PostVideo(
+                                url: videoPath,
+                                poster: Image.memory(preview),
+                                previewController: () =>
+                                    pickedVideoController(videoPath),
+                              ),
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(context),
+                                child: const Text('Close'),
+                              ),
+                            ],
+                          );
+                        },
                       ),
                     ),
                   ),

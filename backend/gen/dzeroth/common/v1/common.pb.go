@@ -284,11 +284,11 @@ func (ErrorReason) EnumDescriptor() ([]byte, []int) {
 }
 
 // A user's display data. Two kinds of copy share this message:
-//   - frozen copies, denormalized at write time: `posts.v1.Post.author` and `posts.v1.EmbeddedPost.author`
-//     (may be up to one refresh cycle stale, embeds are never refreshed) and `notifications.v1.Notification.actor`
-//     (snapshotted when the row was written);
-//   - live rows: `graph.v1.UserListItem.user`, hydrated from the user's profile when the response is built (instance
-//     cache, up to 60 s stale).
+// - frozen copies, denormalized at write time: `posts.v1.Post.author` and `posts.v1.EmbeddedPost.author`
+//   (may be up to one refresh cycle stale, embeds are never refreshed) and `notifications.v1.Notification.actor`
+//   (snapshotted when the row was written);
+// - live rows: `graph.v1.UserListItem.user`, hydrated from the user's profile when the response is built (instance
+//   cache, up to 60 s stale).
 type AuthorSnapshot struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Deprecated for display and links (FEATURE_PUBLIC_IDS): use public_id. Always set. With FEATURE_PUBLIC_IDS off for the
@@ -411,11 +411,11 @@ type MediaRef struct {
 	// BlurHash placeholder computed on device, <= 64 chars.
 	Blurhash string `protobuf:"bytes,6,opt,name=blurhash,proto3" json:"blurhash,omitempty"`
 	AltText  string `protobuf:"bytes,7,opt,name=alt_text,json=altText,proto3" json:"alt_text,omitempty"`
-	// The full object's content type: "image/jpeg", "image/webp" or "image/gif" (POST media only, behind
+	// The full object's content type: "image/jpeg", "image/webp", "video/mp4" (POST only) or "image/gif" (POST only, behind
 	// FEATURE_GIF). Empty on refs stored before W6, which are still JPEG or WebP images. A client badges and plays a GIF
 	// from this field, never from the URL. thumb_url is always a still image (JPEG or WebP): lists show it, and the full
 	// url is fetched only when the user taps to play (F10). Set in FinalizeUpload's MediaResult.media, copied into posts
-	// from the media doc at CreatePost, and into embeds with them. A later rung may add other types (e.g. a short video); treat unknown values as a still image
+	// from the media doc at CreatePost, and into embeds with them. Treat unknown values as a still image
 	// that cannot play.
 	ContentType   string `protobuf:"bytes,8,opt,name=content_type,json=contentType,proto3" json:"content_type,omitempty"`
 	unknownFields protoimpl.UnknownFields

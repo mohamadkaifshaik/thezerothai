@@ -6,16 +6,19 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../../../features/media/domain/media_feature_flag.dart'
+    show kMaxPostImages;
 import '../../../features/media/domain/image_processor.dart'
     show kPostThumbEdge;
 import '../../../features/media/domain/processed_image.dart'
-    show kGifContentType;
+    show kGifContentType, kVideoContentType;
 import '../../../features/settings/presentation/bloc/data_usage_cubit.dart';
 import '../../../gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'alt_text_chip.dart';
 import 'gif_badge.dart';
+import 'post_video.dart';
 
-/// A post's attached images (0-4), X style, at the full body width (the card
+/// A post's attached images (0-20), X style, at the full body width (the card
 /// does not indent them to the text column).
 ///
 /// - One image: full column width at its own aspect ratio, uncropped. Only the
@@ -203,7 +206,7 @@ class PostMedia extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final items = media.take(4).toList();
+    final items = media.take(kMaxPostImages).toList();
     if (items.isEmpty) return const SizedBox.shrink();
     final wide = MediaQuery.sizeOf(context).width >= AppBreakpoints.mobile;
     final colors = Theme.of(context).colorScheme;
@@ -489,6 +492,19 @@ class _MediaTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (media.contentType == kVideoContentType) {
+      final colors = Theme.of(context).colorScheme;
+      return _withAltChip(
+        PostVideo(
+          key: ValueKey(media.url),
+          url: media.url,
+          poster: media.thumbUrl.isEmpty
+              ? ColoredBox(color: colors.surfaceContainerHigh)
+              : _networkImage(media.thumbUrl, colors, media: media),
+        ),
+        media.altText,
+      );
+    }
     if (media.contentType == kGifContentType) {
       return _GifTile(media: media);
     }

@@ -6,8 +6,8 @@
 /// hardcode `'media'` anywhere else.
 const kFeatureMedia = 'media';
 
-/// Most images one post may carry (proto: 1-4 items per CreateUpload).
-const kMaxPostImages = 4;
+/// Most photos a single post may carry.
+const kMaxPostImages = 20;
 
 /// Longest alt text the server accepts per image (characters).
 const kMaxAltTextLength = 1000;

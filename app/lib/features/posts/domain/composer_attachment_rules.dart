@@ -15,6 +15,7 @@ enum ComposerBlock {
   none,
   scheduled,
   hasPoll,
+  hasVideo,
   hasGif,
   hasPhotos,
 
@@ -28,6 +29,7 @@ enum ComposerBlock {
 
   /// The tooltip of a button that this block disables.
   String get pollTooltip => switch (this) {
+    hasVideo => "Polls can't have a video",
     hasPlan => "Polls can't go with a plan",
     scheduled => "Polls can't be scheduled",
     hasGif => "Polls can't have a GIF",
@@ -38,6 +40,7 @@ enum ComposerBlock {
   String get gifTooltip => switch (this) {
     hasPoll => "Polls can't have a GIF",
     scheduled => "GIFs can't be scheduled",
+    hasVideo => 'A video is attached',
     hasGif => 'One GIF per post',
     hasPhotos => "A GIF can't be added to photos",
     _ => 'Add a GIF',
@@ -45,6 +48,7 @@ enum ComposerBlock {
 
   String get photoTooltip => switch (this) {
     hasPoll => "Polls can't have photos",
+    hasVideo => 'A video is attached',
     hasGif => "A GIF can't be added to photos",
     _ => 'Add photos',
   };
@@ -77,6 +81,7 @@ class ComposerAttachmentRules {
     this.isReply = false,
     this.isQuote = false,
     this.hasPhotos = false,
+    this.hasVideo = false,
     this.hasGif = false,
     this.hasPoll = false,
     this.scheduled = false,
@@ -91,6 +96,7 @@ class ComposerAttachmentRules {
   final bool isReply;
   final bool isQuote;
   final bool hasPhotos;
+  final bool hasVideo;
   final bool hasGif;
   final bool hasPoll;
   final bool scheduled;
@@ -112,6 +118,7 @@ class ComposerAttachmentRules {
   /// GIF disables photos, the poll and Schedule; photos disable the GIF and
   /// the poll.
   ComposerBlock get poll {
+    if (hasVideo) return ComposerBlock.hasVideo;
     if (hasPlan) return ComposerBlock.hasPlan;
     if (scheduled) return ComposerBlock.scheduled;
     if (hasGif) return ComposerBlock.hasGif;
@@ -120,6 +127,7 @@ class ComposerAttachmentRules {
   }
 
   ComposerBlock get gif {
+    if (hasVideo) return ComposerBlock.hasVideo;
     if (hasPoll) return ComposerBlock.hasPoll;
     if (hasPhotos) return ComposerBlock.hasPhotos;
     if (hasGif) return ComposerBlock.hasGif; // one GIF per post
@@ -128,6 +136,7 @@ class ComposerAttachmentRules {
   }
 
   ComposerBlock get photo {
+    if (hasVideo) return ComposerBlock.hasVideo;
     if (hasPoll) return ComposerBlock.hasPoll;
     if (hasGif) return ComposerBlock.hasGif;
     return ComposerBlock.none;

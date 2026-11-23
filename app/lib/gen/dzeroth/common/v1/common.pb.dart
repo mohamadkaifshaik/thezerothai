@@ -309,11 +309,11 @@ class MediaRef extends $pb.GeneratedMessage {
   @$pb.TagNumber(7)
   void clearAltText() => $_clearField(7);
 
-  /// The full object's content type: "image/jpeg", "image/webp" or "image/gif" (POST media only, behind
+  /// The full object's content type: "image/jpeg", "image/webp", "video/mp4" (POST only) or "image/gif" (POST only, behind
   /// FEATURE_GIF). Empty on refs stored before W6, which are still JPEG or WebP images. A client badges and plays a GIF
   /// from this field, never from the URL. thumb_url is always a still image (JPEG or WebP): lists show it, and the full
   /// url is fetched only when the user taps to play (F10). Set in FinalizeUpload's MediaResult.media, copied into posts
-  /// from the media doc at CreatePost, and into embeds with them. A later rung may add other types (e.g. a short video); treat unknown values as a still image
+  /// from the media doc at CreatePost, and into embeds with them. Treat unknown values as a still image
   /// that cannot play.
   @$pb.TagNumber(8)
   $core.String get contentType => $_getSZ(7);

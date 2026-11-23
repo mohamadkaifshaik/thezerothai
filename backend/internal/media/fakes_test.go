@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"sort"
 	"sync"
 	"time"
@@ -540,4 +541,13 @@ func (r *fakeRepo) IDsByPost(_ context.Context, postID string, limit int) ([]str
 		}
 	}
 	return out, nil
+}
+
+func (o *fakeObjects) WriteUploadTo(ctx context.Context, object string, n, generation int64, w io.Writer) (int64, error) {
+	b, err := o.UploadHead(ctx, object, n, generation)
+	if err != nil {
+		return 0, err
+	}
+	written, err := w.Write(b)
+	return int64(written), err
 }

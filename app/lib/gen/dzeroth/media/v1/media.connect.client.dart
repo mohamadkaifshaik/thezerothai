@@ -9,7 +9,7 @@ import "media.connect.spec.dart" as specs;
 
 extension type MediaServiceClient (connect.Transport _transport) {
   /// Reserve 1-4 media ids and get signed PUT URLs (full + thumb each), 10-minute TTL, bound to the exact object
-  /// path, Content-Type, Content-MD5 and x-goog-content-length-range (full <= 2 MiB, thumb <= 256 KiB).
+  /// path, Content-Type, Content-MD5 and x-goog-content-length-range (image <= 2 MiB, MP4 <= 96 MiB, thumb <= 256 KiB).
   /// A purpose other than POST or AVATAR (UNSPECIFIED, or the removed value 3) => INVALID_ARGUMENT + VALIDATION,
   /// metadata["field"] = "purpose".
   /// No daily upload quota: only the per-minute bucket limits how often a user can call it. Rejected with
@@ -21,6 +21,7 @@ extension type MediaServiceClient (connect.Transport _transport) {
   /// VALIDATION field "content_type"); exactly one item in a request that carries a GIF (else VALIDATION field
   /// "items"); full <= 2 MiB (the same signed range); declared width and height <= 1,280; thumb_content_type must be
   /// "image/jpeg" or "image/webp" (else VALIDATION field "thumb_content_type").
+  /// A post video is uploaded alone: H.264 MP4, optional AAC, up to 5 minutes and 1920 pixels per side.
   Future<dzerothmediav1media.CreateUploadResponse> createUpload(
     dzerothmediav1media.CreateUploadRequest input, {
     connect.Headers? headers,
@@ -63,6 +64,7 @@ extension type MediaServiceClient (connect.Transport _transport) {
   /// Vision-units cap (refused before any claim, nothing written, retry_after to IST midnight; do not retry sooner). A
   /// media item is REJECTED with reason "attempts" after 3 attempts that produced a valid assessment, or 8 claims in total;
   /// its objects are deleted. A busy GIF slot consumes no attempt.
+  /// For videos the server screens a sheet of 4-15 sampled frames and the still thumbnail before publication.
   Future<dzerothmediav1media.FinalizeUploadResponse> finalizeUpload(
     dzerothmediav1media.FinalizeUploadRequest input, {
     connect.Headers? headers,

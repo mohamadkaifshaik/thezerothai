@@ -46,13 +46,15 @@ class MediaRepository {
     void Function()? onFeatureDisabled,
     void Function(Object error, StackTrace stack)? onUnexpectedError,
     Duration putTimeout = const Duration(minutes: 2),
+    Duration videoPutTimeout = const Duration(minutes: 9),
   }) : _apiClient = apiClient,
        _http = httpClient,
        _isMediaEnabled = isMediaEnabled,
        _isGifEnabled = isGifEnabled ?? (() => true),
        _onFeatureDisabled = onFeatureDisabled,
        _onUnexpectedError = onUnexpectedError,
-       _putTimeout = putTimeout;
+       _putTimeout = putTimeout,
+       _videoPutTimeout = videoPutTimeout;
 
   final ApiClient _apiClient;
   final http.Client _http;
@@ -64,6 +66,7 @@ class MediaRepository {
   final void Function()? _onFeatureDisabled;
   final void Function(Object error, StackTrace stack)? _onUnexpectedError;
   final Duration _putTimeout;
+  final Duration _videoPutTimeout;
 
   Future<T> _run<T>(Future<T> Function() call) async {
     if (!_isMediaEnabled()) {
@@ -142,7 +145,10 @@ class MediaRepository {
       ..bodyBytes = bytes;
     final int status;
     try {
-      final response = await _http.send(request).timeout(_putTimeout);
+      final timeout = request.headers['content-type'] == kVideoContentType
+          ? _videoPutTimeout
+          : _putTimeout;
+      final response = await _http.send(request).timeout(timeout);
       await response.stream.drain<void>();
       status = response.statusCode;
     } on TimeoutException {

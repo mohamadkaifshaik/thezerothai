@@ -7,6 +7,7 @@
 package objstore
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -142,11 +143,21 @@ func (s *Store) Attrs(ctx context.Context, object string) (Attrs, error) {
 // bytes are exactly the ones whose attributes were verified) with an ifGenerationMatch precondition: 412 means the object was
 // replaced (ErrGenerationChanged) and 404 means it is gone (ErrObjectNotFound, the same split CopyTo makes).
 func (s *Store) ReadHead(ctx context.Context, object string, n, generation int64) ([]byte, error) {
+	var buf bytes.Buffer
+	_, err := s.WriteHeadTo(ctx, object, n, generation, &buf)
+	if err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// WriteHeadTo streams a generation-pinned range into dst without buffering the object in memory.
+func (s *Store) WriteHeadTo(ctx context.Context, object string, n, generation int64, dst io.Writer) (int64, error) {
 	ctx, cancel := context.WithTimeout(ctx, opTimeout)
 	defer cancel()
 	obj, err := s.handle(ctx, object)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 	if generation != 0 {
 		obj = obj.If(storage.Conditions{GenerationMatch: generation}) // not Generation(): a 404 must stay "not found", only 412 is "changed"
@@ -154,20 +165,20 @@ func (s *Store) ReadHead(ctx context.Context, object string, n, generation int64
 	r, err := obj.NewRangeReader(ctx, 0, n)
 	var gerr *googleapi.Error
 	if errors.As(err, &gerr) && gerr.Code == http.StatusPreconditionFailed {
-		return nil, ErrGenerationChanged
+		return 0, ErrGenerationChanged
 	}
 	if errors.Is(err, storage.ErrObjectNotExist) {
-		return nil, ErrObjectNotFound
+		return 0, ErrObjectNotFound
 	}
 	if err != nil {
-		return nil, fmt.Errorf("objstore: open object head: %w", err)
+		return 0, fmt.Errorf("objstore: open object head: %w", err)
 	}
 	defer r.Close()
-	b, err := io.ReadAll(io.LimitReader(r, n))
+	written, err := io.Copy(dst, io.LimitReader(r, n))
 	if err != nil {
-		return nil, fmt.Errorf("objstore: read object head: %w", err)
+		return written, fmt.Errorf("objstore: read object head: %w", err)
 	}
-	return b, nil
+	return written, nil
 }
 
 // CopyTo copies object to dstObject in dst's bucket with the given content type and Cache-Control (1 Class A

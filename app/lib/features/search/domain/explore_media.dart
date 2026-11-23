@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import '../../media/domain/media_feature_flag.dart' show kMaxPostImages;
 import '../../../gen/dzeroth/common/v1/common.pb.dart' as common;
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' show PostView;
 import '../../../gen/dzeroth/posts/v1/posts.pbenum.dart' show PostKind;
@@ -38,7 +39,7 @@ ExploreMediaTile? exploreMediaTileOf(PostView view) {
   if (!view.hasPost()) return null;
   final post = view.post;
   if (post.kind == PostKind.POST_KIND_REPOST) return null;
-  for (var i = 0; i < post.media.length && i < 4; i++) {
+  for (var i = 0; i < post.media.length && i < kMaxPostImages; i++) {
     final media = post.media[i];
     if (media.thumbUrl.isEmpty) continue;
     return ExploreMediaTile(

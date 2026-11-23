@@ -187,7 +187,7 @@ func TestSchedule_ShapeErrorsComeBeforeAnyLookup(t *testing.T) {
 			i.ReplyPolicy = int32(postsv1.ReplyPolicy_REPLY_POLICY_VERIFIED)
 		}, "reply_policy", 0, 0, false},
 		{"reply policy unknown number", func(i *ScheduleInput) { i.ReplyPolicy = 99 }, "reply_policy", 0, 0, false},
-		{"five media", func(i *ScheduleInput) { i.MediaIDs = mediaIDs(5) }, "media_ids", 0, 0, false},
+		{"twenty-one media", func(i *ScheduleInput) { i.MediaIDs = mediaIDs(21) }, "media_ids", 0, 0, false},
 		{"media id not 19 digits", func(i *ScheduleInput) { i.MediaIDs = []string{"abc"} }, "media_ids", 0, 0, false},
 		{"duplicate media id", func(i *ScheduleInput) { i.MediaIDs = []string{mediaIDs(1)[0], mediaIDs(1)[0]} }, "media_ids", 0, 0, false},
 		{"alt texts not parallel", func(i *ScheduleInput) { i.MediaIDs, i.MediaAltTexts = mediaIDs(2), []string{"x"} }, "media_alt_texts", 0, 0, false},

@@ -183,11 +183,11 @@ void main() {
     expect(postButton(tester).onPressed, isNull);
   });
 
-  testWidgets('four photos: the add button is disabled', (tester) async {
+  testWidgets('twenty photos: the add button is disabled', (tester) async {
     await open(tester);
-    await addPhotos(tester, ['a', 'b', 'c', 'd']);
+    await addPhotos(tester, List.generate(20, (i) => i.toString()));
 
-    expect(find.byTooltip('Four photos is the limit'), findsOneWidget);
+    expect(find.byTooltip('20 photos is the limit'), findsOneWidget);
     final button = tester.widget<IconButton>(
       find.widgetWithIcon(IconButton, Icons.image_outlined),
     );
@@ -403,7 +403,7 @@ void main() {
       textScale: 2,
       size: const Size(320, 640),
     );
-    await addPhotos(tester, ['a', 'b', 'c', 'd']);
+    await addPhotos(tester, List.generate(20, (i) => i.toString()));
 
     expect(tester.takeException(), isNull);
     final add = tester.getSize(
