@@ -398,6 +398,9 @@ class MessageReceiver implements EpochMessageSink {
     String conversationId, {
     BudgetPriority priority = BudgetPriority.background,
   }) {
+    // Task 12 (brief amendment 6): no listing and no decrypt while this
+    // device is removed elsewhere; asked again after one walk backoff.
+    if (_crypto.removedElsewhere) return Future.value(_removedOutcome());
     final context = _contexts.of(conversationId);
     final running = context.running;
     if (running != null) return running.then((o) => o! as ReceiveOutcome);
@@ -425,7 +428,13 @@ class MessageReceiver implements EpochMessageSink {
   Future<ReceiveOutcome> reconcile(
     String conversationId, {
     BudgetPriority priority = BudgetPriority.background,
-  }) => _reconcileAlone(conversationId, priority);
+  }) => _crypto.removedElsewhere
+      ? Future.value(_removedOutcome())
+      : _reconcileAlone(conversationId, priority);
+
+  /// What a pass answers while removed elsewhere (Task 12).
+  ReceiveOutcome _removedOutcome() =>
+      ReceiveOutcome.stopped(_now().add(kWalkBackoff));
 
   /// [conversationId]'s close (or orphan) walk for [pair] reached its end
   /// (read from the receive record). True for a pair no member can have
@@ -481,6 +490,7 @@ class MessageReceiver implements EpochMessageSink {
     BudgetPriority priority = BudgetPriority.user,
   }) async {
     final id = conversationId;
+    if (_crypto.removedElsewhere) return; // Task 12: no call
     if (_contexts.of(id).clearedAtReadThisRun) return;
     try {
       final pass = await _start();
@@ -919,7 +929,8 @@ class MessageReceiver implements EpochMessageSink {
 
   Future<_Pass?> _start() async {
     final vault = _session.vault;
-    if (vault == null) return null;
+    // Task 12: every pass, sink walk and retry stops while removed elsewhere.
+    if (vault == null || _crypto.removedElsewhere) return null;
     try {
       final deviceId = await vault.deviceId();
       if (deviceId == null) return null;

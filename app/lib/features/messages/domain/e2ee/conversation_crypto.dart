@@ -193,6 +193,10 @@ class ConversationCrypto {
   final bool Function() _removedElsewhere;
   final void Function(Object error, StackTrace stack)? _onUnexpectedError;
 
+  /// Task 12's fact, as this service was handed it: the receiver (which
+  /// holds this service) reads it here, so the pipeline has one fact.
+  bool get removedElsewhere => _removedElsewhere();
+
   /// Set by Task 6.
   EpochMessageSink? sink;
 
@@ -648,9 +652,13 @@ class ConversationCrypto {
   // ---------------------------------------------------------------------
 
   /// One unit of the sync budget; false (make no call) while paused, when a
-  /// pause released the wait, or after a reset.
+  /// pause released the wait, or after a reset. Task 12 (brief amendment
+  /// 6): false while this device is removed elsewhere, so no welcome poll,
+  /// catch-up listing, settle listing or attribution list goes out (every
+  /// sync RPC of this service takes a unit first), and so no commit is
+  /// applied and no epoch is walked.
   Future<bool> _takeSyncUnit(BudgetPriority priority) async {
-    if (_syncBudget.paused) return false;
+    if (_removedElsewhere() || _syncBudget.paused) return false;
     try {
       await _syncBudget.take(priority);
       return true;
