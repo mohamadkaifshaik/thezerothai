@@ -142,6 +142,25 @@ void main() {
     expect(removalsPendingText(12), '12 conversations still to update');
   });
 
+  test('the stop-sending copy (Task 13b gate item 23): held never promises '
+      'delivery, a discard never says the conversation is gone, and a '
+      'discard may still wait', () {
+    for (final text in [
+      kInitDiscardHeldText,
+      kInitDiscardNotDecidedText,
+      kInitDiscardedText,
+    ]) {
+      expect(text, isNotEmpty);
+      final lower = text.toLowerCase();
+      expect(lower, isNot(contains('will be delivered')), reason: text);
+      expect(lower, isNot(contains('deleted')), reason: text);
+      expect(lower, isNot(contains('conversation is gone')), reason: text);
+    }
+    expect(kInitDiscardHeldText.toLowerCase(), contains('may'));
+    expect(kInitDiscardNotDecidedText.toLowerCase(), contains('try again'));
+    expect(kInitDiscardedText.toLowerCase(), contains('may'));
+  });
+
   test('counts and spoken labels', () {
     expect(devicesCount(3), '3 of 5 devices');
     expect(securityCodeGroupLabel(1, '01234'), 'Group 1 of 12: 0 1 2 3 4');

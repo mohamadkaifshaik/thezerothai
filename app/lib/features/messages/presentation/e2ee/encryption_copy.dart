@@ -154,6 +154,32 @@ const kOutgoingNotSentBlockedText = 'Not sent';
 /// Status of an own row at the per-target daily cap.
 const kOutgoingTryTomorrowText = 'Not sent. Try again tomorrow';
 
+// Plan 5a Task 13b (gate item 22): the starting refusals and failed rows
+// with no typed error reach the screens as a `SendProblem` and reuse the
+// lines above. `LookupFailed`, `StartUnavailable`, `InitDiscarded` and a
+// failed row with no typed error (after a restart only its stored name is
+// left) are `retryable` ("Not sent. Tap to retry"); `PeerHasNoDevice`, and a
+// peer whose listed devices are all inactive, are `peerHasNoDevice`
+// (kStatePeerNoDeviceText); a device whose vault marker cannot be read is a
+// `retryable` refusal, "try again", never `blocked` (F5).
+
+/// Stopping the first message of a new encrypted conversation (the
+/// starter's `discardInit`, gate item 23): the server may already hold it.
+/// Never promises delivery (preflag review I-1: it may stay held for good).
+const kInitDiscardHeldText =
+    "This message can't be stopped now. It may still be delivered.";
+
+/// The same, when what the server holds could not be checked.
+const kInitDiscardNotDecidedText =
+    "Couldn't check this message right now. Try again.";
+
+/// The same, stopped. Never says the conversation is gone (preflag fix 3,
+/// L-1), and the message may still wait and go out once the conversation
+/// is ready (fix round 2, ruling 7: another device's start came first).
+const kInitDiscardedText =
+    'Stopped. This message may wait and go out once the conversation is '
+    'ready, or you can try again.';
+
 // ---------------------------------------------------------------------------------------------------------------
 // Conversation states
 // ---------------------------------------------------------------------------------------------------------------
@@ -523,9 +549,15 @@ const kConfirmItsYouAgainBody =
 const kDeviceRemoveReauthFailedText =
     "Couldn't confirm it's you, so the device wasn't removed. Try again.";
 
-/// Removed, `other_sessions_ended` false.
+/// Removed, `other_sessions_ended` false. Plan 5a Task 13b (controller
+/// ruling 3, 2026-11-23): no "change your password too". Why: the #1097
+/// audit (H1) found that a password change alone may not sign a thief's
+/// device out, so that advice could give false comfort; the line states only
+/// what is true. Shown only with `device_sign_out` on (off today); the owner
+/// may reword it.
 const kDeviceRemovedSessionsKept =
-    'Removed. If this device was lost or stolen, change your password too.';
+    'Removed. Your other devices stay signed in until you remove them or '
+    'sign them out.';
 
 /// Removed, `other_sessions_ended` true.
 const kDeviceRemovedSessionsEnded =

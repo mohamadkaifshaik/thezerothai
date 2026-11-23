@@ -754,8 +754,12 @@ void main() {
     );
     expect(
       deviceRemovedText(otherSessionsEnded: false),
-      'Removed. If this device was lost or stolen, change your password too.',
+      // Task 13b ruling 3 (#1097 audit H1): no password advice; a password
+      // change alone may not sign a thief out.
+      'Removed. Your other devices stay signed in until you remove them or '
+      'sign them out.',
     );
+    expect(kDeviceRemovedSessionsKept, isNot(contains('password')));
     expect(deviceRemovedText(), kDeviceRemovedText);
     expect(
       kDeviceRemoveSignOutMessage,
