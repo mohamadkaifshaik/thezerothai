@@ -387,6 +387,47 @@ void main() {
     await runner.idle();
   });
 
+  test('a removed device re-pinned unattributed (a hostile own list hides '
+      'it) is removed with no queue entry and no M2 wait (final minor round, '
+      'ruling 3)', () async {
+    final sibling = await RigPeer.create('sibling');
+    // sibling was a member here (its key is in the conversation's key
+    // history), then left the group when the user removed it.
+    await setUpJoined(others: [sibling], ownListed: [sibling]);
+    expect((await pin(sibling))!.side, MemberSide.mine);
+    var at = rig.server.current(_c1);
+    var c = await rigCommit(offer.add.group, remove: [sibling.id]);
+    rig.server.addCommit(_c1, at, c.commit, fromUser: 'user-b');
+    expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+    expect(await pin(sibling), isNull);
+    final runner = realRunner();
+    await markRemoved(sibling, const Duration(days: 1));
+    expect(await runner.wasRemovedByUser(sibling.id), isTrue);
+    expect(runner.queuedFor(_c1), isEmpty, reason: 'no queue entry');
+    // The hostile own list now hides it; bob's commit adds it back, so its
+    // pin is `unattributed`.
+    rig.keys.own.removeWhere((d) => d.deviceId == sibling.idString);
+    // Past the removal clock's first counting moment (kConversationCopyStale
+    // is 60 s): attribution concludes `unattributed` on counting lists.
+    rig.clock.advance(const Duration(seconds: 61));
+    at = rig.server.current(_c1);
+    c = await rigCommit(offer.add.group, add: [await sibling.keyPackage()]);
+    rig.server.addCommit(_c1, at, c.commit, fromUser: 'user-b');
+    expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+    await rig.receiver.pullLive(_c1);
+    expect((await pin(sibling))!.side, MemberSide.unattributed);
+    rig.server.commitRequests.clear();
+    expect(rig.contexts.of(_c1).syncedSinceStart, isTrue);
+    // M2's own removal would wait for kUnattributedRecheck.
+    expect(rig.contexts.of(_c1).firstSeenUnattributed, isNotEmpty);
+
+    await rig.upkeep.reconcile(_c1);
+
+    expect(rig.server.commitRequests, hasLength(1));
+    expect(await pin(sibling), isNull);
+    await runner.idle();
+  });
+
   test('a re-pinned own device whose key is not the removed mark\'s key is '
       'kept (an id alone is no proof)', () async {
     final sibling = await RigPeer.create('sibling');

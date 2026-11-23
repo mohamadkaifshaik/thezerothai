@@ -309,8 +309,16 @@ extension _Reconcile on MembershipUpkeep {
     // member. The key must match the mark's (an id alone is no proof), and
     // M2's key-history guard holds as on the mark path above. The user's
     // removal is exempt from the M5 pause (ruling H).
+    //
+    // Final minor round, ruling 3 (security re-check): `unattributed` pins
+    // too, with the same guard. Why: a hostile own list can hide the
+    // re-pinned device (so it is not `mine`) while the peer's list shows
+    // it to the peer; M2's delayed removal would otherwise be all.
     for (final m in members) {
-      if (m.side != MemberSide.mine || _same(m.deviceId, thisDevice)) continue;
+      if (m.side != MemberSide.mine && m.side != MemberSide.unattributed) {
+        continue;
+      }
+      if (_same(m.deviceId, thisDevice)) continue;
       final hex = vaultDeviceIdHex(m.deviceId);
       if (removing.contains(hex)) continue;
       final key = removedKeyOf?.call(m.deviceId);
