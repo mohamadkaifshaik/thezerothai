@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:dzeroth/core/vault/secure_vault.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/commit_runner.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_crypto.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/e2ee_types.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/removal_queue_runner.dart';
@@ -251,6 +252,34 @@ void main() {
     ]);
     expect(await pin(sibling), isNull);
   });
+
+  test(
+    'a pass that may not commit (not synced) asks about own devices '
+    'without a fresh read when the queue is unreadable, and arms no '
+    're-check for an own add alone (fix round 1, ruling 5, CR M-2)',
+    () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpJoined(ownListed: [sibling]);
+      // This device's own commit moved the pair, with no live pull since:
+      // the pass may not commit and reaches the re-check decision.
+      expect(await rig.commits.selfUpdate(_c1), CommitOutcome.applied);
+      expect(rig.contexts.of(_c1).syncedSinceStart, isFalse);
+      rig.server.commitRequests.clear();
+      ownClaims([sibling]);
+      unreadableQueue();
+      // Step 1 reuses this list; only the re-check decision could read.
+      expect((await rig.directory.own(fresh: true)).readable, isTrue);
+      final listsBefore = rig.keys.listCalls;
+
+      await rig.upkeep.reconcile(_c1);
+
+      expect(asked, contains(sibling.idString), reason: 'the branch ran');
+      expect(rig.keys.listCalls, listsBefore, reason: 'no fresh own read');
+      expect(ownClaimCalls(), isEmpty);
+      expect(rig.server.commitRequests, isEmpty);
+      expect(rig.upkeepScheduled.where((e) => !e.cancelled), isEmpty);
+    },
+  );
 
   test('an unreadable removal queue and no fresh own list: reconcile adds '
       'no own device this pass, and still adds the peer\'s', () async {
