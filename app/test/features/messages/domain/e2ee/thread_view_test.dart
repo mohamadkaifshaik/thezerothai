@@ -14,7 +14,7 @@ import 'package:flutter_test/flutter_test.dart';
 // are step 13b-ii's.
 
 // Any instant: the mapping copies it and compares it with nothing.
-final _at = DateTime.fromMicrosecondsSinceEpoch(1700000000000000, isUtc: true);
+final _at = DateTime.now().toUtc();
 
 Uint8List _content(String text, {String shared = ''}) => encodeMessageContent(
   text: text,
