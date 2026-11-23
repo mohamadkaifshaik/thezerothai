@@ -300,7 +300,16 @@ class _Parts {
   /// sender's, failed) is discarded too. When the server may still hold
   /// the init (`held`, `notDecided`, `settled`) the first message cannot be
   /// recalled and its row stays.
-  Future<void> deleteLocal(String conversationId, int atMicros) async {
+  ///
+  /// Fix wave ruling 6 (security audit L3): only the messages stored up to
+  /// [upTo] (the newest stored when the user deleted, by the message's own
+  /// time, never the device clock; null: the newest stored now, read under
+  /// the lock) are deleted; a message that arrived since stays.
+  Future<void> deleteLocal(
+    String conversationId,
+    int atMicros, {
+    int? upTo,
+  }) async {
     // Review I2: not made is never "done" (the caller keeps it remembered).
     if (!live) throw StateError('The vault changed.');
     final id = conversationId;
@@ -316,8 +325,9 @@ class _Parts {
         final sync = record?.sync ?? const ConversationSync();
         final before = sync.clearedAtMicros;
         final cleared = before != null && before > atMicros ? before : atMicros;
+        final bound = upTo ?? await _newestIn(v, id);
         await v.transaction((tx) async {
-          await tx.deleteConversation(id);
+          await tx.deleteConversation(id, upToCreatedAtMicros: bound);
           for (final r in rows) {
             await tx.deleteOutbox(r.idempotencyKey);
           }
@@ -334,6 +344,23 @@ class _Parts {
     // discard below makes MLS calls, so it runs only for a started pipeline
     // (usable device, not removed elsewhere) and is owed otherwise.
     if (init != null && live) await _p._discardOrOwe(this, id);
+  }
+
+  /// The newest stored message's time of [conversationId] in the open
+  /// vault (-1: none, so a bound of it deletes nothing; null: not readable
+  /// now, so the delete reads it itself). Never throws.
+  Future<int?> newestStoredAt(String conversationId) async {
+    try {
+      if (!live) return null;
+      return await _newestIn(vault, conversationId);
+    } on Object {
+      return null;
+    }
+  }
+
+  static Future<int> _newestIn(SecureVault v, String id) async {
+    final newest = await v.messages(id, limit: 1);
+    return newest.isEmpty ? -1 : newest.first.createdAtMicros;
   }
 
   /// The starter's discard of [conversationId]'s pending init (outside the

@@ -1,5 +1,9 @@
 part of 'e2ee_pipeline.dart';
 
+/// A remembered delete (fix wave ruling 6): its time, and the newest stored
+/// message's time when the user deleted (null: read at the delete).
+typedef _NotedDelete = ({int at, int? upTo});
+
 /// The pipeline's remembered hints (gate item 42; reviews I2, I3, I5,
 /// r1-I1, r1-I2): the account tag, the remembered deletes and the owed
 /// init discards, and the replay at start. Moved out of `e2ee_pipeline.dart`
@@ -109,24 +113,36 @@ extension _PipelineNotes on E2eePipeline {
     }
   }
 
-  void _rememberDelete(String id, int at, {String? account}) {
+  /// Two deletes of one conversation merge: the later time, and the wider
+  /// bound (an unknown bound, read at the delete, wins).
+  void _rememberDelete(String id, int at, {int? upTo, String? account}) {
     if (!_claimNotes(account)) return;
     final before = _notedDeleted.remove(id);
-    _notedDeleted[id] = before != null && before > at ? before : at;
+    final b = before?.upTo;
+    _notedDeleted[id] = (
+      at: before != null && before.at > at ? before.at : at,
+      upTo: before == null
+          ? upTo
+          : (b == null || upTo == null)
+          ? null
+          : (b > upTo ? b : upTo),
+    );
     while (_notedDeleted.length > kPipelineNotesMax) {
       _notedDeleted.remove(_notedDeleted.keys.first);
     }
   }
 
-  /// One delete; on any failure it is remembered again (a [StateError] is
-  /// quiet, anything else reported). Never throws.
-  Future<bool> _deleteNow(_Parts parts, String id, int at) async {
+  /// One delete, of the messages stored up to [upTo] (null: up to the
+  /// newest stored when it runs); on any failure it is remembered again
+  /// with the same bound (a [StateError] is quiet, anything else reported).
+  /// Never throws.
+  Future<bool> _deleteNow(_Parts parts, String id, int at, {int? upTo}) async {
     try {
-      await parts.deleteLocal(id, at);
+      await parts.deleteLocal(id, at, upTo: upTo);
       return true;
     } on Object catch (e, s) {
       if (e is! StateError) _report('pipeline.delete', s);
-      _rememberDelete(id, at, account: parts.vault.uid);
+      _rememberDelete(id, at, upTo: upTo, account: parts.vault.uid);
       return false;
     }
   }
@@ -147,7 +163,7 @@ extension _PipelineNotes on E2eePipeline {
     for (final e in [..._notedDeleted.entries]) {
       if (!parts.live) return;
       _notedDeleted.remove(e.key);
-      await _deleteNow(parts, e.key, e.value);
+      await _deleteNow(parts, e.key, e.value.at, upTo: e.value.upTo);
     }
   }
 

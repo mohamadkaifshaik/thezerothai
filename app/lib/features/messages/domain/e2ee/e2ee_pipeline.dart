@@ -199,7 +199,11 @@ class E2eePipeline {
   // Hints remembered before the pipeline started (gate item 42).
   final LinkedHashSet<String> _notedEncrypted = LinkedHashSet();
   final LinkedHashSet<String> _notedAccepted = LinkedHashSet();
-  final LinkedHashMap<String, int> _notedDeleted = LinkedHashMap();
+
+  /// Each remembered delete: its time and (fix wave ruling 6, security
+  /// audit L3) the newest stored message's time when the user deleted, or
+  /// null when that could not be read then (read at the delete instead).
+  final LinkedHashMap<String, _NotedDelete> _notedDeleted = LinkedHashMap();
   final LinkedHashSet<String> _notedPushes = LinkedHashSet();
 
   /// Fix round 2 (r1-I1): conversations whose local delete was made while
@@ -501,7 +505,12 @@ class E2eePipeline {
       return;
     }
     _inRoot(() async {
-      final run = _deleteNow(parts, conversationId, at).then((_) {});
+      // Fix wave ruling 6 (security audit L3): the delete covers what was
+      // stored when the user deleted, read now, before anything waits.
+      final run = parts
+          .newestStoredAt(conversationId)
+          .then((upTo) => _deleteNow(parts, conversationId, at, upTo: upTo))
+          .then((_) {});
       _deletesInFlight.add(run);
       try {
         await run;

@@ -24,12 +24,17 @@ import '../../../../support/e2ee_pipeline_rig.dart';
 const _c1 = '11111111111111111111111111111111';
 const _c2 = '22222222222222222222222222222222';
 
-Future<void> _storeMessage(SecureVault v, String id) => v.transaction(
+Future<void> _storeMessage(
+  SecureVault v,
+  String id, {
+  String messageId = 'm-1',
+  int createdAtMicros = 1,
+}) => v.transaction(
   (tx) => tx.putMessage(
     StoredMessage(
       conversationId: id,
-      messageId: 'm-1',
-      createdAtMicros: 1,
+      messageId: messageId,
+      createdAtMicros: createdAtMicros,
       mine: false,
       state: StoredMessageState.visible,
       generation: 1,
@@ -95,6 +100,33 @@ void main() {
       await h.settle();
       await _until(() async => (await v.messages(_c1)).isEmpty);
       expect(h.pipeline.notedCount, 0);
+    });
+
+    test('SA L3: a delete retried later removes only the messages stored '
+        'when the user deleted; one that arrived since stays', () async {
+      final v = h.rig.device.vault;
+      await _storeMessage(v, _c1);
+      await h.ready();
+      var failures = 1;
+      h.rig.device.onOutbox = () async {
+        if (failures > 0) {
+          failures--;
+          throw const FormatException('rig: an unreadable outbox');
+        }
+      };
+      h.pipeline.noteDeleted(_c1);
+      await _until(() async => h.reported.isNotEmpty);
+      await h.settle();
+      expect(h.pipeline.notedCount, 1, reason: 'kept for a retry');
+      h.reported.clear();
+      // A message arrives after the user's delete.
+      await _storeMessage(v, _c1, messageId: 'm-2', createdAtMicros: 5);
+
+      h.pipeline.onAppResumed();
+      await _until(() async => h.pipeline.notedCount == 0);
+      await h.settle();
+
+      expect((await v.messages(_c1)).map((m) => m.messageId), ['m-2']);
     });
 
     test('forgetting the hints (sign-out of the same account) keeps its '
