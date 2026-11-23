@@ -105,14 +105,11 @@ extension _Recovery on GroupStarter {
           await _sender.drain(id, priority: priority);
         case _NextKind.discardCleared:
           // Fix wave ruling 1: the deleted conversation's init goes through
-          // the user's discard (it takes the lock itself); when discarded,
-          // its row (now the sender's, failed) goes too, as the pipeline's
-          // own delete does.
-          final localId = next.localId;
-          if (await _discardInit(id) == InitDiscard.discarded &&
-              localId != null) {
-            await _sender.discard(localId);
-          }
+          // the user's discard (it takes the lock itself). Final round,
+          // ruling 1: when discarded, its row (now the sender's, failed)
+          // STAYS, visible as failed: never a silent removal here (the
+          // pipeline's own delete removes it when it asked for the discard).
+          await _discardInit(id);
         case _NextKind.settledReset:
           // Task 10: the reset is final; catch up on g + 1 (attribution
           // of its members) and the rows waiting behind it go out (a row
@@ -155,9 +152,10 @@ extension _Recovery on GroupStarter {
     // `notDecided` and `settled` keep the row). Why: the pipeline's owed
     // discard lives in memory only, so after a restart this stored mark
     // is the one record of the delete; a resend would bring back a
-    // conversation the user deleted. A device clock moved back can make a
-    // later start's row look older than the delete: it is then discarded
-    // (the privacy-safe direction).
+    // conversation the user deleted. Only this device's own delete time
+    // counts (final round, ruling 1: one clock). A device clock moved back
+    // can still make a later start's row look older than the delete: it is
+    // then discarded and its row stays, visible as failed.
     if (row != null && await _clearedSince(op.vault, id, row)) {
       return _Next(_NextKind.discardCleared, localId: row.localId);
     }

@@ -325,6 +325,12 @@ class _Parts {
         final sync = record?.sync ?? const ConversationSync();
         final before = sync.clearedAtMicros;
         final cleared = before != null && before > atMicros ? before : atMicros;
+        // Final round, ruling 1: this device's own delete time, on the
+        // device clock (the starter's resend check reads only this one).
+        final localBefore = sync.localClearedAtMicros;
+        final localCleared = localBefore != null && localBefore > atMicros
+            ? localBefore
+            : atMicros;
         final bound = upTo ?? await _newestIn(v, id);
         await v.transaction((tx) async {
           await tx.deleteConversation(id, upToCreatedAtMicros: bound);
@@ -333,7 +339,10 @@ class _Parts {
           }
           await tx.putConversationSync(
             id,
-            sync.copyWith(clearedAtMicros: cleared),
+            sync.copyWith(
+              clearedAtMicros: cleared,
+              localClearedAtMicros: localCleared,
+            ),
           );
           await receiver.purgeDeferredIn(v, tx, id, cleared);
         });

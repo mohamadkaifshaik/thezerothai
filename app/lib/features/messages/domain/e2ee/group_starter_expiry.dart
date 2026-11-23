@@ -278,14 +278,21 @@ extension _Expiry on GroupStarter {
 /// unchanged, beside the fix wave's [_clearedSince] (the file-size rule).
 extension _ProvisionalAge on GroupStarter {
   /// Task 13 fix wave, ruling 1: whether the user deleted [id] for themself
-  /// at or after [row] (the stored `clearedAtMicros`, written in the
-  /// delete's transaction).
+  /// ON THIS DEVICE at or after [row].
+  ///
+  /// Final round, ruling 1 (code review m1, security N-a). Decision: only
+  /// `localClearedAtMicros` (this device's own delete, on the device clock
+  /// the row's time is on) counts, never `clearedAtMicros`, which the
+  /// receiver may set from the server's `cleared_at`. Why: the server's time
+  /// is on another clock; with this clock behind, a delete made on another
+  /// device would make a NEW first message here look deleted. With only the
+  /// server's time, the init is resent as before.
   Future<bool> _clearedSince(
     SecureVault vault,
     String id,
     OutboxItem row,
   ) async {
-    final cleared = (await vault.conversation(id))?.sync.clearedAtMicros;
+    final cleared = (await vault.conversation(id))?.sync.localClearedAtMicros;
     return cleared != null && cleared >= row.createdAtMicros;
   }
 

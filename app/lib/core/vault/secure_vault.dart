@@ -784,6 +784,7 @@ void _requireSync(ConversationSync sync) {
     sync.firstSawGenerationAtMicros,
     sync.lastSelfUpdateAtMicros,
     sync.clearedAtMicros,
+    sync.localClearedAtMicros,
     sync.commitCallsToday,
   ]) {
     if (v != null && !_inPairRange(v)) {

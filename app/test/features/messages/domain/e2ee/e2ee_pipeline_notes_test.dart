@@ -5,6 +5,8 @@ import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/session/session_end.dart';
 import 'package:dzeroth/core/vault/secure_vault.dart';
 import 'package:dzeroth/features/keys/domain/device_keys_service.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/e2ee_types.dart'
+    show OutgoingStatus5a;
 import 'package:dzeroth/features/messages/domain/e2ee/group_starter.dart'
     show kInitResendMargin;
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
@@ -293,8 +295,43 @@ void main() {
     await next.starter.resumeProvisional();
     await next.starter.settled(_c1);
     await _until(() async => await v.group(_c1, 1) == null);
-    await _until(() async => (await v.outbox()).items.isEmpty);
     expect(h.rig.server.sends, hasLength(sends), reason: 'never resent');
+    // Final round, ruling 1: never a silent removal; the user's row stays,
+    // visible as failed.
+    final rows = await next.sender.outgoing(_c1);
+    expect(rows.map((r) => r.status), [OutgoingStatus5a.failed]);
+  });
+
+  test('final round ruling 1: a cleared time that is only the server\'s (a '
+      'delete on another device, this clock behind) never discards a new '
+      'first message here', () async {
+    final v = h.rig.device.vault;
+    await unansweredInit();
+    final row = (await v.outbox()).items.single;
+    // The receiver stored the server's cleared_at, later than this
+    // device's row time (the clock here runs behind the server).
+    await v.transaction((tx) async {
+      final sync =
+          (await v.conversation(_c1))?.sync ?? const ConversationSync();
+      await tx.putConversationSync(
+        _c1,
+        sync.copyWith(clearedAtMicros: row.createdAtMicros + 60000000),
+      );
+    });
+    final sends = h.rig.server.sends.length;
+
+    h.pipeline.dispose();
+    final next = h.build();
+    addTearDown(next.dispose);
+    await next.onVaultReady(v);
+    await _until(() async => next.started);
+    h.rig.clock.advance(kInitResendMargin);
+    await next.starter.resumeProvisional();
+    await next.starter.settled(_c1);
+
+    expect(h.rig.server.sends.length, greaterThan(sends), reason: 'resent');
+    final rows = await next.sender.outgoing(_c1);
+    expect(rows.map((r) => r.status), isNot(contains(OutgoingStatus5a.failed)));
   });
 
   test('r2-m1: a delete arriving inside the start window never lets the '
