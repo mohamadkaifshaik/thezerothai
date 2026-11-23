@@ -188,6 +188,25 @@ void main() {
     expect((await pin(bob2))!.side, MemberSide.theirs);
   });
 
+  test('a peer claim carrying a removed own device\'s key under another id '
+      'is not added (fix round 1, ruling 2: the cross-side dedupe keeps the '
+      'own list\'s keys)', () async {
+    final sibling = await RigPeer.create('sibling');
+    // The server lists bob2 for bob; it signs with the removed sibling's
+    // key under its own id.
+    final bob2 = RigPeer.withKeyOf('bob2', sibling);
+    await setUpJoined(ownListed: [sibling], alsoListed: [bob2]);
+    peerClaims([bob, bob2]);
+    ownClaims([sibling]);
+    seam((id) => rigEq(id, sibling.id));
+
+    await rig.upkeep.reconcile(_c1);
+
+    expect(rig.server.commitRequests, isEmpty);
+    expect(await pin(bob2), isNull);
+    expect(await pin(sibling), isNull);
+  });
+
   test('an unreadable removal queue: reconcile uses only fresh own devices '
       '(a kept own list adds none of its own)', () async {
     final sibling = await RigPeer.create('sibling');

@@ -342,6 +342,21 @@ class RigPeer {
     );
   }
 
+  /// A device named [name] that signs with [other]'s key under its own id
+  /// (a removed device's key reused under a new id).
+  static RigPeer withKeyOf(String name, RigPeer other) {
+    final engine = FakeCryptoEngine();
+    final id = rigBytes('peer-$name-device-0001');
+    final created = engine.createDeviceWithKey(id, other.key);
+    return RigPeer._(
+      name,
+      engine,
+      id,
+      created.deviceState,
+      created.signaturePublicKey,
+    );
+  }
+
   /// One key package for this device, as the server would hand it out.
   Future<Uint8List> keyPackage({bool lastResort = false}) async {
     final r = await engine.generateKeyPackages(

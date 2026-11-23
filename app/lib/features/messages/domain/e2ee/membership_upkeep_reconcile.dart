@@ -758,12 +758,21 @@ extension _Reconcile on MembershipUpkeep {
           _same(a.signatureKey, b.signatureKey) ||
           _same(a.deviceId, b.deviceId),
     );
+    // Fix round 1, ruling 2 (CR I-2): a peer claim with the key of ANY
+    // device on this step's own list is dropped too (and tried for the
+    // day). Why: an own device the user removed is never claimed now
+    // (`_wanted` leaves it out), so the dedupe above no longer sees its
+    // key; a peer device carrying it under another id would bring the
+    // removed device's key into the group. Before the Task 11 follow-up
+    // the removed device was claimed and `onBoth` dropped both.
+    bool ownKey(UsableClaim c) =>
+        own.devices.any((d) => _same(d.signatureKey, c.signatureKey));
     final usable = <UsableClaim>[];
     for (final (c, other) in [
       for (final c in mine) (c, theirs),
       for (final c in theirs) (c, mine),
     ]) {
-      if (onBoth(c, other)) {
+      if (onBoth(c, other) || (c.side == ClaimSide.theirs && ownKey(c))) {
         empty.add(c.deviceId);
       } else {
         usable.add(c);
