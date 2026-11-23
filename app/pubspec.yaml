@@ -57,6 +57,7 @@ dependencies:
   # NFC for the composer's code-point counter (ADR-0010 D9 step 3). Pure Dart.
   unorm_dart: ^0.3.0
   image: ^4.13.1
+  file_selector: ^1.1.0
   image_picker: ^1.2.4
   blurhash_dart: ^1.2.1
   http: ^1.6.0
@@ -69,7 +70,7 @@ dependencies:
     path: rust_builder
   flutter_rust_bridge: 2.13.0
   video_player: ^2.14.1
-  get_thumbnail_video_plus: ^0.7.4
+  ffmpeg_kit_flutter_new: ^5.0.0
 
 dev_dependencies:
   flutter_test:

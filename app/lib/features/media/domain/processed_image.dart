@@ -16,11 +16,8 @@ class ProcessedImage {
     required this.blurhash,
     this.contentType = 'image/jpeg',
     this.thumbContentType = '',
-    this.videoPreviewPath,
   });
 
-  /// Picker-owned path or browser blob URL for this composer session.
-  final String? videoPreviewPath;
   final Uint8List fullBytes;
   final Uint8List thumbBytes;
 

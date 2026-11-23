@@ -17,7 +17,9 @@ import '../../../gen/dzeroth/common/v1/common.pb.dart' as common;
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../engagement/domain/engagement_feature_flag.dart';
 import '../../../shared/widgets/primitives/app_side_sheet.dart';
-import '../../media/domain/processed_image.dart' show kGifContentType;
+import '../../../shared/widgets/post/post_video.dart';
+import '../../media/domain/processed_image.dart'
+    show kGifContentType, kVideoContentType;
 import 'post_detail_screen.dart';
 import 'widgets/loaded_post.dart';
 import 'widgets/photo_bottom_panel.dart';
@@ -522,8 +524,41 @@ class _PhotoViewerState extends State<_PhotoViewer> {
     );
   }
 
+  Widget _abovePanel(Widget content) => ListenableBuilder(
+    listenable: Listenable.merge([_panelInset, widget.chrome]),
+    builder: (context, child) => AnimatedPadding(
+      duration: MediaQuery.disableAnimationsOf(context)
+          ? Duration.zero
+          : AppMotion.chromeFade,
+      curve: Curves.easeOut,
+      padding: EdgeInsets.only(
+        bottom: widget.chrome.value ? _panelInset.value : 0,
+      ),
+      child: child,
+    ),
+    child: content,
+  );
+
   Widget _page(BuildContext context, int i, List<common.MediaRef> media) {
     final item = media[i];
+    if (item.contentType == kVideoContentType) {
+      return _abovePanel(
+        Semantics(
+          label: item.altText.isEmpty ? 'Video' : item.altText,
+          child: PostVideo(
+            key: ValueKey(item.url),
+            url: item.url,
+            startOnOpen: true,
+            poster: item.thumbUrl.isEmpty
+                ? const SizedBox.expand()
+                : CachedNetworkImage(
+                    imageUrl: item.thumbUrl,
+                    fit: BoxFit.contain,
+                  ),
+          ),
+        ),
+      );
+    }
     // Opening a viewer must not silently start an animated GIF.
     final url = item.contentType == kGifContentType ? item.thumbUrl : item.url;
     final picture = url.isEmpty
@@ -564,19 +599,8 @@ class _PhotoViewerState extends State<_PhotoViewer> {
       },
       // The photo sits in the area above the panel while the controls are
       // shown and takes the whole screen when they are hidden.
-      child: ListenableBuilder(
-        listenable: Listenable.merge([_panelInset, widget.chrome]),
-        builder: (context, child) => AnimatedPadding(
-          duration: MediaQuery.disableAnimationsOf(context)
-              ? Duration.zero
-              : AppMotion.chromeFade,
-          curve: Curves.easeOut,
-          padding: EdgeInsets.only(
-            bottom: widget.chrome.value ? _panelInset.value : 0,
-          ),
-          child: child,
-        ),
-        child: _ZoomablePhoto(
+      child: _abovePanel(
+        _ZoomablePhoto(
           key: ValueKey('photo-$i'),
           aspect: item.width > 0 && item.height > 0
               ? item.width / item.height

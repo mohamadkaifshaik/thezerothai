@@ -268,17 +268,23 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
     }
   }
 
-  Future<void> pickVideo() async {
+  Future<void> pickVideo({bool fromFiles = false}) async {
     if (_picking || !state.isEmpty) return;
     _picking = true;
     final id = _uuid.v4();
+    final cancellation = ProcessingCancellation();
+    _processing[id] = cancellation;
     emit(
       AttachmentsState(
         items: [Attachment(id: id, kind: AttachmentKind.video)],
       ),
     );
     try {
-      final video = await pickPostVideo(_processor);
+      final video = await pickPostVideo(
+        _processor,
+        cancellation,
+        fromFiles: fromFiles,
+      );
       if (isClosed || !state.items.any((a) => a.id == id)) return;
       if (video == null) {
         remove(id);
@@ -294,11 +300,12 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
           AttachmentsState(
             refusal: error is FormatException
                 ? error.message
-                : 'Could not read this clip. Choose an H.264 MP4 video.',
+                : 'Could not prepare this video. Try selecting it again.',
           ),
         );
       }
     } finally {
+      _processing.remove(id);
       _picking = false;
     }
   }

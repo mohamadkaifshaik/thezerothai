@@ -22,6 +22,16 @@ Future<void> main() async {
     _vectorsPort,
   );
   server.listen((request) {
+    if (request.uri.path == '/feed-clip.mp4') {
+      request.response
+        ..headers.set('Access-Control-Allow-Origin', '*')
+        ..headers.contentType = ContentType('video', 'mp4')
+        ..add(
+          File('integration_test/fixtures/feed-clip.mp4').readAsBytesSync(),
+        );
+      request.response.close();
+      return;
+    }
     request.response
       ..headers.set('Access-Control-Allow-Origin', '*')
       ..headers.contentType = ContentType.json
