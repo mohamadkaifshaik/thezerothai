@@ -756,7 +756,9 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
   Future<void> _deleteUnreadable(String handle) async {
     final composer = context.read<MessageComposerCubit>();
     final cubit = context.read<ThreadCubit>();
-    if (!composer.hasPort || !_deletingUnreadable.add(handle)) return;
+    if (!composer.hasPort || _deletingUnreadable.contains(handle)) return;
+    // The row shows its Delete disabled while the call runs.
+    setState(() => _deletingUnreadable.add(handle));
     final messenger = ScaffoldMessenger.of(context);
     try {
       final deleted = await composer.deleteUnreadableUnsent(handle);
@@ -767,19 +769,28 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
       );
       if (waiting.isEmpty) return;
       final oldest = waiting.last.id;
+      // The port sends nothing past an unreadable row: while others remain
+      // the retry would do nothing, so only the line shows.
+      final othersLeft = cubit.state.unreadableUnsent.isNotEmpty;
       messenger
         ..hideCurrentSnackBar()
         ..showSnackBar(
           SnackBar(
             content: const Text(kUnsentDeletedWaitingText),
-            action: SnackBarAction(
-              label: kUnsentRetryWaitingAction,
-              onPressed: () => unawaited(composer.retry(oldest)),
-            ),
+            action: othersLeft
+                ? null
+                : SnackBarAction(
+                    label: kUnsentRetryWaitingAction,
+                    onPressed: () => unawaited(composer.retry(oldest)),
+                  ),
           ),
         );
     } finally {
-      _deletingUnreadable.remove(handle);
+      if (mounted) {
+        setState(() => _deletingUnreadable.remove(handle));
+      } else {
+        _deletingUnreadable.remove(handle);
+      }
     }
   }
 
@@ -1458,8 +1469,9 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
                           ),
                         ),
                         UnreadableUnsentItem() => UnreadableUnsentRow(
-                          onDelete: () =>
-                              unawaited(_deleteUnreadable(item.handle)),
+                          onDelete: _deletingUnreadable.contains(item.handle)
+                              ? null
+                              : () => unawaited(_deleteUnreadable(item.handle)),
                         ),
                         SystemLineItem() => SystemLineRow(
                           line: item.line,

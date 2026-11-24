@@ -77,6 +77,32 @@ void main() {
     heights: kRedesignHeights,
   );
 
+  for (final scale in [1.0, 1.5, 2.0]) {
+    testWidgets('actionLabel at text scale $scale: the action sits '
+        '${scale >= 1.5 ? 'below' : 'beside'} the message', (tester) async {
+      await pumpThemed(
+        tester,
+        AppNoticeBanner(
+          message: 'Encrypted messages need your attention.',
+          actionLabel: 'Details',
+          onAction: () {},
+        ),
+        size: const Size(400, 800),
+        textScale: scale,
+      );
+      final message = tester.getRect(
+        find.text('Encrypted messages need your attention.'),
+      );
+      final action = tester.getRect(find.byType(AppPillButton));
+      if (scale >= 1.5) {
+        expect(action.top, greaterThanOrEqualTo(message.bottom));
+      } else {
+        expect(action.left, greaterThanOrEqualTo(message.right));
+        expect(action.top, lessThan(message.bottom));
+      }
+    });
+  }
+
   testWidgets('an action label with no callback shows the action disabled', (
     tester,
   ) async {

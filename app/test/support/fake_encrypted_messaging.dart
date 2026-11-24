@@ -130,6 +130,10 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
   final List<(String, String)> deletedUnreadable = [];
   final List<String> droppedRemovals = [];
 
+  /// When set, `deleteUnreadableUnsent` records the call, then awaits it
+  /// before answering.
+  Completer<void>? holdDeleteUnreadable;
+
   /// When set, `removeDevice` records the call, then awaits it before
   /// answering.
   Completer<void>? holdRemoveDevice;
@@ -416,6 +420,8 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
   Future<bool> deleteUnreadableUnsent(String conversationId, String ref) async {
     calls.add('deleteUnreadableUnsent');
     deletedUnreadable.add((conversationId, ref));
+    final hold = holdDeleteUnreadable;
+    if (hold != null) await hold.future;
     try {
       _throwIfFailing();
     } on Object {

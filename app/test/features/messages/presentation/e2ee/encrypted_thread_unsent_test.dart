@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/vault/vault_status.dart' show E2eeFlag;
 import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging.dart';
@@ -215,6 +217,50 @@ void main() {
       expect(o.port.retried, ['w1']);
     });
 
+    testWidgets('with other unreadable rows left the line shows without the '
+        'retry action (sends wait until each is deleted)', (tester) async {
+      await open(
+        tester,
+        unreadable: ['secret-h1', 'secret-h2'],
+        entries: [entry('w1')],
+      );
+      await tester.tap(find.text(kUnsentUnreadableDeleteAction).first);
+      await tester.pumpAndSettle();
+      expect(find.text(kUnsentDeletedWaitingText), findsOneWidget);
+      expect(find.text(kUnsentRetryWaitingAction), findsNothing);
+    });
+
+    testWidgets('while its delete runs that row\'s Delete is disabled and the '
+        'others stay enabled', (tester) async {
+      final o = await open(tester, unreadable: ['secret-h1', 'secret-h2']);
+      o.port.holdDeleteUnreadable = Completer<void>();
+      final deletes = find.widgetWithText(
+        AppPillButton,
+        kUnsentUnreadableDeleteAction,
+      );
+      tester.widget<AppPillButton>(deletes.first).onPressed!();
+      await tester.pump();
+      expect(tester.widget<AppPillButton>(deletes.at(0)).onPressed, isNull);
+      expect(tester.widget<AppPillButton>(deletes.at(1)).onPressed, isNotNull);
+      o.port.holdDeleteUnreadable!.complete();
+      await tester.pumpAndSettle();
+      expect(o.port.deletedUnreadable, [(kThreadId, 'secret-h1')]);
+    });
+
+    testWidgets('a false answer (stale handle) shows nothing and the row is '
+        'enabled again', (tester) async {
+      final o = await open(tester, unreadable: ['secret-h1']);
+      o.port.failNextOn('deleteUnreadableUnsent', StateError('x'));
+      final delete = find.widgetWithText(
+        AppPillButton,
+        kUnsentUnreadableDeleteAction,
+      );
+      await tester.tap(delete);
+      await tester.pumpAndSettle();
+      expect(find.byType(SnackBar), findsNothing);
+      expect(tester.widget<AppPillButton>(delete).onPressed, isNotNull);
+    });
+
     testWidgets('with nothing waiting no retry is offered', (tester) async {
       await open(
         tester,
@@ -252,6 +298,53 @@ void main() {
         expect(find.byType(MessageBubble), findsWidgets);
         expect(discardButton(), findsOneWidget);
       });
+    }
+  });
+
+  testWidgets('access hidden: undelivered and unreadable state draws no '
+      'Discard or Delete and calls none of the new port members', (
+    tester,
+  ) async {
+    final server = MessagingFlowRig.serverWithConversation();
+    final port = FakeEncryptedMessaging();
+    addTearDown(port.dispose);
+    port.setThread(
+      ref,
+      EncryptedThread(
+        conversationId: kThreadId,
+        entries: [
+          entry('w'),
+          entry(
+            'f',
+            progress: SendProgress.notSent,
+            problem: SendProblem.retryable,
+            minute: 1,
+          ),
+        ],
+        security: _ready,
+        unreadableUnsent: const ['secret-h1'],
+      ),
+    );
+    final device = FakeEncryptionDevice(vaultKnown: false, flag: E2eeFlag.off);
+    final rig = MessagingFlowRig(server: server);
+    await rig.pump(
+      tester,
+      location: AppRouter.messagePath(kThreadId),
+      encrypted: port,
+      device: device,
+    );
+    await tester.pumpAndSettle();
+    expect(find.text(kUnsentDiscardAction), findsNothing);
+    expect(find.text(kUnsentUnreadableDeleteAction), findsNothing);
+    expect(port.discardedUnsent, isEmpty);
+    expect(port.deletedUnreadable, isEmpty);
+    expect(port.retried, isEmpty);
+    for (final name in [
+      'discardUnsent',
+      'deleteUnreadableUnsent',
+      'retrySend',
+    ]) {
+      expect(port.calls, isNot(contains(name)), reason: name);
     }
   });
 
