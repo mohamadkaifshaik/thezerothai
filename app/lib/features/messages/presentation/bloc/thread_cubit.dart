@@ -294,7 +294,12 @@ class ThreadCubit extends Cubit<ThreadState> {
 
   /// The vault became (un)usable: re-evaluates the rules. The screen calls it
   /// when the vault status changes.
-  void refreshVault() => _reevaluate();
+  void refreshVault() {
+    // A vault change is what lets a stream that ended be tried again.
+    _waitForVaultChange = false;
+    _resubscribed = false;
+    _reevaluate();
+  }
 
   static bool _rowEncrypted(pb.Conversation? c) =>
       c != null && c.hasLastMessage() && c.lastMessage.encrypted;
@@ -346,15 +351,41 @@ class ThreadCubit extends Cubit<ThreadState> {
     if (port != null && !usable && state.entries.isNotEmpty) {
       emit(state.copyWith(entries: const []));
     }
-    if (encrypted && port != null && _watch == null) {
-      _watch = port
+    if (encrypted && port != null && _watch == null && !_waitForVaultChange) {
+      final sub = port
           .watchThread(ThreadRef.conversation(conversationId))
           .listen(
             _onEncryptedThread,
             onError: (Object _, StackTrace stack) =>
                 onUnexpectedError?.call(StateError('watchThread'), stack),
           );
+      sub.onDone(() => _onWatchEnded(sub));
+      _watch = sub;
     }
+  }
+
+  /// Set once a stream ended and was already tried again (or the vault is not
+  /// usable): no new subscription until the next vault change.
+  bool _waitForVaultChange = false;
+
+  /// One automatic new subscription per vault change.
+  bool _resubscribed = false;
+
+  /// The port's stream ENDS when the vault it reads changes (sign-out, another
+  /// user, a lost lock, a new vault). The thread is still on screen, so it
+  /// listens to a new stream: once. A new stream that ends at once, or a
+  /// vault that is not usable, waits for [refreshVault] (the vault status
+  /// changed) instead of looping.
+  void _onWatchEnded(StreamSubscription<EncryptedThread> ended) {
+    if (isClosed || !identical(_watch, ended)) return;
+    _watch = null;
+    final usable = _vaultUsable?.call() ?? true;
+    if (_resubscribed || !usable) {
+      _waitForVaultChange = true;
+    } else {
+      _resubscribed = true;
+    }
+    _reevaluate();
   }
 
   void _onEncryptedThread(EncryptedThread thread) {

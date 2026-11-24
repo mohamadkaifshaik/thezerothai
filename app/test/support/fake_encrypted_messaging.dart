@@ -204,6 +204,27 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
     }
   }
 
+  /// Ends every open watcher stream of [ref] (done, no error), as the port
+  /// does when the vault it reads changes.
+  void endWatchers(ThreadRef ref) {
+    final list = _controllers[ref] ?? <StreamController<EncryptedThread>>[];
+    for (final c in List.of(list)) {
+      list.remove(c);
+      unawaited(c.close());
+    }
+  }
+
+  /// Puts [error] on every open watcher stream of [ref] (the port never does
+  /// this: a screen test of its `onError`).
+  void errorWatchers(ThreadRef ref, Object error) {
+    for (final c in List.of(_controllers[ref] ?? const [])) {
+      c.addError(error);
+    }
+  }
+
+  /// How many watcher streams of [ref] are listened to now.
+  int watcherCount(ThreadRef ref) => (_controllers[ref] ?? const []).length;
+
   /// Closes every watcher stream and [previewChanged].
   void dispose() {
     for (final list in _controllers.values) {
