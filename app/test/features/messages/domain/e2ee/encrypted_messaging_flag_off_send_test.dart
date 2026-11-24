@@ -1,3 +1,4 @@
+import 'package:dzeroth/core/session/session_end.dart';
 import 'package:dzeroth/core/vault/vault_session.dart';
 import 'package:dzeroth/core/vault/vault_status.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/e2ee_pipeline.dart';
@@ -104,14 +105,52 @@ void main() {
       },
     );
 
-    test('before the sign-in step finished, a plain conversation: '
-        'notEncrypted', () async {
+    // Final patch S1: the flag-known-off skip covers ONLY the unreadable
+    // marker. Before the sign-in step is done the flag may be the previous
+    // session's, so the answer is "try again".
+    test('before the sign-in step finished, a plain conversation: refused '
+        'retryable', () async {
       final p = portOver(await beforeSignInStep(E2eeFlag.off));
-      expect((await sendRecipient(p)).$1, SendOutcomeKind.notEncrypted);
+      expect(await sendRecipient(p), (
+        SendOutcomeKind.refused,
+        SendProblem.retryable,
+      ));
+    });
+
+    test('a stale flag: the previous session ended with the flag off and the '
+        'next sign-in step has not run: refused retryable', () async {
+      final session = world.launch();
+      await session.start(restoredUid: 'user-a', restoreDefinitive: true);
+      await session.onSignedIn('user-a', flag: E2eeFlag.off);
+      await session.onSessionEnded('user-a', SessionEnd.sessionLost);
+      expect(session.flag, E2eeFlag.off);
+      expect(session.signInStepDone, isFalse);
+      final p = portOver(session);
+      expect(await sendRecipient(p), (
+        SendOutcomeKind.refused,
+        SendProblem.retryable,
+      ));
+    });
+
+    test('the flag turns on during the cache read (marker unreadable): '
+        'refused retryable', () async {
+      final session = await beforeSignInStep(E2eeFlag.off);
+      when(() => session.signInStepDone).thenReturn(true);
+      when(() => session.status)
+          .thenReturn(ValueNotifier(VaultStatus.unavailable));
+      h.rig.server.onCacheRead = () async {
+        when(() => session.flag).thenReturn(E2eeFlag.on);
+      };
+      final p = portOver(session);
+      expect(await sendRecipient(p), (
+        SendOutcomeKind.refused,
+        SendProblem.retryable,
+      ));
+      h.rig.server.onCacheRead = null;
     });
 
     test('a conversation the cache marks as ever encrypted is still '
-        'refused blocked, in both states', () async {
+        'refused blocked (marker unreadable, and status off)', () async {
       h.rig.server.everEncrypted.add(_c2);
       final soft = portOver(await softUnavailable(E2eeFlag.off));
       expect(await sendConversation(soft), (
@@ -119,8 +158,11 @@ void main() {
         SendProblem.blocked,
       ));
       world = FakeVaultWorld();
-      final early = portOver(await beforeSignInStep(E2eeFlag.off));
-      expect(await sendConversation(early), (
+      final session = world.launch();
+      await session.start(restoredUid: 'user-a', restoreDefinitive: true);
+      await session.onSignedIn('user-a', flag: E2eeFlag.off);
+      expect(session.status.value, VaultStatus.off);
+      expect(await sendConversation(portOver(session)), (
         SendOutcomeKind.refused,
         SendProblem.blocked,
       ));
