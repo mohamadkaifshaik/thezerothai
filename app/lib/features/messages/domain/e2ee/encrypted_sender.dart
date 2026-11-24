@@ -344,7 +344,27 @@ class EncryptedSender {
   /// oldest row, so a row that waited behind the discarded one can start
   /// encryption (a no-op when that row is failed or needs no new start).
   /// The body is in the part `encrypted_sender_rows.dart`.
-  Future<void> discard(String localId) => _discardRow(localId);
+  ///
+  /// Port additions (gate item 14): true only when this call deleted the
+  /// row; false when it is kept by the rule above (it may have been
+  /// accepted), was not found, or carries an init (the starter's); null
+  /// when the discard failed (CR n1: nothing is known of the row then).
+  Future<bool?> discard(String localId) => _discardRow(localId);
+
+  /// Gate item 18 (port additions): the keys of [conversationId]'s outbox
+  /// rows that no longer open (the drain stops at them, so the
+  /// conversation's sends wait until each is deleted with
+  /// [deleteUnreadable]). Reads only; throws as [outgoing] does.
+  Future<List<String>> unreadableKeys(String conversationId) =>
+      _unreadableKeys(conversationId);
+
+  /// Gate item 18 (port additions): deletes the outbox row [key] of
+  /// [conversationId] only while it is still one that does not open,
+  /// re-read under the conversation lock (a readable row is never deleted
+  /// here). No network call, and nothing of the row is read. True when it
+  /// was deleted. Never throws (a failure is false; a bug is reported).
+  Future<bool> deleteUnreadable(String conversationId, String key) =>
+      _deleteUnreadable(conversationId, key);
 
   /// The waiting rows of [conversationId], oldest first: `failed` (the
   /// typed error only while this run remembers it), `sending` (stage

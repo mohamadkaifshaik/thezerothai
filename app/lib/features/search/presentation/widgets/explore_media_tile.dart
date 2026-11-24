@@ -8,8 +8,7 @@ import '../../domain/explore_media.dart';
 
 /// One thumbnail of Explore's Media section and page (cropped to fill, only
 /// the thumbnail is fetched): a button named for its image that calls
-/// [onOpen]. A GIF shows its still with the badge. [ExploreMediaKind] picks
-/// the overlay, so a reel's play icon is one more case later.
+/// [onOpen]. GIFs show their still and badge. Videos show a play icon.
 class ExploreMediaTileView extends StatelessWidget {
   const ExploreMediaTileView({
     super.key,
@@ -51,7 +50,11 @@ class ExploreMediaTileView extends StatelessWidget {
     return Semantics(
       container: true,
       button: true,
-      label: ['Open image', if (alt.isNotEmpty) alt, if (gif) 'GIF'].join(', '),
+      label: [
+        tile.kind == ExploreMediaKind.video ? 'Open video' : 'Open image',
+        if (alt.isNotEmpty) alt,
+        if (gif) 'GIF',
+      ].join(', '),
       excludeSemantics: true,
       onTap: onOpen,
       child: ClipRRect(
@@ -63,6 +66,16 @@ class ExploreMediaTileView extends StatelessWidget {
             children: [
               image,
               switch (tile.kind) {
+                ExploreMediaKind.video => const Center(
+                  child: CircleAvatar(
+                    radius: 18,
+                    backgroundColor: AppPalette.photoScrim,
+                    child: Icon(
+                      Icons.play_arrow,
+                      color: AppColors.onPhotoBackground,
+                    ),
+                  ),
+                ),
                 ExploreMediaKind.photo =>
                   gif
                       ? const PositionedDirectional(

@@ -1,7 +1,5 @@
-import 'dart:convert';
 import 'dart:io';
 
-import 'package:crypto/crypto.dart';
 import 'package:file_selector/file_selector.dart' show openFile;
 import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
@@ -14,9 +12,13 @@ import 'video_conversion.dart';
 import 'video_conversion_native.dart'
     if (dart.library.js_interop) 'video_conversion_web.dart';
 
+export 'video_conversion.dart' show ClipEdit;
+
 export 'video_conversion_native.dart'
     if (dart.library.js_interop) 'video_conversion_web.dart'
     show withVideoPreview;
+
+typedef ChooseClipEdit = Future<ClipEdit?> Function(String path);
 
 VideoPlayerController pickedVideoController(String path) => kIsWeb
     ? VideoPlayerController.networkUrl(Uri.parse(path))
@@ -26,24 +28,34 @@ Future<ProcessedImage?> pickPostVideo(
   ImageProcessor processor,
   ProcessingCancellation cancellation, {
   required bool fromFiles,
+  ChooseClipEdit? chooseEdit,
 }) async {
   final file = fromFiles
       ? await openFile()
       : await ImagePicker().pickVideo(source: ImageSource.gallery);
   if (file == null) return null;
-  return preparePostVideo(file, processor, cancellation);
+  if (await file.length() > maxClipBytes) {
+    throw const FormatException('Choose a video up to 96 MiB.');
+  }
+  cancellation.throwIfCancelled();
+  final edit = chooseEdit == null
+      ? const ClipEdit()
+      : await chooseEdit(file.path);
+  if (edit == null) return null;
+  return preparePostVideo(file, processor, cancellation, edit: edit);
 }
 
 Future<ProcessedImage> preparePostVideo(
   XFile file,
   ImageProcessor processor,
-  ProcessingCancellation cancellation,
-) async {
+  ProcessingCancellation cancellation, {
+  ClipEdit edit = const ClipEdit(),
+}) async {
   cancellation.throwIfCancelled();
   if (await file.length() > maxClipBytes) {
     throw const FormatException('Choose a video up to 96 MiB.');
   }
-  final clip = await convertClip(file, cancellation);
+  final clip = await convertClip(file, cancellation, edit: edit);
   final size = clipDimensions(clip.metadata);
   if (clip.video.length > maxClipBytes) {
     throw const FormatException('Choose a video up to 96 MiB.');
@@ -58,7 +70,7 @@ Future<ProcessedImage> preparePostVideo(
     thumbBytes: preview.thumbBytes,
     width: size.width,
     height: size.height,
-    fullMd5: base64Encode(md5.convert(clip.video).bytes),
+    fullMd5: clip.fullMd5,
     thumbMd5: preview.thumbMd5,
     blurhash: preview.blurhash,
     contentType: kVideoContentType,

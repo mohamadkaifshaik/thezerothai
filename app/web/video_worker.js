@@ -18,7 +18,14 @@ self.onmessage = async ({data}) => {
     if (core.exec(...data.poster) !== 0) throw new Error('poster');
     const video = core.FS.readFile('post.mp4');
     const poster = core.FS.readFile('poster.jpg');
-    self.postMessage({metadata, video, poster}, [video.buffer, poster.buffer]);
+    // Hash the encoded container bytes, including its headers, in the worker.
+    core.reset();
+    if (core.exec('-f', 'data', '-i', 'post.mp4', '-map', '0:0', '-c', 'copy',
+                  '-f', 'md5', 'digest.txt') !== 0) throw new Error('digest');
+    const digest = /^MD5=([0-9a-f]{32})$/i.exec(core.FS.readFile('digest.txt', {encoding: 'utf8'}).trim());
+    if (!digest) throw new Error('digest');
+    const fullMd5 = btoa(String.fromCharCode(...digest[1].match(/../g).map(pair => parseInt(pair, 16))));
+    self.postMessage({metadata, video, poster, fullMd5}, [video.buffer, poster.buffer]);
   } catch (_) {
     self.postMessage({error: true});
   }

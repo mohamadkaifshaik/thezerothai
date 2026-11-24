@@ -25,11 +25,18 @@ type Purger struct {
 	repo          Repo
 	objects       Objects
 	publicBaseURL string
+	signExport    func(context.Context, string) (string, error)
 }
 
 // NewPurger builds the Eraser/Exporter. publicBaseURL is only used to render URLs in the export.
 func NewPurger(repo Repo, objects Objects, publicBaseURL string) *Purger {
 	return &Purger{repo: repo, objects: objects, publicBaseURL: publicBaseURL}
+}
+
+// WithExportSigner binds owner-scoped media downloads to the export retention window.
+func (p *Purger) WithExportSigner(sign func(context.Context, string) (string, error)) *Purger {
+	p.signExport = sign
+	return p
 }
 
 // publicNames returns every public object name a document may own in its own shape (suffixed when it has a
@@ -160,6 +167,14 @@ func (p *Purger) WriteSection(ctx context.Context, uid string, w io.Writer) erro
 			}
 			if d.Published() {
 				e.URL, e.ThumbURL = p.publicBaseURL+"/"+d.PublicPath, p.publicBaseURL+"/"+d.ThumbPath
+				if p.signExport != nil {
+					if e.URL, err = p.signExport(ctx, d.PublicPath); err != nil {
+						return err
+					}
+					if e.ThumbURL, err = p.signExport(ctx, d.ThumbPath); err != nil {
+						return err
+					}
+				}
 			}
 			if !first {
 				if _, err := io.WriteString(w, ","); err != nil {

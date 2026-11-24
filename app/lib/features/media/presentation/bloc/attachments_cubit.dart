@@ -268,7 +268,10 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
     }
   }
 
-  Future<void> pickVideo({bool fromFiles = false}) async {
+  Future<void> pickVideo({
+    bool fromFiles = false,
+    ChooseClipEdit? chooseEdit,
+  }) async {
     if (_picking || !state.isEmpty) return;
     _picking = true;
     final id = _uuid.v4();
@@ -284,6 +287,7 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
         _processor,
         cancellation,
         fromFiles: fromFiles,
+        chooseEdit: chooseEdit,
       );
       if (isClosed || !state.items.any((a) => a.id == id)) return;
       if (video == null) {

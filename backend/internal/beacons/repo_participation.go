@@ -396,17 +396,17 @@ func (r *FirestoreRepo) Respond(ctx context.Context, p RespondParams) (Participa
 			}
 			return err
 		}
-		if p.Precheck != nil {
-			if err := p.Precheck(ctx); err != nil {
-				return err
-			}
-		}
 		d, err := r.getOwned(ctx, tx, p.UID, p.BeaconID)
 		if err != nil {
 			return err
 		}
 		if err := checkLive(d, p.BeaconID, p.Now); err != nil {
 			return err
+		}
+		if p.Precheck != nil {
+			if err := p.Precheck(ctx, tx, d.CommunityID); err != nil {
+				return err
+			}
 		}
 		pd, exists, err := r.getParticipantTx(ctx, tx, p.BeaconID, p.TargetUID)
 		if err != nil {

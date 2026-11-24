@@ -114,24 +114,27 @@ void main() {
 
   group('PostDetail', () {
     for (final MapEntry(key: name, value: size) in _sizes.entries) {
-      testWidgets('$name: the post, the reply entry, then the replies', (
-        tester,
-      ) async {
-        final rig = ThreadShellRig(thread: _conversation());
-        await rig.pump(tester, open: postId(1), size: size);
-        expect(tester.takeException(), isNull);
-        final entry = tester.getRect(find.text('Post your reply'));
-        expect(
-          entry.top,
-          greaterThan(
-            tester.getRect(find.textContaining('sunrise walk')).bottom,
-          ),
-        );
-        expect(
-          tester.getRect(find.textContaining("I'm in")).top,
-          greaterThan(entry.bottom),
-        );
-      });
+      testWidgets(
+        '$name: the reply entry is reachable alongside the conversation',
+        (tester) async {
+          final rig = ThreadShellRig(thread: _conversation());
+          await rig.pump(tester, open: postId(1), size: size);
+          expect(tester.takeException(), isNull);
+          final entry = tester.getRect(find.text('Post your reply'));
+          expect(
+            entry.top,
+            greaterThan(
+              tester.getRect(find.textContaining('sunrise walk')).bottom,
+            ),
+          );
+          expect(
+            tester.getRect(find.textContaining("I'm in")).top,
+            size.width < AppBreakpoints.mobile
+                ? lessThan(entry.top)
+                : greaterThan(entry.bottom),
+          );
+        },
+      );
     }
 
     testWidgets('phone at text scale 2.0: nothing overflows', (tester) async {

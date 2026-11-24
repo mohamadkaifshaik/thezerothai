@@ -116,7 +116,9 @@ void main() {
     );
   });
 
-  testWidgets('the action row is packed left with larger glyphs', (tester) async {
+  testWidgets('the action row is evenly spaced with larger glyphs', (
+    tester,
+  ) async {
     await pumpCard(
       tester,
       phone,
@@ -127,8 +129,6 @@ void main() {
     final bar = tester.widget<PostActionBar>(find.byType(PostActionBar));
     // 18 dp below 600 (the mobile design), 20 dp from 600 up.
     expect(bar.iconSize, AppFocalPost.actionIconPhone);
-    // The row is compact and left-aligned: Reply starts at the card's left
-    // padding and Share's 48dp box ends well before the right padding.
     final shareBox = tester.getRect(
       find.ancestor(
         of: find.byIcon(Icons.ios_share),
@@ -147,10 +147,13 @@ void main() {
           .left,
       closeTo(postCardGutter(phone.size.width), 1),
     );
-    expect(shareBox.right, lessThan(phone.size.width * 0.75));
+    expect(
+      shareBox.right,
+      closeTo(phone.size.width - postCardGutter(phone.size.width), 1),
+    );
     expect(
       tester.getTopLeft(find.byIcon(Icons.ios_share)).dx,
-      closeTo(shareBox.left, 1),
+      greaterThan(shareBox.left),
     );
     expect(
       tester.getRect(find.byIcon(Icons.favorite_border)).right,

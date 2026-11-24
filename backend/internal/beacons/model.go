@@ -5,6 +5,8 @@ import (
 	"errors"
 	"time"
 
+	"cloud.google.com/go/firestore"
+
 	"github.com/dzeroth/dzeroth/backend/internal/communities"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
@@ -391,13 +393,13 @@ type ParticipantResult struct {
 }
 
 // RespondParams is one RespondToJoinRequest write by the organiser UID on TargetUID's REQUESTED row. Precheck, when
-// set, runs inside the transaction after the idempotency lookup missed and before any other read: a replay of a
+// set, runs inside the transaction after the idempotency lookup missed, using the locked beacon?s community ID: a replay of a
 // committed answer never runs it (the stored outcome stands), and its error refuses the write.
 type RespondParams struct {
 	UID, BeaconID, TargetUID, IdemKey, RequestHash string
 	Accept                                         bool
 	Now                                            time.Time
-	Precheck                                       func(context.Context) error
+	Precheck                                       func(context.Context, *firestore.Transaction, string) error
 }
 
 // StateParams is one Withdraw (TargetUID == UID), Leave (TargetUID == UID) or Remove (UID is the organiser) write.
@@ -599,10 +601,19 @@ type IDSource interface {
 	Generate() string
 }
 
+// TxCommunityReader reads community status and membership in the acceptance transaction.
+type TxCommunityReader interface {
+	communities.TxMemberReader
+	GetInTx(context.Context, *firestore.Transaction, string) (communities.Community, error)
+}
+
 // Deps is everything New needs.
 type Deps struct {
-	Repo      Repo
-	Directory identity.Directory
+	TxProfiles    identity.TxProfiles
+	TxGraph       graph.TxReader
+	TxCommunities TxCommunityReader
+	Repo          Repo
+	Directory     identity.Directory
 	// Graph is the viewer's social context (cache-first, 60 s): a block in either direction hides a beacon.
 	Graph graph.Reader
 	// Communities answers the viewer's role in a community-audience beacon's community (cache-first, 60 s).

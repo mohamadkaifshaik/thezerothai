@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/vault/secure_vault.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/removal_record.dart';
@@ -361,6 +363,107 @@ void main() {
       await runner.runPass();
       await runner.idle();
       expect(rig.keys.removeCalls, hasLength(1));
+    });
+
+    test('parkedRefs lists every removal waiting for a re-sign-in, and is '
+        'emptied by its call, by dropRemoval and by reset (port '
+        'additions)', () async {
+      final sibling = await RigPeer.create('sibling');
+      final other = await RigPeer.create('other');
+      await setUpRig(ownListed: [sibling, other]);
+      await join(_c1, others: [sibling, other]);
+      await synced();
+      expect(runner.parkedRefs.value, isEmpty);
+      final seen = <List<String>>[];
+      void note() => seen.add(runner.parkedRefs.value);
+      runner.parkedRefs.addListener(note);
+      rig.keys.removeError = const ReauthRequiredException('rig: sign in');
+      for (final p in [sibling, other]) {
+        await expectLater(
+          runner.removeDevice(p.idString),
+          throwsA(isA<ReauthRequiredException>()),
+        );
+      }
+      expect(runner.parkedRefs.value.toSet(), {
+        sibling.idString,
+        other.idString,
+      });
+      // The second park changed the list, not needsReauth: it was heard.
+      expect(seen.last.toSet(), {sibling.idString, other.idString});
+
+      rig.keys.removeError = null;
+      await removeAndSettle(sibling);
+      expect(runner.parkedRefs.value, [other.idString]);
+      expect(runner.needsReauth.value, isTrue);
+
+      await runner.dropRemoval(other.idString);
+      expect(runner.parkedRefs.value, isEmpty);
+      expect(runner.needsReauth.value, isFalse);
+
+      rig.keys.removeError = const ReauthRequiredException('rig: sign in');
+      final third = await RigPeer.create('third');
+      rig.keys.own.add(rigKeyDevice(third.idString, third.key));
+      await expectLater(
+        runner.removeDevice(third.idString),
+        throwsA(isA<ReauthRequiredException>()),
+      );
+      expect(runner.parkedRefs.value, [third.idString]);
+      runner.reset();
+      expect(runner.parkedRefs.value, isEmpty);
+      runner.parkedRefs.removeListener(note);
+    });
+  });
+
+  group('other_sessions_ended (port additions, lane D)', () {
+    for (final ended in [true, false]) {
+      test('removeDevice answers the server\'s other_sessions_ended '
+          '($ended), and a joined call answers the same', () async {
+        final sibling = await RigPeer.create('sibling');
+        await setUpRig(ownListed: [sibling]);
+        await join(_c1, others: [sibling]);
+        await synced();
+        rig.keys.otherSessionsEnded = ended;
+        final answer = Completer<void>();
+        rig.keys.onRemoved = () async {
+          rig.keys.onRemoved = null;
+          await answer.future;
+        };
+
+        final first = runner.removeDevice(sibling.idString);
+        while (rig.keys.removeCalls.isEmpty) {
+          await Future<void>.delayed(Duration.zero);
+        }
+        final second = runner.removeDevice(sibling.idString);
+        answer.complete();
+        expect(await first, ended);
+        expect(await second, ended);
+        await runner.idle();
+        expect(rig.keys.removeCalls, hasLength(1));
+      });
+    }
+
+    test('a stored intent finished although its retry was refused answers '
+        'null: no answer of the server says it', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      await join(_c1, others: [sibling]);
+      await synced();
+      rig.keys.otherSessionsEnded = true;
+      // The server removed it, but the answer was lost.
+      rig.keys.onRemoved = () async {
+        rig.keys.onRemoved = null;
+        throw const NetworkException('rig: the answer was lost');
+      };
+      await expectLater(
+        runner.removeDevice(sibling.idString),
+        throwsA(isA<NetworkException>()),
+      );
+      await runner.idle();
+      rig.keys.removeError = const ValidationException('rig: refused');
+
+      expect(await runner.removeDevice(sibling.idString), isNull);
+      await runner.idle();
+      expect(await runner.wasRemovedByUser(sibling.id), isTrue);
     });
   });
 }

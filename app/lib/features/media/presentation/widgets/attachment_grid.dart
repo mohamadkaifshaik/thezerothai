@@ -368,6 +368,19 @@ class _AttachmentTileState extends State<AttachmentTile> {
                       }),
                     ),
                   ),
+                if (_editable && !attachment.isGif)
+                  PositionedDirectional(
+                    bottom: 0,
+                    end: 0,
+                    child: IconButton.filledTonal(
+                      tooltip: 'Edit photo',
+                      onPressed: () => _edit(context),
+                      icon: const Icon(
+                        Icons.edit_outlined,
+                        size: AppIconSize.md,
+                      ),
+                    ),
+                  ),
                 if (attachment.isGif)
                   const PositionedDirectional(
                     bottom: AppSpacing.xs,

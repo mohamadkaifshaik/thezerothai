@@ -16,7 +16,7 @@ name: CI
 # Gate and summary jobs report the results under the check names these jobs had before the split: the main ruleset
 # requires "make ci (...)", "make test-int (Firebase emulators)" and "promotion scripts (...)" by name.
 # The MLS core (crypto/, Rust) has its own group: `crypto` (fmt, clippy, tests, cargo-deny, wasm build and browser test)
-# is counted by `make ci` below; `crypto-web-integration` (Flutter web test over the worker) is advisory, not counted.
+# is counted by `make ci` below; `crypto-web-integration` (Flutter web test over the worker) is required for affected changes.
 # `android-build` (group `android`: the Android debug build on Linux, which compiles the Rust binding with cargo-ndk) is counted.
 # About 23 jobs per run, up to 20 at once: on a plan with a 20-job concurrency limit, parallel PRs queue.
 
@@ -324,13 +324,9 @@ jobs:
           cd crypto
           CHROMEDRIVER="$driver" cargo test -p dzmls_web --target wasm32-unknown-unknown
 
-  # The Dart WebCryptoEngine over the real worker, in Chrome through `flutter drive`. Advisory: it is not listed in make-ci,
-  # so it cannot block a merge. It builds Rust and Flutter web and drives a browser, the heaviest and most flaky-prone job
-  # here. Add it to make-ci (needs + the jq pair list) once it has been green for a few weeks.
-  # It must stay OUT of make-ci's `needs`: that job only reads the results of the jobs it lists, so a failed, cancelled or
-  # skipped crypto-web-integration cannot turn the required `make ci (...)` check red. Do not add it there by accident.
+  # Browser-only persistence, device keys and video are required on affected changes.
   crypto-web-integration:
-    name: crypto web integration (flutter drive over the MLS worker; advisory)
+    name: crypto web integration (flutter drive over the MLS worker)
     needs: [changes]
     if: needs.changes.outputs.crypto_web != 'false'
     runs-on: ubuntu-latest
@@ -387,6 +383,14 @@ jobs:
           trap 'kill $!' EXIT
           cd app
           flutter drive --driver=test_driver/integration_test.dart             --target=integration_test/drift_persistence_test.dart             -d web-server --browser-name=chrome --driver-port=4456 --headless
+
+      - name: Video conversion and inline playback in Chrome
+        working-directory: app
+        run: |
+          "$CHROMEWEBDRIVER/chromedriver" --port=4458 &
+          trap 'kill $!' EXIT
+          flutter drive --driver=test_driver/integration_test.dart --target=integration_test/post_video_test.dart \
+            -d web-server --browser-name=chrome --driver-port=4458 --headless
 
       # The vault on the web (IndexedDB copies, the WebCrypto cipher, the schema upgrade, the open rule, device keys):
       # the VM tests cannot reach these paths, and a break here was once found only by a local run (the v2 vault,
@@ -475,6 +479,23 @@ jobs:
         working-directory: app
         run: flutter build apk --debug --target-platform android-arm,android-arm64,android-x64
 
+      - name: The APK packages OpenH264 without GPL codecs
+        run: |
+          set -euo pipefail
+          apk=app/build/app/outputs/flutter-apk/app-debug.apk
+          [ -f "$apk" ] || { echo "::error::$apk was not built"; exit 1; }
+          work=$(mktemp -d)
+          unzip -p "$apk" "lib/x86_64/libavcodec.so" > "$work/libavcodec.so"
+          strings "$work/libavcodec.so" | grep -F "libopenh264" >/dev/null || {
+            echo "::error::libavcodec does not reference libopenh264"
+            exit 1
+          }
+          if strings "$work/libavcodec.so" | grep -F "enable-gpl" >/dev/null; then
+            echo "::error::libavcodec was built with --enable-gpl"
+            exit 1
+          fi
+          echo "Verified libavcodec packages OpenH264 and has no GPL configure flag"
+
       - name: The APK carries the Rust library for every ABI, 16 KB aligned
         run: |
           set -euo pipefail
@@ -506,7 +527,7 @@ jobs:
   # read as passed). go-unit runs always() itself, so it is always expected to succeed. Re-running failed jobs re-runs this one too.
   make-ci:
     name: make ci (lint, vet, unit tests, buf breaking, flutter analyze/test)
-    needs: [changes, go-checks, go-unit-shard, go-unit, flutter-analyze, flutter-test, crypto, android-build]
+    needs: [changes, go-checks, go-unit-shard, go-unit, flutter-analyze, flutter-test, crypto, crypto-web-integration, android-build]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -516,7 +537,7 @@ jobs:
         run: |
           jq -r 'to_entries[] | "\(.key): \(.value.result)"' <<<"$NEEDS"
           jq -e '. as $n | $n.changes.result == "success" and $n["go-unit"].result == "success" and
-            ($n.changes.outputs as $o | [["go-checks", "go_checks"], ["go-unit-shard", "go_unit"], ["flutter-analyze", "flutter"], ["flutter-test", "flutter"], ["crypto", "crypto"], ["android-build", "android"]] |
+            ($n.changes.outputs as $o | [["go-checks", "go_checks"], ["go-unit-shard", "go_unit"], ["flutter-analyze", "flutter"], ["flutter-test", "flutter"], ["crypto", "crypto"], ["crypto-web-integration", "crypto_web"], ["android-build", "android"]] |
               all(.[]; . as [$job, $flag] | $n[$job].result == (if $o[$flag] == "false" then "skipped" else "success" end)))' <<<"$NEEDS" >/dev/null || {
             echo "::error::make ci failed: a job above did not succeed (see the results listed in this step)"
             exit 1

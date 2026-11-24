@@ -7,8 +7,8 @@
 //! Every failure to open (wrong key, wrong associated data, altered or truncated bytes) is the same `bad_input`
 //! with the same message. Messages carry sizes only, never keys, associated data or plaintext.
 
+use aes_gcm::Aes256Gcm;
 use aes_gcm::aead::{Aead, KeyInit, Payload};
-use aes_gcm::{Aes256Gcm, Nonce};
 use openmls::prelude::{OpenMlsProvider as _, OpenMlsRand as _};
 use openmls_rust_crypto::OpenMlsRustCrypto;
 
@@ -52,10 +52,13 @@ pub fn seal(key: &[u8], aad: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, MlsErro
             plaintext.len()
         )));
     }
-    let nonce = random(SEAL_NONCE_BYTES)?; // random_vec returns exactly the length asked for
+    let nonce = OpenMlsRustCrypto::default()
+        .rand()
+        .random_array::<SEAL_NONCE_BYTES>()
+        .map_err(|_| MlsError::internal("the random source failed"))?;
     let ciphertext = cipher
         .encrypt(
-            Nonce::from_slice(&nonce),
+            (&nonce).into(),
             Payload {
                 msg: plaintext,
                 aad,
@@ -82,7 +85,9 @@ pub fn open(key: &[u8], aad: &[u8], sealed: &[u8]) -> Result<Vec<u8>, MlsError> 
     let (nonce, ciphertext) = sealed.split_at(SEAL_NONCE_BYTES);
     cipher
         .decrypt(
-            Nonce::from_slice(nonce),
+            nonce
+                .try_into()
+                .map_err(|_| MlsError::bad_input("sealed value does not open"))?,
             Payload {
                 msg: ciphertext,
                 aad,

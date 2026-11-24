@@ -114,7 +114,7 @@ After changing a freezed, json_serializable or drift class run `cd app && dart r
 
 1. Merge to `main`: CI runs and `deploy-dev.yml` deploys to dev (or performs a dry run, see above).
 2. Add `releases/vX.Y.Z-readiness.md` containing the line `VERDICT: GO` (see `releases/README.md`).
-3. Tag `vX.Y.Z`: the release workflow builds and deploys a zero-traffic candidate to prod.
+3. Tag `vX.Y.Z` to stage a zero-traffic production candidate. Mobile builds require `PROD_API_BASE_URL` to match that service's canonical URL. Both use version `X.Y.Z` and the release workflow run number as their build number. The Android job verifies the bundle's version before the production signing job signs and verifies it. The iOS artifact contains the unsigned app for signing. See the [release workflow](.github/workflows/release-prod.yml).
 4. A human runs the `promote-prod` workflow to move traffic. The promotion scripts in `scripts/promotion/`
    validate flags, traffic shape and the rollback target, and fail closed.
 

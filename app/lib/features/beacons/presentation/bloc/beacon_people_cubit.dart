@@ -8,6 +8,7 @@ import '../../../graph/data/graph_repository.dart';
 import '../../data/beacons_repository.dart';
 import '../beacons_error_messages.dart';
 import 'beacon_people_state.dart';
+import 'pending_beacon_blocks.dart';
 
 /// One tab of `/plans/:id/people` (R38): ListParticipants of one filter, 20
 /// per page, and the organiser's accept, decline, decline-and-block and
@@ -23,11 +24,20 @@ class BeaconPeopleCubit extends Cubit<BeaconPeopleState> {
     required String beaconId,
     required pb.ParticipantFilter filter,
     GraphRepository? graph,
+    PendingBeaconBlocks? pendingBlocks,
   }) : _repository = repository,
        _beaconId = beaconId,
        _filter = filter,
        _graph = graph,
-       super(const BeaconPeopleState());
+       _pending = pendingBlocks ?? PendingBeaconBlocks(),
+       _ownsPending = pendingBlocks == null,
+       super(
+         BeaconPeopleState(
+           pendingBlocks: pendingBlocks?.handles(beaconId) ?? const {},
+         ),
+       ) {
+    _pending.addListener(_syncPending);
+  }
 
   static const _uuid = Uuid();
   static const _pageSize = 20;
@@ -38,9 +48,16 @@ class BeaconPeopleCubit extends Cubit<BeaconPeopleState> {
   final GraphRepository? _graph;
   final Map<String, String> _keys = {};
 
-  /// Declined users still to block (user id to handle), mirrored into
-  /// [BeaconPeopleState.pendingBlocks].
-  final Map<String, String> _pendingBlock = {};
+  final PendingBeaconBlocks _pending;
+  final bool _ownsPending;
+
+  @override
+  Future<void> close() {
+    _pending.removeListener(_syncPending);
+    if (_ownsPending) _pending.dispose();
+    return super.close();
+  }
+
   int _generation = 0;
 
   bool _stale(int generation) => isClosed || generation != _generation;
@@ -138,7 +155,7 @@ class BeaconPeopleCubit extends Cubit<BeaconPeopleState> {
   });
 
   /// Declines, then blocks. Once the decline went through (or the server says
-  /// there is no open request any more) the user is parked in [_pendingBlock]:
+  /// there is no open request any more) the user is parked in the account session:
   /// a failed block keeps that, says so, and a retry only blocks, with the
   /// same block key.
   ///
@@ -146,13 +163,14 @@ class BeaconPeopleCubit extends Cubit<BeaconPeopleState> {
   /// deliberately degrades to a plain [decline]: the request is still
   /// answered, only the block is skipped.
   Future<bool> declineAndBlock(String userId) async {
+    if (!_pending.active) return false;
     final graph = _graph;
     if (graph == null) return decline(userId);
     return _act(
       'decline',
       userId,
       (key) async {
-        if (!_pendingBlock.containsKey(userId)) {
+        if (_pending.keyFor(_beaconId, userId) == null) {
           try {
             await _repository.respondToJoinRequest(
               idempotencyKey: key,
@@ -168,32 +186,33 @@ class BeaconPeopleCubit extends Cubit<BeaconPeopleState> {
               .where((p) => p.user.userId == userId)
               .map((p) => p.user.handle)
               .firstOrNull;
-          _pendingBlock[userId] = handle ?? '';
-          _syncPending();
+          _pending.record(_beaconId, userId, handle ?? '', _uuid.v4());
         }
-        final blockKey = _keys.putIfAbsent('block|$userId', _uuid.v4);
+        final blockKey = _pending.keyFor(_beaconId, userId);
+        if (blockKey == null) return;
         await graph.block(userId: userId, idempotencyKey: blockKey);
-        _keys.remove('block|$userId');
-        _pendingBlock.remove(userId);
-        _syncPending();
+        _pending.complete(_beaconId, userId, blockKey);
       },
-      copy: (error) => _pendingBlock.containsKey(userId)
+      copy: (error) => _pending.keyFor(_beaconId, userId) != null
           ? switch (error) {
               final RateLimitedException e =>
                 '$blockFailedCopy ${rateLimitedMessage(e)}',
               _ => blockFailedCopy,
             }
           : beaconsErrorMessage(error),
-      retryBlock: () => _pendingBlock.containsKey(userId),
+      retryBlock: () => _pending.keyFor(_beaconId, userId) != null,
     );
   }
 
   /// Blocks a user whose request was already declined (see [declineAndBlock]).
-  Future<bool> retryBlock(String userId) => declineAndBlock(userId);
+  Future<bool> retryBlock(String userId) async {
+    if (_pending.keyFor(_beaconId, userId) == null) return false;
+    return declineAndBlock(userId);
+  }
 
   void _syncPending() {
     if (!isClosed) {
-      emit(state.copyWith(pendingBlocks: Map.of(_pendingBlock)));
+      emit(state.copyWith(pendingBlocks: _pending.handles(_beaconId)));
     }
   }
 
@@ -207,7 +226,7 @@ class BeaconPeopleCubit extends Cubit<BeaconPeopleState> {
     String Function(AppException) copy = beaconsErrorMessage,
     bool Function()? retryBlock,
   }) async {
-    if (state.busyUserId != null) return false;
+    if (isClosed || state.busyUserId != null) return false;
     final key = _keys.putIfAbsent('$kind|$userId', _uuid.v4);
     emit(
       state.copyWith(

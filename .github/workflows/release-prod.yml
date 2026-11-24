@@ -49,6 +49,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: prod
     outputs:
+      api_origin: ${{ steps.rc_url.outputs.api_origin }}
       rc_url: ${{ steps.rc_url.outputs.url }}
       tag: ${{ steps.tagname.outputs.tag }}
     steps:
@@ -74,7 +75,10 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: refs/tags/${{ steps.tagname.outputs.tag }}
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-firebase
 
       - name: Auth to GCP (WIF)
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
@@ -106,7 +110,7 @@ jobs:
           KO_DOCKER_REPO: ${{ vars.PROD_ARTIFACT_REGISTRY_URL }}/api # Artifact Registry needs <repo>/<image>
           RELEASE_TAG: ${{ steps.tagname.outputs.tag }}
         run: |
-          digest=$(ko build "${API_MAIN_PKG}" --bare -t "${RELEASE_TAG}")
+          digest=$(ko build "${API_MAIN_PKG}" --bare -t "${RELEASE_TAG}" -t "${RELEASE_TAG}-${GITHUB_SHA}")
           echo "image=${digest}" >> "$GITHUB_OUTPUT"
 
       # Deliberately no `working-directory:` here — firebase-tools reads
@@ -120,7 +124,6 @@ jobs:
         env:
           FIREBASE_PROJECT_ID: ${{ vars.PROD_PROJECT_ID }}
         run: |
-          npm install -g firebase-tools@15.32.0
           firebase deploy --only firestore:rules,firestore:indexes \
             --project "${FIREBASE_PROJECT_ID}" --non-interactive
 
@@ -151,15 +154,20 @@ jobs:
       - name: Resolve candidate revision URL
         id: rc_url
         env:
+          PROD_API_BASE_URL: ${{ vars.PROD_API_BASE_URL }}
           SERVICE: ${{ vars.PROD_SERVICE_NAME }}
           PROJECT: ${{ vars.PROD_PROJECT_ID }}
           REGION: ${{ vars.PROD_REGION }}
         run: |
           # jq, not a gcloud --format projection: gcloud has no first() transform (verified; it errors).
-          url=$(gcloud run services describe "${SERVICE}" \
+          service_json=$(gcloud run services describe "${SERVICE}" \
             --project="${PROJECT}" \
             --region="${REGION}" \
-            --format=json | jq -r '[.status.traffic[]? | select(.tag == "candidate") | .url] | first // empty')
+            --format=json)
+          origin=$(jq -er '.status.url' <<< "$service_json")
+          bash scripts/promotion/check-mobile-origin.sh "$origin"
+          echo "api_origin=$origin" >> "$GITHUB_OUTPUT"
+          url=$(jq -r '[.status.traffic[]? | select(.tag == "candidate") | .url] | first // empty' <<< "$service_json")
           if [ -z "${url}" ]; then
             echo "::error::No traffic tag 'candidate' found on ${SERVICE} after the --no-traffic --tag=candidate deploy."
             exit 1
@@ -192,7 +200,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: refs/tags/${{ needs.build-and-stage.outputs.tag }}
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Setup Flutter
@@ -238,7 +246,8 @@ jobs:
         working-directory: app
         env:
           ORG_GRADLE_PROJECT_dzerothExternalReleaseSigning: "true"
-          API_BASE_URL: ${{ vars.PROD_API_BASE_URL }}
+          API_BASE_URL: ${{ needs.build-and-stage.outputs.api_origin }}
+          RELEASE_TAG: ${{ needs.build-and-stage.outputs.tag }}
           RECAPTCHA_SITE_KEY: ${{ vars.PROD_RECAPTCHA_SITE_KEY }}
           GOOGLE_WEB_CLIENT_ID: ${{ vars.PROD_GOOGLE_WEB_CLIENT_ID }}
           BILLING_CONFIG_ENABLED: ${{ vars.PROD_BILLING_CONFIG_ENABLED }}
@@ -246,12 +255,32 @@ jobs:
           REVENUECAT_PUBLIC_API_KEY: ${{ vars.PROD_REVENUECAT_ANDROID_PUBLIC_API_KEY }}
         run: |
           bash ../scripts/promotion/mobile-billing-defines.sh android > "$RUNNER_TEMP/billing.json"
-          flutter build appbundle --dart-define-from-file="$RUNNER_TEMP/billing.json" --release \
+          flutter build appbundle --build-name="${RELEASE_TAG#v}" --build-number="$GITHUB_RUN_NUMBER" --dart-define-from-file="$RUNNER_TEMP/billing.json" --release \
             --dart-define=USE_EMULATORS=false \
             --dart-define=FIREBASE_ENV=prod \
             --dart-define=API_BASE_URL="${API_BASE_URL}" \
             --dart-define=RECAPTCHA_SITE_KEY="${RECAPTCHA_SITE_KEY}" \
             --dart-define=GOOGLE_WEB_CLIENT_ID="${GOOGLE_WEB_CLIENT_ID}"
+
+      - name: Verify packaged Android version
+        env:
+          RELEASE_TAG: ${{ needs.build-and-stage.outputs.tag }}
+        run: |
+          tool="$RUNNER_TEMP/bundletool.jar"
+          curl -fsSL --retry 3 -o "$tool" https://github.com/google/bundletool/releases/download/1.18.3/bundletool-all-1.18.3.jar
+          echo "a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29  $tool" | sha256sum -c -
+          bundle=app/build/app/outputs/bundle/release/app-release.aab
+          java -jar "$tool" dump manifest --bundle="$bundle" > "$RUNNER_TEMP/AndroidManifest.xml"
+          python3 - <<'PY'
+          import os
+          import xml.etree.ElementTree as ET
+          manifest = ET.parse(os.path.join(os.environ["RUNNER_TEMP"], "AndroidManifest.xml")).getroot()
+          android = "{http://schemas.android.com/apk/res/android}"
+          if (manifest.get(android + "versionCode"), manifest.get(android + "versionName")) != (
+              os.environ["GITHUB_RUN_NUMBER"], os.environ["RELEASE_TAG"][1:]
+          ):
+              raise SystemExit("Android bundle version differs from the release metadata")
+          PY
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -298,7 +327,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           if-no-files-found: error
-          name: android-aab-${{ needs.build-and-stage.outputs.tag }}
+          name: android-aab-${{ needs.build-and-stage.outputs.tag }}-attempt-${{ github.run_attempt }}
           path: signed/app-release.aab
           retention-days: 30
 
@@ -312,7 +341,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: refs/tags/${{ needs.build-and-stage.outputs.tag }}
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Setup Flutter
@@ -325,7 +354,8 @@ jobs:
         working-directory: app
         env:
           # Mobile talks to Cloud Run directly (no Hosting rewrite available).
-          API_BASE_URL: ${{ vars.PROD_API_BASE_URL }}
+          API_BASE_URL: ${{ needs.build-and-stage.outputs.api_origin }}
+          RELEASE_TAG: ${{ needs.build-and-stage.outputs.tag }}
           RECAPTCHA_SITE_KEY: ${{ vars.PROD_RECAPTCHA_SITE_KEY }}
           GOOGLE_WEB_CLIENT_ID: ${{ vars.PROD_GOOGLE_WEB_CLIENT_ID }}
           BILLING_CONFIG_ENABLED: ${{ vars.PROD_BILLING_CONFIG_ENABLED }}
@@ -333,9 +363,25 @@ jobs:
           REVENUECAT_PUBLIC_API_KEY: ${{ vars.PROD_REVENUECAT_IOS_PUBLIC_API_KEY }}
         run: |
           bash ../scripts/promotion/mobile-billing-defines.sh ios > "$RUNNER_TEMP/billing.json"
-          flutter build ios --dart-define-from-file="$RUNNER_TEMP/billing.json" --release --no-codesign \
+          flutter build ios --build-name="${RELEASE_TAG#v}" --build-number="$GITHUB_RUN_NUMBER" --dart-define-from-file="$RUNNER_TEMP/billing.json" --release --no-codesign \
             --dart-define=USE_EMULATORS=false \
             --dart-define=FIREBASE_ENV=prod \
             --dart-define=API_BASE_URL="${API_BASE_URL}" \
             --dart-define=RECAPTCHA_SITE_KEY="${RECAPTCHA_SITE_KEY}" \
             --dart-define=GOOGLE_WEB_CLIENT_ID="${GOOGLE_WEB_CLIENT_ID}"
+
+      - name: Verify and archive unsigned iOS app
+        env:
+          RELEASE_TAG: ${{ needs.build-and-stage.outputs.tag }}
+        run: |
+          app=app/build/ios/iphoneos/Runner.app
+          test "$(plutil -extract CFBundleVersion raw -o - "$app/Info.plist")" = "$GITHUB_RUN_NUMBER"
+          test "$(plutil -extract CFBundleShortVersionString raw -o - "$app/Info.plist")" = "${RELEASE_TAG#v}"
+          ditto -c -k --keepParent "$app" "$RUNNER_TEMP/Runner.zip"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ios-unsigned-${{ needs.build-and-stage.outputs.tag }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/Runner.zip
+          if-no-files-found: error
+          retention-days: 30

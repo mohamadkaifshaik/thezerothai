@@ -2,6 +2,7 @@ import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/features/beacons/data/beacons_repository.dart';
 import 'package:dzeroth/features/beacons/presentation/bloc/beacon_people_cubit.dart';
 import 'package:dzeroth/features/beacons/presentation/bloc/beacon_people_state.dart';
+import 'package:dzeroth/features/beacons/presentation/bloc/pending_beacon_blocks.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/graph/v1/graph.pb.dart' as graph;
@@ -57,10 +58,12 @@ void main() {
   BeaconPeopleCubit cubit(
     pb.ParticipantFilter filter, {
     bool withGraph = true,
+    PendingBeaconBlocks? pending,
   }) => BeaconPeopleCubit(
     repository: beacons,
     beaconId: _bid,
     filter: filter,
+    pendingBlocks: pending,
     graph: withGraph ? graphRepo : null,
   );
 
@@ -243,7 +246,8 @@ void main() {
       if (fail) throw NetworkException('offline');
       return graph.Relationship();
     });
-    final c = cubit(_requested);
+    final pending = PendingBeaconBlocks();
+    var c = cubit(_requested, pending: pending);
     await c.load();
 
     expect(await c.declineAndBlock('u2'), isFalse);
@@ -252,6 +256,11 @@ void main() {
       'Request declined, but blocking failed. '
       'Retry block?',
     );
+    await c.close();
+    // A snackbar on the previous screen may still hold this callback.
+    expect(await c.retryBlock('u2'), isFalse);
+    c = cubit(_requested, pending: pending);
+    expect(c.state.pendingBlocks, contains('u2'));
     fail = false;
     expect(await c.retryBlock('u2'), isTrue);
 

@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging.dart'
+    show UnsentDiscard;
 import 'package:dzeroth/features/messages/presentation/e2ee/encryption_copy.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -159,6 +161,33 @@ void main() {
     expect(kInitDiscardHeldText.toLowerCase(), contains('may'));
     expect(kInitDiscardNotDecidedText.toLowerCase(), contains('try again'));
     expect(kInitDiscardedText.toLowerCase(), contains('may'));
+  });
+
+  test('the unreadable unsent row line (gate item 18, controller copy)', () {
+    expect(
+      kUnsentUnreadableText,
+      "This message couldn't be read on this device, so it won't be sent. "
+      'Delete it?',
+    );
+  });
+
+  test('each discardUnsent answer has the line gate items 15 and 23 name, '
+      'or none where the thread itself shows the result (port '
+      'additions)', () {
+    expect(unsentDiscardText(UnsentDiscard.stopped), kInitDiscardedText);
+    expect(unsentDiscardText(UnsentDiscard.held), kInitDiscardHeldText);
+    expect(
+      unsentDiscardText(UnsentDiscard.notDecided),
+      kInitDiscardNotDecidedText,
+    );
+    // The row is gone, or shown delivered, or was never there: nothing.
+    for (final quiet in [
+      UnsentDiscard.discarded,
+      UnsentDiscard.delivered,
+      UnsentDiscard.none,
+    ]) {
+      expect(unsentDiscardText(quiet), isNull, reason: '$quiet');
+    }
   });
 
   test('counts and spoken labels', () {

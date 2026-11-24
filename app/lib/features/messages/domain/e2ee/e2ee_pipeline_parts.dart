@@ -348,10 +348,17 @@ class _Parts {
     await locks.run(id, () async {
       await _p._session.runWrite((v) async {
         if (!identical(v, vault)) throw StateError('The vault changed.');
+        final read = await v.outbox(conversationId: id);
         final rows = [
-          for (final r in (await v.outbox(conversationId: id)).items)
+          for (final r in read.items)
             if (r.init == null) r,
         ];
+        // Port additions, CR m3. Decision: the conversation's unsent rows
+        // that no longer open go too. Why: the user deleted the
+        // conversation's unsent rows, nothing of such a row can ever be
+        // sent, and left alone it would hold every later message to the
+        // same person (the id is fixed per pair) until found and deleted.
+        final unreadable = read.unreadableKeys;
         final record = await v.conversation(id);
         final sync = record?.sync ?? const ConversationSync();
         final before = sync.clearedAtMicros;
@@ -367,6 +374,9 @@ class _Parts {
           await tx.deleteConversation(id, upToCreatedAtMicros: bound);
           for (final r in rows) {
             await tx.deleteOutbox(r.idempotencyKey);
+          }
+          for (final key in unreadable) {
+            await tx.deleteOutbox(key);
           }
           await tx.putConversationSync(
             id,

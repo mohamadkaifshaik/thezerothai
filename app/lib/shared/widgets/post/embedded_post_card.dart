@@ -142,6 +142,7 @@ class EmbeddedPostCard extends StatelessWidget {
             if (embedded.media.isNotEmpty && !embedded.hasArticle()) ...[
               const SizedBox(height: AppSpacing.sm),
               PostMedia(
+                postId: embedded.postId,
                 media: embedded.media,
                 showPageIndicator: PostMedia.hasNoText(embedded.text),
               ),

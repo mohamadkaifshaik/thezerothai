@@ -4131,7 +4131,16 @@ void main() {
         await done();
         expect(rig.server.sends, hasLength(sends + closed.replays));
 
-        expect(await starter.discardInit(_c1), InitDiscard.held);
+        // Port additions, SA L1 (flag-on gate G1): a device removed
+        // elsewhere decides nothing and asks nothing (notDecided, before
+        // any read of the server); the group stays all the same.
+        final removed = closed.name == 'this device was removed elsewhere';
+        final calls = rig.server.calls.length;
+        expect(
+          await starter.discardInit(_c1),
+          removed ? InitDiscard.notDecided : InitDiscard.held,
+        );
+        if (removed) expect(rig.server.calls.sublist(calls), isEmpty);
         await expectUnchanged(row, closed.name);
       });
     }

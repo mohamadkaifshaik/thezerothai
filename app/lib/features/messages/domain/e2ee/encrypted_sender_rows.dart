@@ -24,10 +24,11 @@ extension _Rows on EncryptedSender {
   }
 
   /// The body of [EncryptedSender.discard] (its contract is written there).
-  Future<void> _discardRow(String localId) async {
+  Future<bool?> _discardRow(String localId) async {
     final row = await _find(localId);
     final id = row?.conversationId;
-    if (row == null || id == null || row.init != null) return;
+    if (row == null || id == null || row.init != null) return false;
+    bool? deleted = false;
     try {
       // The pull proves "no echo" only for the send calls made before it.
       int? calls;
@@ -37,7 +38,7 @@ extension _Rows on EncryptedSender {
         if (previous != null) await previous;
         // A different pass may have started while we waited. Its snapshot
         // also predates our witness; leave the row for the next discard.
-        if (context.running != null) return;
+        if (context.running != null) return false;
         final before = _sendCalls[localId] ?? 0;
         final outcome = await _receiver.pullLive(
           id,
@@ -45,11 +46,47 @@ extension _Rows on EncryptedSender {
         );
         if (outcome.kind == ReceiveOutcomeKind.complete) calls = before;
       }
-      await _locks.run(id, () => _discardLocked(id, localId, calls));
+      deleted = await _locks.run(id, () => _discardLocked(id, localId, calls));
     } on Object catch (e, s) {
       _reportIfBug(e, s, 'send.discard');
+      // Port additions, CR n1: failed, so nothing is known of the row.
+      deleted = null;
     }
     _onChanged(id);
+    return deleted;
+  }
+
+  /// The body of [EncryptedSender.unreadableKeys].
+  Future<List<String>> _unreadableKeys(String conversationId) async {
+    final vault = _session.vault;
+    if (vault == null) throw StateError('The vault is not ready.');
+    return (await vault.outbox(conversationId: conversationId)).unreadableKeys;
+  }
+
+  /// The body of [EncryptedSender.deleteUnreadable].
+  Future<bool> _deleteUnreadable(String id, String key) async {
+    if (key.isEmpty) return false;
+    var deleted = false;
+    try {
+      deleted = await _locks.run(id, () async {
+        final op = await _start();
+        if (op == null) return false;
+        var done = false;
+        await _session.runWrite((v) async {
+          op.check(v);
+          final read = await v.outbox(conversationId: id);
+          if (!read.unreadableKeys.contains(key)) return;
+          await v.transaction((tx) => tx.deleteOutbox(key));
+          done = true;
+        });
+        return done;
+      });
+    } on Object catch (e, s) {
+      _reportIfBug(e, s, 'send.deleteUnreadable');
+      return false;
+    }
+    if (deleted) _onChanged(id);
+    return deleted;
   }
 
   /// The body of [EncryptedSender.outgoing] (its contract is written there).
@@ -125,9 +162,10 @@ extension _Rows on EncryptedSender {
 
   /// [calls]: the row's send-call count read before a live pull that then
   /// completed; null when no such pull completed.
-  Future<void> _discardLocked(String id, String localId, int? calls) async {
+  Future<bool> _discardLocked(String id, String localId, int? calls) async {
     final op = await _start();
-    if (op == null) return;
+    if (op == null) return false;
+    var deleted = false;
     await _session.runWrite((v) async {
       op.check(v);
       for (final r in (await v.outbox(conversationId: id)).items) {
@@ -140,8 +178,10 @@ extension _Rows on EncryptedSender {
         }
         await v.transaction((tx) => tx.deleteOutbox(r.idempotencyKey));
         _forget(localId);
+        deleted = true;
       }
     });
+    return deleted;
   }
 
   // -------------------------------------------------------------------------

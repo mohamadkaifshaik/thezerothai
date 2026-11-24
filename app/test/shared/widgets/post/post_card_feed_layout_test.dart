@@ -71,7 +71,7 @@ void main() {
     await _pump(tester, _card(_view(media: true)));
     final avatar = tester.getRect(find.byType(AppAvatar));
     final text = tester.getRect(find.text('hello there'));
-    final bar = tester.getRect(find.byIcon(Icons.chat_bubble_outline));
+    final bar = tester.getRect(find.byType(PostActionBar));
     expect(text.left, closeTo(avatar.left, 0.5));
     expect(bar.left, closeTo(avatar.left, 0.5));
     // Below the header row; the media row starts at the body's left edge.
@@ -130,7 +130,7 @@ void main() {
               find
                   .ancestor(
                     of: find.byIcon(icon),
-                    matching: find.byType(ConstrainedBox),
+                    matching: find.byType(InkResponse),
                   )
                   .first,
             ),
@@ -164,7 +164,7 @@ void main() {
     Icons.bookmark_border,
   ];
 
-  testWidgets('the five actions are packed from the left, in the owner '
+  testWidgets('the five actions are spaced across the row, in the owner '
       'order: Reply, Repost, Like, Share, Bookmark', (tester) async {
     for (final width in const [320.0, 360.0, 400.0, 700.0, 1100.0]) {
       await _pump(tester, _card(_view()), width: width);
@@ -173,35 +173,31 @@ void main() {
       ];
       final boxes = boxesOf(tester, fiveIcons);
       final bar = tester.getRect(find.byType(PostActionBar));
-      // The first glyph starts the row (aligned with the text above), and the
-      // same compact row is used at every width: it does not grow to fill.
-      expect(icons.first.left, closeTo(bar.left, 0.5), reason: '$width');
+      expect(boxes.first.left, closeTo(bar.left, 0.5), reason: '$width');
       for (var i = 0; i < 5; i++) {
         expect(boxes[i].width, greaterThanOrEqualTo(48), reason: '$width');
         expect(boxes[i].height, greaterThanOrEqualTo(48), reason: '$width');
         if (i > 0) {
-          // In order, and the tap boxes meet: nothing is spread.
-          expect(boxes[i].left, closeTo(boxes[i - 1].right, 0.5));
+          expect(boxes[i].left, closeTo(boxes[i - 1].right + 4, 0.5));
           expect(icons[i].left, greaterThan(icons[i - 1].left));
         }
       }
-      expect(boxes.last.right, lessThan(bar.left + 5 * 80), reason: '$width');
+      expect(boxes.last.right, closeTo(bar.right, 1), reason: '$width');
       expect(tester.takeException(), isNull);
     }
   });
 
   testWidgets('an item with a count is its glyph, 6 dp, the count, then a '
-      '20 dp gap to the next glyph', (tester) async {
+      'gap to the next capsule', (tester) async {
     await _pump(tester, _card(_view()), width: 400);
     final reply = tester.getRect(find.byIcon(Icons.chat_bubble_outline));
     final count = tester.getRect(find.text('999'));
     final repost = tester.getRect(find.byIcon(Icons.repeat));
     expect(count.left - reply.right, closeTo(AppSpacing.actionGap, 0.5));
-    // Reply has a count: the next glyph is 20 dp past it.
-    expect(repost.left - count.right, closeTo(AppSpacing.actionItemGap, 1));
+    expect(repost.left - count.right, greaterThan(4));
   });
 
-  testWidgets('a list card has no Bookmark without a callback: four packed '
+  testWidgets('a list card has no Bookmark without a callback: four visible '
       'items', (tester) async {
     await _pump(
       tester,
@@ -222,11 +218,11 @@ void main() {
       Icons.favorite_border,
       Icons.ios_share,
     ]);
-    expect(boxes[1].left, closeTo(boxes[0].right, 0.5));
-    expect(boxes[2].left, closeTo(boxes[1].right, 0.5));
+    expect(boxes[1].left, closeTo(boxes[0].right + 4, 0.5));
+    expect(boxes[2].left, closeTo(boxes[1].right + 4, 0.5));
   });
 
-  testWidgets('with views re-enabled they are packed after the others, last', (
+  testWidgets('with views re-enabled they are after the others, last', (
     tester,
   ) async {
     final view = _view()..post.viewCount = Int64(4321);

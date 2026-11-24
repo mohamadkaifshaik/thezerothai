@@ -133,7 +133,7 @@ func (r *FirestoreRepo) PurgeCommunity(ctx context.Context, uid, cid string, p P
 	var res PurgeResult
 	attempts, err := r.run(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
 		res = PurgeResult{}
-		c, cerr := r.getInTx(ctx, tx, cid)
+		c, cerr := r.GetInTx(ctx, tx, cid)
 		if cerr != nil && !errors.Is(cerr, ErrNotFound) {
 			return cerr
 		}

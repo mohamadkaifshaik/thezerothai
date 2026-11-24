@@ -4,7 +4,7 @@
 // the exact same handler inside an httptest.Server against the Firebase Emulator Suite.
 //
 // This package exists only because Go cannot import a `package main` from another package ("is a
-// program, not an importable package") — extracting the wiring here is the seam that lets backend/e2e
+// program, not an importable package") â€” extracting the wiring here is the seam that lets backend/e2e
 // exercise the real handler without a second copy of it. cmd/api/main.go is left as a thin
 // config-load-and-serve wrapper around Build.
 package apiserver
@@ -21,12 +21,10 @@ import (
 	"connectrpc.com/connect"
 	firebase "firebase.google.com/go/v4"
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/articles/v1/articlesv1connect"
-	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/billing/v1/billingv1connect"
 	"github.com/dzeroth/dzeroth/backend/internal/articles"
 	"github.com/dzeroth/dzeroth/backend/internal/beacons"
 	"github.com/dzeroth/dzeroth/backend/internal/billing"
 
-	beaconsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/beacons/v1/beaconsv1connect"
 	communitiesv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/communities/v1/communitiesv1connect"
 	engagementv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1/engagementv1connect"
 	graphv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1/graphv1connect"
@@ -87,7 +85,7 @@ var healthPaths = map[string]struct{}{"/health": {}, "/healthz": {}}
 // http.Handler, and cmd/api/main.go / backend/e2e only ever need an http.Handler (net/http's native h2c
 // support / httptest.NewServer), so nothing downstream needs ServeMux itself.
 //
-// Full per-request pipeline, outermost to innermost (document any change here in the PR body — it's the
+// Full per-request pipeline, outermost to innermost (document any change here in the PR body â€” it's the
 // order plus the plain-net/http layers M1/hardening added in front of it):
 //
 //	CORS -> PreAuthIPMiddleware (M1: coarse per-IP flood backstop, pre-auth) -> MaxBytesHandler (hardening)
@@ -95,7 +93,7 @@ var healthPaths = map[string]struct{}{"/health": {}, "/healthz": {}}
 //	    -> logging -> recover -> App Check -> ID token -> rate limit (fine-grained, per-uid/IP, post-auth)
 //	       -> degraded mode -> account status -> errorMapping -> handler
 //
-// M1 of the v0.1.0 security audit — distinct from the earlier "Phase 0 review M1"
+// M1 of the v0.1.0 security audit â€” distinct from the earlier "Phase 0 review M1"
 // amendment, coincidentally the same finding ID and date): the rate-limit interceptor still
 // sits *after* App Check/ID token verification, so on its own it can't stop an unauthenticated flood from
 // paying JWT-verify CPU. PreAuthIPMiddleware is a second, independent Limiter (never the same
@@ -127,6 +125,13 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		return nil, nil, fmt.Errorf("firestore client: %w", err)
 	}
 
+	transferred := false
+	defer func() {
+		if !transferred {
+			_ = fsClient.Close()
+		}
+	}()
+
 	idVerifier := idVerifierOverride
 	if idVerifier == nil {
 		idVerifier, err = authn.NewIDTokenVerifier(ctx, cfg.ProjectID)
@@ -156,10 +161,10 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// graph.FirestoreRepo backs both identity.GraphInitializer (creating the empty graph/{uid} doc inside
 	// CreateProfile's transaction, unchanged since the Phase 0 bootstrap) and the full GraphService.
 	// Graph depends on identity.Directory/Counters directly; identity depends on graph only
-	// through the consumer-side identity.BlockChecker interface it declares itself (identity/api.go) — no
+	// through the consumer-side identity.BlockChecker interface it declares itself (identity/api.go) â€” no
 	// import cycle. graph.Service needs identity.Directory (implemented by identitySvc) and identitySvc
 	// needs graph.Service as its BlockChecker: SetDirectory breaks that construction-order cycle (see
-	// graph.service's doc comment) — safe because it runs once, synchronously, before ListenAndServe.
+	// graph.service's doc comment) â€” safe because it runs once, synchronously, before ListenAndServe.
 	graphRepo := graph.NewFirestoreRepo(fsClient)
 	identityRepo := identity.NewFirestoreRepo(fsClient, graphRepo)
 	// identityRepo implements identity.Counters (AddFollowersCount/AddFollowingCount); the increments must
@@ -244,9 +249,10 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		identity.WithSignupAuth(authAdminClient, log),
 		// Warn-only sign-in identity audit in GetMe (AUTH_IDENTITY_AUDIT, default off).
 		identity.WithAuthIdentityAudit(cfg.AuthIdentityAudit, log),
+		// Fast publication follows the commit; its transactional outbox covers process loss.
+		identity.WithMediaRetirer(profileMediaRetirer{jobs: mediaMod.jobs}, log),
 		identity.WithAvatarResolver(avatarResolver{lib: mediaMod.library, flags: featureFlags}),
 		// A replaced or removed avatar goes to media's retire step (PROFILE_MEDIA_RETIRE).
-		identity.WithMediaRetirer(profileMediaRetirer{jobs: mediaMod.jobs}, log),
 		identity.WithPinChecker(pinChecker),
 		identity.WithMessageBadge(messaging.NewUnreadBadge(messagingRepo), log), // GetMe.unread_conversation_count
 		// GetMe.unread_notification_count: the unseen rows the caller would see (block, mute, blocked-by and the F-04
@@ -350,6 +356,10 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	if err != nil {
 		return nil, nil, err
 	}
+	if err := registerAvatarRetirement(ob, identityRepo, mediaMod.jobs, cfg.ProfileMediaRetire); err != nil {
+		return nil, nil, err
+	}
+
 	var inlinePostDeleteJobs posts.PostDeleteJobs = mediaMod.jobs
 	if bo.inlinePostDeleteJobs != nil {
 		inlinePostDeleteJobs = bo.inlinePostDeleteJobs(inlinePostDeleteJobs)
@@ -517,35 +527,11 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	if err != nil {
 		return nil, nil, fmt.Errorf("account lifecycle: %w", err)
 	}
-	if err := registerLifecycleModules(lifecycle, postsRepo, graphRepo, mediaMod.purger, notifRepo); err != nil {
-		return nil, nil, fmt.Errorf("account lifecycle registry: %w", err)
-	}
-	if err := registerEngagementLifecycle(lifecycle, engagementRepo); err != nil {
-		return nil, nil, fmt.Errorf("engagement lifecycle registry: %w", err)
-	}
-	if err := registerArticleLifecycle(lifecycle, fsClient); err != nil {
-		return nil, nil, fmt.Errorf("articles lifecycle registry: %w", err)
-	}
 	// moderation: ReportContent behind FEATURE_REPORTS. It reuses posts.GetForViewer and
 	// identity.GetProfile for target visibility and writes only reports/* and the reports quota.
 	moderationRepo := moderation.NewFirestoreRepo(fsClient, quota.New(fsClient))
-	if err := registerModerationLifecycle(lifecycle, moderationRepo, identityRepo); err != nil {
-		return nil, nil, fmt.Errorf("moderation lifecycle registry: %w", err)
-	}
-	// scheduled posts: the erase step and export section are registered whether or not
-	// FEATURE_SCHEDULED_POSTS is on, because documents outlive the flag; the step runs after reports, before identity.
-	if err := registerScheduledLifecycle(lifecycle, postsRepo); err != nil {
-		return nil, nil, fmt.Errorf("scheduled lifecycle registry: %w", err)
-	}
-	// bookmarks: the erase step and export section are registered whether or not FEATURE_BOOKMARKS is
-	// on; the step runs after scheduled, before identity.
-	if err := registerBookmarkLifecycle(lifecycle, engagementRepo); err != nil {
-		return nil, nil, fmt.Errorf("bookmarks lifecycle registry: %w", err)
-	}
-	// follow_requests: the erase step and export section are registered whether or not
-	// FEATURE_PRIVATE_ACCOUNTS is on; the step runs after bookmarks, before identity.
-	if err := registerFollowRequestsLifecycle(lifecycle, graphRepo); err != nil {
-		return nil, nil, fmt.Errorf("follow_requests lifecycle registry: %w", err)
+	if err := registerContentLifecycle(lifecycle, fsClient, postsRepo, graphRepo, mediaMod.purger, notifRepo, engagementRepo, moderationRepo, identityRepo); err != nil {
+		return nil, nil, err
 	}
 	// messaging: the erase step and export section are registered whether or not FEATURE_MESSAGING is on; the
 	// step runs after follow_requests, before identity. The repo is also the send path's storage (wired with the routes).
@@ -626,15 +612,13 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		identity.WithLifecycle(lifecycle), identity.WithReauthMaxAge(cfg.AccountDeleteReauthMaxAge))
 	graphServer := graph.NewServer(graphSvc)
 
-	// search and admin are not implemented yet; their Connect servers are not registered.
-
 	// --- interceptors ---
 	accountStatusProvider := accountStatusAdapter{svc: identitySvc, peek: identityCache.GetProfile, ages: actorAges}
 	profileExempt := profileExemptProcedures()
 
 	// M1: rate limit (and degraded mode, also a free in-memory check) now run *before* account status.
 	// Previously account status ran first, so a caller who never completes sign-up (no users/{uid}) could
-	// call any non-exempt RPC as many times as it wanted — each rejected with PROFILE_REQUIRED — without
+	// call any non-exempt RPC as many times as it wanted â€” each rejected with PROFILE_REQUIRED â€” without
 	// ever tripping the per-uid/per-IP limiter, because AccountStatusInterceptor returned before
 	// ratelimit.Interceptor got a chance to run at all. Moving the free checks first means every call is
 	// rate-limited regardless of how it's ultimately rejected, and identity.Cache's ~10s negative "no
@@ -659,7 +643,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// device_sign_out is globally off (dropping one user from an allowlist must not reopen that user's thief).
 	// identity.Service embeds SessionCuts, so this is checked at compile time (CR N4).
 	var sessionCuts identity.SessionCuts = identitySvc
-	interceptors := connect.WithInterceptors(chainInterceptors(chainDeps{
+	chain := chainInterceptors(chainDeps{
 		log: log, projectID: cfg.ProjectID,
 		appCheck: appCheckVerifier, appCheckMode: authn.Mode(cfg.AppCheck),
 		idVerifier:    idVerifier,
@@ -670,11 +654,15 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		degradedMode: cfg.Degraded, media: mediaProcedures(),
 		accountStatus: accountStatusProvider, restricted: RestrictedAllowedProcedures(),
 		publicIDs: publicIDs,
-	})...)
+	})
+	if cfg.Env == "prod" || cfg.Env == "dev" {
+		chain = append(chain, mediaMod.delivery.interceptor())
+	}
+	interceptors := connect.WithInterceptors(chain...)
 
 	// M8: outside ENV=local, config.Load already refuses to start unless both InternalOIDCAudience and
 	// InternalOIDCAllowedEmails are set (fail closed), so /internal/* is only ever unauthenticated here
-	// when cfg.Env == "local" — where no real Pub/Sub push subscription exists yet to forge a call from.
+	// when cfg.Env == "local" â€” where no real Pub/Sub push subscription exists yet to forge a call from.
 	protectInternal := func(h http.Handler) http.Handler { return h }
 	if cfg.InternalOIDCAudience != "" {
 		protectInternal = pubsubpush.NewVerifier(cfg.InternalOIDCAudience, cfg.InternalOIDCAllowedEmails...).Middleware
@@ -695,101 +683,18 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	if e := registerDailyStatsLifecycle(lifecycle, dailyStats); e != nil {
 		return nil, nil, fmt.Errorf("daily stats lifecycle registry: %w", e)
 	}
-	billingServer := billing.NewServer(nil, nil, nil)
-	var articlePublishingAccess func(context.Context, string) error
-	if cfg.BillingWebhook.PurchasesEnabled && (!cfg.BillingWebhook.Enabled || (cfg.Env != "dev" && cfg.Env != "prod") || cfg.AuthEmulator || cfg.BillingSandbox.Enabled) {
-		return nil, nil, fmt.Errorf("real purchase rollout requires dev/prod, configured webhooks, and no emulators")
+	billingMod, err := wireBilling(cfg, log, routes, billingBindings)
+	if err != nil {
+		return nil, nil, err
 	}
-	var billingWebhookRecovery trendsStep
-	if cfg.BillingWebhook.Enabled {
-		if (cfg.Env != "dev" && cfg.Env != "prod") || cfg.AuthEmulator || cfg.BillingSandbox.Enabled {
-			return nil, nil, fmt.Errorf("production billing webhooks require dev/prod without emulators or sandbox checkout")
-		}
-		products := map[string]billing.Product{}
-		for id, product := range cfg.BillingWebhook.Products {
-			products[id] = billing.Product{Store: product.Store, Entitlement: product.Entitlement}
-		}
-		provider, e := billing.NewRevenueCatProvider(cfg.BillingWebhook.SecretAPIKey, products, nil)
-		if e != nil {
-			return nil, nil, fmt.Errorf("billing webhook provider configuration invalid")
-		}
-		reconciler, e := billing.NewReconciler(billingBindings, provider, nil)
-		if e != nil {
-			return nil, nil, fmt.Errorf("billing webhook reconciliation configuration invalid")
-		}
-		environment := billing.Production
-		if cfg.BillingWebhook.Environment == "SANDBOX" && cfg.Env == "dev" {
-			environment = billing.Sandbox
-		} else if cfg.BillingWebhook.Environment != "" && cfg.BillingWebhook.Environment != "PRODUCTION" {
-			return nil, nil, fmt.Errorf("billing receipt environment invalid")
-		}
-		identities, e := billing.NewIdentityService(billingBindings, environment, nil)
-		if e != nil {
-			return nil, nil, fmt.Errorf("production billing identity configuration invalid")
-		}
-		server := billing.NewServer(identities, billingBindings, reconciler)
-		if cfg.BillingWebhook.PurchasesEnabled {
-			server.EnableStorePurchases(products)
-		}
-		billingServer = server
-		access := verifiedBillingAccess{bindings: billingBindings, verifier: reconciler, now: time.Now, environment: environment}
-		subscriptionPostLimit = access.postTextLimit
-		articlePublishingAccess = access.publishArticle
-		processor, e := billing.NewWebhookProcessor(billingBindings, reconciler)
-		if e != nil {
-			return nil, nil, e
-		}
-		processor.ReadOnly = cfg.Degraded == config.DegradedReadonly
-		if e = routes.revenuecat(processor, cfg.BillingWebhook.Authorization, cfg.BillingWebhook.SigningSecret, cfg.BillingWebhook.AppIDs, environment); e != nil {
-			return nil, nil, fmt.Errorf("billing webhook authentication configuration invalid")
-		}
-		billingWebhookRecovery = processor
-		routes.internal("/internal/cron/billing-webhooks", billingRecoveryHandler(processor, log, cfg.ProjectID))
-	}
-	// Without configured billing, new article publication remains unavailable.
-	if cfg.BillingSandbox.Enabled {
-		if cfg.Env != "local" || cfg.ProjectID != "demo-dzeroth-local" || !cfg.AuthEmulator {
-			return nil, nil, fmt.Errorf("billing sandbox requires local demo project and Auth emulator")
-		}
-		bindings := billingBindings
-		provider, e := billing.NewRevenueCatProvider(cfg.BillingSandbox.SecretAPIKey,
-			map[string]billing.Product{
-				"plus_monthly": {Store: "test_store", Entitlement: billing.PlusEntitlement},
-				"monthly":      {Store: "test_store", Entitlement: billing.ProEntitlement},
-			}, nil)
-		if e != nil {
-			return nil, nil, fmt.Errorf("billing provider configuration invalid")
-		}
-		identities, e := billing.NewIdentityService(bindings, billing.Sandbox, nil)
-		if e != nil {
-			return nil, nil, fmt.Errorf("billing identity configuration invalid")
-		}
-		reconciler, e := billing.NewReconciler(bindings, provider, nil)
-		if e != nil {
-			return nil, nil, fmt.Errorf("billing reconciliation configuration invalid")
-		}
-		server := billing.NewServer(identities, bindings, reconciler)
-		access := verifiedBillingAccess{bindings: bindings, verifier: reconciler, now: time.Now, environment: billing.Sandbox}
-		subscriptionPostLimit = access.postTextLimit
-		articlePublishingAccess = access.publishArticle
-		server.EnableSandboxPurchases()
-		billingServer = server
-	}
-	// Read-only operation must neither advertise checkout nor write verification
-	// metadata through a status read. Existing account reads remain protected.
-	if cfg.Degraded == config.DegradedReadonly {
-		billingServer = billing.NewServer(nil, billingBindings, nil)
-	}
-	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
-		return billingv1connect.NewBillingServiceHandler(billingServer, o...)
-	})
+	subscriptionPostLimit = billingMod.postLimit
 	// /health is the canonical path: Cloud Run's Google front end reserves URL paths ending in "z" on
 	// *.run.app, so external requests to /healthz never reach the container. /healthz stays as an alias.
 	routes.public("/health", http.HandlerFunc(health.Handler()))
 	routes.public("/healthz", http.HandlerFunc(health.Handler()))
 
 	// Hardening (2026-09-27 security audit, informational finding): connect.WithReadMaxBytes caps the
-	// *decompressed* body size at the Connect codec layer (a gzip-bomb guard — see limits.MaxRequestBytes's
+	// *decompressed* body size at the Connect codec layer (a gzip-bomb guard â€” see limits.MaxRequestBytes's
 	// doc comment); http.MaxBytesHandler below caps the raw bytes read off the socket before that.
 	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
 		return identityv1connect.NewIdentityServiceHandler(identityServer, o...)
@@ -806,7 +711,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		return articlesv1connect.NewArticleServiceHandler(articles.NewServer(fsClient, postsSvc, featureFlags, func(ctx context.Context, uid, id string) (string, error) {
 			ref, err := mediaMod.library.ResolvePostCover(ctx, uid, id)
 			return ref.URL, err
-		}).WithPublishingAccess(articlePublishingAccess).WithImages(articleImageResolver{mediaMod.library}, articleImageAttacher{mediaMod.library}), o...)
+		}).WithPublishingAccess(billingMod.publishArticle).WithImages(articleImageResolver{mediaMod.library}, articleImageAttacher{mediaMod.library}), o...)
 	})
 
 	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
@@ -916,11 +821,12 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	if err != nil {
 		return nil, nil, err
 	}
-	var beaconEvents beacons.Events = beaconNotifier{slot: notifSlot} // request, accept and cancel → notifications (PR 5)
+	var beaconEvents beacons.Events = beaconNotifier{slot: notifSlot} // request, accept and cancel â†’ notifications (PR 5)
 	if bo.inlineBeaconEvents != nil {
 		beaconEvents = bo.inlineBeaconEvents(beaconEvents)
 	}
-	beaconsSvc := beacons.New(beacons.Deps{
+	beaconsSvc, err := registerBeacons(routes, lateBeacons, suggestPlans, beacons.Deps{
+		TxProfiles: identityRepo, TxGraph: graphRepo, TxCommunities: communitiesRepo,
 		Repo: beaconsRepo, Directory: identitySvc.(identity.Directory), Graph: graphSvc, Communities: communitiesSvc.(communities.Reader),
 		CommunityFlags: featureFlags, Flags: featureFlags, Follows: graphSvc, IDs: snowflakeNode, CursorKey: cfg.CursorHMACKey,
 		Events: beaconEvents,
@@ -931,16 +837,9 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		},
 		Areas: locationMod.catalog, MyArea: locationMod.svc, // plan areas and ListNearbyBeacons (Location P2)
 	})
-	beaconReporter, ok := beaconsSvc.(beacons.BeaconReporter)
-	if !ok {
-		return nil, nil, errors.New("beacons service does not implement BeaconReporter")
+	if err != nil {
+		return nil, nil, err
 	}
-	lateBeacons.r = beaconReporter // bound before ListenAndServe: a BEACON report can now reach the beacon
-	planMates, ok := beaconsSvc.(planCoParticipants)
-	if !ok {
-		return nil, nil, errors.New("beacons service does not implement RecentCoParticipants")
-	}
-	suggestPlans.src = planMates
 	communityMates, ok := communitiesSvc.(communityCoMembers)
 	if !ok {
 		return nil, nil, errors.New("communities service does not implement RecentCoMembers")
@@ -950,10 +849,6 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// owner lists, and SearchPosts below through PostsDeps.Plans).
 	plans := postPlans{svc: beaconsSvc}
 	wirePostPlans(plans, postsSvc, postsServer, timelineServer, engagementServer)
-	beaconsServer := beacons.NewServer(featureFlags, beaconsSvc)
-	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
-		return beaconsv1connect.NewBeaconServiceHandler(beaconsServer, o...)
-	})
 
 	// Location: the module was built before beacons (the catalogue is parsed there: a bad areas.json fails boot); its
 	// lifecycle step and export section are registered after every other module's (users/{uid}/locationArea and
@@ -1073,7 +968,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// The view rollup (F1 post views) rides the same tick last, under its own 15-minute gate (view_rollup_wiring.go);
 	// /internal/cron/view-rollup runs it alone. Skipped while FEATURE_POST_VIEWS is globally off or under DEGRADED_MODE=readonly.
 	viewRollupTick, viewRollupRoute := newViewRollups(postsRepo, func() bool { return featureFlags.GloballyOff(posts.ViewsFlagName) }, cfg.Degraded == config.DegradedReadonly, postsCache.DeletePost)
-	routes.internal("/internal/cron/publish-scheduled", withViewRollup(withBillingRecovery(withOutboxSweep(posts.NewSweepHandler(postsSvc.(posts.Sweeper), log, cfg.ProjectID), outboxStep, cfg.ProjectID, time.Now), billingWebhookRecovery, log), viewRollupStep{rollup: viewRollupTick, log: log}, cfg.ProjectID, time.Now))
+	routes.internal("/internal/cron/publish-scheduled", withViewRollup(withBillingRecovery(withOutboxSweep(posts.NewSweepHandler(postsSvc.(posts.Sweeper), log, cfg.ProjectID), outboxStep, cfg.ProjectID, time.Now), billingMod.recover, log), viewRollupStep{rollup: viewRollupTick, log: log}, cfg.ProjectID, time.Now))
 	routes.internal("/internal/cron/outbox-sweep", outboxSweepHandler(outboxStep, log, cfg.ProjectID))
 	routes.internal("/internal/cron/view-rollup", viewRollupHandler(viewRollupStep{rollup: viewRollupRoute, log: log}, log, cfg.ProjectID))
 	// The notifications-fanout push endpoint. Behind the OIDC verifier like every /internal/* route; the
@@ -1081,8 +976,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// acknowledges and drops (never a 5xx, so a switched-off feature cannot fill the DLQ).
 	routes.internal("/internal/pubsub/notifications-fanout", notifFanout.Handler())
 
-	// M1: a coarse, pre-auth per-IP token bucket wraps the whole mux — /health,
-	// /internal/* and every module's Connect handler — as plain net/http middleware, so an unauthenticated
+	// M1: a coarse, pre-auth per-IP token bucket wraps the whole mux â€” /health,
+	// /internal/* and every module's Connect handler â€” as plain net/http middleware, so an unauthenticated
 	// flood is rejected before it costs any App Check / ID token JWT-verify CPU (that verification happens
 	// only once a request reaches a Connect handler's own interceptor chain inside mux, below this layer).
 	// This is a *different* Limiter instance from the one ratelimit.Interceptor uses above (rlIP): a
@@ -1092,7 +987,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// decompression) for every route on mux, using the same limits.MaxRequestBytes as
 	// connect.WithReadMaxBytes above.
 	//
-	// Both wrap mux itself, *before* it is mounted twice below — so exemptPaths (healthPaths) and every
+	// Both wrap mux itself, *before* it is mounted twice below â€” so exemptPaths (healthPaths) and every
 	// route see the same normalized path regardless of whether the request arrived at "/health" directly or
 	// "/api/health" via Firebase Hosting's rewrite (http.StripPrefix runs first on that path, then this
 	// same wrapped handler runs against the already-stripped "/health").
@@ -1105,7 +1000,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// above must also answer under that prefix: apiRoot (routes.go) mounts the same protected mux at "/" and,
 	// through http.StripPrefix, at "/api/", so this stays correct as new modules are added.
 	// M10: CORS is off unless cfg.CORSAllowedOrigins is non-empty (local dev by default, or an explicit
-	// CORS_ALLOWED_ORIGINS elsewhere) — see pkg/platform/httpcors's doc comment.
+	// CORS_ALLOWED_ORIGINS elsewhere) â€” see pkg/platform/httpcors's doc comment.
+	transferred = true
 	return httpcors.Wrap(cfg.CORSAllowedOrigins, apiRoot(protectedMux)), fsClient, nil
 }
 

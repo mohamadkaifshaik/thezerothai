@@ -573,6 +573,13 @@ class MainShell extends StatelessWidget {
     ];
     return ContextPaneSlotsHost(
       child: ResponsiveScaffold(
+        showBottomBar: const {
+          AppRouter.homePath,
+          AppRouter.explorePath,
+          AppRouter.plansPath,
+          AppRouter.notificationsPath,
+          AppRouter.messagesPath,
+        }.contains(_shellTopLocation(context) ?? location),
         // The redesigned rail look (600dp and up) with the new shell only.
         redesignedRail: newShell,
         // Both flags at any width: from 1200dp the desktop composition is

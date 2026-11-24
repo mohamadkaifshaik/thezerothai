@@ -373,6 +373,11 @@ UNTIL_TODAY=tomorrow expect_msg "until: a bad UNTIL_TODAY is a usage error" 2 "n
 unset UNTIL_TODAY
 expect "until: missing directory is a usage error" 2 "$U" "$tmp/does-not-exist"
 
+expect "candidate source and digest" 0 "$here/candidate-image-test.sh"
+origin=https://api-prod-abc.run.app
+PROD_API_BASE_URL=$origin expect "mobile origin matches service" 0 "$p/check-mobile-origin.sh" "$origin"
+PROD_API_BASE_URL='' expect "mobile origin missing" 1 "$p/check-mobile-origin.sh" "$origin"
+PROD_API_BASE_URL=https://other.run.app expect "mobile origin differs" 1 "$p/check-mobile-origin.sh" "$origin"
 expect "billing candidate configuration" 0 "$here/billing-config-test.sh"
 echo "promotion fixture tests: $pass passed, $failed failed"
 [ "$failed" -eq 0 ]

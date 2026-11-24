@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' show Random;
 
 import 'package:flutter/foundation.dart';
 
@@ -12,7 +13,7 @@ import '../conversation_id.dart';
 import 'e2ee_pipeline.dart';
 import 'e2ee_types.dart';
 import 'encrypted_messaging.dart';
-import 'group_starter.dart' show StartOutcome, StartResult;
+import 'group_starter.dart' show InitDiscard, StartOutcome, StartResult;
 import 'membership_rules.dart' show codeParties;
 import 'message_content_codec.dart';
 import 'pipeline_support.dart' show kServerRequestDeadline;
@@ -83,6 +84,20 @@ class EncryptedMessagingImpl implements EncryptedMessaging {
   Set<String>? _ownRefs;
   List<kpb.KeyDevice>? _lastDirectory;
 
+  /// SA L2 (flag-on gate G3): the screens' handles of unreadable unsent
+  /// rows ([EncryptedThread.unreadableUnsent]), random per run, mapped here
+  /// to the row's conversation and outbox key. The key itself (the
+  /// idempotency key sent on the wire) never leaves the port. Forgotten
+  /// with the vault (L3) and when the row is deleted.
+  final Map<String, ({String conversationId, String key})> _unreadableRows = {};
+  final Map<String, String> _unreadableHandleOf = {};
+  final Random _handles = Random.secure();
+
+  /// How many unreadable-row handles this port holds (the code seat's nit:
+  /// none for rows deleted another way once their thread is rebuilt).
+  @visibleForTesting
+  int get unreadableHandleCountForTest => _unreadableRows.length;
+
   /// The vault the memory above belongs to (L3).
   SecureVault? _vaultSeen;
 
@@ -99,6 +114,8 @@ class EncryptedMessagingImpl implements EncryptedMessaging {
     _bound.clear();
     _ownRefs = null;
     _lastDirectory = null;
+    _unreadableRows.clear();
+    _unreadableHandleOf.clear();
     for (final t in threads) {
       t.close();
     }
@@ -117,6 +134,32 @@ class EncryptedMessagingImpl implements EncryptedMessaging {
     for (final t in [..._threads.values]) {
       if (t.shows(conversationId)) t.refreshIfWatched();
     }
+  }
+
+  /// SA L2: the handle of the unreadable row [key] of [conversationId], the
+  /// same one for the whole run (128 random bits, hex).
+  String _unreadableHandle(String conversationId, String key) =>
+      _unreadableHandleOf.putIfAbsent(key, () {
+        final handle = [
+          for (var i = 0; i < 16; i++)
+            _handles.nextInt(256).toRadixString(16).padLeft(2, '0'),
+        ].join();
+        _unreadableRows[handle] = (conversationId: conversationId, key: key);
+        return handle;
+      });
+
+  /// Code seat nit: after a fresh read of [conversationId]'s unreadable
+  /// keys, the handles of that conversation whose key is no longer listed
+  /// go (a row deleted another way: delete-for-me, a drain).
+  void _pruneUnreadable(String conversationId, Iterable<String> keys) {
+    final live = keys.toSet();
+    _unreadableRows.removeWhere((handle, row) {
+      if (row.conversationId != conversationId || live.contains(row.key)) {
+        return false;
+      }
+      _unreadableHandleOf.remove(row.key);
+      return true;
+    });
   }
 
   /// K2: [recipient]'s thread continues under [conversationId].
@@ -514,6 +557,135 @@ class EncryptedMessagingImpl implements EncryptedMessaging {
     }
   }
 
+  /// Gate items 14 and 15 (port additions). A pending init row (the first
+  /// message of a new encrypted conversation) goes through the starter's
+  /// `discardInit`, with its rules; any other row through the sender's
+  /// `discard`, and after a deletion the conversation's new oldest row
+  /// through `retryStart` (review F1). Never throws: a failure in doubt is
+  /// `notDecided` (nothing is claimed), a bug is reported first.
+  @override
+  Future<UnsentDiscard> discardUnsent(String localId) async {
+    _checkVault();
+    final parts = _pipeline.parts;
+    if (localId.isEmpty || parts == null) return UnsentDiscard.none;
+    try {
+      final row = await _outboxRow(parts, localId);
+      if (row == null) return UnsentDiscard.none;
+      if (row.init != null) return await _discardInit(parts, row);
+      final id = row.conversationId;
+      // A row with no conversation id yet is not the sender's to discard;
+      // it goes once its start names the conversation.
+      if (id == null) return UnsentDiscard.notDecided;
+      final deleted = await parts.sender.discard(localId);
+      // CR n1: the discard failed (a write that did not go through): what
+      // happened to the row is not known, so nothing is claimed.
+      if (deleted == null) return UnsentDiscard.notDecided;
+      if (!deleted) {
+        // Kept (it may have been accepted, or a send of it is running), or
+        // gone meanwhile (delivered, or deleted with its conversation).
+        return await _outboxRow(parts, localId) == null
+            ? UnsentDiscard.none
+            : UnsentDiscard.held;
+      }
+      await _restartAfterDiscard(parts, id);
+      return UnsentDiscard.discarded;
+    } on Object catch (e, s) {
+      if (_isBug(e)) _pipeline.reportPortError('port.discardUnsent', s);
+      return UnsentDiscard.notDecided;
+    }
+  }
+
+  /// The outbox row [localId] of the open vault, or null.
+  static Future<OutboxItem?> _outboxRow(
+    PipelineParts parts,
+    String localId,
+  ) async {
+    for (final r in (await parts.vault.outbox()).items) {
+      if (r.localId == localId) return r;
+    }
+    return null;
+  }
+
+  /// Gate item 15: [row] is an init row; only while it is the pending init
+  /// of its conversation is it discarded, by the starter (offered on a
+  /// pending init row only).
+  ///
+  /// SA L1 (flag-on gate G1): the init discard makes MLS calls, so it runs
+  /// only while the pipeline is started and nothing stops it, the rule the
+  /// pipeline's own delete-for-me uses (`_discardOrOwe`); otherwise
+  /// `notDecided` ("try again") with no call. The starter checks the
+  /// stopped fact itself too.
+  Future<UnsentDiscard> _discardInit(
+    PipelineParts parts,
+    OutboxItem row,
+  ) async {
+    if (!_pipeline.started || _pipeline.deviceKeys.stopsPipeline) {
+      return UnsentDiscard.notDecided;
+    }
+    final id = row.conversationId;
+    final recipient = row.recipientUserId;
+    final pending = id != null
+        ? await parts.starter.pendingInit(conversationId: id)
+        : (recipient == null || recipient.isEmpty)
+        ? null
+        : await parts.starter.pendingInit(recipientUserId: recipient);
+    final conversation = pending?.conversationId;
+    if (pending == null ||
+        pending.localId != row.localId ||
+        conversation == null) {
+      // Settled or discarded meanwhile, or not decided yet.
+      return await _outboxRow(parts, row.localId) == null
+          ? UnsentDiscard.none
+          : UnsentDiscard.notDecided;
+    }
+    return switch (await parts.starter.discardInit(conversation)) {
+      InitDiscard.discarded => UnsentDiscard.stopped,
+      InitDiscard.settled => UnsentDiscard.delivered,
+      InitDiscard.held => UnsentDiscard.held,
+      InitDiscard.notDecided => UnsentDiscard.notDecided,
+      InitDiscard.none => UnsentDiscard.none,
+    };
+  }
+
+  /// Review F1 (Task 8, binding for 13b; gate item 14): after a deletion,
+  /// the conversation's new oldest row is started again, so a row that
+  /// waited behind the discarded one does not read "waiting" with no
+  /// control (a no-op when that row is failed). A failure here is quiet:
+  /// the row was deleted all the same.
+  Future<void> _restartAfterDiscard(PipelineParts parts, String id) async {
+    try {
+      final rows = await parts.sender.outgoing(id);
+      if (rows.isNotEmpty) await parts.starter.retryStart(rows.first.localId);
+    } on Object catch (e, s) {
+      if (_isBug(e)) _pipeline.reportPortError('port.discardUnsent.next', s);
+    }
+  }
+
+  /// Gate item 18 (port additions): the sender deletes the row only while
+  /// it is still unreadable, under the conversation lock; no network, no
+  /// plaintext. False with no ready vault, an invalid id, and a [ref] that
+  /// is not a handle this run gave out for that conversation (SA L2: an
+  /// outbox key itself, an unknown or a stale handle).
+  @override
+  Future<bool> deleteUnreadableUnsent(String conversationId, String ref) async {
+    _checkVault();
+    final parts = _pipeline.parts;
+    if (parts == null || ref.isEmpty || !isConversationId(conversationId)) {
+      return false;
+    }
+    final row = _unreadableRows[ref];
+    if (row == null || row.conversationId != conversationId) return false;
+    final deleted = await parts.sender.deleteUnreadable(
+      conversationId,
+      row.key,
+    );
+    if (deleted) {
+      _unreadableRows.remove(ref);
+      _unreadableHandleOf.remove(row.key);
+    }
+    return deleted;
+  }
+
   /// Gate item 13: every retry of an unsent row goes through the starter's
   /// `retryStart` (it resends an init, starts again from fresh claims when
   /// allowed, or hands the row to the sender's retry). Unknown id, or no
@@ -667,7 +839,7 @@ class EncryptedMessagingImpl implements EncryptedMessaging {
   }
 
   @override
-  Future<void> removeDevice(String ref) {
+  Future<DeviceRemoval> removeDevice(String ref) {
     _checkVault();
     return _removeDevice(ref);
   }
@@ -676,4 +848,18 @@ class EncryptedMessagingImpl implements EncryptedMessaging {
   /// vault's parts); 0 with no vault.
   @override
   ValueListenable<int> get removalsPending => _pipeline.removalsPending;
+
+  /// Lane D (port additions): the open vault's runner's ask, followed by
+  /// the pipeline across vaults; false with no vault.
+  @override
+  ValueListenable<bool> get needsReauth => _pipeline.removalNeedsReauth;
+
+  @override
+  ValueListenable<List<String>> get parkedRemovals => _pipeline.parkedRemovals;
+
+  @override
+  Future<void> dropRemoval(String ref) {
+    _checkVault();
+    return _dropRemoval(ref);
+  }
 }

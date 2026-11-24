@@ -87,10 +87,7 @@ class _Footer extends StatelessWidget {
   }
 }
 
-/// Composer that replies to the open post: the row right under it in the
-/// thread list at every width (the PostDetail designs), [compact] below the
-/// mobile breakpoint. The same 280 code-point rules and counter as the main
-/// composer.
+/// Docked below the thread on phones and inline on wider screens.
 class _ReplyComposer extends StatefulWidget {
   const _ReplyComposer({
     required this.focusNode,
@@ -181,20 +178,25 @@ class _ReplyComposerState extends State<_ReplyComposer> {
           ),
           onChanged: cubit.textChanged,
         );
-        final gutter = postCardGutterOf(context);
+        final gutter = compact ? AppSpacing.sm : postCardGutterOf(context);
         return DecoratedBox(
           decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
-            border: Border(
-              bottom: BorderSide(color: theme.colorScheme.outlineVariant),
-            ),
+            color: compact
+                ? theme.colorScheme.surfaceContainerLow
+                : theme.colorScheme.surface,
+            borderRadius: compact ? BorderRadius.circular(28) : null,
+            border: compact
+                ? Border.all(color: theme.colorScheme.outlineVariant)
+                : Border(
+                    bottom: BorderSide(color: theme.colorScheme.outlineVariant),
+                  ),
           ),
           child: Padding(
             padding: EdgeInsetsDirectional.fromSTEB(
               gutter,
-              AppSpacing.smd,
+              compact ? AppSpacing.xs : AppSpacing.smd,
               gutter,
-              AppSpacing.smd,
+              compact ? AppSpacing.xs : AppSpacing.smd,
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,

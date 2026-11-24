@@ -67,7 +67,7 @@ variable "hosting_site_id" {
 variable "image" {
   description = "Placeholder image for the very first apply, before CI has built anything. CI-managed afterwards."
   type        = string
-  default     = "us-docker.pkg.dev/cloudrun/container/hello"
+  default     = "us-docker.pkg.dev/cloudrun/container/hello@sha256:9654ebfdd31387ad4c1b79ca025ce55ed157d55abb29bdd6ec2231f754d8da0e"
 }
 
 # Find with: gcloud services api-keys list --project=<project_id> --format="table(uid,displayName)"

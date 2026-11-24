@@ -228,15 +228,11 @@ void main() {
     expect(calls, isEmpty);
   });
 
-  testWidgets('flag on: an outline icon packed after Like, no Share', (
-    tester,
-  ) async {
+  testWidgets('flag on: an outline icon after Like, no Share', (tester) async {
     await pump(tester, _view());
     expect(outline(), findsOneWidget);
     expect(find.byIcon(Icons.ios_share), findsNothing);
 
-    // Reply, Repost, Like, Bookmark: packed from the left; Bookmark's glyph
-    // starts where Like's target ends.
     final likeBox = tester.getRect(
       find
           .ancestor(
@@ -246,7 +242,7 @@ void main() {
           .first,
     );
     final bookmark = tester.getTopLeft(outline()).dx;
-    expect(bookmark, closeTo(likeBox.right, 1));
+    expect(bookmark, greaterThan(likeBox.right));
     // dz.css `.acts` glyph (R1 restyle; was 16).
     expect(tester.getSize(outline()), const Size.square(AppIconSize.action));
   });

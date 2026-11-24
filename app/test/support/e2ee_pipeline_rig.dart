@@ -1841,6 +1841,10 @@ class RigKeys implements KeysRepository {
   /// answer reaches the caller (a crash or a vault change in between).
   Future<void> Function()? onRemoved;
 
+  /// The answer's `other_sessions_ended` (lane D H2: the server ended the
+  /// account's other sessions).
+  bool otherSessionsEnded = false;
+
   /// `RemoveKeyDevice` (Task 11): as the server does, the device leaves the
   /// own list.
   @override
@@ -1854,7 +1858,7 @@ class RigKeys implements KeysRepository {
     if (error != null) throw error;
     own.removeWhere((d) => d.deviceId == deviceId);
     await onRemoved?.call();
-    return kpb.RemoveKeyDeviceResponse();
+    return kpb.RemoveKeyDeviceResponse(otherSessionsEnded: otherSessionsEnded);
   }
 
   /// Thrown by every `ListMyKeyDevices` call while set (RATE_LIMITED...).

@@ -23,14 +23,16 @@ extension type _Event._(JSObject _) implements JSObject {
 extension type _Result._(JSObject _) implements JSObject {
   external bool? get error;
   external String get metadata;
+  external String get fullMd5;
   external JSUint8Array get video;
   external JSUint8Array get poster;
 }
 
 Future<ConvertedClip> convertClip(
   XFile file,
-  ProcessingCancellation cancellation,
-) async {
+  ProcessingCancellation cancellation, {
+  ClipEdit edit = const ClipEdit(),
+}) async {
   final done = Completer<ConvertedClip>();
   final worker = _Worker('video_worker.js');
   try {
@@ -43,6 +45,7 @@ Future<ConvertedClip> convertClip(
           video: result.video.toDart,
           poster: result.poster.toDart,
           metadata: result.metadata,
+          fullMd5: result.fullMd5,
         ));
       }
     }).toJS;
@@ -58,7 +61,7 @@ Future<ConvertedClip> convertClip(
     worker.postMessage(
       {
             'url': file.path,
-            'encode': encodeClip('input', 'post.mp4'),
+            'encode': encodeClip('input', 'post.mp4', web: true, edit: edit),
             'probe': probeClip('post.mp4', 'metadata.json'),
             'poster': extractPoster('post.mp4', 'poster.jpg'),
           }.jsify()!

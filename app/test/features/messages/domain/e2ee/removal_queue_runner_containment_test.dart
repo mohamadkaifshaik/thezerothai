@@ -280,7 +280,7 @@ void main() {
       final second = runner.removeDevice(sibling.idString);
       await second;
       answer.complete();
-      await first.catchError((Object _) {});
+      await first.catchError((Object _) => null);
       await runner.idle();
 
       expect(rig.keys.removeCalls, hasLength(2), reason: 'sent again');

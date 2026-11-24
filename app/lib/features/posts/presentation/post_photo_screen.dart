@@ -17,10 +17,11 @@ import '../../../gen/dzeroth/common/v1/common.pb.dart' as common;
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../engagement/domain/engagement_feature_flag.dart';
 import '../../../shared/widgets/primitives/app_side_sheet.dart';
-import '../../../shared/widgets/post/post_video.dart';
 import '../../media/domain/processed_image.dart'
     show kGifContentType, kVideoContentType;
 import 'post_detail_screen.dart';
+import 'post_video_viewer.dart';
+import '../../search/domain/search_feature_flags.dart';
 import 'widgets/loaded_post.dart';
 import 'widgets/photo_bottom_panel.dart';
 
@@ -29,8 +30,14 @@ import 'widgets/photo_bottom_panel.dart';
 /// dots, caption, action bar) and the system bars, and the next brings them
 /// back. [PostPhotoScreen.chromeVisible] is the one flag all of them follow.
 class PostPhotoScreen extends StatefulWidget {
-  const PostPhotoScreen({super.key, required this.postId, required this.index});
+  const PostPhotoScreen({
+    super.key,
+    required this.postId,
+    required this.index,
+    this.nearbyVideos = const {},
+  });
   final String postId;
+  final Map<String, List<int>> nearbyVideos;
 
   /// One-based index in the original post's media list.
   final int index;
@@ -87,8 +94,28 @@ class _PostPhotoScreenState extends State<PostPhotoScreen> {
         Positioned.fill(
           child: LoadedPost(
             postId: widget.postId,
-            builder: (context, view) =>
-                _PhotoViewer(view: view, index: widget.index, chrome: _chrome),
+            builder: (context, view) {
+              final index = widget.index - 1;
+              if (view.post.media.elementAtOrNull(index)?.contentType ==
+                  kVideoContentType) {
+                final discover =
+                    isFeatureEnabled(context, kFeatureSearch) &&
+                    isFeatureEnabled(context, kFeatureTrendingMedia);
+                return PostVideoViewer(
+                  key: ValueKey((widget.postId, index, discover)),
+                  discoveryEnabled: discover,
+                  view: view,
+                  onClose: () => closePostPhoto(context, widget.postId),
+                  nearbyVideos: widget.nearbyVideos,
+                  index: index,
+                );
+              }
+              return _PhotoViewer(
+                view: view,
+                index: widget.index,
+                chrome: _chrome,
+              );
+            },
           ),
         ),
         Positioned.fill(
@@ -100,7 +127,7 @@ class _PostPhotoScreenState extends State<PostPhotoScreen> {
                 child: Padding(
                   padding: const EdgeInsets.all(AppSpacing.sm),
                   child: _PhotoButton(
-                    tooltip: 'Close image',
+                    tooltip: 'Close media',
                     onPressed: () => closePostPhoto(context, widget.postId),
                     icon: Icons.close,
                   ),
@@ -394,6 +421,9 @@ class _PhotoViewerState extends State<_PhotoViewer> {
   /// location so Close still returns to the post.
   void _onPage(int page) {
     if (page + 1 == widget.index) return;
+    if (widget.view.post.media[page].contentType == kVideoContentType) {
+      widget.chrome.value = true;
+    }
     context.replace(AppRouter.postPhotoPath(widget.view.post.postId, page + 1));
   }
 
@@ -542,22 +572,11 @@ class _PhotoViewerState extends State<_PhotoViewer> {
   Widget _page(BuildContext context, int i, List<common.MediaRef> media) {
     final item = media[i];
     if (item.contentType == kVideoContentType) {
-      return _abovePanel(
-        Semantics(
-          label: item.altText.isEmpty ? 'Video' : item.altText,
-          child: PostVideo(
-            key: ValueKey(item.url),
-            url: item.url,
-            startOnOpen: true,
-            poster: item.thumbUrl.isEmpty
-                ? const SizedBox.expand()
-                : CachedNetworkImage(
-                    imageUrl: item.thumbUrl,
-                    fit: BoxFit.contain,
-                  ),
-          ),
-        ),
-      );
+      // The selected video has its own vertical viewer. While swiping a
+      // gallery only its poster should appear on the neighbouring page.
+      return item.thumbUrl.isEmpty
+          ? const SizedBox.expand()
+          : CachedNetworkImage(imageUrl: item.thumbUrl, fit: BoxFit.contain);
     }
     // Opening a viewer must not silently start an animated GIF.
     final url = item.contentType == kGifContentType ? item.thumbUrl : item.url;

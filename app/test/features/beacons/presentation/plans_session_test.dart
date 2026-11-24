@@ -50,6 +50,18 @@ void main() {
     return s;
   }
 
+  test('account reset discards block retries and ignores a late decline', () {
+    final plans = PlansSession(repository: server);
+    final previous = plans.pendingBlocks;
+    previous.record('beacon', 'target', 'alice', 'original-key');
+    plans.reset();
+    previous.record('beacon', 'late-target', 'bob', 'late-key');
+    expect(previous.handles('beacon'), isEmpty);
+    expect(plans.pendingBlocks.handles('beacon'), isEmpty);
+    expect(plans.pendingBlocks.active, isTrue);
+    plans.dispose();
+  });
+
   test('nothing is created or sent until a placement reads it', () {
     final s = session();
     expect(s.listIfCreated, isNull);

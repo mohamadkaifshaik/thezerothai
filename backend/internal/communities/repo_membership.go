@@ -170,7 +170,7 @@ func (r *FirestoreRepo) Leave(ctx context.Context, p LeaveParams) (LeaveResult, 
 		comUpdates := []firestore.Update{memberCountDelta(-1)}
 		var written *Community
 		if p.ModeratorHint || slices.Contains(ms.Modlogged, p.ID) {
-			c, err := r.getInTx(ctx, tx, p.ID)
+			c, err := r.GetInTx(ctx, tx, p.ID)
 			if err != nil {
 				return err
 			}
