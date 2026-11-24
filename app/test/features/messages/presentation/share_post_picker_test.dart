@@ -5,9 +5,12 @@ import 'package:dzeroth/app/session_wiring.dart' show UnexpectedErrorReporter;
 import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
+import 'package:dzeroth/core/vault/vault_status.dart' show E2eeFlag;
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/graph/presentation/widgets/user_list_row.dart';
 import 'package:dzeroth/features/messages/data/messaging_repository.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging.dart';
+import 'package:dzeroth/features/messages/domain/e2ee/encryption_device.dart';
 import 'package:dzeroth/features/messages/domain/share_post_target.dart';
 import 'package:dzeroth/features/messages/presentation/recipient_picker_screen.dart'
     show kRecipientFieldKey, kRecipientHandleRowKey;
@@ -24,6 +27,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../../support/fake_encrypted_messaging.dart';
+import '../../../support/fake_encryption_device.dart';
 import '../../../support/fake_people_source.dart';
 import '../../../support/fake_send_repository.dart';
 import '../../../support/messaging_fixtures.dart';
@@ -58,6 +63,9 @@ class _Rig {
     double height = 800,
     double textScale = 1,
     Brightness brightness = Brightness.light,
+    // The encryption wiring of the tree (Task 14); none = today's picker.
+    FakeEncryptedMessaging? port,
+    FakeEncryptionDevice? device,
   }) async {
     tester.view.physicalSize = Size(width, height);
     tester.view.devicePixelRatio = 1;
@@ -77,6 +85,10 @@ class _Rig {
           RepositoryProvider<IdentityRepository>.value(value: identityRepo),
           RepositoryProvider<GraphRepository>.value(value: _MockGraph()),
           RepositoryProvider<UnexpectedErrorReporter>.value(value: (_, _) {}),
+          if (device != null)
+            RepositoryProvider<EncryptionDevice>.value(value: device),
+          if (port != null)
+            RepositoryProvider<EncryptedMessaging?>.value(value: port),
         ],
         child: BlocProvider<OnboardingBloc>.value(
           value: onboarding,
@@ -442,5 +454,100 @@ void main() {
         expect(find.text('Send in a message'), findsNothing);
       });
     }
+  });
+
+  // Plan 5b Task 14: the share goes through the port only with the server's
+  // check live (`e2ee_dm` AND `dm_share_check`).
+  group('with the encryption wiring', () {
+    const base = {'messaging', 'graph', 'dm_post_share'};
+
+    Future<_Rig> shareTo(
+      WidgetTester tester, {
+      required Set<String> features,
+      FakeEncryptedMessaging? port,
+      FakeEncryptionDevice? device,
+    }) async {
+      final rig = _Rig();
+      await rig.open(tester, features: features, port: port, device: device);
+      await tester.tap(_person('User 1'));
+      await tester.pump();
+      await tester.tap(find.text('Send (1)'));
+      await tester.pumpAndSettle();
+      return rig;
+    }
+
+    testWidgets('both flags on: the check runs once, then the port sends the '
+        'checked id', (tester) async {
+      final port = FakeEncryptedMessaging();
+      final rig = _Rig();
+      rig.repo.checkAnswer = '9999999999999999999';
+      await rig.open(
+        tester,
+        features: {...base, 'e2ee_dm', 'dm_share_check'},
+        port: port,
+        device: FakeEncryptionDevice(),
+      );
+      await tester.tap(_person('User 1'));
+      await tester.pump();
+      await tester.tap(find.text('Send (1)'));
+      await tester.pumpAndSettle();
+      expect(rig.repo.checkedPosts, [_postId]);
+      expect(port.calls, contains('send'));
+      expect(rig.repo.sendRecipients, isEmpty);
+      expect(find.text('Sent'), findsOneWidget);
+    });
+
+    testWidgets('e2ee_dm on, dm_share_check off: the share ends with the '
+        'flag-off line and nothing is called', (tester) async {
+      final port = FakeEncryptedMessaging();
+      final rig = await shareTo(
+        tester,
+        features: {...base, 'e2ee_dm'},
+        port: port,
+        device: FakeEncryptionDevice(),
+      );
+      expect(rig.repo.checkedPosts, isEmpty);
+      expect(rig.repo.sendRecipients, isEmpty);
+      expect(port.calls, isEmpty);
+      expect(
+        find.text("Sending a post in a message isn't available right now."),
+        findsWidgets,
+      );
+    });
+
+    testWidgets('dm_share_check on, e2ee_dm off, a vault here (manage): '
+        'the same flag-off line, zero calls', (tester) async {
+      final port = FakeEncryptedMessaging();
+      final rig = await shareTo(
+        tester,
+        features: {...base, 'dm_share_check'},
+        port: port,
+        device: FakeEncryptionDevice(flag: E2eeFlag.off),
+      );
+      expect(rig.repo.checkedPosts, isEmpty);
+      expect(rig.repo.sendRecipients, isEmpty);
+      expect(port.calls, isEmpty);
+    });
+
+    testWidgets('no vault on the device and the flags off (hidden): today\'s '
+        'plain share, the port is never touched', (tester) async {
+      final port = FakeEncryptedMessaging();
+      final rig = await shareTo(
+        tester,
+        features: base,
+        port: port,
+        device: FakeEncryptionDevice(vaultKnown: false, flag: E2eeFlag.off),
+      );
+      expect(rig.repo.checkedPosts, isEmpty);
+      expect(rig.repo.sendRecipients, ['u1']);
+      expect(port.calls, isEmpty);
+      expect(find.text('Sent'), findsOneWidget);
+    });
+
+    testWidgets('no wiring in the tree: today\'s plain share', (tester) async {
+      final rig = await shareTo(tester, features: base);
+      expect(rig.repo.sendRecipients, ['u1']);
+      expect(rig.repo.checkedPosts, isEmpty);
+    });
   });
 }

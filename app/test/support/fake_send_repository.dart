@@ -68,6 +68,20 @@ class FakeSendRepository extends Fake implements MessagingRepository {
   /// Every `shared_post_id` a send carried (null for a plain send), in order.
   final List<String?> sendSharedPostIds = [];
 
+  /// Every post id a `checkPostShare` carried, in order (the server's share
+  /// check for an encrypted share), and what it answers.
+  final List<String> checkedPosts = [];
+  String? checkAnswer;
+  Object? checkError;
+
+  @override
+  Future<String> checkPostShare(String postId) async {
+    checkedPosts.add(postId);
+    final e = checkError;
+    if (e != null) throw e;
+    return checkAnswer ?? postId;
+  }
+
   /// The "enabled" flag the share cubit asks before each send.
   @override
   bool enabled = true;
