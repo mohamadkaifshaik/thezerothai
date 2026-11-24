@@ -69,8 +69,11 @@ class ExploreMediaTileView extends StatelessWidget {
                 ExploreMediaKind.video => const Center(
                   child: CircleAvatar(
                     radius: 18,
-                    backgroundColor: Colors.black54,
-                    child: Icon(Icons.play_arrow, color: Colors.white),
+                    backgroundColor: AppPalette.photoScrim,
+                    child: Icon(
+                      Icons.play_arrow,
+                      color: AppColors.onPhotoBackground,
+                    ),
                   ),
                 ),
                 ExploreMediaKind.photo =>

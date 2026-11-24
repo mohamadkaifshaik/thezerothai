@@ -108,7 +108,7 @@ class _PostVideoViewerState extends State<PostVideoViewer> {
       return const Center(child: Text('Video unavailable'));
     }
     final poster = media.thumbUrl.isEmpty
-        ? const ColoredBox(color: Colors.black)
+        ? const ColoredBox(color: AppColors.photoBackground)
         : CachedNetworkImage(imageUrl: media.thumbUrl, fit: BoxFit.contain);
     return Column(
       children: [

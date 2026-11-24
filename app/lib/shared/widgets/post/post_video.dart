@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:material_ui/material_ui.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../../core/theme/app_theme.dart';
+
 /// The poster is the only network asset loaded until the viewer presses play.
 class PostVideo extends StatefulWidget {
   const PostVideo({
@@ -146,7 +148,7 @@ class _PostVideoState extends State<PostVideo> {
           );
         }
         return ColoredBox(
-          color: widget.loop ? Colors.black : colors.surface,
+          color: widget.loop ? AppColors.photoBackground : colors.surface,
           child: Stack(
             children: [
               Center(
@@ -159,7 +161,7 @@ class _PostVideoState extends State<PostVideo> {
                 alignment: Alignment.bottomCenter,
                 child: ColoredBox(
                   color: widget.loop
-                      ? Colors.black54
+                      ? AppPalette.photoScrim
                       : colors.surfaceContainerHigh,
                   child: Row(
                     children: [
