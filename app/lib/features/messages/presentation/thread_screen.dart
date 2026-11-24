@@ -64,6 +64,7 @@ import 'e2ee/widgets/own_device_alert.dart';
 import 'e2ee/widgets/system_line_row.dart';
 import 'e2ee/encrypted_thread_items.dart';
 import 'e2ee/encryption_access_builder.dart';
+import 'e2ee/screen_encrypted_port.dart';
 import 'bloc/message_composer_cubit.dart';
 import 'bloc/messages_badge_cubit.dart';
 import 'bloc/thread_cubit.dart';
@@ -219,50 +220,56 @@ class ThreadScreen extends StatelessWidget {
   }
 
   Widget _body(BuildContext context) {
-    return MultiBlocProvider(
-      providers: [
-        BlocProvider<ThreadCubit>(create: _createThreadCubit),
-        BlocProvider<MessageComposerCubit>(
-          create: (context) {
-            final thread = context.read<ThreadCubit>();
-            final status = context.read<EncryptionStatusCubit?>();
-            return MessageComposerCubit(
-              vaultNotOpen: () => status?.state.vaultNotOpen ?? false,
-              repository: context.read<MessagingRepository>(),
-              conversationId: conversationId,
-              outbox: context.read<MessagingRepository>().outbox,
-              // The same port (and the same hidden-access rule) as the
-              // thread's: a plaintext thread of a flag-on user sends through
-              // it too and gets `notEncrypted` back.
-              encrypted:
-                  EncryptionAccessBuilder.of(context) == EncryptionAccess.hidden
-                  ? null
-                  : context.read<EncryptedMessaging?>(),
-              onActivity: thread.noteInput,
-              onSent: thread.noteSent,
-              onCannotMessage: thread.markCannotMessage,
-              onUnexpectedError: context.read<UnexpectedErrorReporter>(),
-            );
-          },
-        ),
-      ],
-      // The badge knows this conversation is open; a foreground push
-      // for it pulls the thread.
-      child: ThreadPushScope(
-        conversationId: conversationId,
-        child: _ThreadView(
-          composerBuilder: composerBuilder,
-          bannerBuilder: bannerBuilder,
-          onReport: onReport,
-          onOpenLink: onOpenLink,
-          now: now,
-          highlightMessageId: highlightMessageId,
+    // The port is decided once for this screen (see [ScreenEncryptedPort]):
+    // the thread cubit and the lazily created composer cubit share it.
+    return ScreenEncryptedPort(
+      builder: (context, port) => MultiBlocProvider(
+        providers: [
+          BlocProvider<ThreadCubit>(
+            create: (context) => _createThreadCubit(context, port),
+          ),
+          BlocProvider<MessageComposerCubit>(
+            create: (context) {
+              final thread = context.read<ThreadCubit>();
+              final status = context.read<EncryptionStatusCubit?>();
+              return MessageComposerCubit(
+                vaultNotOpen: () => status?.state.vaultNotOpen ?? false,
+                repository: context.read<MessagingRepository>(),
+                conversationId: conversationId,
+                outbox: context.read<MessagingRepository>().outbox,
+                // The same port as the thread's: a plaintext thread of a
+                // flag-on user sends through it too and gets `notEncrypted`
+                // back.
+                encrypted: port,
+                onActivity: thread.noteInput,
+                onSent: thread.noteSent,
+                onCannotMessage: thread.markCannotMessage,
+                onUnexpectedError: context.read<UnexpectedErrorReporter>(),
+              );
+            },
+          ),
+        ],
+        // The badge knows this conversation is open; a foreground push
+        // for it pulls the thread.
+        child: ThreadPushScope(
+          conversationId: conversationId,
+          child: _ThreadView(
+            composerBuilder: composerBuilder,
+            bannerBuilder: bannerBuilder,
+            onReport: onReport,
+            onOpenLink: onOpenLink,
+            now: now,
+            highlightMessageId: highlightMessageId,
+          ),
         ),
       ),
     );
   }
 
-  ThreadCubit _createThreadCubit(BuildContext context) {
+  ThreadCubit _createThreadCubit(
+    BuildContext context,
+    EncryptedMessaging? port,
+  ) {
     final repository = context.read<MessagingRepository>();
     final report = context.read<UnexpectedErrorReporter>();
     final push = context.read<PushCubit>();
@@ -288,11 +295,9 @@ class ThreadScreen extends StatelessWidget {
             onError: report,
           );
     // Encrypted messaging is absent today (no provider) and ignored with
-    // access `hidden`: the thread is then exactly the plaintext thread.
+    // access `hidden` ([port] is then null): the thread is exactly the
+    // plaintext thread.
     final device = context.read<EncryptionDevice?>();
-    final port = EncryptionAccessBuilder.of(context) == EncryptionAccess.hidden
-        ? null
-        : context.read<EncryptedMessaging?>();
     cubit = ThreadCubit(
       repository: repository,
       poller: poller,
@@ -369,8 +374,17 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
     _revealing = true;
     try {
       final cubit = context.read<ThreadCubit>();
-      bool held() => cubit.state.messages.any((m) => m.id == id);
-      for (var i = 0; i < 12 && !held() && cubit.state.hasMore; i++) {
+      // An encrypted thread holds its rows as port entries, under the same
+      // message id the vault search reports (plan 5b Task 14, carried item
+      // 5); without this the reveal paged back 12 times and said the message
+      // was too old.
+      bool held() => cubit.state.encrypted
+          ? cubit.state.entries.any((e) => e.id == id)
+          : cubit.state.messages.any((m) => m.id == id);
+      bool more() => cubit.state.encrypted
+          ? cubit.state.encryptedHasMore
+          : cubit.state.hasMore;
+      for (var i = 0; i < 12 && !held() && more(); i++) {
         await cubit.loadMore();
         if (!mounted) return;
       }
@@ -1305,40 +1319,43 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
                         DaySeparatorItem() => _DaySeparator(
                           label: formatDaySeparator(item.day, _now),
                         ),
-                        EncryptedMessageItem() => MessageBubble.encrypted(
-                          entry: item.message,
-                          peerName: peerName,
-                          now: _now,
-                          firstOfGroup: item.firstOfGroup,
-                          lastOfGroup: item.lastOfGroup,
-                          use24Hour: use24Hour,
-                          // A stranger's link is plain text until accepted.
-                          linksEnabled:
-                              item.message.mine ||
-                              (conversation != null &&
-                                  conversation.state !=
-                                      ConversationState
-                                          .CONVERSATION_STATE_REQUEST),
-                          onOpenLink: _openLink,
-                          onOpenPost: _openPost,
-                          onRetry: _retryEncrypted,
-                          onReport:
-                              reportsEnabled &&
-                                  conversation != null &&
-                                  item.message.canReport &&
-                                  !item.message.mine &&
-                                  item.message.state ==
-                                      EncryptedMessageState.visible &&
-                                  isConversationId(item.message.id)
-                              ? (anchor) => unawaited(
-                                  _encryptedMessageMenu(
-                                    anchor,
-                                    cubit,
-                                    conversation,
-                                    item.message,
-                                  ),
-                                )
-                              : null,
+                        EncryptedMessageItem() => _highlighted(
+                          item.message.id,
+                          MessageBubble.encrypted(
+                            entry: item.message,
+                            peerName: peerName,
+                            now: _now,
+                            firstOfGroup: item.firstOfGroup,
+                            lastOfGroup: item.lastOfGroup,
+                            use24Hour: use24Hour,
+                            // A stranger's link is plain text until accepted.
+                            linksEnabled:
+                                item.message.mine ||
+                                (conversation != null &&
+                                    conversation.state !=
+                                        ConversationState
+                                            .CONVERSATION_STATE_REQUEST),
+                            onOpenLink: _openLink,
+                            onOpenPost: _openPost,
+                            onRetry: _retryEncrypted,
+                            onReport:
+                                reportsEnabled &&
+                                    conversation != null &&
+                                    item.message.canReport &&
+                                    !item.message.mine &&
+                                    item.message.state ==
+                                        EncryptedMessageState.visible &&
+                                    isConversationId(item.message.id)
+                                ? (anchor) => unawaited(
+                                    _encryptedMessageMenu(
+                                      anchor,
+                                      cubit,
+                                      conversation,
+                                      item.message,
+                                    ),
+                                  )
+                                : null,
+                          ),
                         ),
                         SystemLineItem() => SystemLineRow(
                           line: item.line,

@@ -79,6 +79,8 @@ void main() {
     bool removedElsewhere = false,
     bool withStatus = true,
     bool seedInbox = false,
+    // Appended to the thread's location (`?m=<id>`: a search hit's reveal).
+    String query = '',
   }) async {
     final server = request
         ? MessagingFlowRig.serverWithRequest()
@@ -123,7 +125,7 @@ void main() {
     }
     await rig.pump(
       tester,
-      location: AppRouter.messagePath(kThreadId),
+      location: '${AppRouter.messagePath(kThreadId)}$query',
       size: size,
       encrypted: withPort ? port : null,
       device: withPort ? device : null,
@@ -162,6 +164,46 @@ void main() {
     // The cached plaintext rows are older than the first entry: they sit
     // above the separator, nothing else of the server's text is read.
     expect(find.text(kNotEncryptedAboveText), findsOneWidget);
+  });
+
+  // Plan 5b Task 14 (carried item 5): a vault search hit is opened by message
+  // id, and the encrypted thread holds the message under the same id (the
+  // port's `search` and `watchThread` both use the stored message id).
+  const olderText =
+      'That message is older than this device keeps for the chat.';
+
+  testWidgets('a search hit is revealed by its id: highlighted, at most the '
+      'scroll\'s own older page asked (not the reveal\'s 12), no snackbar', (
+    tester,
+  ) async {
+    final r = await open(
+      tester,
+      hasMore: true,
+      entries: [
+        entry('e2', 'second secret', after: const Duration(minutes: 1)),
+        entry('e1', 'first secret'),
+      ],
+      query: '?m=e1',
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.byKey(const ValueKey('search-highlight-e1')), findsOneWidget);
+    // A short list sits at its older end, so the scroll listener may ask
+    // for one page itself; the reveal never pages when it holds the id.
+    expect(r.port.calls.where((c) => c == 'loadOlder').length, lessThan(2));
+    expect(find.text(olderText), findsNothing);
+  });
+
+  testWidgets('a hit the thread does not hold, with nothing older to load, '
+      'says so once and asks for no page', (tester) async {
+    final r = await open(
+      tester,
+      entries: [entry('e1', 'first secret')],
+      query: '?m=gone',
+    );
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.byKey(const ValueKey('search-highlight-gone')), findsNothing);
+    expect(r.port.calls, isNot(contains('loadOlder')));
+    expect(find.text(olderText), findsOneWidget);
   });
 
   testWidgets('the note is the encrypted one and How this works is a link '

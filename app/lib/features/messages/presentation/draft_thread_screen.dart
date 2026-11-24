@@ -27,6 +27,7 @@ import 'bloc/message_composer_cubit.dart';
 import 'e2ee/encrypted_thread_items.dart';
 import 'e2ee/encryption_access_builder.dart';
 import 'e2ee/encryption_status.dart';
+import 'e2ee/screen_encrypted_port.dart';
 import 'e2ee/widgets/thread_status_banner.dart';
 import 'thread_items.dart' show EncryptedMessageItem;
 import 'widgets/message_bubble.dart';
@@ -78,30 +79,35 @@ class DraftThreadScreen extends StatelessWidget {
         ),
       );
     }
-    return BlocProvider<MessageComposerCubit>(
-      create: (context) => MessageComposerCubit(
-        vaultNotOpen: _vaultNotOpenOf(context),
-        repository: context.read<MessagingRepository>(),
-        recipientUserId: peer.userId,
-        // R1: the person is addressed from this snapshot only.
-        recipient: peer,
-        encrypted: _draftPort(context),
-        outbox: context.read<MessagingRepository>().outbox,
-        onConversationCreated: (id) {
-          if (!context.mounted) return;
-          final handler = onConversationCreated;
-          if (handler != null) {
-            handler(context, id);
-          } else {
-            unawaited(
-              GoRouter.of(context)
-                  .pushReplacement<void>(AppRouter.messagePath(id)),
-            );
-          }
-        },
-        onUnexpectedError: context.read<UnexpectedErrorReporter>(),
+    // One port for the whole screen (see [ScreenEncryptedPort]): the
+    // composer cubit, the person's thread watch and the not-encrypted note
+    // all use the answer taken when the screen opened.
+    return ScreenEncryptedPort(
+      builder: (context, port) => BlocProvider<MessageComposerCubit>(
+        create: (context) => MessageComposerCubit(
+          vaultNotOpen: _vaultNotOpenOf(context),
+          repository: context.read<MessagingRepository>(),
+          recipientUserId: peer.userId,
+          // R1: the person is addressed from this snapshot only.
+          recipient: peer,
+          encrypted: port,
+          outbox: context.read<MessagingRepository>().outbox,
+          onConversationCreated: (id) {
+            if (!context.mounted) return;
+            final handler = onConversationCreated;
+            if (handler != null) {
+              handler(context, id);
+            } else {
+              unawaited(
+                GoRouter.of(context)
+                    .pushReplacement<void>(AppRouter.messagePath(id)),
+              );
+            }
+          },
+          onUnexpectedError: context.read<UnexpectedErrorReporter>(),
+        ),
+        child: _DraftView(peer: peer, port: port),
       ),
-      child: _DraftView(peer: peer),
     );
   }
 }
@@ -112,17 +118,13 @@ bool Function() _vaultNotOpenOf(BuildContext context) {
   return () => status?.state.vaultNotOpen ?? false;
 }
 
-/// The encrypted port for a draft, or null (today's draft): absent without a
-/// provider and ignored with access `hidden`, as in the thread screen.
-EncryptedMessaging? _draftPort(BuildContext context) =>
-    EncryptionAccessBuilder.of(context) == EncryptionAccess.hidden
-    ? null
-    : context.read<EncryptedMessaging?>();
-
 class _DraftView extends StatefulWidget {
-  const _DraftView({required this.peer});
+  const _DraftView({required this.peer, required this.port});
 
   final common.AuthorSnapshot peer;
+
+  /// The screen's one port (null: today's draft).
+  final EncryptedMessaging? port;
 
   @override
   State<_DraftView> createState() => _DraftViewState();
@@ -145,7 +147,7 @@ class _DraftViewState extends State<_DraftView> {
   @override
   void initState() {
     super.initState();
-    final port = _draftPort(context);
+    final port = widget.port;
     if (port != null) {
       _watch = port.watchThread(ThreadRef.recipientOf(peer)).listen(_onThread);
     }
@@ -242,7 +244,10 @@ class _DraftViewState extends State<_DraftView> {
                         children: [
                           // Gone once the port's thread shows a row: that
                           // message is encrypted, whatever it is waiting for.
-                          if (_rows.isEmpty) const _DraftNotEncryptedNote(),
+                          if (_rows.isEmpty)
+                            _DraftNotEncryptedNote(
+                              hasPort: widget.port != null,
+                            ),
                           const ConnectedThreadStatusBanner(
                             child: MessageComposer(),
                           ),
@@ -303,7 +308,10 @@ class _DraftViewState extends State<_DraftView> {
 /// (security read H1): what the first message is until the pipeline says
 /// otherwise. The thread screen's own rule, with no conversation to ask.
 class _DraftNotEncryptedNote extends StatelessWidget {
-  const _DraftNotEncryptedNote();
+  const _DraftNotEncryptedNote({required this.hasPort});
+
+  /// The screen has a port (its one answer, taken at open).
+  final bool hasPort;
 
   @override
   Widget build(BuildContext context) {
@@ -312,7 +320,7 @@ class _DraftNotEncryptedNote extends StatelessWidget {
         final device = context.read<EncryptionDevice?>();
         final show =
             access == EncryptionAccess.full &&
-            _draftPort(context) != null &&
+            hasPort &&
             device?.vaultStatus.value == VaultStatus.ready;
         if (!show) return const SizedBox.shrink();
         return const Padding(
