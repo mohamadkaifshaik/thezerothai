@@ -27,26 +27,26 @@ const _phone = 390.0;
 
 Future<ScaffoldMessengerState> _pump(
   WidgetTester tester,
-  String location,
-) async {
+  String location, {
+  bool hasFab = true,
+}) async {
   final rig = CommunitiesTabletRig();
-  await rig.pump(tester, width: _phone, location: location);
+  await rig.pump(
+    tester,
+    width: _phone,
+    location: location,
+    flags: {...kCommunitiesTabletFlags}
+      ..removeWhere((flag) => !hasFab && flag == 'posts'),
+  );
   return ScaffoldMessenger.of(tester.element(find.byType(ResponsiveScaffold)));
 }
 
 void main() {
-  for (final (name, location, hasFab) in [
-    ('with the button', AppRouter.communitiesPath, true),
-    (
-      'without a button',
-      AppRouter.communityMembersPath(kRigCommunityId),
-      false,
-    ),
-  ]) {
-    testWidgets('a snack bar covers the bar and the button ($name)', (
+  for (final hasFab in [true, false]) {
+    testWidgets('a snack bar covers the home bar (compose enabled: $hasFab)', (
       tester,
     ) async {
-      final messenger = await _pump(tester, location);
+      final messenger = await _pump(tester, AppRouter.homePath, hasFab: hasFab);
       var undone = 0;
       messenger.showSnackBar(
         SnackBar(
@@ -79,7 +79,7 @@ void main() {
   testWidgets('a snack bar keeps the bottom safe area clear', (tester) async {
     tester.view.padding = const FakeViewPadding(bottom: 34);
     addTearDown(tester.view.reset);
-    final messenger = await _pump(tester, AppRouter.communitiesPath);
+    final messenger = await _pump(tester, AppRouter.homePath);
     messenger.showSnackBar(const SnackBar(content: Text('Bookmarked')));
     await tester.pumpAndSettle();
 
@@ -92,7 +92,7 @@ void main() {
   testWidgets('a right swipe dismisses a snack bar; a down swipe does not', (
     tester,
   ) async {
-    final messenger = await _pump(tester, AppRouter.communitiesPath);
+    final messenger = await _pump(tester, AppRouter.homePath);
     messenger.showSnackBar(
       const SnackBar(content: Text('Bookmarked'), duration: Duration(days: 1)),
     );
@@ -110,7 +110,7 @@ void main() {
   testWidgets('the share sheet opens over the bar, which is then inert', (
     tester,
   ) async {
-    await _pump(tester, AppRouter.communitiesPath);
+    await _pump(tester, AppRouter.homePath);
     final pageContext = tester.element(find.byType(Scaffold).last);
     unawaited(
       showPostShareMenu(
@@ -129,7 +129,7 @@ void main() {
   testWidgets('a sheet with the default Material options is over the bar', (
     tester,
   ) async {
-    await _pump(tester, AppRouter.communitiesPath);
+    await _pump(tester, AppRouter.homePath);
     final pageContext = tester.element(find.byType(Scaffold).last);
     unawaited(
       showAppSheet<void>(

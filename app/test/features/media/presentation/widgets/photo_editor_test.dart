@@ -105,6 +105,7 @@ void main() {
     for (final (label, ratio) in [
       ('Square', 1.0),
       ('4:5', 4 / 5),
+      ('9:16', 9 / 16),
       ('16:9', 16 / 9),
     ]) {
       await tester.tap(find.text(label));

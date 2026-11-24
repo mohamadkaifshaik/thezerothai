@@ -296,6 +296,15 @@ class _PhotoEditorViewState extends State<PhotoEditorView> {
           tooltip: 'Rotate 90 degrees',
           onPressed: _rotate,
         ),
+        if (!_edit.isIdentity)
+          ActionChip(
+            avatar: const Icon(Icons.restore, size: 18),
+            label: const Text('Reset'),
+            onPressed: () => setState(() {
+              _edit = PhotoEdit.none;
+              _preset = CropPreset.original;
+            }),
+          ),
       ],
     );
   }

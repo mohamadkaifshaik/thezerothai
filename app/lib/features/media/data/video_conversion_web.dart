@@ -30,8 +30,9 @@ extension type _Result._(JSObject _) implements JSObject {
 
 Future<ConvertedClip> convertClip(
   XFile file,
-  ProcessingCancellation cancellation,
-) async {
+  ProcessingCancellation cancellation, {
+  ClipEdit edit = const ClipEdit(),
+}) async {
   final done = Completer<ConvertedClip>();
   final worker = _Worker('video_worker.js');
   try {
@@ -60,7 +61,7 @@ Future<ConvertedClip> convertClip(
     worker.postMessage(
       {
             'url': file.path,
-            'encode': encodeClip('input', 'post.mp4', web: true),
+            'encode': encodeClip('input', 'post.mp4', web: true, edit: edit),
             'probe': probeClip('post.mp4', 'metadata.json'),
             'poster': extractPoster('post.mp4', 'poster.jpg'),
           }.jsify()!

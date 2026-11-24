@@ -6,6 +6,9 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+
+import '../../media/presentation/widgets/video_editor.dart';
+
 import 'package:go_router/go_router.dart';
 import 'package:uuid/uuid.dart';
 
@@ -1531,21 +1534,24 @@ class _AddVideoButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final attachments = context.read<AttachmentsCubit>();
+    Future<void> pick(bool fromFiles) => attachments.pickVideo(
+      fromFiles: fromFiles,
+      chooseEdit: (path) async =>
+          context.mounted ? showVideoEditor(context, path) : null,
+    );
     const icon = Icon(Icons.video_library_outlined);
     if (kIsWeb) {
       return IconButton(
         tooltip: 'Add video',
         icon: icon,
-        onPressed: enabled
-            ? () => attachments.pickVideo(fromFiles: true)
-            : null,
+        onPressed: enabled ? () => pick(true) : null,
       );
     }
     return PopupMenuButton<bool>(
       tooltip: 'Add video',
       icon: icon,
       enabled: enabled,
-      onSelected: (fromFiles) => attachments.pickVideo(fromFiles: fromFiles),
+      onSelected: pick,
       itemBuilder: (_) => const [
         PopupMenuItem(value: false, child: Text('Photo library')),
         PopupMenuItem(value: true, child: Text('Browse files')),

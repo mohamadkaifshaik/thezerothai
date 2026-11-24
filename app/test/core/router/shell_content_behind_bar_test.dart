@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/widgets/app_bottom_bar.dart';
 import 'package:material_ui/material_ui.dart';
@@ -21,8 +23,8 @@ const _height = 900.0;
 
 /// Every `SafeArea` of the page (the bar's own excluded) passes the whole
 /// height on to its child.
-void expectRunsBehindBar(WidgetTester tester) {
-  expect(find.byType(AppBottomBar), findsOneWidget);
+void expectPageHeight(WidgetTester tester, {required bool hasBar}) {
+  expect(find.byType(AppBottomBar), hasBar ? findsOneWidget : findsNothing);
   final bar = find.byType(AppBottomBar);
   var checked = 0;
   for (final e in find.byType(SafeArea).evaluate()) {
@@ -71,6 +73,24 @@ Future<void> _settings(WidgetTester tester, String location) =>
     settings.SettingsTabletRig().pump(tester, width: 390, location: location);
 
 void main() {
+  testWidgets('pushing a detail hides navigation and Back restores Home', (
+    tester,
+  ) async {
+    final rig = communities.CommunitiesTabletRig();
+    await rig.pump(tester, width: 390, location: AppRouter.homePath);
+    expect(find.byType(AppBottomBar), findsOneWidget);
+    unawaited(
+      rig.router.push<void>(
+        AppRouter.communityPath(communities.kRigCommunityId),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(AppBottomBar), findsNothing);
+    rig.router.pop();
+    await tester.pumpAndSettle();
+    expect(find.byType(AppBottomBar), findsOneWidget);
+  });
+
   final pages = <String, _Pump>{
     'Profile': (t) => _profile(t, '/profile/${profile.kRigOwnHandle}'),
     'Followers': (t) =>
@@ -106,9 +126,9 @@ void main() {
   };
 
   for (final MapEntry(key: name, value: pump) in pages.entries) {
-    testWidgets('$name runs behind the bar', (tester) async {
+    testWidgets('$name uses the full page height', (tester) async {
       await pump(tester);
-      expectRunsBehindBar(tester);
+      expectPageHeight(tester, hasBar: name == 'Plans');
     });
   }
 }

@@ -203,11 +203,12 @@ void main() {
 
   group('selection', () {
     for (final location in ['/messages', '/messages/requests']) {
-      testWidgets('$location selects Messages with the filled glyph', (
-        tester,
-      ) async {
+      testWidgets('$location shows the bar only at the inbox', (tester) async {
         await pump(tester, location: location);
-
+        if (location != '/messages') {
+          expect(find.byType(AppBottomBar), findsNothing);
+          return;
+        }
         expect(find.byIcon(Icons.mail), findsOneWidget);
         expect(find.byIcon(Icons.mail_outline), findsNothing);
         expect(find.byIcon(Icons.home), findsNothing);
