@@ -29,7 +29,9 @@ void main() {
       testWidgets('banner and encrypted rows [${width.toInt()}dp x$scale]', (
         tester,
       ) async {
-        final rig = EncryptedInboxRig(vaultStatus: VaultStatus.keyLost);
+        // Previews follow the vault (fix round C): a banner AND previews need
+        // a ready vault, so the banner here is the history-lost one.
+        final rig = EncryptedInboxRig(historyLost: true);
         rig.port.setPreviews({
           'a': const ConversationPreview(
             kind: PreviewKind.text,
@@ -50,7 +52,6 @@ void main() {
         await rig.open(tester, size: Size(width, 900), textScale: scale);
 
         expect(find.byType(EncryptionStatusBanner), findsOneWidget);
-        expect(find.text(kStatusDetails), findsOneWidget);
         expect(find.byType(ConversationRow), findsNWidgets(3));
         expect(find.text(kCouldNotDecryptText), findsOneWidget);
         expect(find.text(kEncryptedPlaceholderText), findsOneWidget);
@@ -102,7 +103,7 @@ void main() {
   }
 
   testWidgets('right-to-left: the banner and the rows lay out', (tester) async {
-    final rig = EncryptedInboxRig(vaultStatus: VaultStatus.keyLost);
+    final rig = EncryptedInboxRig(historyLost: true);
     rig.port.setPreviews({
       'a': const ConversationPreview(kind: PreviewKind.text, text: 'مرحبا'),
     });
