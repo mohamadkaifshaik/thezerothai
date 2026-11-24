@@ -105,11 +105,14 @@ final _required = <String, RegExp>{
   'final encryptedMessaging = encryptedMessagingOver(e2eePipeline)': RegExp(
     r'final\s+encryptedMessaging\s*=\s*encryptedMessagingOver\(\s*e2eePipeline\s*\)',
   ),
+  // Plan 5b Task 14 (PR 14a): the one handing of the port to the widget tree.
+  // This line REPLACES 5a's negative check ("the port is not passed to
+  // AppWidget"), which was a placeholder for exactly this task; it is now
+  // required, so dropping it is seen.
+  'the port is passed to AppWidget (5b Task 14)': RegExp(
+    r'AppWidget\([^;]*\bencryptedMessaging:\s*encryptedMessaging\b',
+  ),
 };
-
-/// Plan 5a Task 13b (controller ruling 1): the port is NOT handed to the
-/// widget tree here; 5b's Task 14 does that.
-final _portInAppWidget = RegExp(r'AppWidget\([^;]*\bencryptedMessaging\b');
 
 final _declaration = RegExp(
   r'late\s+final\s+E2eePipeline\?\s+e2eePipeline\s*;',
@@ -144,9 +147,6 @@ List<String> missingE2eeWiring(String source) {
   }
   for (final e in _required.entries) {
     if (!e.value.hasMatch(code)) missing.add(e.key);
-  }
-  if (_portInAppWidget.hasMatch(code)) {
-    missing.add('the port is not passed to AppWidget (5b Task 14)');
   }
   // N1: nothing awaits between the declaration and the one assignment.
   final declared = _declaration.allMatches(code).toList();
@@ -252,15 +252,15 @@ void main() {
       );
     });
 
-    test('the port handed to AppWidget is seen', () {
+    test('the port no longer handed to AppWidget is seen', () {
       final cut = source.replaceFirst(
-        'AppWidget(',
-        'AppWidget(encryptedMessaging: encryptedMessaging, ',
+        'encryptedMessaging: encryptedMessaging,',
+        '',
       );
       expect(cut, isNot(source));
       expect(
         missingE2eeWiring(cut),
-        contains('the port is not passed to AppWidget (5b Task 14)'),
+        contains('the port is passed to AppWidget (5b Task 14)'),
       );
     });
 
