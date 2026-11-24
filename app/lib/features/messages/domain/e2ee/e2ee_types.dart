@@ -52,6 +52,7 @@ class ConversationCryptoState {
     required this.theirDeviceCount,
     required this.canReset,
     this.resetAllowedAt,
+    this.clockChangeAt,
     this.keyHistoryClosed = false,
     this.mayAllowMoreDevices = false,
   });
@@ -70,6 +71,12 @@ class ConversationCryptoState {
   final int theirDeviceCount;
   final bool canReset;
   final DateTime? resetAllowedAt;
+
+  /// The earliest FUTURE moment at which this state changes by the clock
+  /// alone (the end of the wait that allows a reset, the end of the
+  /// deferral limit that makes the device list unverifiable); null when
+  /// none is due. An open thread rebuilds then.
+  final DateTime? clockChangeAt;
 
   /// This conversation's device key history is closed: every device id
   /// first seen from now on stays an unknown device here until the user
@@ -118,6 +125,7 @@ class ConversationCryptoState {
       other.theirDeviceCount == theirDeviceCount &&
       other.canReset == canReset &&
       other.resetAllowedAt == resetAllowedAt &&
+      other.clockChangeAt == clockChangeAt &&
       other.keyHistoryClosed == keyHistoryClosed &&
       other.mayAllowMoreDevices == mayAllowMoreDevices;
 
@@ -135,6 +143,7 @@ class ConversationCryptoState {
     theirDeviceCount,
     canReset,
     resetAllowedAt,
+    clockChangeAt,
     keyHistoryClosed,
     mayAllowMoreDevices,
   );

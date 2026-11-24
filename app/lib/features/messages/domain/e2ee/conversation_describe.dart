@@ -152,15 +152,31 @@ extension _Describe on ConversationCrypto {
             isUtc: true,
           ).add(kResetWaitWithoutWelcome)
         : null;
-    final canReset =
+    final mayOffer =
         _session.mayStart &&
         !_removedElsewhere() &&
         !engineDown &&
         accepted &&
-        !groups.any((x) => x.provisional) &&
+        !groups.any((x) => x.provisional);
+    final canReset =
+        mayOffer &&
         (phase == ConversationPhase.stuck ||
             (resetAt != null && !now.isBefore(resetAt)) ||
             (committingPaused && phase != ConversationPhase.notEncrypted));
+    // The clock-dependent facts above, as the next moment each changes by
+    // itself: the end of the wait without a welcome (the reset offer) and
+    // the end of the deferral limit (the device list reads unverifiable;
+    // `deferralOutlasted` is strict, so one microsecond later). The IST
+    // day's turn (the anti-flap pause ending) is the ledger's and is not
+    // counted here. An open thread rebuilds at the earliest one.
+    final changes = <DateTime>[
+      if (mayOffer && !canReset && resetAt != null && now.isBefore(resetAt))
+        resetAt,
+      if (unattributed && context.deferredSince != null && !unverifiable)
+        context.deferredSince!
+            .add(kDeferredWithUnattributedLimit)
+            .add(const Duration(microseconds: 1)),
+    ]..sort();
     return ConversationCryptoState(
       phase: phase,
       sendBlock: block,
@@ -174,6 +190,7 @@ extension _Describe on ConversationCrypto {
       theirDeviceCount: pins.where((p) => p.side == MemberSide.theirs).length,
       canReset: canReset,
       resetAllowedAt: resetAt,
+      clockChangeAt: changes.isEmpty ? null : changes.first,
       keyHistoryClosed: keyHistoryClosed,
       mayAllowMoreDevices: mayAllowMoreDevices,
     );

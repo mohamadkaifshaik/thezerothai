@@ -233,6 +233,49 @@ class E2eePipeline {
   /// delete made here). Never carries content.
   Stream<String> get changes => _changes.stream;
 
+  /// The injected clock (the port's open threads read it for their one
+  /// clock timer; never `DateTime.now()` there).
+  DateTime clockNow() => _now();
+
+  /// An event (synchronous, no payload) each time the app comes back to the
+  /// foreground with a ready start: the port re-arms its threads' clock
+  /// timers, which [onAppPaused] cancelled.
+  Stream<void> get resumed => _resumed.stream;
+  final StreamController<void> _resumed = StreamController.broadcast(
+    sync: true,
+  );
+
+  /// The open threads' clock timers (one per watched thread, armed by the
+  /// port): cancelled at pause, at [_teardown] and by their own owner.
+  final Set<void Function()> _threadClocks = {};
+
+  /// Runs [run] after [delay] through the pipeline's own timer seam and
+  /// answers its cancel handle. Nothing is armed (the handle is a no-op)
+  /// when the pipeline is disposed, paused, or holds no parts (no ready
+  /// vault, the flag-off shape). A fired timer never runs while paused.
+  void Function() scheduleThreadClock(Duration delay, void Function() run) {
+    if (_disposed || _paused || _parts == null) return () {};
+    late final void Function() handle;
+    final cancel = _schedule(delay, () {
+      _threadClocks.remove(handle);
+      if (_disposed || _paused || _parts == null) return;
+      run();
+    });
+    handle = () {
+      _threadClocks.remove(handle);
+      cancel();
+    };
+    _threadClocks.add(handle);
+    return handle;
+  }
+
+  void _cancelThreadClocks() {
+    for (final cancel in [..._threadClocks]) {
+      cancel();
+    }
+    _threadClocks.clear();
+  }
+
   /// 13b-i review M3: an event (synchronous, no payload) each time the
   /// parts of a vault are built in [onVaultReady]; the port's `send` waits
   /// on it, bounded, while the vault is ready and the parts are not yet.
@@ -526,6 +569,7 @@ class E2eePipeline {
     _wasRemoved = false;
     _inboxOwed = false;
     _owedWhilePaused.clear();
+    _cancelThreadClocks();
     _watchRemovals(null);
     if (parts == null) return;
     if (identical(_owners[parts.vault], this)) _owners[parts.vault] = null;
@@ -688,6 +732,7 @@ class E2eePipeline {
       _owedWhilePaused.clear();
       return;
     }
+    if (!_resumed.isClosed) _resumed.add(null);
     // Gate item 37: a new receive run right after the engine's.
     parts.receiver.onAppResumed();
     // Review I2: a delete that failed earlier is tried again.
@@ -715,6 +760,7 @@ class E2eePipeline {
   /// The app went to the background (gate items 39, 40).
   void onAppPaused() {
     _paused = true;
+    _cancelThreadClocks();
     final parts = _parts;
     if (_disposed || parts == null) return;
     parts.upkeep.cancelScheduled();
@@ -776,6 +822,7 @@ class E2eePipeline {
     forgetNotes(SessionEnd.sessionLost);
     unawaited(_changes.close());
     unawaited(_partsBuilt.close());
+    unawaited(_resumed.close());
   }
 
   // -------------------------------------------------------------------------
