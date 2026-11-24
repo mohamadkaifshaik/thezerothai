@@ -16,6 +16,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:dzeroth/features/messages/presentation/e2ee/widgets/own_device_alert.dart';
 import 'package:dzeroth/features/messages/presentation/widgets/message_bubble.dart';
 import 'package:dzeroth/features/messages/presentation/widgets/message_composer.dart';
+import 'package:dzeroth/features/messages/presentation/widgets/message_search_panel.dart';
 import 'package:dzeroth/features/messages/presentation/widgets/not_encrypted_note.dart';
 import 'package:dzeroth/features/messages/presentation/widgets/request_banner.dart';
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
@@ -191,6 +192,26 @@ void main() {
     // for one page itself; the reveal never pages when it holds the id.
     expect(r.port.calls.where((c) => c == 'loadOlder').length, lessThan(2));
     expect(find.text(olderText), findsNothing);
+  });
+
+  // Carried item 7: an open in-chat search panel (it holds decrypted hits in
+  // memory) does not outlive the thread it was opened from. A direct account
+  // switch leaves the thread for another location (the router's redirect), and
+  // a sheet pushed from the thread's page goes with that page.
+  testWidgets('an open search panel closes when the router leaves the '
+      'thread (a direct account switch)', (tester) async {
+    final r = await open(
+      tester,
+      entries: [entry('e1', 'first secret')],
+      extraFlags: {kFeatureE2eeDm, 'message_search'},
+    );
+    await tester.tap(find.byTooltip('Search this conversation'));
+    await tester.pumpAndSettle();
+    expect(find.byType(MessageSearchPanel), findsOneWidget);
+    r.rig.appRouter.router.go(AppRouter.homePath);
+    await tester.pumpAndSettle();
+    expect(find.byType(MessageSearchPanel), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('a hit the thread does not hold, with nothing older to load, '
