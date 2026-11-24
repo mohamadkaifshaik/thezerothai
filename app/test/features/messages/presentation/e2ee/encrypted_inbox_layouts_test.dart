@@ -66,6 +66,36 @@ void main() {
     }
   }
 
+  // The key-lost banner with its Details link, and rows WITHOUT previews
+  // (previews follow the vault: none unless it is ready).
+  for (final width in [390.0, 700.0, 1000.0, 1300.0]) {
+    for (final scale in [1.0, 2.0]) {
+      testWidgets('key lost: banner with Details, rows without previews '
+          '[${width.toInt()}dp x$scale]', (tester) async {
+        final rig = EncryptedInboxRig(vaultStatus: VaultStatus.keyLost);
+        rig.port.setPreviews({
+          'a': const ConversationPreview(
+            kind: PreviewKind.text,
+            text: 'a preview that must not show while the key is lost',
+          ),
+        });
+        rig.stub(
+          network: [
+            conv('a', snippet: '')..lastMessage.encrypted = true,
+            conv('b', snippet: '')..lastMessage.encrypted = true,
+          ],
+        );
+        await rig.open(tester, size: Size(width, 900), textScale: scale);
+
+        expect(find.byType(EncryptionStatusBanner), findsOneWidget);
+        expect(find.text(kStatusDetails), findsOneWidget);
+        expect(find.byType(ConversationRow), findsNWidgets(2));
+        expect(find.textContaining('must not show'), findsNothing);
+        expect(find.text(kEncryptedPlaceholderText), findsNWidgets(2));
+      });
+    }
+  }
+
   // The real shell, hoisted lists: one banner in the list column at every
   // width (band B has a list pane beside the detail placeholder).
   for (final width in [390.0, 700.0, 1000.0, 1300.0]) {

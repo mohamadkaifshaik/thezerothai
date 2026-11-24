@@ -214,7 +214,11 @@ class SessionEncryptionDevice implements EncryptionDevice {
     final long =
         parsed.launch != _launchId &&
         !nowAt.isBefore(since.add(kUnavailableNamesSignOutAfter));
-    if (!_disposed && generation == _generation && long) {
+    // The status may have left `unavailable` while this step was reading.
+    if (!_disposed &&
+        generation == _generation &&
+        long &&
+        _session.status.value == VaultStatus.unavailable) {
       _unavailableLong.value = true;
     }
   }

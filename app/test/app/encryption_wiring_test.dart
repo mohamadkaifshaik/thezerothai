@@ -28,6 +28,8 @@ import 'package:dzeroth/features/messages/data/message_outbox.dart';
 import 'package:dzeroth/features/messages/data/messaging_repository.dart';
 import 'package:dzeroth/features/messages/data/messaging_store.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging.dart';
+import 'package:dzeroth/features/messages/domain/thread_poller.dart'
+    show PollResult;
 import 'package:dzeroth/features/messages/domain/e2ee/encryption_access.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/encryption_device.dart';
 import 'package:dzeroth/features/messages/domain/messaging_feature_gate.dart';
@@ -551,6 +553,55 @@ void main() {
       await tester.pumpAndSettle();
       expect(seenPort, same(port));
       expect(seenHolder, isNotNull);
+    });
+
+    testWidgets('last round item 7: /messages/<id> through AppWidget renders '
+        'the encrypted entries from the provided port', (tester) async {
+      final id = hexId(0xc1);
+      final header = threadConv(id: id)
+        ..encryption = ConversationEncryption.CONVERSATION_ENCRYPTION_MLS;
+      when(() => messagingRepo.cachedThread(any())).thenAnswer(
+        (_) async => ThreadSnapshot(messages: const [], conversation: header),
+      );
+      when(() => messagingRepo.refreshThread(any())).thenAnswer(
+        (_) async => ThreadSnapshot(messages: const [], conversation: header),
+      );
+      when(() => messagingRepo.pollThread(any()))
+          .thenAnswer((_) async => const PollResult(newMessages: false));
+      when(
+        () => messagingRepo.markConversationRead(
+          idempotencyKey: any(named: 'idempotencyKey'),
+          conversationId: any(named: 'conversationId'),
+        ),
+      ).thenAnswer((_) async {});
+      port.local.add(id);
+      port.setThread(
+        ThreadRef.conversation(id),
+        EncryptedThread(
+          conversationId: id,
+          entries: [
+            DecryptedMessage(
+              id: 'e1',
+              at: DateTime.now().toUtc(),
+              mine: false,
+              text: 'a secret line',
+              progress: SendProgress.delivered,
+              problem: SendProblem.none,
+            ),
+          ],
+          security: const ConversationSecurity(
+            state: ConversationEncryptionState.ready,
+          ),
+        ),
+      );
+      await pump(
+        tester,
+        onboarding: ready(flags: {e2ee, 'messaging'}),
+        signedInUid: 'u1',
+      );
+      GoRouter.of(tree(tester)).go(AppRouter.messagePath(id));
+      await tester.pumpAndSettle();
+      expect(find.text('a secret line'), findsOneWidget);
     });
 
     testWidgets('the encryption Settings page builds from the provided '

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:drift/native.dart';
 import 'package:dzeroth/app/session_encryption_device.dart';
 import 'package:dzeroth/core/storage/app_database.dart';
@@ -321,6 +323,36 @@ void main() {
       },
     );
 
+    test('last round item 8: the status left unavailable while the queued '
+        'step was reading: unavailableLong is not set', () async {
+      final gated = _GatedReads();
+      addTearDown(gated.close);
+      await gated.writeSetting(
+        _key,
+        'l0|${clock.subtract(const Duration(days: 3)).microsecondsSinceEpoch}',
+      );
+      final status = ValueNotifier(VaultStatus.unavailable);
+      final session = _MockSession();
+      when(() => session.status).thenReturn(status);
+      when(() => session.vaultKnown).thenReturn(true);
+      when(() => session.mayStart).thenReturn(true);
+      gated.gate = Completer<void>();
+      final device = SessionEncryptionDevice(
+        session: session,
+        deviceKeys: deviceKeys,
+        engineUnavailable: engine,
+        database: gated,
+        now: () => clock,
+        launchId: 'l1',
+        onUnexpectedError: (e, _) => reported.add(e),
+      );
+      addTearDown(device.dispose);
+      status.value = VaultStatus.opening;
+      gated.gate!.complete();
+      await device.idle;
+      expect(device.unavailableLong.value, isFalse);
+    });
+
     test('a write after sign-out is dropped (the epoch is captured when '
         'the status changed)', () async {
       world.cipherUnavailable.add(_a);
@@ -336,6 +368,20 @@ void main() {
       expect(await db.readSetting(_key), isNull);
     });
   });
+}
+
+/// An [AppDatabase] whose `readSetting` waits for [gate] when one is set.
+class _GatedReads extends AppDatabase {
+  _GatedReads() : super.forTesting(NativeDatabase.memory());
+
+  Completer<void>? gate;
+
+  @override
+  Future<String?> readSetting(String key) async {
+    final g = gate;
+    if (g != null) await g.future;
+    return super.readSetting(key);
+  }
 }
 
 /// An [AppDatabase] whose `readSetting` throws (a cache failure).

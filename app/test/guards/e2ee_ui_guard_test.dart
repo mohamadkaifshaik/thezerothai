@@ -1960,6 +1960,161 @@ void main() {
     });
   });
 
+  // Last round item 6 (security R1).
+  group('the reset capability: the type, the holder\'s run, AppWidget', () {
+    final vaultSessionName = RegExp(r'(?<![\w$])VaultSession(?![\w$])');
+    final cubitAccess = RegExp(r'\.\s*cubit(?:IfCreated)?(?![\w$])');
+    final holderName = RegExp(r'(?<![\w$])ResetEncryptionHolder(?![\w$])');
+    const appWidget = 'lib/app/app_widget.dart';
+
+    String code(String s) => stripSource(s, keepStrings: false);
+
+    /// (a) The files under lib/features/ presentation or lib/shared/ that
+    /// name `VaultSession`, other than the reset screen.
+    List<String> namingVaultSession(Map<String, String> lib) => [
+      for (final e in lib.entries)
+        if ((RegExp(r'^lib/features/[^/]+/presentation/').hasMatch(e.key) ||
+                e.key.startsWith('lib/shared/')) &&
+            e.key != _resetScreen &&
+            vaultSessionName.hasMatch(code(e.value)))
+          e.key,
+    ];
+
+    /// (b) Files other than the reset screen that name the holder AND reach
+    /// for `.cubit` / `.cubitIfCreated` (a tear-off, a cascade, a `!`, an
+    /// alias or a helper call all go through the member name).
+    List<String> reachingHolderCubit(Map<String, String> lib) => [
+      for (final e in lib.entries)
+        if (e.key != _resetScreen &&
+            holderName.hasMatch(code(e.value)) &&
+            cubitAccess.hasMatch(code(e.value)))
+          e.key,
+    ];
+
+    /// (c) Every use of `_resetHolder` in AppWidget, as the text around it.
+    /// Exactly: construct, provide, reset(), dispose().
+    List<String> resetHolderUses(String source) {
+      final text = _oneLine(code(source));
+      final uses = <String>[];
+      final allowed = <RegExp>[
+        // construct
+        RegExp(
+          r'^ResetEncryptionHolder\? _resetHolder = widget\.vaultSession == '
+          r'null \? null : ResetEncryptionHolder\(',
+        ),
+        // provide
+        RegExp(
+          r'^_resetHolder case final (\w+)\?\) '
+          r'RepositoryProvider<ResetEncryptionHolder>\.value\(value: \1\)',
+        ),
+        RegExp(r'^_resetHolder\?\.reset\(\)\)'),
+        RegExp(r'^_resetHolder\?\.dispose\(\);'),
+      ];
+      var from = 0;
+      while (true) {
+        final at = text.indexOf('_resetHolder', from);
+        if (at < 0) break;
+        from = at + '_resetHolder'.length;
+        // The construct form starts at its type, a little before the name.
+        final start = at >= 36 ? at - 36 : 0;
+        final head = text.substring(start, at);
+        final typed = head.lastIndexOf('ResetEncryptionHolder? ');
+        final slice = typed >= 0 && head.length - typed <= 24
+            ? text.substring(start + typed)
+            : text.substring(at);
+        if (!allowed.any((r) => r.hasMatch(slice))) {
+          uses.add(slice.substring(0, slice.length.clamp(0, 70)));
+        }
+      }
+      return uses;
+    }
+
+    test('(a) VaultSession is named in no presentation or shared file but '
+        'the reset screen', () {
+      expect(namingVaultSession(_lib()), isEmpty);
+    });
+
+    test('(b) no other file reaches the holder\'s cubit', () {
+      expect(reachingHolderCubit(_lib()), isEmpty);
+    });
+
+    test('(c) AppWidget uses _resetHolder only to construct, provide, '
+        'reset() and dispose()', () {
+      expect(resetHolderUses(_lib()[appWidget]!), isEmpty);
+      // Four uses, no fewer (the pin is not vacuous).
+      expect(
+        RegExp('_resetHolder').allMatches(code(_lib()[appWidget]!)).length,
+        4,
+      );
+    });
+
+    test('self-test (a): every form that names the type is flagged', () {
+      for (final form in [
+        'final s = RepositoryProvider.of<VaultSession>(context);',
+        'final v = context.select<VaultSession, int>((s) => 1);',
+        'final VaultSession s = context.read();',
+        'VaultSession? maybe;',
+      ]) {
+        expect(
+          namingVaultSession({
+            'lib/features/a/presentation/x.dart': form,
+            'lib/shared/y.dart': form,
+          }),
+          ['lib/features/a/presentation/x.dart', 'lib/shared/y.dart'],
+          reason: form,
+        );
+      }
+      expect(
+        namingVaultSession({
+          'lib/features/a/presentation/x.dart':
+              '// VaultSession\nfinal s = "VaultSession";',
+          _resetScreen: 'final VaultSession s = x;',
+          'lib/features/a/data/x.dart': 'final VaultSession s = x;',
+        }),
+        isEmpty,
+      );
+    });
+
+    test('self-test (b): a tear-off, cascade, bang, alias or helper call '
+        'on the holder is flagged', () {
+      for (final form in [
+        'final f = holder.cubit.run;',
+        'holder..cubit.run();',
+        'holder!.cubit;',
+        'final c = holder?.cubit; c?.run();',
+        'helper(holder.cubit);',
+        'holder.cubitIfCreated?.run();',
+      ]) {
+        expect(
+          reachingHolderCubit({
+            'lib/app/z.dart': 'final ResetEncryptionHolder holder = h; $form',
+          }),
+          ['lib/app/z.dart'],
+          reason: form,
+        );
+      }
+      expect(
+        reachingHolderCubit({
+          'lib/app/z.dart': 'final ResetEncryptionHolder h = x;',
+          'lib/app/w.dart': 'widget.cubit.close();',
+          _resetScreen: 'ResetEncryptionHolder h; h.cubit.run();',
+        }),
+        isEmpty,
+      );
+    });
+
+    test('self-test (c): a fifth use of _resetHolder is flagged', () {
+      final real = _lib()[appWidget]!;
+      for (final extra in [
+        'void x() { _resetHolder?.cubit.run(); }',
+        'void y() { final h = _resetHolder; }',
+        'void z() { _resetHolder!.attach(); }',
+      ]) {
+        expect(resetHolderUses('$real\n$extra'), isNotEmpty, reason: extra);
+      }
+    });
+  });
+
   group('flag-off inertness stays pinned by tests', () {
     // A meta-test: these tests assert that with the flag off and no vault
     // nothing shows and nothing is called. Brittle by design; if one is
