@@ -112,6 +112,41 @@ class MessagingRepository {
   /// device; also after the NOT_FOUND answer, which counts as done).
   void Function(String conversationId)? onConversationDeleted;
 
+  /// Set by bootstrap. Called, synchronously, with each conversation row this
+  /// repository has just READ FROM THE SERVER in this run: every row of a
+  /// `ListConversations` answer (the inbox, the requests folder, any page),
+  /// and the header of a FIRST-page `ListMessages` answer (no since token,
+  /// no page token: the server sends a header on no other page). The
+  /// row is the server's, exactly as it came: never a cached row, never a
+  /// `SendMessage` answer (it can put the user's own outgoing request in
+  /// the Requests folder), never a row built here. Reported at the one
+  /// place each RPC returns ([_listConversations], [_listMessages]), before
+  /// any cache write, and only while the cache session that asked still
+  /// stands. Not reported for [listMlsMessages] (the pipeline's own reads
+  /// take their headers themselves). Not a content hook: a row carries no
+  /// message text of an encrypted conversation. Runs outside every vault
+  /// write and every conversation lock; the listener must not wait.
+  ///
+  /// [fromList] (the second argument): the row came from a `ListConversations`
+  /// answer (true) or is the header of a first-page `ListMessages` (false).
+  /// A list row never raises `can_reply` (the list says true for a suspended
+  /// peer where the thread header says false); only a header does.
+  void Function(pb.Conversation row, bool fromList)? onServerConversationRow;
+
+  /// Set by bootstrap. Asked, synchronously, by a thread refresh that holds a
+  /// cached since token, before it chooses a since poll: true makes that one
+  /// refresh a first-page read (no since token), whose header flows through
+  /// [onServerConversationRow]. A restart loses the acceptance sight and a
+  /// since page carries no header, so without it an unsettled conversation
+  /// gets no server row until the peer writes. The listener answers from
+  /// memory only (it must not wait or read the vault) and at most once per
+  /// conversation and run. A throwing listener reads as false.
+  bool Function(String conversationId)? wantsFirstPage;
+
+  /// Set by bootstrap. Called with the conversation id when the user blocked
+  /// the peer from that thread ([dropBlockedRequest]). Never carries content.
+  void Function(String conversationId)? onConversationBlocked;
+
   Future<void> _tail = Future<void>.value();
   final Map<String, Future<Object?>> _inflight = {};
   final StreamController<void> _conversationsChanged =
@@ -465,7 +500,13 @@ class MessagingRepository {
     Set<String> reported,
   ) async {
     final state = await _store.readThread(conversationId);
-    if (state.sinceToken.isEmpty) {
+    // No since token: already a first page. With one, the pipeline may ask
+    // for a first page once (a restarted app has no header of an unsettled
+    // conversation, and a since page carries none). Decision: the first
+    // page replaces the cache exactly as the cold open after a rejected
+    // since token does; an encrypted conversation's cache holds no encrypted
+    // message (they are never written), so nothing of the user's is lost.
+    if (state.sinceToken.isEmpty || _wantsFirstPage(conversationId)) {
       return _threadColdOpen(conversationId, session, reported);
     }
     final first = await _listMessagesUnlessRejected(
@@ -511,6 +552,14 @@ class MessagingRepository {
       encryptedIds: reported,
     );
     return _ThreadRefresh(await _store.readThread(conversationId), added ?? 0);
+  }
+
+  bool _wantsFirstPage(String conversationId) {
+    final ask = wantsFirstPage;
+    if (ask == null) return false;
+    var wanted = false;
+    _callback(() => wanted = ask(conversationId));
+    return wanted;
   }
 
   Future<_ThreadRefresh> _threadColdOpen(
@@ -1314,10 +1363,15 @@ class MessagingRepository {
   Future<void> dropBlockedRequest(String conversationId) async {
     // Any conversation: its cached header turns read-only, which also stops
     // on-device search matching it before the next refresh.
-    await _store.markConversationReadOnly(
-      conversationId,
-      session: _store.session,
-    );
+    final session = _store.session;
+    await _store.markConversationReadOnly(conversationId, session: session);
+    // The encrypted pipeline forgets a held acceptance sighting of it (a
+    // block made here produces no server row until the next first-page
+    // read, which may never come). Not a sight: no row is reported.
+    final blocked = onConversationBlocked;
+    if (blocked != null && _store.session == session) {
+      _callback(() => blocked(conversationId));
+    }
     if (!await _isRequest(conversationId)) return;
     await _store.removeConversationEntry(conversationId);
     _notifyConversationsChanged();
@@ -1376,8 +1430,9 @@ class MessagingRepository {
     Folder folder, {
     String sinceToken = '',
     String pageToken = '',
-  }) {
-    return _readCall(
+  }) async {
+    final session = _store.session;
+    final page = await _readCall(
       () => _apiClient.messaging.listConversations(
         pb.ListConversationsRequest(
           folder: folder,
@@ -1387,6 +1442,24 @@ class MessagingRepository {
         ),
       ),
     );
+    _reportServerRows(page.conversations, session, fromList: true);
+    return page;
+  }
+
+  /// Hands each of [rows], straight from a server answer, to
+  /// [onServerConversationRow] (see it for what may and may not come here),
+  /// unless the cache session [session] that asked has ended. A throwing
+  /// listener is reported by step name and never fails the read.
+  void _reportServerRows(
+    Iterable<pb.Conversation> rows,
+    int session, {
+    required bool fromList,
+  }) {
+    final listener = onServerConversationRow;
+    if (listener == null || _store.session != session) return;
+    for (final row in rows) {
+      _callback(() => listener(row, fromList));
+    }
   }
 
   Future<pb.ListMessagesResponse?> _listMessagesUnlessRejected(
@@ -1412,8 +1485,9 @@ class MessagingRepository {
     String conversationId, {
     String sinceToken = '',
     String pageToken = '',
-  }) {
-    return _readCall(
+  }) async {
+    final session = _store.session;
+    final page = await _readCall(
       () => _apiClient.messaging.listMessages(
         pb.ListMessagesRequest(
           conversationId: conversationId,
@@ -1423,6 +1497,16 @@ class MessagingRepository {
         ),
       ),
     );
+    // Only a FIRST page (no token of either kind) carries the server's
+    // header; a since page or an older page is never a sight of one.
+    // Only the header of the conversation asked for.
+    if (sinceToken.isEmpty &&
+        pageToken.isEmpty &&
+        page.hasConversation() &&
+        page.conversation.id == conversationId) {
+      _reportServerRows([page.conversation], session, fromList: false);
+    }
+    return page;
   }
 
   /// People the caller may message, with the reason each is suggested

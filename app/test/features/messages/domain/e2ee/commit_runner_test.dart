@@ -714,6 +714,7 @@ void main() {
         await setUpJoined();
         await synced();
         final carol = await RigPeer.create('carol');
+        rig.contexts.of(_c1).acceptedSightingHeld = true;
         rig.server.commitScript.add((
           error: const CannotMessageException(),
           stored: false,
@@ -735,6 +736,7 @@ void main() {
           isFalse,
         );
         expect(rig.contexts.of(_c1).canReply, isFalse);
+        expect(rig.contexts.of(_c1).acceptedSightingHeld, isFalse);
         expect(await rig.commits.mayCommit(_c1, PendingKind.change), isFalse);
         expect(await pin(carol), isNull);
         // A refusal is a counted call.

@@ -23,7 +23,7 @@ import 'join_baselines.dart';
 import 'device_key_history.dart';
 import 'known_conversations.dart';
 import 'membership_rules.dart';
-import 'pipeline_support.dart' show deviceGenerationOf;
+import 'pipeline_support.dart' show deviceGenerationOf, nextIstDayStart;
 import 'sync_budget.dart';
 
 // The service's private steps, one concern per part (private extensions on

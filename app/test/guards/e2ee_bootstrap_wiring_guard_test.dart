@@ -53,6 +53,21 @@ final _required = <String, RegExp>{
     'onConversationDeleted',
     'noteDeleted',
   ),
+  // The acceptance seam: the rows the app reads from the server are the
+  // pipeline's acceptance sightings, a block forgets a held one, and a
+  // restarted thread asks for its first page once.
+  'onServerConversationRow = pipeline.noteServerRow': _hint(
+    'onServerConversationRow',
+    'noteServerRow',
+  ),
+  'onConversationBlocked = pipeline.noteBlocked': _hint(
+    'onConversationBlocked',
+    'noteBlocked',
+  ),
+  'wantsFirstPage = pipeline.wantsFirstPage': _hint(
+    'wantsFirstPage',
+    'wantsFirstPage',
+  ),
   'forwardMessagePushes(states: pushCubit.stream, ... onPush: pipeline.onPush)':
       RegExp(
         r'forwardMessagePushes\(\s*states:\s*pushCubit\.stream\s*,'

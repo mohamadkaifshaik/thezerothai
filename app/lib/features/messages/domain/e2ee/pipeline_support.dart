@@ -16,6 +16,15 @@ import 'sync_budget.dart' show kMaxServerRetryWait;
 // nothing outside `domain/e2ee` imports this file. Nothing here logs, and
 // no type here defines a `toString`.
 
+/// The start of the next IST day after [now]: the next 18:30 UTC strictly
+/// after it (the server's day is UTC+05:30; see `istDay`). The daily ledger's
+/// day turns there, so a pause that came from it ends then.
+DateTime nextIstDayStart(DateTime now) {
+  final utc = now.toUtc();
+  final today = DateTime.utc(utc.year, utc.month, utc.day, 18, 30);
+  return today.isAfter(utc) ? today : today.add(const Duration(days: 1));
+}
+
 /// The longest ciphertext an outbox row holds (`VaultTx.putOutbox`).
 const int kMaxOutboxCiphertext = 8192;
 

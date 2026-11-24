@@ -1339,4 +1339,239 @@ void main() {
       expect(transport.calledProcedures, isEmpty);
     });
   });
+
+  group('server rows reported to the pipeline (onServerConversationRow)', () {
+    late List<pb.Conversation> seen;
+
+    setUp(() {
+      seen = [];
+      repo.onServerConversationRow = (row, _) => seen.add(row);
+    });
+
+    pb.ListConversationsResponse page(
+      List<pb.Conversation> items, {
+      String since = 's1',
+    }) => pb.ListConversationsResponse(conversations: items, sinceToken: since);
+
+    test('every row of an inbox and of a requests answer, as the server '
+        'sent it', () async {
+      convAnswers
+        ..add(page([conv('a'), conv('b')]))
+        ..add(
+          page([
+            conv(
+              'q',
+              folder: Folder.FOLDER_REQUESTS,
+              state: ConversationState.CONVERSATION_STATE_REQUEST,
+            ),
+          ]),
+        );
+
+      await repo.refreshConversations(Folder.FOLDER_INBOX);
+      await repo.refreshConversations(Folder.FOLDER_REQUESTS);
+
+      expect(seen.map((r) => r.id), ['a', 'b', 'q']);
+      expect(seen.last.folder, Folder.FOLDER_REQUESTS);
+      expect(seen.last.state, ConversationState.CONVERSATION_STATE_REQUEST);
+    });
+
+    test('a since refresh reports its rows too', () async {
+      convAnswers
+        ..add(page([conv('a')]))
+        ..add(page([conv('b')], since: 's2'));
+      await repo.refreshConversations(Folder.FOLDER_INBOX);
+      await repo.refreshConversations(Folder.FOLDER_INBOX);
+
+      expect(seen.map((r) => r.id), ['a', 'b']);
+    });
+
+    test('the header of a first-page ListMessages answer', () async {
+      msgAnswers.add(thread(msgs(1, 2)));
+
+      await repo.refreshThread('c1');
+
+      expect(seen.map((r) => r.id), ['c1']);
+      expect(msgRequests.single.sinceToken, isEmpty);
+      expect(msgRequests.single.pageToken, isEmpty);
+    });
+
+    test('no header of a since page, an older page or a search page, even '
+        'a header the answer carries', () async {
+      msgAnswers.add(thread(msgs(1, 2), next: 'older'));
+      await repo.refreshThread('c1');
+      seen.clear();
+      // A since page: the server sends no header; even a forged one is not a
+      // first-page sight.
+      msgAnswers.add(thread([msg(3)], since: 's2'));
+      await repo.refreshThread('c1');
+      msgAnswers.add(thread([msg(5)], since: 's3'));
+      await repo.loadOlderMessages('c1');
+      msgAnswers.add(thread(msgs(6, 7)));
+      await repo.fetchOlderForSearch('c1', 'tok');
+      expect(msgRequests.map((r) => r.pageToken), ['', '', 'older', 'tok']);
+      expect(seen, isEmpty);
+    });
+
+    test('rows say whether they came from a list or from a first-page '
+        'header', () async {
+      final kinds = <String, bool>{};
+      repo.onServerConversationRow = (row, fromList) =>
+          kinds[row.id] = fromList;
+      convAnswers.add(page([conv('a')]));
+      msgAnswers.add(thread(msgs(1, 2)));
+
+      await repo.refreshConversations(Folder.FOLDER_INBOX);
+      await repo.refreshThread('c1');
+
+      expect(kinds, {'a': true, 'c1': false});
+    });
+
+    test('a first-page header for another conversation than the one asked '
+        'is not reported', () async {
+      final foreign = pb.ListMessagesResponse(
+        messages: msgs(1, 2),
+        sinceToken: 's1',
+        conversation: conv('other'),
+      );
+      msgAnswers.add(foreign);
+
+      await repo.refreshThread('c1');
+
+      expect(seen, isEmpty);
+    });
+
+    test('a row read from the cache is never reported', () async {
+      convAnswers.add(page([conv('a')]));
+      await repo.refreshConversations(Folder.FOLDER_INBOX);
+      seen.clear();
+
+      await repo.cachedConversations(Folder.FOLDER_INBOX);
+      await repo.cachedConversation('a');
+      await repo.cachedConversationWith('u-a');
+      await repo.cachedThread('a');
+
+      expect(seen, isEmpty);
+    });
+
+    test('a send answer is never reported', () async {
+      sendAnswer = pb.SendMessageResponse(
+        message: msg(1, conversationId: 'c9', fromSelf: true),
+        conversation: conv(
+          'c9',
+          folder: Folder.FOLDER_REQUESTS,
+          state: ConversationState.CONVERSATION_STATE_REQUEST,
+        ),
+      );
+
+      await repo.sendMessage(
+        idempotencyKey: 'key-1',
+        text: 'hi',
+        recipientUserId: 'u-9',
+      );
+      await repo.noteSentRequestAnswered('c9');
+
+      expect(seen, isEmpty);
+    });
+
+    test('an answer that lands after the cache session ended is not '
+        'reported', () async {
+      convAnswers.add(page([conv('a')]));
+      convGate = Completer<void>();
+      final pending = repo.refreshConversations(Folder.FOLDER_INBOX);
+      await pumpEventQueue();
+      db.sessionEpoch.end();
+      convGate!.complete();
+      await pending;
+
+      expect(seen, isEmpty);
+    });
+
+    test('a throwing listener never fails the read', () async {
+      repo.onServerConversationRow = (_, _) => throw StateError('listener');
+      convAnswers.add(page([conv('a')]));
+
+      final result = await repo.refreshConversations(Folder.FOLDER_INBOX);
+
+      expect(result.snapshot.conversations.map((c) => c.id), ['a']);
+    });
+  });
+
+  group('wantsFirstPage (a restarted thread gets its header)', () {
+    late List<pb.Conversation> seen;
+
+    setUp(() {
+      seen = [];
+      repo.onServerConversationRow = (row, _) => seen.add(row);
+    });
+
+    Future<void> cachedWithSince() async {
+      msgAnswers.add(thread(msgs(1, 3)));
+      await repo.refreshThread('c1');
+      seen.clear();
+      msgRequests.clear();
+    }
+
+    test('true: the refresh is a first-page read whose header is reported, '
+        'one RPC, the first page replaces the cache, a fresh since '
+        'token', () async {
+      await cachedWithSince();
+      final asked = <String>[];
+      repo.wantsFirstPage = (id) {
+        asked.add(id);
+        return true;
+      };
+      msgAnswers.add(thread(msgs(3, 4), since: 's2'));
+
+      final snap = await repo.refreshThread('c1');
+
+      expect(asked, ['c1']);
+      expect(msgRequests, hasLength(1));
+      expect(msgRequests.single.sinceToken, isEmpty);
+      expect(seen.map((r) => r.id), ['c1']);
+      expect(snap.sinceToken, 's2');
+      expect(snap.messages.map((m) => m.id), contains(hexId(4)));
+      expect(snap.messages.map((m) => m.id), contains(hexId(3)));
+    });
+
+    test('false: the since poll stays, and no header is reported', () async {
+      await cachedWithSince();
+      repo.wantsFirstPage = (_) => false;
+      msgAnswers.add(thread([msg(4)], since: 's2'));
+
+      await repo.refreshThread('c1');
+
+      expect(msgRequests.single.sinceToken, 's1');
+      expect(seen, isEmpty);
+    });
+
+    test('a throwing predicate reads as false; none is asked for a cold '
+        'open', () async {
+      var asked = 0;
+      repo.wantsFirstPage = (_) {
+        asked++;
+        throw StateError('predicate');
+      };
+      msgAnswers.add(thread(msgs(1, 3)));
+      await repo.refreshThread('c1');
+      expect(asked, 0, reason: 'no since token: already a first page');
+
+      msgAnswers.add(thread([msg(4)], since: 's2'));
+      await repo.refreshThread('c1');
+
+      expect(asked, 1);
+      expect(msgRequests.last.sinceToken, 's1');
+    });
+  });
+
+  group('onConversationBlocked', () {
+    test('fires after the user blocked the peer from the thread, for any '
+        'conversation', () async {
+      final blocked = <String>[];
+      repo.onConversationBlocked = blocked.add;
+
+      await repo.dropBlockedRequest('c1');
+
+      expect(blocked, ['c1']);
+    });
+  });
 }

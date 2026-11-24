@@ -56,6 +56,11 @@ class EncryptedMessagingImpl implements EncryptedMessaging {
   }) : _pipeline = pipeline,
        _partsWait = partsWait {
     _pipeline.changes.listen(_onChanged);
+    _pipeline.resumed.listen((_) {
+      for (final t in [..._threads.values]) {
+        t.armClock();
+      }
+    });
     _session.status.addListener(_onStatus);
     _pipeline.deviceKeys.status.addListener(_onStatus);
     _pipeline.deviceKeys.removedElsewhereFact.addListener(_onStatus);

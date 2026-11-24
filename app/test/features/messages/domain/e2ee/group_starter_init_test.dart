@@ -1581,6 +1581,7 @@ void main() {
 
     test('a first-attempt CANNOT_MESSAGE deletes the provisional group and '
         'fails the row', () async {
+      rig.contexts.of(_c1).acceptedSightingHeld = true;
       rig.server.sendScript.add((
         error: const CannotMessageException(),
         stored: false,
@@ -1614,6 +1615,8 @@ void main() {
       expect(shown.status, OutgoingStatus5a.failed);
       expect(shown.error, isA<CannotMessageException>());
       expect(shown.retryable, isFalse);
+      expect(rig.contexts.of(_c1).canReply, isFalse);
+      expect(rig.contexts.of(_c1).acceptedSightingHeld, isFalse);
     });
 
     test('FEATURE_DISABLED on a retry with the expected id in ListMessages is '

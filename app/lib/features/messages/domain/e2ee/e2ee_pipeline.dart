@@ -201,6 +201,12 @@ class E2eePipeline {
   final LinkedHashSet<String> _notedEncrypted = LinkedHashSet();
   final LinkedHashSet<String> _notedAccepted = LinkedHashSet();
 
+  /// Server rows (`noteServerRow`) that arrived before the pipeline started:
+  /// the latest of each conversation, replayed through `note` after the
+  /// start. Memory only; the account tag is [_notesUser].
+  final LinkedHashMap<String, ({pb.Conversation row, bool fromList})>
+  _notedRows = LinkedHashMap();
+
   /// Each remembered delete: its time and (fix wave ruling 6, security
   /// audit L3) the newest stored message's time when the user deleted, or
   /// null when that could not be read then (read at the delete instead).
@@ -232,6 +238,49 @@ class E2eePipeline {
   /// A conversation's local copies changed (the parts' `onChanged`, and a
   /// delete made here). Never carries content.
   Stream<String> get changes => _changes.stream;
+
+  /// The injected clock (the port's open threads read it for their one
+  /// clock timer; never `DateTime.now()` there).
+  DateTime clockNow() => _now();
+
+  /// An event (synchronous, no payload) each time the app comes back to the
+  /// foreground with a ready start: the port re-arms its threads' clock
+  /// timers, which [onAppPaused] cancelled.
+  Stream<void> get resumed => _resumed.stream;
+  final StreamController<void> _resumed = StreamController.broadcast(
+    sync: true,
+  );
+
+  /// The open threads' clock timers (one per watched thread, armed by the
+  /// port): cancelled at pause, at [_teardown] and by their own owner.
+  final Set<void Function()> _threadClocks = {};
+
+  /// Runs [run] after [delay] through the pipeline's own timer seam and
+  /// answers its cancel handle. Nothing is armed (the handle is a no-op)
+  /// when the pipeline is disposed, paused, or holds no parts (no ready
+  /// vault, the flag-off shape). A fired timer never runs while paused.
+  void Function() scheduleThreadClock(Duration delay, void Function() run) {
+    if (_disposed || _paused || _parts == null) return () {};
+    late final void Function() handle;
+    final cancel = _schedule(delay, () {
+      _threadClocks.remove(handle);
+      if (_disposed || _paused || _parts == null) return;
+      run();
+    });
+    handle = () {
+      _threadClocks.remove(handle);
+      cancel();
+    };
+    _threadClocks.add(handle);
+    return handle;
+  }
+
+  void _cancelThreadClocks() {
+    for (final cancel in [..._threadClocks]) {
+      cancel();
+    }
+    _threadClocks.clear();
+  }
 
   /// 13b-i review M3: an event (synchronous, no payload) each time the
   /// parts of a vault are built in [onVaultReady]; the port's `send` waits
@@ -526,6 +575,7 @@ class E2eePipeline {
     _wasRemoved = false;
     _inboxOwed = false;
     _owedWhilePaused.clear();
+    _cancelThreadClocks();
     _watchRemovals(null);
     if (parts == null) return;
     if (identical(_owners[parts.vault], this)) _owners[parts.vault] = null;
@@ -550,6 +600,7 @@ class E2eePipeline {
     _notedEncrypted.clear();
     _notedAccepted.clear();
     _notedPushes.clear();
+    _notedRows.clear();
   }
 
   // -------------------------------------------------------------------------
@@ -585,6 +636,97 @@ class E2eePipeline {
     _inRoot(() => parts.accepted(conversationId));
   }
 
+  /// `MessagingRepository.onServerConversationRow`: a conversation row the
+  /// repository has just read FROM THE SERVER in this run (an inbox or
+  /// requests answer, or the header of a thread's first page; never a cached
+  /// row or a send answer) is a full sight: its state, folder and `can_reply`
+  /// are taken, and an ACCEPTED one settles the acceptance (or is held until
+  /// the vault keeps a record or a group for the conversation). This is how
+  /// a restart that lost the held sight learns it again, without a read of
+  /// its own: the app reads those rows anyway (`ConversationContexts.note`).
+  ///
+  /// Does nothing without parts (no ready vault, the flag-off shape: no
+  /// vault read, no state). Called from the repository's completion path,
+  /// outside every `runWrite` body and conversation lock; `note` only queues
+  /// what follows and waits for nothing.
+  ///
+  /// Only rows of an encrypted conversation are taken: the row says it is
+  /// (`isEncryptedRow`) or the known set already holds the id. Any other
+  /// row returns at once and creates no context (a page of plaintext
+  /// conversations costs nothing here).
+  ///
+  /// Review I3, as [noteAccepted]: while there are no parts or the pipeline
+  /// is not [started], the row is remembered (bounded, the latest row of a
+  /// conversation wins, account-tagged, dropped at session end) and replayed
+  /// through `note` right after the coordinator starts; nothing of
+  /// `onAcceptedSeen` or `onRowNoted` runs before.
+  ///
+  /// [fromList]: the row came from a `ListConversations` answer (never
+  /// raises `can_reply`), not from a first-page `ListMessages` header.
+  void noteServerRow(pb.Conversation row, bool fromList) {
+    if (_disposed || row.id.isEmpty) return;
+    final parts = _parts;
+    // Without live parts, or before the known set is loaded, nothing can say
+    // whether the conversation is encrypted: the row is remembered
+    // unfiltered (only while the flag may start the pipeline, or when the row
+    // says it is encrypted) and the known set filters it at the replay.
+    if (parts == null || !parts.live || !parts.known.isLoadedFor(parts.vault)) {
+      if (isEncryptedRow(row) || _session.mayStart) _rememberRow(row, fromList);
+      return;
+    }
+    if (!_takesServerRow(row, parts)) return;
+    if (!started) {
+      _rememberRow(row, fromList);
+      return;
+    }
+    parts.contexts.note(row, keepPeer: true, fromList: fromList);
+  }
+
+  /// `MessagingRepository.wantsFirstPage`: whether a thread's next refresh
+  /// should be a first-page read, so its header reaches [noteServerRow]. True
+  /// only with live parts, for a conversation in the known (encrypted) set
+  /// whose context had no full sight in this run and whose acceptance is not
+  /// settled, and at most once per conversation and run (marked when asked,
+  /// so a failing read does not turn every refresh into a cold open).
+  /// Memory only: no vault read, no context for an unknown conversation.
+  bool wantsFirstPage(String conversationId) {
+    if (_disposed || conversationId.isEmpty) return false;
+    final parts = _parts;
+    if (parts == null || !parts.live) return false;
+    if (!parts.known.isLoadedFor(parts.vault) ||
+        !parts.known.contains(conversationId)) {
+      return false;
+    }
+    final context = parts.contexts.of(conversationId);
+    // The one extra ask owed after a list row said true over a header's or
+    // a refusal's false (at most once per conversation and run).
+    if (context.extraFirstPageOwed) {
+      context
+        ..extraFirstPageOwed = false
+        ..extraFirstPageUsed = true;
+      return true;
+    }
+    // Until a catch-up pass or a state build of this run has read the stored
+    // record the answer is unknown: false, and NOT marked, so the next
+    // refresh asks again.
+    if (!context.stateKnown) return false;
+    if (context.firstPageAsked ||
+        context.fullSightSeen ||
+        context.acceptanceSettled) {
+      return false;
+    }
+    context.firstPageAsked = true;
+    return true;
+  }
+
+  /// `MessagingRepository.onConversationBlocked` (the user blocked the peer
+  /// from the thread): a held acceptance sighting of it is forgotten (a
+  /// block makes no server row until the next first-page read).
+  void noteBlocked(String conversationId) {
+    if (_disposed || conversationId.isEmpty) return;
+    _parts?.contexts.of(conversationId).acceptedSightingHeld = false;
+  }
+
   /// `MessagingRepository.onConversationDeleted` (delete-for-me): every
   /// local copy and unsent row of [conversationId] goes in one transaction;
   /// the group, the marks and the sync record stay, with `cleared_at` now
@@ -596,6 +738,9 @@ class E2eePipeline {
     if (_disposed || conversationId.isEmpty) return;
     final at = _now().microsecondsSinceEpoch;
     final parts = _parts;
+    // A conversation the user deleted is not one to settle: a held
+    // acceptance sighting is forgotten.
+    parts?.contexts.of(conversationId).acceptedSightingHeld = false;
     if (parts == null || !parts.live) {
       _rememberDelete(conversationId, at);
       return;
@@ -688,6 +833,7 @@ class E2eePipeline {
       _owedWhilePaused.clear();
       return;
     }
+    if (!_resumed.isClosed) _resumed.add(null);
     // Gate item 37: a new receive run right after the engine's.
     parts.receiver.onAppResumed();
     // Review I2: a delete that failed earlier is tried again.
@@ -715,6 +861,7 @@ class E2eePipeline {
   /// The app went to the background (gate items 39, 40).
   void onAppPaused() {
     _paused = true;
+    _cancelThreadClocks();
     final parts = _parts;
     if (_disposed || parts == null) return;
     parts.upkeep.cancelScheduled();
@@ -776,6 +923,7 @@ class E2eePipeline {
     forgetNotes(SessionEnd.sessionLost);
     unawaited(_changes.close());
     unawaited(_partsBuilt.close());
+    unawaited(_resumed.close());
   }
 
   // -------------------------------------------------------------------------
