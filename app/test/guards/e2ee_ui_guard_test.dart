@@ -1969,14 +1969,41 @@ void main() {
 
     String code(String s) => stripSource(s, keepStrings: false);
 
-    /// (a) The files under lib/features/ presentation or lib/shared/ that
-    /// name `VaultSession`, other than the reset screen.
+    /// (a) Final patch S3: an ALLOWLIST. In all hand-written lib/ code the
+    /// identifier `VaultSession` may be named only here (a path ending in `/`
+    /// is a directory). Nothing under presentation/, widgets/, lib/shared/,
+    /// lib/core/widgets/ or lib/core/router/ may be on it, except the reset
+    /// screen.
+    const allowedVaultSession = <String, String>{
+      'lib/core/vault/': 'the vault layer itself',
+      'lib/app/app_widget.dart':
+          'passes the session to the reset holder and provides it',
+      'lib/app/bootstrap.dart': 'builds the session and wires it',
+      'lib/app/session_encryption_device.dart':
+          'the read-only device adapter over the session',
+      'lib/app/session_wiring.dart':
+          'forwards sign-in, sign-out and flag answers to the session',
+      'lib/features/keys/domain/device_keys_service.dart':
+          'takes the session as a dependency (domain)',
+      'lib/features/messages/domain/e2ee/': 'the pipeline (domain) takes it',
+      _resetScreen: 'the one screen that may run the reset',
+    };
+
+    bool onAllowlist(String path) => allowedVaultSession.keys.any(
+      (k) => k.endsWith('/') ? path.startsWith(k) : path == k,
+    );
+
+    bool inForbiddenZone(String path) =>
+        RegExp(r'^lib/features/[^/]+/presentation/').hasMatch(path) ||
+        path.contains('/widgets/') ||
+        path.startsWith('lib/shared/') ||
+        path.startsWith('lib/core/widgets/') ||
+        path.startsWith('lib/core/router/');
+
+    /// The files that name `VaultSession` in code and are not allowed.
     List<String> namingVaultSession(Map<String, String> lib) => [
       for (final e in lib.entries)
-        if ((RegExp(r'^lib/features/[^/]+/presentation/').hasMatch(e.key) ||
-                e.key.startsWith('lib/shared/')) &&
-            e.key != _resetScreen &&
-            vaultSessionName.hasMatch(code(e.value)))
+        if (!onAllowlist(e.key) && vaultSessionName.hasMatch(code(e.value)))
           e.key,
     ];
 
@@ -2029,9 +2056,25 @@ void main() {
       return uses;
     }
 
-    test('(a) VaultSession is named in no presentation or shared file but '
-        'the reset screen', () {
+    test('(a) VaultSession is named only in the allowlisted files, and the '
+        'allowlist holds nothing from a UI zone but the reset screen', () {
       expect(namingVaultSession(_lib()), isEmpty);
+      for (final k in allowedVaultSession.keys) {
+        if (k == _resetScreen) continue;
+        expect(
+          inForbiddenZone(k.endsWith('/') ? '${k}x.dart' : k),
+          isFalse,
+          reason: k,
+        );
+      }
+      // Every exact entry still names it (the list stays tight).
+      for (final k in allowedVaultSession.keys.where((k) => !k.endsWith('/'))) {
+        expect(
+          vaultSessionName.hasMatch(code(_lib()[k] ?? '')),
+          isTrue,
+          reason: '$k no longer names VaultSession: remove it from the list',
+        );
+      }
     });
 
     test('(b) no other file reaches the holder\'s cubit', () {
@@ -2055,12 +2098,16 @@ void main() {
         'final VaultSession s = context.read();',
         'VaultSession? maybe;',
       ]) {
+        const planted = [
+          'lib/features/a/presentation/x.dart',
+          'lib/shared/y.dart',
+          'lib/core/widgets/z.dart',
+          'lib/core/router/r.dart',
+          'lib/features/x/widgets/w.dart',
+        ];
         expect(
-          namingVaultSession({
-            'lib/features/a/presentation/x.dart': form,
-            'lib/shared/y.dart': form,
-          }),
-          ['lib/features/a/presentation/x.dart', 'lib/shared/y.dart'],
+          namingVaultSession({for (final p in planted) p: form}),
+          planted,
           reason: form,
         );
       }
@@ -2069,9 +2116,17 @@ void main() {
           'lib/features/a/presentation/x.dart':
               '// VaultSession\nfinal s = "VaultSession";',
           _resetScreen: 'final VaultSession s = x;',
-          'lib/features/a/data/x.dart': 'final VaultSession s = x;',
+          'lib/core/vault/v.dart': 'final VaultSession s = x;',
+          'lib/features/messages/domain/e2ee/p.dart': 'VaultSession? s;',
         }),
         isEmpty,
+      );
+      // An unlisted data file is flagged too (it is an allowlist).
+      expect(
+        namingVaultSession({
+          'lib/features/a/data/x.dart': 'final VaultSession s = x;',
+        }),
+        ['lib/features/a/data/x.dart'],
       );
     });
 
