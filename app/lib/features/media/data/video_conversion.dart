@@ -4,6 +4,14 @@ import 'dart:typed_data';
 const maxClipBytes = 96 * 1024 * 1024;
 const unreadableClip = 'Could not decode this video. Choose another clip.';
 
+class ClipEdit {
+  const ClipEdit({this.start = Duration.zero, this.length, this.muted = false});
+
+  final Duration start;
+  final Duration? length;
+  final bool muted;
+}
+
 typedef ConvertedClip = ({
   Uint8List video,
   Uint8List poster,
@@ -13,10 +21,17 @@ typedef ConvertedClip = ({
 
 // Only self-contained media containers. In particular, never open playlists,
 // network URLs, or external tracks referenced by an input.
-List<String> encodeClip(String input, String output, {required bool web}) => [
+List<String> encodeClip(
+  String input,
+  String output, {
+  required bool web,
+  ClipEdit edit = const ClipEdit(),
+}) => [
   '-v', 'error', '-protocol_whitelist', 'file', '-format_whitelist',
   'mov,matroska,webm,avi,asf,flv,mpeg,mpegts,ogg,3gp,m4v,h264,hevc',
-  '-i', input, '-map', '0:V:0', '-map', '0:a:0?', '-map_metadata', '-1',
+  if (edit.start > Duration.zero) ...['-ss', '${edit.start.inMicroseconds}us'],
+  '-i', input, '-map', '0:V:0',
+  if (!edit.muted) ...['-map', '0:a:0?'] else '-an', '-map_metadata', '-1',
   '-map_chapters', '-1', '-vf',
   "scale='min(1920,iw)':'min(1920,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2,setsar=1",
   if (web) ...[
@@ -46,7 +61,11 @@ List<String> encodeClip(String input, String output, {required bool web}) => [
   '-b:a',
   '128k',
   // Keep one extra second so an overlong recording is refused, never posted truncated.
-  '-t', '301', '-movflags', '+faststart', output,
+  '-t',
+  edit.length == null ? '301' : '${edit.length!.inMicroseconds}us',
+  '-movflags',
+  '+faststart',
+  output,
 ];
 
 List<String> probeClip(String output, String metadata) => [

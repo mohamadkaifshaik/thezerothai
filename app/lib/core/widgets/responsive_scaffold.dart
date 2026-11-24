@@ -64,6 +64,7 @@ class ResponsiveScaffold extends StatefulWidget {
     this.accountChipBuilder,
     this.masterPane,
     this.floatingBar = false,
+    this.showBottomBar = true,
     this.layout = ShellLayout.legacy,
     this.moreHasOwnRows = true,
     this.onMoreFolded,
@@ -133,6 +134,7 @@ class ResponsiveScaffold extends StatefulWidget {
   /// [AppFloatingBottomBar] over the body and the gradient compose button.
   /// Off: the legacy docked [AppBottomBar].
   final bool floatingBar;
+  final bool showBottomBar;
 
   @override
   State<ResponsiveScaffold> createState() => _ResponsiveScaffoldState();
@@ -147,7 +149,8 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
     super.didUpdateWidget(oldWidget);
     // A bar hidden by scrolling should not stay hidden after the user changes
     // to another top-level destination.
-    if (oldWidget.selectedIndex != widget.selectedIndex) {
+    if (oldWidget.selectedIndex != widget.selectedIndex ||
+        oldWidget.showBottomBar != widget.showBottomBar) {
       _showMobileNavigation = true;
     }
   }
@@ -343,18 +346,23 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
               onPressed: widget.fab!.onPressed,
               child: Icon(widget.fab!.icon),
             ),
-      bottomNavigationBar: AnimatedSize(
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOutCubic,
-        alignment: Alignment.topCenter,
-        child: _showMobileNavigation
-            ? AppBottomBar(
-                destinations: [for (final i in bar) widget.destinations[i]],
-                selectedIndex: selected < 0 ? null : selected,
-                onSelected: (index) => widget.onDestinationSelected(bar[index]),
-              )
-            : const SizedBox.shrink(),
-      ),
+      bottomNavigationBar: !widget.showBottomBar
+          ? null
+          : AnimatedSize(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOutCubic,
+              alignment: Alignment.topCenter,
+              child: _showMobileNavigation
+                  ? AppBottomBar(
+                      destinations: [
+                        for (final i in bar) widget.destinations[i],
+                      ],
+                      selectedIndex: selected < 0 ? null : selected,
+                      onSelected: (index) =>
+                          widget.onDestinationSelected(bar[index]),
+                    )
+                  : const SizedBox.shrink(),
+            ),
     );
     return _withShellScope(scaffold);
   }
@@ -376,7 +384,7 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
     final media = MediaQuery.of(context);
     // An open keyboard takes the bar away: it would float over the field.
     final keyboardOpen = media.viewInsets.bottom > 0;
-    final hidden = !_showMobileNavigation;
+    final hidden = !widget.showBottomBar || !_showMobileNavigation;
     final movement = AppMotion.of(context).movement;
     const duration = Duration(milliseconds: 180);
     final reserved = media.padding.bottom + AppFloatingBottomBar.reservedHeight;
@@ -391,7 +399,7 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
           builder: (context) {
             // Below the SafeArea: only the bottom edge changes.
             final inner = MediaQuery.of(context);
-            if (keyboardOpen) {
+            if (keyboardOpen || !widget.showBottomBar) {
               return MediaQuery(data: inner, child: widget.body);
             }
             return MediaQuery(
@@ -418,7 +426,7 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
       body: Stack(
         children: [
           Positioned.fill(child: page),
-          if (!keyboardOpen)
+          if (!keyboardOpen && widget.showBottomBar)
             Positioned(
               left: 0,
               right: 0,

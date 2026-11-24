@@ -220,40 +220,45 @@ void main() {
     });
 
     for (final width in const [360.0, 599.0]) {
-      testWidgets('phones (${width.toInt()}) put the reply row in the list, '
-          'right under the open post', (tester) async {
-        stubThread(
-          () async => pb.GetThreadResponse(
-            focal: postView(1, text: 'root'),
-            replies: [_reply(2, text: 'a reply')],
-          ),
-        );
-        await open(tester, size: Size(width, 844));
+      testWidgets(
+        'phones (${width.toInt()}) dock the reply row below the conversation',
+        (tester) async {
+          stubThread(
+            () async => pb.GetThreadResponse(
+              focal: postView(1, text: 'root'),
+              replies: [_reply(2, text: 'a reply')],
+            ),
+          );
+          await open(tester, size: Size(width, 844));
 
-        final entry = tester.getTopLeft(find.text('Post your reply')).dy;
-        expect(entry, greaterThan(tester.getTopLeft(find.text('root')).dy));
-        expect(entry, lessThan(tester.getTopLeft(find.text('a reply')).dy));
-        expect(
-          find.ancestor(
-            of: find.text('Post your reply'),
-            matching: find.byType(CustomScrollView),
-          ),
-          findsOneWidget,
-        );
-        // The design's row: a 36 dp avatar and the compact Reply.
-        final avatar = find.descendant(
-          of: find
-              .ancestor(
-                of: find.text('Post your reply'),
-                matching: find.byType(Row),
-              )
-              .first,
-          matching: find.byType(AppAvatar),
-        );
-        expect(tester.getSize(avatar), const Size.square(36));
-        expect(replyButton(tester).compact, isTrue);
-        expect(tester.takeException(), isNull);
-      });
+          final entry = tester.getTopLeft(find.text('Post your reply')).dy;
+          expect(entry, greaterThan(tester.getTopLeft(find.text('root')).dy));
+          expect(
+            entry,
+            greaterThan(tester.getBottomLeft(find.text('a reply')).dy),
+          );
+          expect(
+            find.ancestor(
+              of: find.text('Post your reply'),
+              matching: find.byType(CustomScrollView),
+            ),
+            findsNothing,
+          );
+          // The design's row: a 36 dp avatar and the compact Reply.
+          final avatar = find.descendant(
+            of: find
+                .ancestor(
+                  of: find.text('Post your reply'),
+                  matching: find.byType(Row),
+                )
+                .first,
+            matching: find.byType(AppAvatar),
+          );
+          expect(tester.getSize(avatar), const Size.square(36));
+          expect(replyButton(tester).compact, isTrue);
+          expect(tester.takeException(), isNull);
+        },
+      );
     }
 
     testWidgets('the phone reply row survives the keyboard: focused, it stays '
@@ -542,7 +547,7 @@ void main() {
     });
 
     for (final (width, avatar) in const [(599.0, 36.0), (600.0, 48.0)]) {
-      testWidgets('at ${width.toInt()}dp the entry is inline, with a '
+      testWidgets('at ${width.toInt()}dp the entry has a '
           '${avatar.toInt()} dp avatar column', (tester) async {
         await open(tester, size: Size(width, 844));
 
@@ -551,7 +556,7 @@ void main() {
             of: find.text('Post your reply'),
             matching: find.byType(CustomScrollView),
           ),
-          findsOneWidget,
+          width < AppBreakpoints.mobile ? findsNothing : findsOneWidget,
         );
         final row = find
             .ancestor(

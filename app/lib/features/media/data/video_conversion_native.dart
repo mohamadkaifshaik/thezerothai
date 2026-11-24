@@ -16,8 +16,9 @@ import 'video_conversion.dart';
 
 Future<ConvertedClip> convertClip(
   XFile file,
-  ProcessingCancellation cancellation,
-) async {
+  ProcessingCancellation cancellation, {
+  ClipEdit edit = const ClipEdit(),
+}) async {
   final directory = await Directory.systemTemp.createTemp('post-video-');
   final video = File('${directory.path}/post.mp4');
   final poster = File('${directory.path}/poster.jpg');
@@ -32,7 +33,7 @@ Future<ConvertedClip> convertClip(
     cancellation.throwIfCancelled();
     final finished = Completer<FFmpegSession>();
     final running = await FFmpegKit.executeWithArgumentsAsync(
-      encodeClip(input, video.path, web: false),
+      encodeClip(input, video.path, web: false, edit: edit),
       finished.complete,
     );
     final FFmpegSession session;

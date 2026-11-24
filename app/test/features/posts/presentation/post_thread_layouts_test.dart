@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:dzeroth/core/router/app_router.dart';
+import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import 'package:dzeroth/shared/widgets/post/post_card.dart';
 import 'package:material_ui/material_ui.dart';
@@ -114,7 +115,9 @@ void main() {
         );
         expect(
           tester.getRect(find.text('Count me in.')).top,
-          greaterThan(tester.getRect(_entry).bottom),
+          size.width < AppBreakpoints.mobile
+              ? lessThan(tester.getRect(_entry).top)
+              : greaterThan(tester.getRect(_entry).bottom),
         );
         expect(find.text('No replies yet'), findsNothing);
       });
@@ -133,6 +136,8 @@ void main() {
           find.ancestor(of: _card(3), matching: _highlight),
           findsOneWidget,
         );
+        await tester.ensureVisible(_card(4));
+        await tester.pumpAndSettle();
         expect(
           tester.getRect(_entry).top,
           greaterThan(tester.getRect(_card(4)).bottom),
@@ -158,7 +163,9 @@ void main() {
         );
         expect(
           tester.getRect(_entry).bottom,
-          lessThan(tester.getRect(find.text('Count me in.')).top),
+          size.width < AppBreakpoints.mobile
+              ? greaterThan(tester.getRect(find.text('Count me in.')).bottom)
+              : lessThan(tester.getRect(find.text('Count me in.')).top),
         );
       });
 

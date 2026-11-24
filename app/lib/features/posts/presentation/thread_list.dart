@@ -32,9 +32,6 @@ class _ThreadBodyState extends State<_ThreadBody> {
       final focal = c.state.focal;
       return focal == null ? kReplyNotAllowedHint : replyNotAllowedHint(focal);
     });
-    // The reply entry is the row right under the open post at every width
-    // (the PostDetail designs); below the mobile breakpoint it is the compact
-    // one: a 36 dp avatar, a plain prompt and a compact Reply.
     final compact = MediaQuery.sizeOf(context).width < AppBreakpoints.mobile;
     final composer = _ReplyComposer(
       focusNode: _replyFocus,
@@ -42,9 +39,22 @@ class _ThreadBodyState extends State<_ThreadBody> {
       blockedHint: blockedHint,
       compact: compact,
     );
-    return _ThreadList(
+    final list = _ThreadList(
       onReply: canReply ? _replyFocus.requestFocus : null,
-      inlineComposer: canReply ? composer : null,
+      inlineComposer: canReply && !compact ? composer : null,
+    );
+    if (!compact || !canReply) return list;
+    return SafeArea(
+      top: false,
+      child: Column(
+        children: [
+          Expanded(child: list),
+          Padding(
+            padding: const EdgeInsets.all(AppSpacing.sm),
+            child: composer,
+          ),
+        ],
+      ),
     );
   }
 }

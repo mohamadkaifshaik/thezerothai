@@ -89,6 +89,7 @@ enum CropPreset {
   original('Original', null),
   square('Square', 1),
   fourFive('4:5', 4 / 5),
+  nineSixteen('9:16', 9 / 16),
   sixteenNine('16:9', 16 / 9);
 
   const CropPreset(this.label, this.ratio);

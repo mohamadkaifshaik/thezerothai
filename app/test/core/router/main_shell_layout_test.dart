@@ -30,7 +30,9 @@ import 'package:dzeroth/shared/widgets/primitives/app_badge.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_menu_item_row.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_side_column.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
+
 import '../../support/ui_tooltip_finder.dart';
+
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -363,13 +365,11 @@ void main() {
       );
     });
 
-    testWidgets('Settings is the selected destination on /settings', (
-      tester,
-    ) async {
+    testWidgets('Settings opens without the bottom bar', (tester) async {
       await pump(tester, location: '/settings', newShell: false);
 
-      expect(find.byIcon(Icons.settings), findsOneWidget);
-      expect(find.byIcon(Icons.home), findsNothing);
+      expect(find.byType(AppBottomBar), findsNothing);
+      expect(find.text('settings body'), findsOneWidget);
       expect(find.byUiTooltip('New post'), findsNothing);
     });
 
@@ -379,8 +379,8 @@ void main() {
       await tester.tap(find.byIcon(Icons.settings_outlined));
       await tester.pumpAndSettle();
 
-      expect(find.byType(AppBottomBar), findsOneWidget);
-      expect(find.byIcon(Icons.settings), findsOneWidget);
+      expect(find.byType(AppBottomBar), findsNothing);
+      expect(find.text('settings body'), findsOneWidget);
     });
 
     testWidgets('wide: no account chip', (tester) async {
@@ -436,13 +436,13 @@ void main() {
       expect(find.byIcon(Icons.notifications), findsNothing);
     });
 
-    testWidgets('on Settings no tab is selected', (tester) async {
+    testWidgets('Settings uses the full phone viewport', (tester) async {
       await pump(tester, location: '/settings');
 
       expect(find.byIcon(Icons.home), findsNothing);
       expect(find.byIcon(Icons.notifications), findsNothing);
       expect(find.byIcon(Icons.person), findsNothing);
-      expect(find.byIcon(Icons.home_outlined), findsOneWidget);
+      expect(find.byType(AppBottomBar), findsNothing);
     });
 
     testWidgets('tapping the tabs navigates', (tester) async {
@@ -745,7 +745,12 @@ void main() {
           findsOneWidget,
         );
         // No placeholder for a feature that has no route.
-        for (final text in ['Trends', 'Who to follow', 'Subscriptions', 'Terms']) {
+        for (final text in [
+          'Trends',
+          'Who to follow',
+          'Subscriptions',
+          'Terms',
+        ]) {
           expect(find.textContaining(text), findsNothing, reason: text);
         }
       });
@@ -1316,21 +1321,10 @@ void main() {
       });
     }
 
-    testWidgets('phone: not in the bottom bar, no cell selected on the page', (
-      tester,
-    ) async {
+    testWidgets('Bookmarks opens without the phone bar', (tester) async {
       await pump(tester, flags: on, location: '/bookmarks');
-
       expect(find.text('bookmarks body'), findsOneWidget);
-      expect(find.byType(AppBottomBar), findsOneWidget);
-      expect(find.byIcon(Icons.bookmark_border), findsNothing);
-      expect(find.byIcon(Icons.bookmark), findsNothing);
-      expect(find.byIcon(Icons.home), findsNothing);
-      expect(find.byIcon(Icons.person), findsNothing);
-      // Home and Profile still lead where they did.
-      await tester.tap(find.byIcon(Icons.home_outlined));
-      await tester.pumpAndSettle();
-      expect(find.text('home body'), findsOneWidget);
+      expect(find.byType(AppBottomBar), findsNothing);
     });
 
     testWidgets('phone: no compose button on the page', (tester) async {
@@ -1398,11 +1392,10 @@ void main() {
           for (var i = 0; i < gated.length; i++)
             if (mask & (1 << i) != 0) gated[i],
         ];
-        // Off any tab, so every cell is outlined.
         final flags = {for (final g in on) g.$1};
-        await pump(tester, location: '/profile/alice', flags: flags);
+        await pump(tester, flags: flags);
         expect(barIcons(tester), [
-          Icons.home_outlined,
+          Icons.home,
           for (final g in gated)
             if (g.$1 == 'beacons')
               Icons.track_changes
@@ -1484,12 +1477,7 @@ void main() {
         );
 
         await pump(tester, location: path, flags: flags);
-        expect(barIcons(tester), [
-          Icons.home_outlined,
-          Icons.search,
-          Icons.track_changes,
-          Icons.notifications_none,
-        ], reason: path);
+        expect(find.byType(AppBottomBar), findsNothing, reason: path);
       }
     });
 
