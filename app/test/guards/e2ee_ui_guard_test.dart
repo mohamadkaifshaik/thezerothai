@@ -35,6 +35,12 @@ import 'vault_scan.dart';
 ///   test runs or still asserts inertness.
 /// - Identifiers starting with an upper-case letter (types, enum names) are
 ///   not judged by the name rules: they name a class, not a value.
+/// - String concatenation in an error message (`'bad ' + text`) and a
+///   variable as the whole message (`StateError(text)`) are not seen by the
+///   interpolation scan (the reporter rule does catch a non-literal
+///   `StateError(...)` that is handed to a reporter).
+/// - Pins are by file and count, not by which call sits in the `try`: a pinned
+///   raw forward can move to a different call in the same file unnoticed.
 ///
 /// Run from app/ (like the other guards).
 
@@ -191,9 +197,34 @@ const Map<String, Map<String, int>> _pinnedBannedApis = {
 };
 
 final RegExp _bannedApis = RegExp(
-  r'(?<![\w$])(?:debugFillProperties|restorationScopeId|restorationId'
-  r'|Restorable\w*|RestorationMixin)\b',
+  r'(?<![\w$])(?:debugFillProperties|toStringShort|toDiagnosticsNode'
+  r'|restorationScopeId|restorationId|Restorable\w*|RestorationMixin)\b',
 );
+
+/// `restorationScopeId` anywhere in hand-written lib/ (it restores the whole
+/// app's state, typed text included, so it is not scoped to the screens).
+final RegExp _restorationScope = RegExp(
+  r'(?<![\w$])restorationScopeId(?![\w$])',
+);
+
+// ---------------------------------------------------------------------------
+// Clipboard and selection on the code screen.
+
+/// The security code is compared by eye on two devices. A copied code invites
+/// pasting it into the very chat being verified, so the encrypted screens
+/// never touch the clipboard (any mention of `Clipboard`, `ClipboardData`,
+/// ...), and the panel keeps its selection off. The name-based
+/// `Clipboard.setData` rule below covers the rest of the messages screens.
+const String _securityPanel =
+    'lib/features/messages/presentation/e2ee/conversation_encryption_panel.dart';
+
+List<String> _clipboardMentions(String source) =>
+    codeMatches(source, RegExp(r'(?<![\w$])Clipboard\w*'));
+
+bool _selectionDisabled(String source) => codeMatches(
+  source,
+  RegExp(r'(?<![\w$])SelectionContainer\s*\.\s*disabled\s*\('),
+).isNotEmpty;
 
 // ---------------------------------------------------------------------------
 // No crypto in the screens.
@@ -325,6 +356,17 @@ const Set<String> _logSegments = {
   'query',
   'payload',
   'ref',
+  // Review round 3 (security L3): the holders of those, by their usual names.
+  'groups',
+  'snippet',
+  'body',
+  'caption',
+  'draft',
+  'hit',
+  'hits',
+  'entry',
+  'entries',
+  'note',
 };
 
 /// The subset a URL, a route's `extra` or a `Uri` may never carry (the
@@ -337,6 +379,10 @@ const Set<String> _urlSegments = {
   'ref',
   'query',
   'code',
+  // The log set also lists groups, snippet, body, caption, draft, hit(s),
+  // entry/entries and note; the URL set does not: `hit.message.id` is a
+  // search hit opened by message id (`queryParameters: {'m': ...}` in
+  // conversations_screen.dart), an id and not content.
 };
 
 /// An identifier split into lower-case segments: `draftText` -> draft, text;
@@ -381,6 +427,9 @@ List<String> _namedIn(
     final id = m.group(0)!;
     final bare = id.replaceFirst(RegExp(r'^[_$]+'), '');
     if (bare.isEmpty || RegExp(r'^[A-Z]').hasMatch(bare)) continue;
+    // `statusCode` / `errorCode` are the transport's own small numbers (an
+    // HTTP or Connect status), never the user's security code. Exact names.
+    if (bare == 'statusCode' || bare == 'errorCode') continue;
     final parts = _segments(bare);
     var hit = parts.any(segments.contains);
     if (pairs) {
@@ -433,17 +482,80 @@ List<String> _loggingViolations(String source) {
 // ---------------------------------------------------------------------------
 // Fixed errors after a port call.
 
-/// A call of an unexpected-error reporter: the injected `onUnexpectedError`
-/// (also `_onUnexpectedError?.call(`), `reportUnexpectedError(`, and a local
-/// `report` alias.
-final RegExp _reporterCallee = RegExp(
-  r'(?<![\w$])(?:_?onUnexpectedError|reportUnexpectedError)'
-  r'\s*[?!]?\s*(?:\.\s*call\s*)?\('
-  // A local alias is read only in its `.call` form: a bare `report(x)` is
-  // also an ordinary callback (the bubble's `onReport`), so the bare form is
-  // a known gap of this rule (the logging rule does judge it).
-  r'|(?<![\w$.])report\s*[?!]?\s*\.\s*call\s*\(',
-);
+/// The names in [source] typed `UnexpectedErrorReporter` (a field, a
+/// parameter, a local: `UnexpectedErrorReporter? report`) or bound from the
+/// provider (`final r = context.read<UnexpectedErrorReporter?>()`), found the
+/// way the logger-variable discovery finds loggers. A callback that merely
+/// happens to be called `report` (the bubble's `onReport`, typed otherwise) is
+/// not one.
+Set<String> _reporterNames(String source) {
+  final text = stripSource(source, keepStrings: false);
+  return {
+    for (final m in RegExp(
+      r'(?<![\w$.])UnexpectedErrorReporter\??\s+([A-Za-z_$][\w$]*)',
+    ).allMatches(text))
+      m.group(1)!,
+    for (final m in RegExp(
+      r'(?<![\w$.])([A-Za-z_$][\w$]*)\s*=\s*context\s*\.\s*read\s*'
+      r'<\s*UnexpectedErrorReporter\b',
+    ).allMatches(text))
+      m.group(1)!,
+  };
+}
+
+/// A call of an unexpected-error reporter in a file whose typed reporter
+/// names are [typed]: the injected `onUnexpectedError` (also
+/// `_onUnexpectedError?.call(`), `reportUnexpectedError(`, any typed name or
+/// `reporter`, bare or `.call(` (no receiver: `_repository.report(` is
+/// another method), and `context.read<UnexpectedErrorReporter?>()?.call(`.
+RegExp _reporterCalleeFor(Set<String> typed) {
+  final alt = {...typed, 'reporter'}.map(RegExp.escape).join('|');
+  return RegExp(
+    r'(?<![\w$])(?:_?onUnexpectedError|reportUnexpectedError)'
+    r'\s*[?!]?\s*(?:\.\s*call\s*)?\('
+    '|(?<![\\w\$.])(?:$alt)\\s*[?!]?\\s*(?:\\.\\s*call\\s*)?\\('
+    r'|(?<![\w$.])context\s*\.\s*read\s*<\s*UnexpectedErrorReporter\??\s*>'
+    r'\s*\(\s*\)\s*[?!]?\s*(?:\.\s*call\s*)?\(',
+  );
+}
+
+/// Where a reporter name may appear as a VALUE (not called): the only value
+/// form accepted everywhere is `onUnexpectedError: <name>` (also
+/// `widget.<name>`), a constructor's `this.<name>` and a private field
+/// initializer (`_x = name`). Anything else (`onError: report`,
+/// `value: reporter`) hands the reporter to code that is not judged here and
+/// is flagged, to be pinned by file with a reason.
+List<String> _reporterValueUses(String source) {
+  var text = stripSource(source, keepStrings: false);
+  // An enum's members are names, not values (`enum _Menu { block, report }`).
+  text = text.replaceAll(RegExp(r'\benum\s+\w+[^{]*\{[^}]*\}'), ' ');
+  final names = {
+    ..._reporterNames(source),
+    'reporter',
+    'onUnexpectedError',
+    '_onUnexpectedError',
+  };
+  final alt = names.map(RegExp.escape).join('|');
+  final found = <String>[];
+  for (final m in RegExp(
+    '(?<![\\w\$.])(?:(?:widget|this)\\s*\\.\\s*)?($alt)(?![\\w\$])',
+  ).allMatches(text)) {
+    final after = text.substring(m.end);
+    if (RegExp(r'^\s*[?!]?\s*(?:\.\s*call\s*)?\(').hasMatch(after)) continue;
+    if (RegExp(r'^\s*=(?![=>])').hasMatch(after)) continue; // assigned to
+    if (RegExp(r'^\s*:(?!:)').hasMatch(after)) continue; // an argument label
+    final before = text.substring(0, m.start).trimRight();
+    if (!RegExp(r'(?:[(,\[:=]|=>|\breturn)$').hasMatch(before)) continue;
+    if (RegExp(r'\bonUnexpectedError\s*:$').hasMatch(before)) continue;
+    if (m.group(0)!.startsWith('this')) continue; // constructor parameter
+    if (RegExp(r'(?<![\w$.])_\w+\s*=$').hasMatch(before) &&
+        RegExp(r'^\s*[,;{)]').hasMatch(after)) {
+      continue; // `_onUnexpectedError = onUnexpectedError,`
+    }
+    found.add(m.group(1)!);
+  }
+  return found;
+}
 
 /// The only first argument a reporter takes: `StateError('<literal>')`, no
 /// `$` and no concatenation.
@@ -453,7 +565,10 @@ final RegExp _fixedStateError = RegExp(
 
 /// First arguments of reporter calls that are not a fixed `StateError`.
 List<String> _reporterViolations(String source) => [
-  for (final args in callArguments(source, _reporterCallee))
+  for (final args in callArguments(
+    source,
+    _reporterCalleeFor(_reporterNames(source)),
+  ))
     if (args.isEmpty)
       '(none)'
     else if (!_fixedStateError.hasMatch(_oneLine(args.first)))
@@ -461,11 +576,20 @@ List<String> _reporterViolations(String source) => [
 ];
 
 /// Reporter forwards that are not a fixed `StateError`, accepted by file with
-/// the first argument and its count. Each follows a call into the PLAINTEXT
-/// cache or the plaintext repository (never the encrypted port, whose errors
-/// are E2eePipelineError or fixed); the forwarded object is the thrown
+/// the first argument and its count. Most follow a call into the PLAINTEXT
+/// cache or the plaintext repository; the forwarded object is the thrown
 /// transport / cache exception (`error is UnknownApiException`, a drift or
 /// disk error), not the decrypted body. Pinned so a new raw forward fails.
+///
+/// Not all of them stay clear of the encrypted port: the `on Object` forward
+/// at `thread_cubit.dart:791` wraps `_apply` -> `_reevaluate`, which reaches
+/// `port.hasLocal` and `port.watchThread`. That is safe today because both
+/// calls take only the conversation id (nothing decrypted is passed in or
+/// comes back through the thrown object).
+///
+/// TODO(e2ee-fixed-forwards): a lib follow-up turns the `on Object` forwards
+/// into fixed `StateError('<step>')`; these pins then shrink to the
+/// type-gated ones (`error is UnknownApiException`).
 const Map<String, Map<String, int>> _pinnedRawReports = {
   // cachedThread / pollThread / sendMessage / noteSentRequestAnswered /
   // markRead ... (plaintext repository and cache); `on Object` and the
@@ -499,6 +623,24 @@ const Map<String, Map<String, int>> _pinnedRawReports = {
   // `report?.call(StateError(step), ...)` with a private literal step.
   'lib/features/messages/presentation/e2ee/connected_encryption_status_card.dart':
       {'StateError(step)': 1},
+};
+
+/// A reporter name handed on as a value (see [_reporterValueUses]), accepted
+/// by file with the name and its count.
+const Map<String, Map<String, int>> _pinnedReporterValues = {
+  // `onError: report`: hands the reporter to the PLAINTEXT thread poller,
+  // whose errors are the poll's transport / cache errors (it never sees the
+  // encrypted port or a decrypted body).
+  'lib/features/messages/presentation/thread_screen.dart': {'report': 1},
+  // Re-provides the same reporter to the dialog route's RepositoryProvider (a
+  // dialog is outside the caller's widget tree); the cubits that call it are
+  // judged in their own files.
+  'lib/features/messages/presentation/share_post_picker.dart': {'reporter': 1},
+  // Handed to the screen's own `_confirm(report, ...)` (twice), which reports
+  // only a fixed StateError('resetConfirm').
+  'lib/features/settings/presentation/reset_encryption_screen.dart': {
+    'report': 2,
+  },
 };
 
 /// An `assert(` whose message (any argument after the first) interpolates.
@@ -730,7 +872,15 @@ void main() {
         }
         if (counts.isNotEmpty) found[e.key] = counts;
       }
-      expect(found, _pinnedBannedApis);
+      expect(
+        found,
+        _pinnedBannedApis,
+        reason:
+            'debugFillProperties, toStringShort, toDiagnosticsNode and the '
+            'restoration APIs print or persist a widget\'s fields. A use '
+            'needs a reviewed reason: pin it by file and count in '
+            '_pinnedBannedApis.',
+      );
     });
 
     test('self-test: a planted toString, freezed part or hit field is seen; '
@@ -842,6 +992,104 @@ void main() {
         expect(codeMatches(bad, _encryptedHitNames), isNotEmpty, reason: bad);
       }
       expect(codeMatches('// EncryptedSearchHit', _encryptedHitNames), isEmpty);
+    });
+  });
+
+  group('clipboard and selection on the encrypted screens', () {
+    test('the encrypted screens and the Settings encryption files never '
+        'mention the clipboard', () {
+      final bad = <String>[
+        for (final e in _screens().entries)
+          for (final m in _clipboardMentions(e.value)) '${e.key}: $m',
+      ];
+      expect(
+        bad,
+        isEmpty,
+        reason:
+            'The security code is compared by eye; a copied code invites '
+            'pasting it into the chat being verified. For a deliberate copy '
+            'action elsewhere, ask for a security read, then pin it by file '
+            'with the reason.\n${bad.join('\n')}',
+      );
+    });
+
+    test('the code panel still disables selection', () {
+      expect(
+        _selectionDisabled(_lib()[_securityPanel]!),
+        isTrue,
+        reason:
+            'conversation_encryption_panel.dart wraps the code grid in '
+            'SelectionContainer.disabled so it cannot be selected and copied.',
+      );
+    });
+
+    test('nothing in lib/ names restorationScopeId (it restores the whole '
+        'app, typed text included)', () {
+      final bad = <String>[
+        for (final e in _lib().entries)
+          for (final m in codeMatches(e.value, _restorationScope))
+            '${e.key}: $m',
+      ];
+      expect(
+        bad,
+        isEmpty,
+        reason:
+            'restorationScopeId persists widget state across launches. If a '
+            'screen needs it, ask for a security read and pin it by file.\n'
+            '${bad.join('\n')}',
+      );
+    });
+
+    test('self-test: a Clipboard mention, a removed SelectionContainer.'
+        'disabled and a restorationScopeId are flagged', () {
+      final screen = _lib()[_resetScreen]!;
+      expect(_clipboardMentions(screen), isEmpty);
+      for (final bad in [
+        'Clipboard.setData(const ClipboardData(text: x));',
+        'final d = await Clipboard.getData(Clipboard.kTextPlain);',
+        'import "package:flutter/services.dart"; ClipboardData c;',
+      ]) {
+        expect(_clipboardMentions('$screen\n$bad'), isNotEmpty, reason: bad);
+      }
+      for (final ok in [
+        '// Clipboard.setData(x);',
+        "final s = 'Clipboard';",
+        'final myClipboardless = 1;',
+      ]) {
+        expect(_clipboardMentions(ok), isEmpty, reason: ok);
+      }
+      final panel = _lib()[_securityPanel]!;
+      expect(_selectionDisabled(panel), isTrue);
+      final removed = panel.replaceAll(
+        'SelectionContainer.disabled(',
+        'SelectionContainer(',
+      );
+      expect(removed, isNot(panel), reason: 'the plant found its anchor');
+      expect(_selectionDisabled(removed), isFalse);
+      expect(
+        _selectionDisabled('// SelectionContainer.disabled(child: x)'),
+        isFalse,
+      );
+      expect(
+        codeMatches(
+          "MaterialApp(restorationScopeId: 'app');",
+          _restorationScope,
+        ),
+        isNotEmpty,
+      );
+      expect(
+        codeMatches(
+          "// restorationScopeId\nfinal s = 'restorationScopeId';",
+          _restorationScope,
+        ),
+        isEmpty,
+      );
+      for (final bad in [
+        'final s = widget.toStringShort();',
+        'final n = x.toDiagnosticsNode();',
+      ]) {
+        expect(codeMatches(bad, _bannedApis), isNotEmpty, reason: bad);
+      }
     });
   });
 
@@ -1009,7 +1257,10 @@ void main() {
         isEmpty,
         reason:
             'A log line, an error report or a copy must not carry decrypted '
-            'text, a security code, a query or an id.\n${bad.join('\n')}',
+            'text, a security code, a query or an id. For a deliberate copy '
+            'action (the user copying their own message), ask for a '
+            'security read, then pin it by file with the reason.\n'
+            '${bad.join('\n')}',
       );
     });
 
@@ -1032,6 +1283,21 @@ void main() {
         'peerRef',
         'x.messageId',
         'myCode',
+        // Review round 3 (security L3): the usual holders of content.
+        'groups',
+        'snippet',
+        'bodyText',
+        'body',
+        'captionLine',
+        'draft',
+        'currentDraft',
+        'hit',
+        'hits',
+        'hitList',
+        'entry',
+        'entries',
+        'note',
+        'noteBody',
       ]) {
         expect(
           _namedIn('f($id)', _logSegments, pairs: true),
@@ -1056,6 +1322,15 @@ void main() {
         'message',
         'references',
         'encoded',
+        // Exact transport numbers (item 9), and whole-segment matching.
+        'statusCode',
+        'errorCode',
+        'x.statusCode',
+        'notes',
+        'notebook',
+        'bodyguard',
+        'entryway',
+        'hitchhiker',
       ]) {
         expect(
           _namedIn('f($ok)', _logSegments, pairs: true),
@@ -1156,9 +1431,82 @@ void main() {
         reason:
             'A report names a step, never a message: the first argument is '
             "StateError('<literal>'). A raw forward (an `error` caught "
-            'around a repository call) is pinned by file and count; a new '
-            'one, or a changed count, needs a reviewed reason.',
+            'around a repository call) is pinned by file and count in '
+            '_pinnedRawReports; a new one, or a changed count, needs a '
+            'reviewed reason written next to the pin.',
       );
+    });
+
+    test('a reporter is handed on as a value only as onUnexpectedError: '
+        '<name>, but the pinned uses', () {
+      final found = <String, Map<String, int>>{};
+      for (final e in _wide().entries) {
+        final counts = <String, int>{};
+        for (final v in _reporterValueUses(e.value)) {
+          counts[v] = (counts[v] ?? 0) + 1;
+        }
+        if (counts.isNotEmpty) found[e.key] = counts;
+      }
+      expect(
+        found,
+        _pinnedReporterValues,
+        reason:
+            'A reporter passed on as a value reaches code this scan does not '
+            'read (it may report a raw error). Pass it as '
+            'onUnexpectedError: <name>, or pin the use by file and count in '
+            '_pinnedReporterValues with a reviewed reason.',
+      );
+    });
+
+    test('self-test: a reporter handed on as a value is flagged; calls, '
+        'labels, declarations, enum members and initializers are not', () {
+      const typed =
+          'final report = context.read<UnexpectedErrorReporter?>();\n';
+      for (final bad in [
+        '${typed}Poller(onError: report);',
+        '${typed}final alias = report;',
+        '${typed}use(report, x);',
+        '${typed}return report;',
+        '${typed}RepositoryProvider.value(value: report);',
+        'final reporter = r;\nProvider.value(value: reporter);',
+        'final p = Poller(onError: onUnexpectedError);',
+        'final p = Poller(onError: widget.onUnexpectedError);',
+        'final f = _onUnexpectedError;',
+        'void g(UnexpectedErrorReporter? report) { h(x, report); }',
+      ]) {
+        expect(_reporterValueUses(bad), isNotEmpty, reason: bad);
+      }
+      for (final ok in [
+        '${typed}Thing(onUnexpectedError: report);',
+        '${typed}Thing(onUnexpectedError: widget.onUnexpectedError);',
+        "${typed}report?.call(StateError('x'), s);",
+        "${typed}report(StateError('x'), s);",
+        'UnexpectedErrorReporter? onUnexpectedError;',
+        'final void Function(Object e, StackTrace s)? onUnexpectedError;',
+        'Foo(this.onUnexpectedError, {required this.other});',
+        'Foo({this.onUnexpectedError});',
+        'Foo(void Function(Object e, StackTrace s)? onUnexpectedError)\n'
+            '    : _onUnexpectedError = onUnexpectedError,\n'
+            '      _x = 1;',
+        '${typed}final other = Foo(onUnexpectedError: report);',
+        'enum _Menu { block, report, delete }\n$typed',
+        'case _Menu.report:',
+        '// Poller(onError: report);',
+        "final s = 'onError: report';",
+        'void f() { _repository.report(x); }',
+      ]) {
+        expect(_reporterValueUses(ok), isEmpty, reason: ok);
+      }
+      // A planted extra hand-off in a copy of the real thread screen.
+      const screen = 'lib/features/messages/presentation/thread_screen.dart';
+      final real = _lib()[screen]!;
+      expect(_reporterValueUses(real), ['report']);
+      final planted = real.replaceFirst(
+        'onUnexpectedError: report,',
+        'onUnexpectedError: report, extraHook: report,',
+      );
+      expect(planted, isNot(real), reason: 'the plant found its anchor');
+      expect(_reporterValueUses(planted), ['report', 'report']);
     });
 
     test('no interpolation in a StateError, ArgumentError, other error '
@@ -1191,10 +1539,42 @@ void main() {
         "onUnexpectedError?.call(ArgumentError('x'), stack);",
         'onUnexpectedError?.call(error.toString(), stack);',
         'reportUnexpectedError(error, stack);',
-        'report?.call(error, stack);',
+        // A name typed UnexpectedErrorReporter, bare and `.call` (review
+        // round 3): a field, a parameter, a local, a provider read.
+        'UnexpectedErrorReporter? report;\nreport?.call(error, stack);',
+        'UnexpectedErrorReporter? report;\nreport(error, stack);',
+        'UnexpectedErrorReporter onError;\nonError(error, stack);',
+        'final r = context.read<UnexpectedErrorReporter?>();\nr(e, st);',
+        'final r = context.read<UnexpectedErrorReporter>();\nr.call(e, st);',
+        'void f(UnexpectedErrorReporter? report) { report?.call(e, st); }',
+        'reporter(error, stack);',
+        'reporter.call(error, stack);',
+        'context.read<UnexpectedErrorReporter?>()?.call(error, stack);',
+        'context.read<UnexpectedErrorReporter>().call(error, stack);',
+        'context.read<UnexpectedErrorReporter>()(error, stack);',
       ]) {
         expect(_reporterViolations(bad), isNotEmpty, reason: bad);
       }
+      for (final ok in [
+        "UnexpectedErrorReporter? report;\nreport?.call(StateError('x'), s);",
+        "reporter.call(StateError('x'), stack);",
+        "context.read<UnexpectedErrorReporter?>()?.call(StateError('x'), s);",
+        // The bubble's `report` is typed by `onReport`, not as a reporter.
+        'final report = data.reportable ? onReport : null;\n'
+            'report(_globalRect(context));',
+        'final r = _repository.report(idempotencyKey: key);',
+      ]) {
+        expect(_reporterViolations(ok), isEmpty, reason: ok);
+      }
+      expect(
+        _reporterNames(
+          'UnexpectedErrorReporter? a;\n'
+          'final b = context.read<UnexpectedErrorReporter?>();\n'
+          'final c = context.read<Other>();\n'
+          'RepositoryProvider<UnexpectedErrorReporter>.value(value: d);',
+        ),
+        {'a', 'b'},
+      );
       for (final ok in [
         "onUnexpectedError?.call(StateError('send'), stack);",
         "_onUnexpectedError?.call(StateError('retryOpen'), stack);",
@@ -1277,7 +1657,8 @@ void main() {
         reason:
             'A route `extra` is an object the router keeps in memory and may '
             'serialize; the two known uses pass the peer snapshot and a '
-            'folder enum. A new one needs a reviewed reason.',
+            'folder enum. A new one needs a reviewed reason: pin it by file '
+            'and count in _pinnedExtras.',
       );
     });
 
