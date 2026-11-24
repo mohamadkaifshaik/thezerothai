@@ -112,10 +112,27 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
   /// The answer of every `removeDevice` that does not fail (scripted).
   DeviceRemoval nextRemoval = const DeviceRemoval();
 
+  final Map<String, Object> _failRemovalOf = {};
+
+  /// Fails the next `removeDevice` of [ref] (and only that ref) with [error],
+  /// once.
+  void failRemovalOf(String ref, Object error) => _failRemovalOf[ref] = error;
+
+  final List<DeviceRemoval> _queuedRemovals = [];
+
+  /// Answers for the next `removeDevice` calls that do not fail, one each,
+  /// then [nextRemoval] again.
+  void queueRemovals(List<DeviceRemoval> answers) =>
+      _queuedRemovals.addAll(answers);
+
   /// Call logs (recorded before a scripted failure throws).
   final List<String> discardedUnsent = [];
   final List<(String, String)> deletedUnreadable = [];
   final List<String> droppedRemovals = [];
+
+  /// When set, `deleteUnreadableUnsent` records the call, then awaits it
+  /// before answering.
+  Completer<void>? holdDeleteUnreadable;
 
   /// When set, `removeDevice` records the call, then awaits it before
   /// answering.
@@ -204,6 +221,31 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
     }
   }
 
+  /// False: a new watcher stream emits nothing until [setThread] (the port
+  /// emits at once; a screen test of what stays drawn before it does).
+  bool emitOnWatch = true;
+
+  /// Ends every open watcher stream of [ref] (done, no error), as the port
+  /// does when the vault it reads changes.
+  void endWatchers(ThreadRef ref) {
+    final list = _controllers[ref] ?? <StreamController<EncryptedThread>>[];
+    for (final c in List.of(list)) {
+      list.remove(c);
+      unawaited(c.close());
+    }
+  }
+
+  /// Puts [error] on every open watcher stream of [ref] (the port never does
+  /// this: a screen test of its `onError`).
+  void errorWatchers(ThreadRef ref, Object error) {
+    for (final c in List.of(_controllers[ref] ?? const [])) {
+      c.addError(error);
+    }
+  }
+
+  /// How many watcher streams of [ref] are listened to now.
+  int watcherCount(ThreadRef ref) => (_controllers[ref] ?? const []).length;
+
   /// Closes every watcher stream and [previewChanged].
   void dispose() {
     for (final list in _controllers.values) {
@@ -290,7 +332,9 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
     late StreamController<EncryptedThread> c;
     final list = _controllers.putIfAbsent(ref, () => []);
     c = StreamController<EncryptedThread>(
-      onListen: () => c.add(_threads[ref] ?? _empty(ref)),
+      onListen: () {
+        if (emitOnWatch) c.add(_threads[ref] ?? _empty(ref));
+      },
       onCancel: () => list.remove(c),
     );
     list.add(c);
@@ -376,6 +420,8 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
   Future<bool> deleteUnreadableUnsent(String conversationId, String ref) async {
     calls.add('deleteUnreadableUnsent');
     deletedUnreadable.add((conversationId, ref));
+    final hold = holdDeleteUnreadable;
+    if (hold != null) await hold.future;
     try {
       _throwIfFailing();
     } on Object {
@@ -474,6 +520,8 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
     final hold = holdRemoveDevice;
     if (hold != null) await hold.future;
     try {
+      final forRef = _failRemovalOf.remove(ref);
+      if (forRef != null) throw forRef;
       _throwIfFailing();
     } on ReauthRequiredException {
       // As the port (CR m1): REAUTH_REQUIRED parks the removal first.
@@ -482,7 +530,7 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
     }
     // As the port (CR m1): a removal that went through is no longer parked.
     _unpark(ref);
-    return nextRemoval;
+    return _queuedRemovals.isEmpty ? nextRemoval : _queuedRemovals.removeAt(0);
   }
 
   void _unpark(String ref) {

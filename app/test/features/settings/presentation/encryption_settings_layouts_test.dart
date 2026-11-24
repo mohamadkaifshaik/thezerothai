@@ -1,5 +1,7 @@
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/vault/vault_status.dart';
+import 'package:dzeroth/features/keys/domain/device_keys_service.dart'
+    show DeviceKeysStatus;
 import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging.dart';
 import 'package:dzeroth/features/messages/domain/messaging_feature_flag.dart';
 import 'package:dzeroth/features/messages/presentation/e2ee/encryption_copy.dart';
@@ -181,6 +183,82 @@ void main() {
         expect(row(), findsNothing);
       });
     }
+
+    // Task 14b item 10: the subtitle is the status title whenever the user
+    // has to act, the two device-setup states included (they do not block
+    // messaging, so `blocksMessaging` alone left the row silent).
+    String? subtitle(WidgetTester tester) =>
+        tester.widget<SettingsRow>(row()).subtitle;
+
+    for (final width in const [390.0, 700.0, 1300.0]) {
+      testWidgets(
+        'device limit reached: the row says so at ${width.toInt()} dp',
+        (tester) async {
+          device.deviceKeys.value = DeviceKeysStatus.deviceLimitReached;
+          await pumpAt(tester, width, flags: flagsOn);
+          expect(subtitle(tester), kStatusDeviceLimitTitle);
+        },
+      );
+
+      testWidgets('an unusable device record: the row says so at '
+          '${width.toInt()} dp', (tester) async {
+        device.deviceKeys.value = const DeviceKeysStatus.failed(
+          retryable: false,
+        );
+        device.localRecordUnusable = true;
+        await pumpAt(tester, width, flags: flagsOn);
+        expect(subtitle(tester), kStatusDeviceRecordTitle);
+      });
+    }
+
+    // Last round, item 3: a parked removal is visible outside the page.
+    for (final width in const [390.0, 700.0, 1300.0]) {
+      testWidgets('a parked removal shows on the row at ${width.toInt()} dp, '
+          'and goes when it is dropped', (tester) async {
+        port.park(['ref-secret']);
+        await pumpAt(tester, width, flags: flagsOn);
+        expect(subtitle(tester), parkedRemovalsText(1));
+        expect(find.textContaining('ref-secret'), findsNothing);
+        await port.dropRemoval('ref-secret');
+        await tester.pumpAndSettle();
+        expect(subtitle(tester), isNull);
+      });
+    }
+
+    testWidgets('a parked removal shows on the manage row too, and a '
+        'blocking status title wins', (tester) async {
+      port.park(['ref-secret']);
+      await pumpAt(tester, 390, flags: kSettingsTabletFlags);
+      expect(subtitle(tester), parkedRemovalsText(1));
+      device.vaultStatus.value = VaultStatus.keyLost;
+      await tester.pumpAndSettle();
+      expect(subtitle(tester), kStatusKeyLostTitle);
+    });
+
+    testWidgets('hidden: no row and no port call even with a parked '
+        'removal', (tester) async {
+      port.park(['ref-secret']);
+      await pumpAt(tester, 390, flags: kSettingsTabletFlags, vaultKnown: false);
+      expect(row(), findsNothing);
+      expect(port.calls, isEmpty);
+    });
+
+    testWidgets('a blocking state keeps its title; nothing to do keeps the '
+        'row silent', (tester) async {
+      await pumpAt(tester, 390, flags: flagsOn);
+      expect(subtitle(tester), isNull);
+      device.vaultStatus.value = VaultStatus.keyLost;
+      await tester.pumpAndSettle();
+      expect(subtitle(tester), kStatusKeyLostTitle);
+    });
+
+    testWidgets('a retryable setup failure has no title, so no subtitle', (
+      tester,
+    ) async {
+      device.deviceKeys.value = const DeviceKeysStatus.failed(retryable: true);
+      await pumpAt(tester, 390, flags: flagsOn);
+      expect(subtitle(tester), isNull);
+    });
 
     testWidgets('the Privacy summary names encrypted messages with access', (
       tester,

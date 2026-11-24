@@ -29,6 +29,7 @@ import '../../auth/presentation/bloc/auth_bloc.dart';
 import '../../auth/presentation/request_sign_out.dart';
 import '../../beacons/domain/beacons_feature_flag.dart';
 import '../../graph/presentation/graph_feature_flags.dart';
+import '../../messages/domain/e2ee/encrypted_messaging.dart';
 import '../../messages/domain/e2ee/encryption_access.dart';
 import '../../messages/domain/messaging_feature_gate.dart';
 import '../../messages/presentation/e2ee/encryption_access_builder.dart';
@@ -713,6 +714,48 @@ class _SettingsRowsScope extends StatelessWidget {
   }
 }
 
+/// The Encrypted messages row. Its subtitle is the status line when there is
+/// one, else (while the port says a removal waits for a re-sign-in) the
+/// parked-removals line, so a waiting removal is visible outside its page. A
+/// port with nothing parked, or none, adds nothing; refs are only counted.
+class _EncryptionRow extends StatelessWidget {
+  const _EncryptionRow({
+    required this.statusLine,
+    required this.port,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String? statusLine;
+  final EncryptedMessaging? port;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final port = this.port;
+    Widget row(String? subtitle) => SettingsRow(
+      icon: Icons.lock_outline,
+      title: kEncryptionSettingsTitle,
+      subtitle: subtitle,
+      selected: selected,
+      onTap: onTap,
+    );
+    if (port == null || statusLine != null) return row(statusLine);
+    return ListenableBuilder(
+      listenable: Listenable.merge([port.needsReauth, port.parkedRemovals]),
+      builder: (context, _) {
+        final count = port.parkedRemovals.value.length;
+        return row(
+          port.needsReauth.value && count > 0
+              ? parkedRemovalsText(count)
+              : null,
+        );
+      },
+    );
+  }
+}
+
 /// Every Settings row the caller may see, each null (or empty) when gated
 /// off. One source for the flat groups and the tablet categories, so a row
 /// can never show in one and not the other.
@@ -962,22 +1005,23 @@ _SettingsRows _rowsFor(
 
   // Encrypted messages: with access full or manage only (hidden and
   // unsupported have no row). The subtitle is the status card's title while
-  // the status blocks messaging; no device call is made from this list.
+  // the status blocks messaging or the user has to act on the device (the
+  // device limit, an unusable device record); no device call is made from
+  // this list.
   // `of` is a snapshot read, correct here because the access scope above
   // rebuilds this list when the access changes.
   final encryptionAccess = EncryptionAccessBuilder.of(context);
   final encryptionStatusLine = context.select<EncryptionStatusCubit?, String?>(
-    (cubit) => cubit != null && cubit.state.blocksMessaging
+    (cubit) => cubit != null && cubit.state.needsAttentionInSettings
         ? encryptionStatusTitle(cubit.state)
         : null,
   );
   final encryptionRow =
       encryptionAccess == EncryptionAccess.full ||
           encryptionAccess == EncryptionAccess.manage
-      ? SettingsRow(
-          icon: Icons.lock_outline,
-          title: kEncryptionSettingsTitle,
-          subtitle: encryptionStatusLine,
+      ? _EncryptionRow(
+          statusLine: encryptionStatusLine,
+          port: context.read<EncryptedMessaging?>(),
           selected: isSelected(AppRouter.encryptionSettingsPath),
           onTap: () => open(AppRouter.encryptionSettingsPath),
         )

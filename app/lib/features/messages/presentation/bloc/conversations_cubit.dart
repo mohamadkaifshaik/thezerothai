@@ -215,9 +215,9 @@ class ConversationsCubit extends Cubit<ConversationsState> {
     final ConversationsSnapshot cached;
     try {
       cached = await _repository.cachedConversations(folder);
-    } on Object catch (error, stack) {
+    } on Object catch (_, stack) {
       // A broken disk must not block the network path.
-      onUnexpectedError?.call(error, stack);
+      onUnexpectedError?.call(StateError('cachedConversations'), stack);
       if (isClosed) return;
       await refresh();
       return;
@@ -320,8 +320,8 @@ class ConversationsCubit extends Cubit<ConversationsState> {
     try {
       final cached = await _repository.cachedConversations(folder);
       if (!isClosed) _apply(cached);
-    } on Object catch (error, stack) {
-      onUnexpectedError?.call(error, stack);
+    } on Object catch (_, stack) {
+      onUnexpectedError?.call(StateError('reloadFromCache'), stack);
     }
   }
 

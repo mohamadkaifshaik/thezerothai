@@ -62,6 +62,7 @@ import 'e2ee/widgets/thread_status_banner.dart';
 import 'widgets/not_encrypted_note.dart';
 import 'e2ee/widgets/own_device_alert.dart';
 import 'e2ee/widgets/system_line_row.dart';
+import 'e2ee/widgets/unreadable_unsent_row.dart';
 import 'e2ee/encrypted_thread_items.dart';
 import 'e2ee/encryption_access_builder.dart';
 import 'e2ee/screen_encrypted_port.dart';
@@ -722,6 +723,77 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
 
   final Set<String> _retrying = {};
 
+  /// One discard per row at a time: a double tap asks once.
+  final Set<String> _discarding = {};
+
+  /// "Discard" under an own row that is not delivered: the port's answer, and
+  /// its line when the answer needs one (`held` is "may still be delivered",
+  /// never "discarded"; the thread shows `discarded` and `delivered` itself).
+  Future<void> _discardEncrypted(String localId) async {
+    final composer = context.read<MessageComposerCubit>();
+    if (!composer.hasPort || !_discarding.add(localId)) return;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final answer = await composer.discardUnsent(localId);
+      final line = answer == null ? null : unsentDiscardText(answer);
+      if (line != null) {
+        messenger
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(content: Text(line)));
+      }
+    } finally {
+      _discarding.remove(localId);
+    }
+  }
+
+  /// One delete per unreadable row at a time (the handle is only compared,
+  /// never shown or logged).
+  final Set<String> _deletingUnreadable = {};
+
+  /// "Delete" on an unreadable unsent row: the handle goes back to the port
+  /// unchanged. The port does not send the rows that waited behind it, so
+  /// when own rows are still waiting the user is offered one retry.
+  Future<void> _deleteUnreadable(String handle) async {
+    final composer = context.read<MessageComposerCubit>();
+    final cubit = context.read<ThreadCubit>();
+    if (!composer.hasPort || _deletingUnreadable.contains(handle)) return;
+    // The row shows its Delete disabled while the call runs.
+    setState(() => _deletingUnreadable.add(handle));
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final deleted = await composer.deleteUnreadableUnsent(handle);
+      if (!deleted || !mounted) return;
+      // Oldest waiting own row first: the head of the queue.
+      final waiting = cubit.state.entries.whereType<DecryptedMessage>().where(
+        (m) => m.mine && m.progress == SendProgress.waiting,
+      );
+      if (waiting.isEmpty) return;
+      final oldest = waiting.last.id;
+      // The port sends nothing past an unreadable row: while others remain
+      // the retry would do nothing, so only the line shows.
+      final othersLeft = cubit.state.unreadableUnsent.isNotEmpty;
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: const Text(kUnsentDeletedWaitingText),
+            action: othersLeft
+                ? null
+                : SnackBarAction(
+                    label: kUnsentRetryWaitingAction,
+                    onPressed: () => unawaited(composer.retry(oldest)),
+                  ),
+          ),
+        );
+    } finally {
+      if (mounted) {
+        setState(() => _deletingUnreadable.remove(handle));
+      } else {
+        _deletingUnreadable.remove(handle);
+      }
+    }
+  }
+
   /// A shared post's card opens the post in the app (GetPost decides again).
   void _openPost(String postId) =>
       unawaited(context.push<void>(AppRouter.postPath(postId)));
@@ -1147,7 +1219,9 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
               if (state.encrypted && !noVault) {
                 // Nothing is drawn until the port's first thread arrived.
                 if (state.security == null) return const _ThreadSkeleton();
-                return state.entries.isNotEmpty || outgoing.isNotEmpty
+                return state.entries.isNotEmpty ||
+                        state.unreadableUnsent.isNotEmpty ||
+                        outgoing.isNotEmpty
                     ? _messages(cubit, state, outgoing, reportsEnabled)
                     : const _EncryptedEmpty();
               }
@@ -1177,13 +1251,18 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
     // A request waiting for this user, or one this user sent, shows no lines
     // and no alert (gate 5.3); the messages and their send states stay.
     final security = state.security;
-    final rows = buildEncryptedThreadItems(
-      state.entries,
-      showLines:
-          security == null ||
-          !(security.sentRequest ||
-              security.state == ConversationEncryptionState.pendingRequest),
-    );
+    final rows = [
+      // Own unsent rows that no longer open here are the newest: first.
+      for (var i = 0; i < state.unreadableUnsent.length; i++)
+        UnreadableUnsentItem(i, state.unreadableUnsent[i]),
+      ...buildEncryptedThreadItems(
+        state.entries,
+        showLines:
+            security == null ||
+            !(security.sentRequest ||
+                security.state == ConversationEncryptionState.pendingRequest),
+      ),
+    ];
     if (state.encryptedHasMore || state.entries.isEmpty) return rows;
     final boundary = state.entries.last.at;
     final earlier = [
@@ -1369,6 +1448,7 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
                             onOpenLink: _openLink,
                             onOpenPost: _openPost,
                             onRetry: _retryEncrypted,
+                            onDiscard: (id) => unawaited(_discardEncrypted(id)),
                             onReport:
                                 reportsEnabled &&
                                     conversation != null &&
@@ -1387,6 +1467,11 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
                                   )
                                 : null,
                           ),
+                        ),
+                        UnreadableUnsentItem() => UnreadableUnsentRow(
+                          onDelete: _deletingUnreadable.contains(item.handle)
+                              ? null
+                              : () => unawaited(_deleteUnreadable(item.handle)),
                         ),
                         SystemLineItem() => SystemLineRow(
                           line: item.line,

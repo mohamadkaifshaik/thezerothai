@@ -15,6 +15,7 @@ void main() {
         SystemLineItem() ||
         OwnDeviceAlertItem() ||
         EncryptionNoteItem() ||
+        UnreadableUnsentItem() ||
         PlaintextBoundaryItem() => throw StateError('unused'),
       },
   ];

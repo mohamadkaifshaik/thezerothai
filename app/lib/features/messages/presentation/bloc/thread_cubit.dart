@@ -54,6 +54,7 @@ class ThreadState {
     this.entries = const [],
     this.security,
     this.encryptedHasMore = false,
+    this.unreadableUnsent = const [],
     this.resetting = false,
     this.resetError,
     this.mls = false,
@@ -74,6 +75,12 @@ class ThreadState {
   /// Null until the first `EncryptedThread`.
   final ConversationSecurity? security;
   final bool encryptedHasMore;
+
+  /// The port's opaque handles of own unsent rows that no longer open on this
+  /// device (`EncryptedThread.unreadableUnsent`). Never displayed, logged,
+  /// keyed on or routed: passed back unchanged to
+  /// `deleteUnreadableUnsent`. Empty unless [encrypted].
+  final List<String> unreadableUnsent;
 
   /// `resetConversation` is in flight.
   final bool resetting;
@@ -156,6 +163,7 @@ class ThreadState {
     List<ThreadEntry>? entries,
     ConversationSecurity? security,
     bool? encryptedHasMore,
+    List<String>? unreadableUnsent,
     bool? resetting,
     Object? resetError = _keep,
     bool? mls,
@@ -181,6 +189,7 @@ class ThreadState {
       entries: entries ?? this.entries,
       security: security ?? this.security,
       encryptedHasMore: encryptedHasMore ?? this.encryptedHasMore,
+      unreadableUnsent: unreadableUnsent ?? this.unreadableUnsent,
       resetting: resetting ?? this.resetting,
       resetError: identical(resetError, _keep) ? this.resetError : resetError,
       mls: mls ?? this.mls,
@@ -294,7 +303,12 @@ class ThreadCubit extends Cubit<ThreadState> {
 
   /// The vault became (un)usable: re-evaluates the rules. The screen calls it
   /// when the vault status changes.
-  void refreshVault() => _reevaluate();
+  void refreshVault() {
+    // A vault change is what lets a stream that ended be tried again.
+    _waitForVaultChange = false;
+    _resubscribed = false;
+    _reevaluate();
+  }
 
   static bool _rowEncrypted(pb.Conversation? c) =>
       c != null && c.hasLastMessage() && c.lastMessage.encrypted;
@@ -343,18 +357,51 @@ class ThreadCubit extends Cubit<ThreadState> {
     }
     // Decrypted rows do not outlive the vault: once it is not usable the
     // entries are dropped (they come back with the next thread update).
-    if (port != null && !usable && state.entries.isNotEmpty) {
-      emit(state.copyWith(entries: const []));
+    if (port != null &&
+        !usable &&
+        (state.entries.isNotEmpty || state.unreadableUnsent.isNotEmpty)) {
+      emit(state.copyWith(entries: const [], unreadableUnsent: const []));
     }
-    if (encrypted && port != null && _watch == null) {
-      _watch = port
+    if (encrypted && port != null && _watch == null && !_waitForVaultChange) {
+      final sub = port
           .watchThread(ThreadRef.conversation(conversationId))
           .listen(
             _onEncryptedThread,
             onError: (Object _, StackTrace stack) =>
                 onUnexpectedError?.call(StateError('watchThread'), stack),
           );
+      sub.onDone(() => _onWatchEnded(sub));
+      _watch = sub;
     }
+  }
+
+  /// Set once a stream ended and was already tried again (or the vault is not
+  /// usable): no new subscription until the next vault change.
+  bool _waitForVaultChange = false;
+
+  /// One automatic new subscription per vault change.
+  bool _resubscribed = false;
+
+  /// The port's stream ENDS when the vault it reads changes (sign-out, another
+  /// user, a lost lock, a new vault). The thread is still on screen, so it
+  /// listens to a new stream: once. A new stream that ends at once, or a
+  /// vault that is not usable, waits for [refreshVault] (the vault status
+  /// changed) instead of looping.
+  void _onWatchEnded(StreamSubscription<EncryptedThread> ended) {
+    if (isClosed || !identical(_watch, ended)) return;
+    _watch = null;
+    // The stream ended because the vault changed: nothing of the old vault
+    // stays on screen while the new stream (if any) has not answered.
+    if (state.entries.isNotEmpty || state.unreadableUnsent.isNotEmpty) {
+      emit(state.copyWith(entries: const [], unreadableUnsent: const []));
+    }
+    final usable = _vaultUsable?.call() ?? true;
+    if (_resubscribed || !usable) {
+      _waitForVaultChange = true;
+    } else {
+      _resubscribed = true;
+    }
+    _reevaluate();
   }
 
   void _onEncryptedThread(EncryptedThread thread) {
@@ -367,6 +414,7 @@ class ThreadCubit extends Cubit<ThreadState> {
         entries: thread.entries,
         security: thread.security,
         encryptedHasMore: thread.hasMore,
+        unreadableUnsent: thread.unreadableUnsent,
       ),
     );
   }
@@ -382,9 +430,10 @@ class ThreadCubit extends Cubit<ThreadState> {
     final ThreadSnapshot cached;
     try {
       cached = await _repository.cachedThread(conversationId);
-    } on Object catch (error, stack) {
-      // A broken disk must not block the network path.
-      onUnexpectedError?.call(error, stack);
+    } on Object catch (_, stack) {
+      // A broken disk must not block the network path. A fixed step, never
+      // the thrown object (the thread may be an encrypted one).
+      onUnexpectedError?.call(StateError('cachedThread'), stack);
       if (isClosed) return;
       _poller.start();
       await _refresh(open: true);
@@ -410,8 +459,8 @@ class ThreadCubit extends Cubit<ThreadState> {
     final pb.Conversation? row;
     try {
       row = await _repository.cachedConversation(conversationId);
-    } on Object catch (error, stack) {
-      onUnexpectedError?.call(error, stack);
+    } on Object catch (_, stack) {
+      onUnexpectedError?.call(StateError('cachedConversation'), stack);
       return;
     }
     final header = state.conversation;
@@ -606,8 +655,8 @@ class ThreadCubit extends Cubit<ThreadState> {
   Future<void> _noteAnswered() async {
     try {
       await _repository.noteSentRequestAnswered(conversationId);
-    } on Object catch (error, stack) {
-      onUnexpectedError?.call(error, stack);
+    } on Object catch (_, stack) {
+      onUnexpectedError?.call(StateError('noteSentRequestAnswered'), stack);
     }
   }
 
@@ -784,8 +833,8 @@ class ThreadCubit extends Cubit<ThreadState> {
   Future<void> _dropBlockedRequest() async {
     try {
       await _repository.dropBlockedRequest(conversationId);
-    } on Object catch (error, stack) {
-      onUnexpectedError?.call(error, stack);
+    } on Object catch (_, stack) {
+      onUnexpectedError?.call(StateError('dropBlockedRequest'), stack);
     }
   }
 
@@ -806,8 +855,9 @@ class ThreadCubit extends Cubit<ThreadState> {
       if (isClosed) return;
       setAtBottom(true);
       _apply(snapshot, open: false);
-    } on Object catch (error, stack) {
-      onUnexpectedError?.call(error, stack);
+    } on Object catch (_, stack) {
+      // `_apply` reaches the encrypted port (`_reevaluate`): a fixed step.
+      onUnexpectedError?.call(StateError('noteSent'), stack);
     }
   }
 

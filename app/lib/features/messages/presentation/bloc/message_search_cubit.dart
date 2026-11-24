@@ -183,9 +183,9 @@ class MessageSearchCubit extends Cubit<MessageSearchState> {
               id != null && _olderToken.isNotEmpty && !_encryptedConversation,
         ),
       );
-    } on Object catch (error, stack) {
+    } on Object catch (_, stack) {
       // A broken disk reads as "no results"; never with the query or text.
-      onUnexpectedError?.call(error, stack);
+      onUnexpectedError?.call(StateError('searchCorpus'), stack);
       if (isClosed || generation != _generation) return;
       _clearEncrypted();
       emit(state.copyWith(status: MessageSearchStatus.ready, groups: const []));
@@ -243,8 +243,8 @@ class MessageSearchCubit extends Cubit<MessageSearchState> {
       if (!isClosed) {
         emit(state.copyWith(loadingOlder: false, olderError: error));
       }
-    } on Object catch (error, stack) {
-      onUnexpectedError?.call(error, stack);
+    } on Object catch (_, stack) {
+      onUnexpectedError?.call(StateError('searchOlder'), stack);
       if (!isClosed) emit(state.copyWith(loadingOlder: false));
     }
   }

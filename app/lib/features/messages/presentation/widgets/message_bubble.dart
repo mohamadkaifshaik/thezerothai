@@ -177,7 +177,8 @@ class MessageBubble extends StatelessWidget {
     this.onOpenPost,
     bool isMls = false,
   }) : _data = _BubbleData.fromProto(message, isMls: isMls),
-       onRetry = null;
+       onRetry = null,
+       onDiscard = null;
 
   /// A decrypted message of an encrypted thread. Its side is `entry.mine`
   /// (never the server's `from_self`), except for an `undecryptable` row, which
@@ -201,6 +202,7 @@ class MessageBubble extends StatelessWidget {
     this.onReport,
     this.onOpenPost,
     this.onRetry,
+    this.onDiscard,
   }) : _data = _BubbleData.fromEntry(entry),
        seenAt = null;
 
@@ -210,6 +212,10 @@ class MessageBubble extends StatelessWidget {
 
   /// Called with the row id when a retryable not-sent row is tapped.
   final void Function(String localId)? onRetry;
+
+  /// Called with the row id by the "Discard" action under an own row that is
+  /// not delivered (any progress but delivered). Null: no action.
+  final void Function(String localId)? onDiscard;
 
   /// Opens the post a message shares (`/post/<id>`, in the app: it works in a
   /// request that is not accepted too, unlike a link). Null: the card is not
@@ -352,6 +358,7 @@ class MessageBubble extends StatelessWidget {
     }
     final status = data.status;
     final retryId = data.retryId;
+    final discardId = _data.discardId;
     final retry = retryId != null && onRetry != null
         ? () => onRetry!(retryId)
         : null;
@@ -439,6 +446,12 @@ class MessageBubble extends StatelessWidget {
                           },
                     child: core,
                   ),
+                  if (discardId != null && onDiscard != null)
+                    AppPillButton(
+                      label: kUnsentDiscardAction,
+                      variant: AppButtonVariant.text,
+                      onPressed: () => onDiscard!(discardId),
+                    ),
                   if (status.isEmpty &&
                       (seenAt != null || (lastOfGroup && clock.isNotEmpty)))
                     Padding(
@@ -561,6 +574,7 @@ class _BubbleData {
     this.dimmed = false,
     this.failed = false,
     this.retryId,
+    this.discardId,
   });
 
   /// The plaintext path, exactly as the bubble always drew a message.
@@ -615,6 +629,9 @@ class _BubbleData {
       retryId: own && notDelivered && entry.problem == SendProblem.retryable
           ? entry.id
           : null,
+      // Every own row that is not delivered can be discarded (gate items 14
+      // and 15), whatever its problem.
+      discardId: own && notDelivered ? entry.id : null,
     );
   }
 
@@ -645,6 +662,7 @@ class _BubbleData {
   final bool dimmed;
   final bool failed;
   final String? retryId;
+  final String? discardId;
 
   bool get hasCard => shared != null || idCard;
 }

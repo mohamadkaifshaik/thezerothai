@@ -483,6 +483,39 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
     await _deliver(entry.localId, entry.text);
   }
 
+  /// The "Discard" action of an own row that is not delivered (gate items 14
+  /// and 15): the port's answer, which the screen shows with
+  /// `unsentDiscardText`. Null with no port. The port never throws; a throw
+  /// anyway is reported as a fixed step and answers `notDecided` (nothing
+  /// changed, try again), never `discarded`: an unknown outcome is not a
+  /// deletion.
+  Future<UnsentDiscard?> discardUnsent(String localId) async {
+    final port = _encrypted;
+    if (port == null) return null;
+    try {
+      return await port.discardUnsent(localId);
+    } on Object catch (_, stack) {
+      onUnexpectedError?.call(StateError('discardUnsent'), stack);
+      return UnsentDiscard.notDecided;
+    }
+  }
+
+  /// Deletes one unreadable unsent row of this conversation. [handle] is one
+  /// of the thread's `unreadableUnsent` and is passed back unchanged; it is
+  /// never shown, logged or routed. False with no port, no conversation yet,
+  /// a refusal, or a throw (reported as a fixed step).
+  Future<bool> deleteUnreadableUnsent(String handle) async {
+    final port = _encrypted;
+    final id = _conversationId;
+    if (port == null || id == null) return false;
+    try {
+      return await port.deleteUnreadableUnsent(id, handle);
+    } on Object catch (_, stack) {
+      onUnexpectedError?.call(StateError('deleteUnreadableUnsent'), stack);
+      return false;
+    }
+  }
+
   List<OutgoingMessage> _replace(String localId, OutgoingMessage? next) => [
     for (final m in state.outgoing)
       if (m.localId != localId) m else ?next,
@@ -502,8 +535,8 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
       if (error is UnknownApiException) onUnexpectedError?.call(error, stack);
       _fail(key, text, error);
       return;
-    } on Object catch (error, stack) {
-      onUnexpectedError?.call(error, stack);
+    } on Object catch (_, stack) {
+      onUnexpectedError?.call(StateError('sendMessage'), stack);
       _fail(key, text, const UnknownApiException('Something went wrong.'));
       return;
     }
@@ -538,8 +571,8 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
     }
     try {
       await onSent?.call();
-    } on Object catch (error, stack) {
-      onUnexpectedError?.call(error, stack);
+    } on Object catch (_, stack) {
+      onUnexpectedError?.call(StateError('onSent'), stack);
     }
     if (isClosed) return;
     emit(state.copyWith(outgoing: _replace(key, null)));

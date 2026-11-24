@@ -63,6 +63,7 @@ String _shape(List<ThreadItem> items) => [
       DaySeparatorItem() => 'day',
       MessageItem() => 'plain',
       EncryptionNoteItem() => 'note',
+      UnreadableUnsentItem() => 'unreadable',
       PlaintextBoundaryItem() => 'boundary',
     },
 ].join(', ');

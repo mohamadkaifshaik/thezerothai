@@ -190,6 +190,25 @@ const kUnsentUnreadableText =
     "This message couldn't be read on this device, so it won't be sent. "
     'Delete it?';
 
+/// The action under an own message that has not been delivered (the port's
+/// `discardUnsent`). NEW COPY (Plan 5b Task 14b): the owner may edit it.
+const kUnsentDiscardAction = 'Discard';
+
+/// The action of an unreadable unsent row (the port's
+/// `deleteUnreadableUnsent`); the row's text ends "Delete it?". NEW COPY
+/// (Plan 5b Task 14b): the owner may edit it.
+const kUnsentUnreadableDeleteAction = 'Delete';
+
+/// After an unreadable unsent row is deleted while other own messages are
+/// still waiting: the port does not send them by itself, so the user is
+/// offered one try. NEW COPY (Plan 5b Task 14b): the owner may edit it.
+const kUnsentDeletedWaitingText =
+    'Deleted. Your other messages are still waiting.';
+
+/// The action of the line above (the port's `retrySend` of the oldest waiting
+/// row). NEW COPY (Plan 5b Task 14b): the owner may edit it.
+const kUnsentRetryWaitingAction = 'Try sending';
+
 /// The line for the port's `discardUnsent` answer (port additions, gate items
 /// 14, 15, 23); null where the thread itself shows the result (the row is
 /// gone, shown delivered, or was not there).
@@ -570,6 +589,29 @@ const kConfirmItsYouAgainBody =
 /// it's you" (fix round ruling 5, N5).
 const kDeviceRemoveReauthFailedText =
     "Couldn't confirm it's you, so the device wasn't removed. Try again.";
+
+// Parked device removals (Plan 5b Task 14b item 5; NEW COPY, the owner may
+// edit it): a removal the server answered REAUTH_REQUIRED waits for the user
+// to sign in again. Shown on the Settings page whatever device_sign_out says.
+
+/// The banner for [count] parked removals; its action is [kConfirmItsYouTitle].
+String parkedRemovalsText(int count) => count == 1
+    ? "A device removal is waiting. Confirm it's you to finish it."
+    : "$count device removals are waiting. Confirm it's you to finish them.";
+
+/// The banner's second action: give the removals up. The device stays.
+const kParkedRemovalDropAction = "Don't remove";
+
+/// The confirmation of [kParkedRemovalDropAction]: title for [count] removals.
+String parkedRemovalDropTitle(int count) =>
+    count == 1 ? "Don't remove this device?" : "Don't remove these devices?";
+
+/// The same: the message says the device stays.
+String parkedRemovalDropMessage(int count) => count == 1
+    ? 'The device stays. It can still read and send in your encrypted '
+          'conversations.'
+    : 'The devices stay. They can still read and send in your encrypted '
+          'conversations.';
 
 /// Removed, `other_sessions_ended` false. Plan 5a Task 13b (controller
 /// ruling 3, 2026-11-23): no "change your password too". Why: the #1097

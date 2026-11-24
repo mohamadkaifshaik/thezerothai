@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
@@ -28,6 +30,7 @@ import 'bloc/encryption_devices_cubit.dart';
 import 'settings_up.dart';
 import 'widgets/confirm_its_you.dart';
 import 'widgets/own_device_row.dart';
+import 'widgets/parked_removals_banner.dart';
 
 /// Settings > Encrypted messages (`/settings/encryption`): the status card, this device, the other devices with
 /// Remove, the removal progress and the About lines (R4, R17, K5).
@@ -153,14 +156,60 @@ class _DevicesSection extends StatelessWidget {
         messaging: port,
         onUnexpectedError: context.read<UnexpectedErrorReporter?>(),
       )..load(),
-      child: _DevicesView(now: now ?? DateTime.now),
+      child: _DevicesView(port: port, now: now ?? DateTime.now),
+    );
+  }
+}
+
+/// The parked-removals banner: drawn while the port says a removal waits for
+/// a re-sign-in ([EncryptedMessaging.needsReauth]), whatever `device_sign_out`
+/// says. The refs are only counted, never shown. The actions are off while a
+/// removal or a sign-in runs.
+class _ParkedRemovals extends StatelessWidget {
+  const _ParkedRemovals({
+    required this.port,
+    required this.cubit,
+    required this.onConfirm,
+    required this.onDrop,
+  });
+
+  final EncryptedMessaging port;
+  final EncryptionDevicesCubit cubit;
+  final VoidCallback onConfirm;
+  final void Function(int count) onDrop;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: Listenable.merge([port.needsReauth, port.parkedRemovals]),
+      builder: (context, _) {
+        final count = port.parkedRemovals.value.length;
+        if (!port.needsReauth.value || count == 0) {
+          return const SizedBox.shrink();
+        }
+        return BlocBuilder<EncryptionDevicesCubit, EncryptionDevicesState>(
+          bloc: cubit,
+          buildWhen: (a, b) =>
+              (a.removing != null || a.confirming) !=
+              (b.removing != null || b.confirming),
+          builder: (context, state) {
+            final busy = state.removing != null || state.confirming;
+            return ParkedRemovalsBanner(
+              count: count,
+              onConfirm: busy ? null : onConfirm,
+              onDrop: busy ? null : () => onDrop(count),
+            );
+          },
+        );
+      },
     );
   }
 }
 
 class _DevicesView extends StatelessWidget {
-  const _DevicesView({required this.now});
+  const _DevicesView({required this.port, required this.now});
 
+  final EncryptedMessaging port;
   final DateTime Function() now;
 
   Future<void> _remove(
@@ -216,20 +265,93 @@ class _DevicesView extends StatelessWidget {
         confirmItsYou: confirm(true),
       );
     }
+    _sayOutcome(
+      messenger,
+      cubit,
+      outcome,
+      signOutOn:
+          context.mounted &&
+          featureEnabledSnapshot(context, kFeatureDeviceSignOut),
+    );
+  }
+
+  /// The banner's "Confirm it's you": the removals REAUTH_REQUIRED parked are
+  /// sent only after a fresh re-sign-in (review gate G2: the cubit runs
+  /// `confirmItsYou` before any `removeDevice`). Missing the window again asks
+  /// once more, as a Remove tap does.
+  Future<void> _resumeParked(
+    BuildContext context,
+    EncryptionDevicesCubit cubit,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final auth = context.read<AuthRepository>();
+    Future<bool> Function() confirm(bool again) =>
+        () => context.mounted
+        ? confirmItsYou(context, auth, again: again)
+        : Future.value(false);
+    var outcome = await cubit.resumeParked(confirmItsYou: confirm(false));
+    if (outcome == RemoveOutcome.needsReauth && context.mounted) {
+      outcome = await cubit.resumeParked(confirmItsYou: confirm(true));
+    }
+    _sayOutcome(
+      messenger,
+      cubit,
+      outcome,
+      signOutOn:
+          context.mounted &&
+          featureEnabledSnapshot(context, kFeatureDeviceSignOut),
+    );
+  }
+
+  /// The banner's "Don't remove": asks first, in words that say the device
+  /// stays, then drops every parked removal (no call to the server).
+  Future<void> _dropParked(
+    BuildContext context,
+    EncryptionDevicesCubit cubit,
+    int count,
+  ) async {
+    final confirmed = await showAppAlertConfirm(
+      context,
+      title: parkedRemovalDropTitle(count),
+      message: parkedRemovalDropMessage(count),
+      confirmLabel: kParkedRemovalDropAction,
+      destructive: true,
+    );
+    if (!confirmed || !context.mounted) return;
+    await cubit.dropParked();
+  }
+
+  /// The snackbar for a finished removal; nothing when none was attempted or
+  /// the user did not confirm it was them.
+  void _sayOutcome(
+    ScaffoldMessengerState messenger,
+    EncryptionDevicesCubit cubit,
+    RemoveOutcome outcome, {
+    required bool signOutOn,
+  }) {
     // Nothing was attempted (a removal was already running) or the user did
     // not confirm it was them: nothing to say.
     if (outcome == RemoveOutcome.notAttempted ||
         outcome == RemoveOutcome.cancelled) {
       return;
     }
+    // `other_sessions_ended` keys the text only with `device_sign_out` on,
+    // read now (the flag may have changed while the removal ran); a null
+    // answer, or the flag off, gives the plain text that claims nothing about
+    // the other sessions.
+    // With several removals in one run the answer is a summary: no
+    // per-device claim, the plain text.
+    final ended = signOutOn && cubit.removedCount == 1
+        ? cubit.otherSessionsEnded
+        : null;
     messenger
       ..hideCurrentSnackBar()
       ..showSnackBar(
         SnackBar(
           content: Text(switch (outcome) {
-            // `other_sessions_ended` is not passed on by the port yet
-            // (Task 13-ii): the plain text until it is.
-            RemoveOutcome.removed => deviceRemovedText(),
+            RemoveOutcome.removed => deviceRemovedText(
+              otherSessionsEnded: ended,
+            ),
             // N5: still outside the sign-in window after the second
             // "Confirm it's you": about the sign-in, not conversations.
             RemoveOutcome.needsReauth => kDeviceRemoveReauthFailedText,
@@ -242,6 +364,21 @@ class _DevicesView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cubit = context.read<EncryptionDevicesCubit>();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _ParkedRemovals(
+          port: port,
+          cubit: cubit,
+          onConfirm: () => unawaited(_resumeParked(context, cubit)),
+          onDrop: (count) => unawaited(_dropParked(context, cubit, count)),
+        ),
+        _devices(context, cubit),
+      ],
+    );
+  }
+
+  Widget _devices(BuildContext context, EncryptionDevicesCubit cubit) {
     return BlocBuilder<EncryptionDevicesCubit, EncryptionDevicesState>(
       builder: (context, state) {
         final list = state.list;

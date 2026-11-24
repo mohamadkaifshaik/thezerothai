@@ -112,6 +112,16 @@ class EncryptionStatus {
     EncryptionStatusKind.offline => false,
   };
 
+  /// The Settings row for encrypted messages shows the status title: every state
+  /// that blocks messaging, and the two device-setup states the user has to act
+  /// on (the device limit, an unusable device record), which do not block
+  /// messaging but need a visit to the page. [blocksMessaging] itself is
+  /// unchanged: the thread and the inbox read it.
+  bool get needsAttentionInSettings =>
+      blocksMessaging ||
+      kind == EncryptionStatusKind.deviceLimitReached ||
+      kind == EncryptionStatusKind.deviceRecordUnusable;
+
   /// R15's three cases.
   bool get offersReset => switch (kind) {
     EncryptionStatusKind.keyLostPending ||

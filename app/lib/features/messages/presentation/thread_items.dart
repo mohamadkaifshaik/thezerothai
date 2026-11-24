@@ -70,6 +70,24 @@ class OwnDeviceAlertItem extends ThreadItem {
   String get key => 'alert-${line.id}';
 }
 
+/// An own unsent row of an encrypted thread that no longer opens on this
+/// device (the port's `unreadableUnsent`). It holds the port's opaque handle
+/// only to hand it back unchanged; its list key is the position, never the
+/// handle, and it has no `toString`.
+class UnreadableUnsentItem extends ThreadItem {
+  const UnreadableUnsentItem(this.position, this.handle);
+
+  /// The place among the thread's unreadable rows (0 is the newest drawn).
+  final int position;
+
+  /// Passed back unchanged to `deleteUnreadableUnsent`; never shown, logged,
+  /// keyed on or routed.
+  final String handle;
+
+  @override
+  String get key => 'unreadable-$position';
+}
+
 /// The per-conversation encryption note of an encrypted thread, above the
 /// oldest loaded encrypted row (security read M12: directly under the
 /// [PlaintextBoundaryItem] when earlier plaintext rows are drawn).

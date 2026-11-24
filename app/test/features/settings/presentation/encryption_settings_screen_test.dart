@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/features/settings/presentation/bloc/encryption_devices_cubit.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:dzeroth/shared/widgets/primitives/settings_group.dart';
 import 'package:dzeroth/app/session_wiring.dart' show UnexpectedErrorReporter;
 import 'package:dzeroth/core/network/app_exception.dart';
@@ -745,6 +746,35 @@ void main() {
       await tester.pumpAndSettle();
       expect(port.removedDevices, ['ref-older']);
     });
+
+    // Plan 5b Task 14b item 4: the answer of `removeDevice` keys the result
+    // text, but only with device_sign_out on (read live).
+    for (final c in <(bool, bool?, String)>[
+      (true, true, kDeviceRemovedSessionsEnded),
+      (true, false, kDeviceRemovedSessionsKept),
+      (true, null, kDeviceRemovedText),
+      (false, true, kDeviceRemovedText),
+      (false, false, kDeviceRemovedText),
+      (false, null, kDeviceRemovedText),
+    ]) {
+      testWidgets('device_sign_out ${c.$1 ? 'on' : 'off'} with other_sessions_'
+          'ended ${c.$2}: the result is the right text', (tester) async {
+        await pump(tester, deviceSignOut: c.$1);
+        port.nextRemoval = DeviceRemoval(otherSessionsEnded: c.$2);
+        await openAndConfirmRemove(tester);
+        for (final text in [
+          kDeviceRemovedSessionsEnded,
+          kDeviceRemovedSessionsKept,
+          kDeviceRemovedText,
+        ]) {
+          expect(
+            find.text(text),
+            text == c.$3 ? findsOneWidget : findsNothing,
+            reason: text,
+          );
+        }
+      });
+    }
   });
 
   test('the removed result is keyed on other_sessions_ended', () {
@@ -984,6 +1014,150 @@ void main() {
     });
   });
 
+  // Plan 5b Task 14b item 5: a removal the server answered REAUTH_REQUIRED
+  // waits for a fresh sign-in. The banner is not gated on device_sign_out.
+  group('parked removals', () {
+    Finder confirmAction() =>
+        find.widgetWithText(AppPillButton, kConfirmItsYouTitle);
+    Finder dropAction() =>
+        find.widgetWithText(AppPillButton, kParkedRemovalDropAction);
+
+    testWidgets('nothing parked: no banner', (tester) async {
+      await pump(tester);
+      expect(confirmAction(), findsNothing);
+      expect(dropAction(), findsNothing);
+    });
+
+    for (final signOut in [false, true]) {
+      testWidgets('a parked removal shows the banner with device_sign_out '
+          '$signOut, never its ref', (tester) async {
+        port.park(['ref-older']);
+        await pump(tester, deviceSignOut: signOut);
+        expect(find.text(parkedRemovalsText(1)), findsOneWidget);
+        expect(confirmAction(), findsOneWidget);
+        expect(dropAction(), findsOneWidget);
+        expect(find.textContaining('ref-older'), findsNothing);
+      });
+    }
+
+    testWidgets('several parked removals are counted', (tester) async {
+      port.park(['ref-older', 'ref-newer']);
+      await pump(tester);
+      expect(find.text(parkedRemovalsText(2)), findsOneWidget);
+    });
+
+    testWidgets('manage access (flag off, a vault) shows it too', (
+      tester,
+    ) async {
+      manageAccess();
+      port.park(['ref-older']);
+      await pump(tester, flagOn: false);
+      expect(find.text(parkedRemovalsText(1)), findsOneWidget);
+    });
+
+    testWidgets('Confirm it\'s you signs in BEFORE removeDevice, then the '
+        'banner goes and the result is said', (tester) async {
+      port.park(['ref-older']);
+      await pump(tester);
+      expect(port.removedDevices, isEmpty);
+      await tester.tap(confirmAction());
+      await tester.pumpAndSettle();
+      expect(
+        port.calls.where((c) => c == 'reauthenticate' || c == 'removeDevice'),
+        ['reauthenticate', 'removeDevice'],
+      );
+      expect(port.removedDevices, ['ref-older']);
+      expect(confirmAction(), findsNothing);
+      expect(find.text(kDeviceRemovedText), findsOneWidget);
+    });
+
+    testWidgets('a cancelled re-sign-in never calls removeDevice and the '
+        'banner stays', (tester) async {
+      port.park(['ref-older']);
+      await pump(tester, user: _googleUser);
+      await tester.tap(confirmAction());
+      await tester.pumpAndSettle();
+      expect(find.text(kConfirmItsYouTitle), findsWidgets);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(port.removedDevices, isEmpty);
+      expect(port.calls, isNot(contains('removeDevice')));
+      expect(confirmAction(), findsOneWidget);
+    });
+
+    testWidgets('with device_sign_out on the result carries '
+        'other_sessions_ended', (tester) async {
+      port.park(['ref-older']);
+      port.nextRemoval = const DeviceRemoval(otherSessionsEnded: true);
+      await pump(tester, deviceSignOut: true);
+      await tester.tap(confirmAction());
+      await tester.pumpAndSettle();
+      expect(find.text(kDeviceRemovedSessionsEnded), findsOneWidget);
+    });
+
+    testWidgets('several removals finished in one run get the plain line, '
+        'never a per-device claim', (tester) async {
+      port.park(['ref-older', 'ref-newer']);
+      port.nextRemoval = const DeviceRemoval(otherSessionsEnded: false);
+      await pump(tester, deviceSignOut: true);
+      await tester.tap(confirmAction());
+      await tester.pumpAndSettle();
+      expect(port.removedDevices, ['ref-older', 'ref-newer']);
+      expect(find.text(kDeviceRemovedText), findsOneWidget);
+      expect(find.text(kDeviceRemovedSessionsKept), findsNothing);
+      expect(find.text(kDeviceRemovedSessionsEnded), findsNothing);
+    });
+
+    testWidgets('Don\'t remove asks first, says the device stays, and only '
+        'then drops it, with no removal call', (tester) async {
+      port.park(['ref-older']);
+      await pump(tester);
+      await tester.tap(dropAction());
+      await tester.pumpAndSettle();
+      expect(find.text(parkedRemovalDropTitle(1)), findsOneWidget);
+      expect(find.text(parkedRemovalDropMessage(1)), findsOneWidget);
+      expect(
+        tester
+            .widget<AppConfirmDialog>(find.byType(AppConfirmDialog))
+            .destructive,
+        isTrue,
+      );
+      expect(port.droppedRemovals, isEmpty);
+
+      await tester.tap(_inDialog(kParkedRemovalDropAction));
+      await tester.pumpAndSettle();
+      expect(port.droppedRemovals, ['ref-older']);
+      expect(port.calls, isNot(contains('removeDevice')));
+      expect(confirmAction(), findsNothing);
+    });
+
+    testWidgets('cancelling Don\'t remove drops nothing', (tester) async {
+      port.park(['ref-older']);
+      await pump(tester);
+      await tester.tap(dropAction());
+      await tester.pumpAndSettle();
+      await tester.tap(_inDialog('Cancel'));
+      await tester.pumpAndSettle();
+      expect(port.droppedRemovals, isEmpty);
+      expect(confirmAction(), findsOneWidget);
+    });
+
+    testWidgets('access hidden: no banner and no port call', (tester) async {
+      device.vaultKnown = false;
+      port.park(['ref-older']);
+      await pump(tester, flagOn: false);
+      expect(confirmAction(), findsNothing);
+      expect(port.calls, isEmpty);
+    });
+
+    testWidgets('reflows at a large text scale on a phone', (tester) async {
+      port.park(['ref-older']);
+      await pump(tester, textScale: 2, width: 360);
+      expect(tester.takeException(), isNull);
+      expect(confirmAction(), findsOneWidget);
+    });
+  });
+
   group('removal in flight', () {
     testWidgets(
       'while a removal is in flight every Remove is disabled and the row shows its spinner',
@@ -1041,7 +1215,7 @@ void main() {
           tester.element(find.text(kDevicesOthersHeader)),
         );
         port.holdRemoveDevice = Completer<void>();
-        unawaited(cubit.remove('ref-older'));
+        unawaited(cubit.remove('ref-older', confirmItsYou: () async => true));
         await tester.pump();
         final callsBefore = port.calls.length;
         await tester.tap(_inDialog(kDeviceRemoveAction));

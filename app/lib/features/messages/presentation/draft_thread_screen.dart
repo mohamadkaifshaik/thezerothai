@@ -26,6 +26,7 @@ import '../domain/messaging_feature_flag.dart';
 import 'bloc/message_composer_cubit.dart';
 import 'e2ee/encrypted_thread_items.dart';
 import 'e2ee/encryption_access_builder.dart';
+import 'e2ee/encryption_copy.dart' show unsentDiscardText;
 import 'e2ee/encryption_status.dart';
 import 'e2ee/screen_encrypted_port.dart';
 import 'e2ee/widgets/thread_status_banner.dart';
@@ -153,13 +154,30 @@ class _DraftViewState extends State<_DraftView> {
       _device == null || _device!.vaultStatus.value == VaultStatus.ready;
 
   void _onVaultStatus() {
-    if (!mounted || _vaultReady || _rows.isEmpty) return;
-    setState(() => _rows = const []);
+    if (!mounted) return;
+    // A vault change is what lets a stream that ended be tried again.
+    _waitForVaultChange = false;
+    _resubscribed = false;
+    if (_vaultReady) {
+      _startWatch();
+    } else if (_rows.isNotEmpty) {
+      setState(() => _rows = const []);
+    }
   }
+
+  late final UnexpectedErrorReporter _report;
+
+  /// Set once a stream ended and was already tried again (or the vault is not
+  /// ready): no new subscription until the vault status changes.
+  bool _waitForVaultChange = false;
+
+  /// One automatic new subscription per vault change.
+  bool _resubscribed = false;
 
   @override
   void initState() {
     super.initState();
+    _report = context.read<UnexpectedErrorReporter>();
     _device = context.read<EncryptionDevice?>();
     _device?.vaultStatus.addListener(_onVaultStatus);
     _startWatch();
@@ -167,9 +185,35 @@ class _DraftViewState extends State<_DraftView> {
 
   void _startWatch() {
     final port = widget.port;
-    if (port != null && _watch == null) {
-      _watch = port.watchThread(ThreadRef.recipientOf(peer)).listen(_onThread);
+    if (port == null || _watch != null || _waitForVaultChange) return;
+    final sub = port
+        .watchThread(ThreadRef.recipientOf(peer))
+        .listen(
+          _onThread,
+          // Never the thrown object: a fixed step.
+          onError: (Object _, StackTrace stack) =>
+              _report(StateError('draftWatch'), stack),
+        );
+    sub.onDone(() => _onWatchEnded(sub));
+    _watch = sub;
+  }
+
+  /// The port's stream ENDS when the vault it reads changes. The draft is
+  /// still on screen, so it listens to a new stream: once. A new stream that
+  /// ends at once, or a vault that is not ready, waits for the next vault
+  /// status change instead of looping.
+  void _onWatchEnded(StreamSubscription<EncryptedThread> ended) {
+    if (!mounted || !identical(_watch, ended)) return;
+    _watch = null;
+    // The vault it read changed: its decrypted rows are not drawn while the
+    // new stream has not answered.
+    if (_rows.isNotEmpty) setState(() => _rows = const []);
+    if (_resubscribed || !_vaultReady) {
+      _waitForVaultChange = true;
+      return;
     }
+    _resubscribed = true;
+    _startWatch();
   }
 
   @override
@@ -313,9 +357,33 @@ class _DraftViewState extends State<_DraftView> {
           linksEnabled: item.message.mine,
           onOpenLink: (uri) => unawaited(launchPostLink(uri)),
           onRetry: _retryRow,
+          onDiscard: (id) => unawaited(_discardRow(id)),
         );
       },
     );
+  }
+
+  /// One discard per row at a time: a double tap asks once.
+  final Set<String> _discarding = {};
+
+  /// "Discard" under an own row that is not delivered (the first message of
+  /// a new conversation included: the port's init discard decides). The line
+  /// of the answer, when it has one; `held` is "may still be delivered".
+  Future<void> _discardRow(String localId) async {
+    final composer = context.read<MessageComposerCubit>();
+    if (!composer.hasPort || !_discarding.add(localId)) return;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final answer = await composer.discardUnsent(localId);
+      final line = answer == null ? null : unsentDiscardText(answer);
+      if (line != null) {
+        messenger
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(content: Text(line)));
+      }
+    } finally {
+      _discarding.remove(localId);
+    }
   }
 
   /// One call per row at a time: a double tap retries once.

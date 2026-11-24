@@ -143,7 +143,7 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
   /// the typed error); [RemoveOutcome.notAttempted] when the cubit is closed or another removal is running.
   ///
   /// [retrySetup] (the screen sets it only at the 5-device limit) asks the port to register this device again after
-  /// the removal. Order: [confirmItsYou] (when given), remove, retry (when asked), reload.
+  /// the removal. Order: [confirmItsYou] (required), remove, retry (when asked), reload.
   ///
   /// [confirmItsYou] (the screen passes it on every Remove tap; lane D PR 4, ruling 3 and fix round ruling 1) is the
   /// re-sign-in. It runs FIRST, before anything is sent or queued and before the row shows its spinner, so the
@@ -154,24 +154,15 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
   Future<RemoveOutcome> remove(
     String ref, {
     bool retrySetup = false,
-    Future<bool> Function()? confirmItsYou,
+    required Future<bool> Function() confirmItsYou,
   }) async {
     if (isClosed || state.removing != null || _confirming) {
       return RemoveOutcome.notAttempted;
     }
-    if (confirmItsYou != null) {
-      var confirmed = false;
-      _setConfirming(true);
-      try {
-        confirmed = await confirmItsYou();
-      } catch (_, stack) {
-        _report('confirmItsYou', stack);
-      } finally {
-        _setConfirming(false);
-      }
-      if (!confirmed) return RemoveOutcome.cancelled;
-      if (isClosed || state.removing != null) return RemoveOutcome.notAttempted;
-    }
+    _otherSessionsEnded = null;
+    _removedCount = 0;
+    if (!await _confirm(confirmItsYou)) return RemoveOutcome.cancelled;
+    if (isClosed || state.removing != null) return RemoveOutcome.notAttempted;
     final before = state;
     emit(
       EncryptionDevicesState(
@@ -182,7 +173,9 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
       ),
     );
     try {
-      await _messaging.removeDevice(ref);
+      final removal = await _messaging.removeDevice(ref);
+      _otherSessionsEnded = removal.otherSessionsEnded;
+      _removedCount = 1;
     } on ReauthRequiredException {
       // The call missed the window: the queue parked the removal (never
       // dropped). The screen asks the user to confirm again and calls this
@@ -211,7 +204,13 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
         _report('retryDeviceSetup', stack);
       }
     }
-    OwnDeviceList? list = before.list;
+    await _reloadAfterRemoval(before.list);
+    return RemoveOutcome.removed;
+  }
+
+  /// The list again after a removal answered; a failed read keeps [previous].
+  Future<void> _reloadAfterRemoval(OwnDeviceList? previous) async {
+    OwnDeviceList? list = previous;
     try {
       list = await _messaging.ownDevices();
     } catch (e, stack) {
@@ -226,7 +225,121 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
         ),
       );
     }
+  }
+
+  /// The server's `other_sessions_ended` of the last removal that answered:
+  /// null when it did not say (and after any removal that did not answer).
+  /// The screen uses it only with `device_sign_out` on.
+  bool? get otherSessionsEnded => _otherSessionsEnded;
+  bool? _otherSessionsEnded;
+
+  /// How many removals the last run finished (1 for [remove]). With more
+  /// than one, [otherSessionsEnded] is a summary, so the screen makes no
+  /// per-device claim.
+  int get removedCount => _removedCount;
+  int _removedCount = 0;
+
+  /// Runs [confirmItsYou] with [EncryptionDevicesState.confirming] set. A
+  /// throw is a cancel, reported as a fixed step.
+  Future<bool> _confirm(Future<bool> Function() confirmItsYou) async {
+    var confirmed = false;
+    _setConfirming(true);
+    try {
+      confirmed = await confirmItsYou();
+    } catch (_, stack) {
+      _report('confirmItsYou', stack);
+    } finally {
+      _setConfirming(false);
+    }
+    return confirmed;
+  }
+
+  /// Sends the removals that REAUTH_REQUIRED parked ([EncryptedMessaging
+  /// .parkedRemovals]) once the user confirmed it is them. [confirmItsYou] is
+  /// required and runs first, once, before any `removeDevice` call (review
+  /// gate G2: a parked removal is never sent without a fresh re-sign-in);
+  /// false or a throw is [RemoveOutcome.cancelled] and nothing is sent. Each
+  /// parked ref is then sent in turn; a REAUTH_REQUIRED answer stops with
+  /// [RemoveOutcome.needsReauth] (the rest stay parked), another failure with
+  /// [RemoveOutcome.failed] and the typed error. [otherSessionsEnded] is true
+  /// only when every answer said true, false when any said false, else null.
+  /// Refs are opaque: never shown or logged.
+  Future<RemoveOutcome> resumeParked({
+    required Future<bool> Function() confirmItsYou,
+  }) async {
+    if (isClosed || state.removing != null || _confirming) {
+      return RemoveOutcome.notAttempted;
+    }
+    final asked = List<String>.of(_messaging.parkedRemovals.value);
+    if (asked.isEmpty) return RemoveOutcome.notAttempted;
+    _otherSessionsEnded = null;
+    _removedCount = 0;
+    if (!await _confirm(confirmItsYou)) return RemoveOutcome.cancelled;
+    if (isClosed || state.removing != null) return RemoveOutcome.notAttempted;
+    // Only what the user was asked about AND is still parked now: a removal
+    // that left the list while the dialog was open (dropped, or sent by
+    // another path) is not sent, and one parked meanwhile was never confirmed.
+    final parkedNow = _messaging.parkedRemovals.value;
+    final refs = [
+      for (final r in asked)
+        if (parkedNow.contains(r)) r,
+    ];
+    if (refs.isEmpty) return RemoveOutcome.notAttempted;
+    final before = state;
+    final answers = <bool?>[];
+    for (final ref in refs) {
+      if (isClosed) return RemoveOutcome.notAttempted;
+      emit(
+        EncryptionDevicesState(
+          status: before.status,
+          list: before.list,
+          removing: ref,
+          removalsPending: state.removalsPending,
+        ),
+      );
+      try {
+        answers.add((await _messaging.removeDevice(ref)).otherSessionsEnded);
+      } on ReauthRequiredException {
+        _restore(before);
+        return RemoveOutcome.needsReauth;
+      } catch (e, stack) {
+        if (e is! AppException) _report('resumeRemoval', stack);
+        // Earlier removals answered: the list must not keep those devices.
+        if (answers.isNotEmpty) await _reloadAfterRemoval(before.list);
+        if (!isClosed) {
+          emit(
+            EncryptionDevicesState(
+              status: state.status,
+              list: state.list ?? before.list,
+              removalsPending: state.removalsPending,
+              error: e is AppException ? e : null,
+            ),
+          );
+        }
+        return RemoveOutcome.failed;
+      }
+    }
+    _removedCount = answers.length;
+    _otherSessionsEnded = answers.contains(false)
+        ? false
+        : answers.every((a) => a == true)
+        ? true
+        : null;
+    await _reloadAfterRemoval(before.list);
     return RemoveOutcome.removed;
+  }
+
+  /// The user gives up every parked removal ("Don't remove"): each is dropped
+  /// with no call to the server, so the device stays. A refusal (a ref that
+  /// is no longer parked, or one in flight) is reported as a fixed step.
+  Future<void> dropParked() async {
+    for (final ref in List<String>.of(_messaging.parkedRemovals.value)) {
+      try {
+        await _messaging.dropRemoval(ref);
+      } catch (_, stack) {
+        _report('dropRemoval', stack);
+      }
+    }
   }
 
   /// Back to [before]'s list and status, with nothing being removed and no

@@ -390,4 +390,75 @@ void main() {
     await tester.pumpAndSettle();
     expect(o.port.retried, ['r1'], reason: 'one call for two taps');
   });
+
+  testWidgets('a stream error is reported as a fixed draftWatch step', (
+    tester,
+  ) async {
+    final o = await open(tester);
+    final reported = <Object>[];
+    o.rig.onUnexpectedError = (e, _) => reported.add(e);
+    o.port.errorWatchers(ref, StateError('hello secret'));
+    await tester.pumpAndSettle();
+    expect(reported, hasLength(1));
+    expect(reported.single, isA<StateError>());
+    expect((reported.single as StateError).message, 'draftWatch');
+    expect(find.byType(DraftThreadScreen), findsOneWidget);
+  });
+
+  testWidgets('a stream that ends is watched again once; one that ends at '
+      'once waits for the vault status to change', (tester) async {
+    final o = await open(tester);
+    int watches() => o.port.calls.where((c) => c == 'watchThread').length;
+    expect(watches(), 1);
+
+    o.port.endWatchers(ref);
+    await tester.pumpAndSettle();
+    expect(watches(), 2);
+    expect(o.port.watcherCount(ref), 1);
+
+    o.port.endWatchers(ref);
+    await tester.pumpAndSettle();
+    expect(watches(), 2, reason: 'no loop');
+
+    o.device.vaultStatus.value = VaultStatus.keyLost;
+    await tester.pumpAndSettle();
+    o.device.vaultStatus.value = VaultStatus.ready;
+    await tester.pumpAndSettle();
+    expect(watches(), 3);
+    expect(o.port.watcherCount(ref), 1);
+  });
+
+  testWidgets('when the stream ends the old vault\'s rows are not drawn '
+      'while the new stream has not answered', (tester) async {
+    final o = await open(tester);
+    await typeAndSend(tester, 'hello');
+    await tester.pumpAndSettle();
+    o.port.setThread(
+      ref,
+      EncryptedThread(
+        entries: [row(o.port.sent.single.localId)],
+        security: const ConversationSecurity(
+          state: ConversationEncryptionState.ready,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('hello'), findsOneWidget);
+
+    o.port.emitOnWatch = false;
+    o.port.endWatchers(ref);
+    await tester.pumpAndSettle();
+    expect(o.port.watcherCount(ref), 1);
+    expect(find.text('hello'), findsNothing);
+  });
+
+  testWidgets('leaving the screen cancels the watch', (tester) async {
+    final o = await open(tester);
+    o.port.endWatchers(ref);
+    await tester.pumpAndSettle();
+    expect(o.port.watcherCount(ref), 1);
+    o.rig.appRouter.router.go(AppRouter.messagesPath);
+    await tester.pumpAndSettle();
+    expect(o.port.watcherCount(ref), 0);
+  });
 }
