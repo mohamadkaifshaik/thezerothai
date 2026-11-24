@@ -134,7 +134,7 @@ void main() {
       ) async {
         await open(tester, width: width, height: height);
         expect(find.text('1 / 2'), findsOneWidget);
-        expect(find.byTooltip('Close image'), findsOneWidget);
+        expect(find.byTooltip('Close media'), findsOneWidget);
         // A phone swipes; the arrows are for tablet and desktop widths.
         expect(
           find.byTooltip('Next image'),

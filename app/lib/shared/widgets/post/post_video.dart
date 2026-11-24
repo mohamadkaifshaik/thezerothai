@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:material_ui/material_ui.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../../core/theme/app_theme.dart';
+
 /// The poster is the only network asset loaded until the viewer presses play.
 class PostVideo extends StatefulWidget {
   const PostVideo({
@@ -10,8 +12,12 @@ class PostVideo extends StatefulWidget {
     required this.poster,
     this.previewController,
     this.startOnOpen = false,
+    this.onOpen,
+    this.loop = false,
   });
   final VideoPlayerController Function()? previewController;
+  final VoidCallback? onOpen;
+  final bool loop;
   final bool startOnOpen;
   final String url;
   final Widget poster;
@@ -22,6 +28,26 @@ class PostVideo extends StatefulWidget {
 class _PostVideoState extends State<PostVideo> {
   VideoPlayerController? _player;
   bool _failed = false;
+  bool _routeVisible = true;
+  bool _resumeOnReturn = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!widget.startOnOpen) return;
+    final visible = ModalRoute.isCurrentOf(context) ?? true;
+    if (visible == _routeVisible) return;
+    _routeVisible = visible;
+    final player = _player;
+    if (player == null || !player.value.isInitialized) return;
+    if (!visible && player.value.isPlaying) {
+      _resumeOnReturn = true;
+      player.pause();
+    } else if (visible && _resumeOnReturn) {
+      _resumeOnReturn = false;
+      player.play();
+    }
+  }
 
   @override
   void initState() {
@@ -46,9 +72,15 @@ class _PostVideoState extends State<PostVideo> {
       if (!mounted || player != _player) return;
       // Network initialization may outlast the browser's tap activation.
       // Start inline playback muted and let the sound button unmute it.
+      if (widget.loop) await player.setLooping(true);
+      if (!mounted || player != _player) return;
       if (kIsWeb) await player.setVolume(0);
       if (!mounted || player != _player) return;
-      await player.play();
+      if (_routeVisible) {
+        await player.play();
+      } else {
+        _resumeOnReturn = true;
+      }
     } catch (_) {
       if (!mounted || player != _player) return;
       setState(() {
@@ -77,7 +109,7 @@ class _PostVideoState extends State<PostVideo> {
           button: true,
           label: label,
           child: InkWell(
-            onTap: _start,
+            onTap: widget.onOpen ?? _start,
             child: Stack(
               fit: StackFit.expand,
               children: [
@@ -116,7 +148,7 @@ class _PostVideoState extends State<PostVideo> {
           );
         }
         return ColoredBox(
-          color: colors.surface,
+          color: widget.loop ? AppColors.photoBackground : colors.surface,
           child: Stack(
             children: [
               Center(
@@ -128,7 +160,9 @@ class _PostVideoState extends State<PostVideo> {
               Align(
                 alignment: Alignment.bottomCenter,
                 child: ColoredBox(
-                  color: colors.surfaceContainerHigh,
+                  color: widget.loop
+                      ? AppPalette.photoScrim
+                      : colors.surfaceContainerHigh,
                   child: Row(
                     children: [
                       IconButton(

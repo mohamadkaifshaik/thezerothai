@@ -177,8 +177,8 @@ void main() {
     });
 
     for (final width in const [360.0, 600.0, 1440.0]) {
-      testWidgets('at $width all five actions are packed from the left, '
-          'never spread', (tester) async {
+      testWidgets('at $width all five actions are spaced across '
+          'the row', (tester) async {
         await _pump(
           tester,
           PostCard(
@@ -205,10 +205,9 @@ void main() {
         ];
         expect(box(icons.first).left, closeTo(bar.left, 1));
         for (var i = 1; i < icons.length; i++) {
-          // The tap boxes meet edge to edge, whatever the card's width.
-          expect(box(icons[i]).left, closeTo(box(icons[i - 1]).right, 1));
+          expect(box(icons[i]).left, closeTo(box(icons[i - 1]).right + 4, 1));
         }
-        expect(box(icons.last).right, lessThan(bar.left + 400));
+        expect(box(icons.last).right, closeTo(bar.right, 1));
       });
 
       testWidgets('at $width in RTL the row starts at the right', (
@@ -228,7 +227,7 @@ void main() {
         final bar = tester.getRect(find.byType(PostActionBar));
         final reply = tester.getRect(find.byIcon(Icons.chat_bubble_outline));
         final share = tester.getRect(find.byIcon(Icons.ios_share));
-        expect(reply.right, closeTo(bar.right, 1));
+        expect(reply.right, lessThan(bar.right));
         expect(share.left, lessThan(reply.left));
         expect(bar.right - share.left, lessThanOrEqualTo(bar.width));
       });

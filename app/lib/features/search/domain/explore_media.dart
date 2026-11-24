@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 
+import '../../media/domain/processed_image.dart' show kVideoContentType;
+
 import '../../media/domain/media_feature_flag.dart' show kMaxPostImages;
 import '../../../gen/dzeroth/common/v1/common.pb.dart' as common;
 import '../../../gen/dzeroth/posts/v1/posts.pb.dart' show PostView;
@@ -9,9 +11,8 @@ import '../../../gen/dzeroth/posts/v1/posts.pbenum.dart' show PostKind;
 /// Media section: the top 3.
 const kExploreTopTrends = 3;
 
-/// What a media tile shows. Photos only today; a reel or a video tile is a
-/// new value here and a new case in the tile widget, nothing else.
-enum ExploreMediaKind { photo }
+/// The visual treatment for a thumbnail in the media grid.
+enum ExploreMediaKind { photo, video }
 
 /// One tile of Explore's Media section: the first image of a post found under
 /// a trending hashtag. [index] is the 0-based place of [media] in the post.
@@ -45,6 +46,9 @@ ExploreMediaTile? exploreMediaTileOf(PostView view) {
     return ExploreMediaTile(
       postId: post.postId,
       index: i,
+      kind: media.contentType == kVideoContentType
+          ? ExploreMediaKind.video
+          : ExploreMediaKind.photo,
       media: media,
       createdAt: post.hasCreatedAt()
           ? post.createdAt.toDateTime()

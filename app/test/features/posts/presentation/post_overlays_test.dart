@@ -10,6 +10,7 @@ import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.da
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
 import 'package:dzeroth/features/posts/data/posts_repository.dart';
+import 'package:dzeroth/features/search/data/search_repository.dart';
 import 'package:dzeroth/features/posts/presentation/post_photo_screen.dart';
 import 'package:dzeroth/features/posts/presentation/reply_composer_screen.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
@@ -29,6 +30,8 @@ import 'package:mocktail/mocktail.dart';
 import '../../../support/posts_fixtures.dart';
 
 class _Posts extends Mock implements PostsRepository {}
+
+class _Search extends Mock implements SearchRepository {}
 
 class _Onboarding extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
@@ -57,6 +60,7 @@ void main() {
     Size size = const Size(600, 800),
     bool replies = true,
     bool dark = false,
+    SearchRepository? discovery,
   }) async {
     tester.view.resetPhysicalSize();
     tester.view.physicalSize = size;
@@ -67,7 +71,11 @@ void main() {
       onboarding,
       const Stream<OnboardingState>.empty(),
       initialState: OnboardingState(
-        enabledFeatures: {'posts', if (replies) 'replies'},
+        enabledFeatures: {
+          'posts',
+          if (replies) 'replies',
+          if (discovery != null) ...{'search', 'trending_media'},
+        },
         profile: identity.Profile(userId: 'me', handle: 'me'),
       ),
     );
@@ -101,8 +109,12 @@ void main() {
     );
     addTearDown(router.dispose);
     await tester.pumpWidget(
-      RepositoryProvider<PostsRepository>.value(
-        value: posts,
+      MultiRepositoryProvider(
+        providers: [
+          RepositoryProvider<PostsRepository>.value(value: posts),
+          if (discovery != null)
+            RepositoryProvider<SearchRepository>.value(value: discovery),
+        ],
         child: BlocProvider<OnboardingBloc>.value(
           value: onboarding,
           child: RepaintBoundary(
@@ -137,6 +149,54 @@ void main() {
     expect(video.startOnOpen, isTrue);
     expect(find.byIcon(Icons.broken_image_outlined), findsNothing);
   });
+
+  testWidgets(
+    'swiping opens the next video post and releases the previous player',
+    (tester) async {
+      common.MediaRef clip(String name) => common.MediaRef(
+        url: 'https://media.example/$name.mp4',
+        contentType: 'video/mp4',
+      );
+      parent.post.media
+        ..clear()
+        ..add(clip('first'));
+      final next = postView(2, text: 'Second clip')
+        ..post.media.add(clip('second'));
+      when(() => posts.getPost(postId(2))).thenAnswer((_) async => next);
+      final discovery = _Search();
+      when(() => discovery.exploreMedia(pageToken: null)).thenAnswer(
+        (_) async => SearchPostsPage(posts: [parent, postView(3), next, next]),
+      );
+      await open(
+        tester,
+        AppRouter.postPhotoPath(postId(1), 1),
+        discovery: discovery,
+      );
+      await tester.drag(find.byType(PageView), const Offset(0, -560));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<PostVideo>(find.byType(PostVideo, skipOffstage: false))
+            .url,
+        next.post.media.single.url,
+      );
+      expect(find.text('Second clip'), findsOneWidget);
+      expect(
+        tester
+            .widget<IconButton>(
+              find.widgetWithIcon(IconButton, Icons.keyboard_arrow_down),
+            )
+            .onPressed,
+        isNull,
+      );
+      await tester.tap(find.byTooltip('Previous video'));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<PostVideo>(find.byType(PostVideo)).url,
+        parent.post.media.single.url,
+      );
+    },
+  );
 
   test('photo and reply deep links survive authentication', () {
     expect(
@@ -280,7 +340,7 @@ void main() {
   ) async {
     await open(tester, AppRouter.postPhotoPath(postId(1), 9));
     expect(find.text('This image is not available.'), findsOneWidget);
-    await tester.tap(find.byTooltip('Close image'));
+    await tester.tap(find.byTooltip('Close media'));
     await tester.pumpAndSettle();
     expect(find.text('Timeline'), findsOneWidget);
   });
