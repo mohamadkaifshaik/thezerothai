@@ -341,6 +341,11 @@ class ThreadCubit extends Cubit<ThreadState> {
         ),
       );
     }
+    // Decrypted rows do not outlive the vault: once it is not usable the
+    // entries are dropped (they come back with the next thread update).
+    if (port != null && !usable && state.entries.isNotEmpty) {
+      emit(state.copyWith(entries: const []));
+    }
     if (encrypted && port != null && _watch == null) {
       _watch = port
           .watchThread(ThreadRef.conversation(conversationId))

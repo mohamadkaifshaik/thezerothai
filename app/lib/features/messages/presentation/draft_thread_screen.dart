@@ -145,9 +145,23 @@ class _DraftViewState extends State<_DraftView> {
   StreamSubscription<EncryptedThread>? _watch;
   List<EncryptedMessageItem> _rows = const [];
 
+  /// Decrypted rows do not outlive the vault: when its status is not `ready`
+  /// they are dropped and not drawn (they come back with the next update).
+  EncryptionDevice? _device;
+
+  bool get _vaultReady =>
+      _device == null || _device!.vaultStatus.value == VaultStatus.ready;
+
+  void _onVaultStatus() {
+    if (!mounted || _vaultReady || _rows.isEmpty) return;
+    setState(() => _rows = const []);
+  }
+
   @override
   void initState() {
     super.initState();
+    _device = context.read<EncryptionDevice?>();
+    _device?.vaultStatus.addListener(_onVaultStatus);
     _startWatch();
   }
 
@@ -169,10 +183,12 @@ class _DraftViewState extends State<_DraftView> {
     if (!mounted) return;
     setState(() {
       // No system line exists in a thread that has no conversation yet.
-      _rows = buildEncryptedThreadItems(
-        thread.entries,
-        showLines: false,
-      ).whereType<EncryptedMessageItem>().toList(growable: false);
+      _rows = _vaultReady
+          ? buildEncryptedThreadItems(
+              thread.entries,
+              showLines: false,
+            ).whereType<EncryptedMessageItem>().toList(growable: false)
+          : const [];
     });
     final id = thread.conversationId;
     if (id != null) context.read<MessageComposerCubit>().conversationKnown(id);
@@ -180,6 +196,7 @@ class _DraftViewState extends State<_DraftView> {
 
   @override
   void dispose() {
+    _device?.vaultStatus.removeListener(_onVaultStatus);
     unawaited(_watch?.cancel());
     _sideColumn.dispose();
     super.dispose();

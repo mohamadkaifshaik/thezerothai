@@ -154,6 +154,27 @@ void main() {
     expect(find.byType(DraftThreadScreen), findsOneWidget);
   });
 
+  testWidgets('last round item 5: when the vault stops being ready the '
+      'decrypted rows are no longer drawn', (tester) async {
+    final o = await open(tester);
+    await typeAndSend(tester, 'hello');
+    await tester.pumpAndSettle();
+    o.port.setThread(
+      ref,
+      EncryptedThread(
+        entries: [row(o.port.sent.single.localId)],
+        security: const ConversationSecurity(
+          state: ConversationEncryptionState.ready,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('hello'), findsOneWidget);
+    o.device.vaultStatus.value = VaultStatus.keyLost;
+    await tester.pumpAndSettle();
+    expect(find.text('hello'), findsNothing);
+  });
+
   testWidgets('when the conversation id arrives the screen switches to the '
       'thread once', (tester) async {
     final o = await open(tester);
