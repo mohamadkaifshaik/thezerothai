@@ -112,6 +112,12 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
   /// The answer of every `removeDevice` that does not fail (scripted).
   DeviceRemoval nextRemoval = const DeviceRemoval();
 
+  final Map<String, Object> _failRemovalOf = {};
+
+  /// Fails the next `removeDevice` of [ref] (and only that ref) with [error],
+  /// once.
+  void failRemovalOf(String ref, Object error) => _failRemovalOf[ref] = error;
+
   final List<DeviceRemoval> _queuedRemovals = [];
 
   /// Answers for the next `removeDevice` calls that do not fail, one each,
@@ -502,6 +508,8 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
     final hold = holdRemoveDevice;
     if (hold != null) await hold.future;
     try {
+      final forRef = _failRemovalOf.remove(ref);
+      if (forRef != null) throw forRef;
       _throwIfFailing();
     } on ReauthRequiredException {
       // As the port (CR m1): REAUTH_REQUIRED parks the removal first.

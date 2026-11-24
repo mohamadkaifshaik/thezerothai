@@ -15,6 +15,8 @@ const _mine = OwnDevice(
 );
 const _other = OwnDevice(ref: 'ref-other', thisDevice: false);
 
+Future<bool> _yes() async => true;
+
 void main() {
   late FakeEncryptedMessaging port;
   late List<Object> reported;
@@ -81,7 +83,10 @@ void main() {
       addTearDown(c.close);
       await c.load();
       port.calls.clear();
-      expect(await c.remove('ref-other'), RemoveOutcome.removed);
+      expect(
+        await c.remove('ref-other', confirmItsYou: _yes),
+        RemoveOutcome.removed,
+      );
       expect(port.removedDevices, ['ref-other']);
       expect(port.calls, ['removeDevice', 'ownDevices']);
       expect(c.state.removing, isNull);
@@ -95,7 +100,10 @@ void main() {
     await c.load();
     final before = c.state.list;
     port.failNextOn('removeDevice', const NetworkException('x'));
-    expect(await c.remove('ref-other'), RemoveOutcome.failed);
+    expect(
+      await c.remove('ref-other', confirmItsYou: _yes),
+      RemoveOutcome.failed,
+    );
     expect(c.state.list, same(before));
     expect(c.state.error, isA<NetworkException>());
     expect(c.state.removing, isNull);
@@ -107,7 +115,10 @@ void main() {
     addTearDown(c.close);
     await c.load();
     port.failNextOn('ownDevices', const NetworkException('x'));
-    expect(await c.remove('ref-other'), RemoveOutcome.removed);
+    expect(
+      await c.remove('ref-other', confirmItsYou: _yes),
+      RemoveOutcome.removed,
+    );
     expect(c.state.status, EncryptionDevicesStatus.ready);
     expect(c.state.list, isNotNull);
     // An ordinary network error on the reload is not an unexpected error.
@@ -120,7 +131,10 @@ void main() {
     addTearDown(c.close);
     await c.load();
     port.failNextOn('ownDevices', ArgumentError.value('ref-secret'));
-    expect(await c.remove('ref-other'), RemoveOutcome.removed);
+    expect(
+      await c.remove('ref-other', confirmItsYou: _yes),
+      RemoveOutcome.removed,
+    );
     expect(reported.single, isA<StateError>());
     expect(reported.single.toString(), isNot(contains('ref-secret')));
   });
@@ -129,7 +143,7 @@ void main() {
     final c = make();
     addTearDown(c.close);
     await c.load();
-    await c.remove('ref-other');
+    await c.remove('ref-other', confirmItsYou: _yes);
     expect(port.retryDeviceSetupCalls, 0);
   });
 
@@ -139,7 +153,7 @@ void main() {
     await c.load();
     port.calls.clear();
     expect(
-      await c.remove('ref-other', retrySetup: true),
+      await c.remove('ref-other', retrySetup: true, confirmItsYou: _yes),
       RemoveOutcome.removed,
     );
     expect(port.calls, ['removeDevice', 'retryDeviceSetup', 'ownDevices']);
@@ -152,11 +166,14 @@ void main() {
       addTearDown(c.close);
       await c.load();
       port.holdRemoveDevice = Completer<void>();
-      final first = c.remove('ref-other');
+      final first = c.remove('ref-other', confirmItsYou: _yes);
       await Future<void>.delayed(Duration.zero);
       // Not cleared: the fake reads `calls.last` to find the method it serves.
       final callsBefore = port.calls.length;
-      expect(await c.remove('ref-other'), RemoveOutcome.notAttempted);
+      expect(
+        await c.remove('ref-other', confirmItsYou: _yes),
+        RemoveOutcome.notAttempted,
+      );
       expect(port.calls, hasLength(callsBefore));
       port.holdRemoveDevice!.complete();
       expect(await first, RemoveOutcome.removed);
@@ -166,7 +183,10 @@ void main() {
   test('a closed cubit does not attempt a removal', () async {
     final c = make();
     await c.close();
-    expect(await c.remove('ref-other'), RemoveOutcome.notAttempted);
+    expect(
+      await c.remove('ref-other', confirmItsYou: _yes),
+      RemoveOutcome.notAttempted,
+    );
     expect(port.calls, isEmpty);
   });
 
@@ -175,11 +195,14 @@ void main() {
     addTearDown(c.close);
     await c.load();
     port.holdRemoveDevice = Completer<void>();
-    final first = c.remove('ref-other');
+    final first = c.remove('ref-other', confirmItsYou: _yes);
     await Future<void>.delayed(Duration.zero);
     await c.load();
     expect(c.state.removing, 'ref-other');
-    expect(await c.remove('ref-older'), RemoveOutcome.notAttempted);
+    expect(
+      await c.remove('ref-older', confirmItsYou: _yes),
+      RemoveOutcome.notAttempted,
+    );
     port.holdRemoveDevice!.complete();
     await first;
     expect(c.state.removing, isNull);
@@ -200,7 +223,7 @@ void main() {
     final c = make();
     addTearDown(c.close);
     await c.load();
-    await c.remove('ref-other', retrySetup: true);
+    await c.remove('ref-other', retrySetup: true, confirmItsYou: _yes);
     expect(port.retryDeviceSetupCalls, 1);
   });
 
@@ -261,7 +284,10 @@ void main() {
       await pumpEventQueue();
       expect(c.state.removing, isNull);
       expect(c.state.confirming, isTrue);
-      expect(await c.remove('ref-other'), RemoveOutcome.notAttempted);
+      expect(
+        await c.remove('ref-other', confirmItsYou: _yes),
+        RemoveOutcome.notAttempted,
+      );
       expect(port.removedDevices, isEmpty);
       open.complete(true);
       expect(await first, RemoveOutcome.removed);
@@ -306,7 +332,7 @@ void main() {
           final c = make();
           addTearDown(c.close);
           await c.load();
-          await c.remove('ref-other');
+          await c.remove('ref-other', confirmItsYou: _yes);
           expect(c.otherSessionsEnded, answer);
         }
       },
@@ -317,19 +343,22 @@ void main() {
       final c = make();
       addTearDown(c.close);
       await c.load();
-      await c.remove('ref-other');
+      await c.remove('ref-other', confirmItsYou: _yes);
       port.failNextOn('removeDevice', const NetworkException('x'));
-      await c.remove('ref-other');
+      await c.remove('ref-other', confirmItsYou: _yes);
       expect(c.otherSessionsEnded, isNull);
     });
 
-    test('without confirmItsYou the port is called directly', () async {
+    // Item 1 of the last round: `confirmItsYou` is a required parameter, so a
+    // removal without the re-sign-in no longer compiles (nothing to test at
+    // run time); the order below is the rule it enforces.
+    test('every removal asks for the re-sign-in first', () async {
       final c = make();
       addTearDown(c.close);
       await c.load();
       port.calls.clear();
-      expect(await c.remove('ref-other'), RemoveOutcome.removed);
-      expect(port.calls.first, 'removeDevice');
+      await c.remove('ref-other', confirmItsYou: confirm(true));
+      expect(port.calls.first, 'confirmItsYou');
     });
   });
 
@@ -416,6 +445,80 @@ void main() {
       expect(port.parkedRemovals.value, ['ref-other']);
       expect(c.state.error, isNull);
       expect(c.state.removing, isNull);
+    });
+
+    test('a ref that left the parked list during the re-sign-in is not '
+        'sent', () async {
+      port.park(['ref-other', 'ref-third']);
+      final c = make();
+      addTearDown(c.close);
+      await c.load();
+      final outcome = await c.resumeParked(
+        confirmItsYou: () async {
+          await port.dropRemoval('ref-third');
+          return true;
+        },
+      );
+      expect(outcome, RemoveOutcome.removed);
+      expect(port.removedDevices, ['ref-other']);
+    });
+
+    test('a ref parked during the re-sign-in is not sent either: only the '
+        'intersection', () async {
+      port.park(['ref-other']);
+      final c = make();
+      addTearDown(c.close);
+      await c.load();
+      await c.resumeParked(
+        confirmItsYou: () async {
+          port.park(['ref-new']);
+          return true;
+        },
+      );
+      expect(port.removedDevices, ['ref-other']);
+      expect(port.parkedRemovals.value, ['ref-new']);
+    });
+
+    test('everything left the parked list during the re-sign-in: nothing is '
+        'sent', () async {
+      port.park(['ref-other']);
+      final c = make();
+      addTearDown(c.close);
+      await c.load();
+      final outcome = await c.resumeParked(
+        confirmItsYou: () async {
+          await port.dropRemoval('ref-other');
+          return true;
+        },
+      );
+      expect(outcome, RemoveOutcome.notAttempted);
+      expect(port.removedDevices, isEmpty);
+    });
+
+    test('a later failure after an earlier success reloads the list before '
+        'answering failed', () async {
+      port.park(['ref-other', 'ref-third']);
+      final c = make();
+      addTearDown(c.close);
+      await c.load();
+      port.failRemovalOf('ref-third', const NetworkException('x'));
+      port.calls.clear();
+      final outcome = await c.resumeParked(confirmItsYou: confirm(true));
+      expect(outcome, RemoveOutcome.failed);
+      expect(c.state.error, isA<NetworkException>());
+      expect(port.calls.last, 'ownDevices');
+      expect(c.state.list, isNotNull);
+    });
+
+    test('a first failure with nothing removed does not reload', () async {
+      port.park(['ref-other']);
+      final c = make();
+      addTearDown(c.close);
+      await c.load();
+      port.failRemovalOf('ref-other', const NetworkException('x'));
+      port.calls.clear();
+      await c.resumeParked(confirmItsYou: confirm(true));
+      expect(port.calls, isNot(contains('ownDevices')));
     });
 
     test('a failure stops the rest and exposes the typed error', () async {

@@ -143,7 +143,7 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
   /// the typed error); [RemoveOutcome.notAttempted] when the cubit is closed or another removal is running.
   ///
   /// [retrySetup] (the screen sets it only at the 5-device limit) asks the port to register this device again after
-  /// the removal. Order: [confirmItsYou] (when given), remove, retry (when asked), reload.
+  /// the removal. Order: [confirmItsYou] (required), remove, retry (when asked), reload.
   ///
   /// [confirmItsYou] (the screen passes it on every Remove tap; lane D PR 4, ruling 3 and fix round ruling 1) is the
   /// re-sign-in. It runs FIRST, before anything is sent or queued and before the row shows its spinner, so the
@@ -154,16 +154,14 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
   Future<RemoveOutcome> remove(
     String ref, {
     bool retrySetup = false,
-    Future<bool> Function()? confirmItsYou,
+    required Future<bool> Function() confirmItsYou,
   }) async {
     if (isClosed || state.removing != null || _confirming) {
       return RemoveOutcome.notAttempted;
     }
     _otherSessionsEnded = null;
-    if (confirmItsYou != null) {
-      if (!await _confirm(confirmItsYou)) return RemoveOutcome.cancelled;
-      if (isClosed || state.removing != null) return RemoveOutcome.notAttempted;
-    }
+    if (!await _confirm(confirmItsYou)) return RemoveOutcome.cancelled;
+    if (isClosed || state.removing != null) return RemoveOutcome.notAttempted;
     final before = state;
     emit(
       EncryptionDevicesState(
@@ -264,11 +262,20 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
     if (isClosed || state.removing != null || _confirming) {
       return RemoveOutcome.notAttempted;
     }
-    final refs = List<String>.of(_messaging.parkedRemovals.value);
-    if (refs.isEmpty) return RemoveOutcome.notAttempted;
+    final asked = List<String>.of(_messaging.parkedRemovals.value);
+    if (asked.isEmpty) return RemoveOutcome.notAttempted;
     _otherSessionsEnded = null;
     if (!await _confirm(confirmItsYou)) return RemoveOutcome.cancelled;
     if (isClosed || state.removing != null) return RemoveOutcome.notAttempted;
+    // Only what the user was asked about AND is still parked now: a removal
+    // that left the list while the dialog was open (dropped, or sent by
+    // another path) is not sent, and one parked meanwhile was never confirmed.
+    final parkedNow = _messaging.parkedRemovals.value;
+    final refs = [
+      for (final r in asked)
+        if (parkedNow.contains(r)) r,
+    ];
+    if (refs.isEmpty) return RemoveOutcome.notAttempted;
     final before = state;
     final answers = <bool?>[];
     for (final ref in refs) {
@@ -288,11 +295,13 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
         return RemoveOutcome.needsReauth;
       } catch (e, stack) {
         if (e is! AppException) _report('resumeRemoval', stack);
+        // Earlier removals answered: the list must not keep those devices.
+        if (answers.isNotEmpty) await _reloadAfterRemoval(before.list);
         if (!isClosed) {
           emit(
             EncryptionDevicesState(
-              status: before.status,
-              list: before.list,
+              status: state.status,
+              list: state.list ?? before.list,
               removalsPending: state.removalsPending,
               error: e is AppException ? e : null,
             ),
