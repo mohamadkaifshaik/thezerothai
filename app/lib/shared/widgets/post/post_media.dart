@@ -18,6 +18,7 @@ import '../../../gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'alt_text_chip.dart';
 import 'gif_badge.dart';
 import 'post_video.dart';
+import 'post_media_navigation.dart';
 
 /// A post's attached images (0-20), X style, at the full body width (the card
 /// does not indent them to the text column).
@@ -227,6 +228,16 @@ class PostMedia extends StatelessWidget {
   Widget _buildMedia(BuildContext context, List<common.MediaRef> refs) {
     final items = refs.take(kMaxPostImages).toList();
     if (items.isEmpty) return const SizedBox.shrink();
+    VoidCallback? open(int index) {
+      final id = postId;
+      if (items[index].contentType == kVideoContentType &&
+          id != null &&
+          id.isNotEmpty) {
+        return () => openPostVideo(context, id, index);
+      }
+      return onOpenImage == null ? null : () => onOpenImage!(index);
+    }
+
     final wide = MediaQuery.sizeOf(context).width >= AppBreakpoints.mobile;
     final colors = Theme.of(context).colorScheme;
     return LayoutBuilder(
@@ -247,7 +258,7 @@ class PostMedia extends StatelessWidget {
               child: _MediaTile(
                 media: items[index],
                 useFullImage: useFullImage,
-                onOpen: onOpenImage == null ? null : () => onOpenImage!(index),
+                onOpen: open(index),
               ),
             ),
           ),
@@ -275,7 +286,7 @@ class PostMedia extends StatelessWidget {
           showIndicator: showPageIndicator,
           insetStart: insetStart,
           insetEnd: insetEnd,
-          onOpen: onOpenImage,
+          onOpen: onOpenImage == null ? null : (i) => open(i)?.call(),
           tile: (index, size) => tile(index, size, AppRadius.postMediaTile),
         );
       },
@@ -570,6 +581,7 @@ class _MediaTile extends StatelessWidget {
         PostVideo(
           key: ValueKey(media.url),
           url: media.url,
+          onOpen: onOpen,
           poster: media.thumbUrl.isEmpty
               ? ColoredBox(color: colors.surfaceContainerHigh)
               : _networkImage(media.thumbUrl, colors, media: media),

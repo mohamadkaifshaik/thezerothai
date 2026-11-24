@@ -373,7 +373,7 @@ void main() {
     ) async {
       await open(tester);
       expect(chromeOpacity(tester), 1);
-      expect(find.byTooltip('Close image'), findsOneWidget);
+      expect(find.byTooltip('Close media'), findsOneWidget);
 
       await tapPicture(tester);
       expect(chromeOpacity(tester), 0);
@@ -387,7 +387,7 @@ void main() {
     testWidgets('hidden controls take no taps', (tester) async {
       await open(tester);
       await tapPicture(tester);
-      final close = tester.getCenter(find.byTooltip('Close image'));
+      final close = tester.getCenter(find.byTooltip('Close media'));
       await tester.tapAt(close);
       await tester.pump(kDoubleTapTimeout + const Duration(milliseconds: 50));
       // The tap landed on the picture: it only brought the controls back.
@@ -401,10 +401,10 @@ void main() {
     ) async {
       final handle = tester.ensureSemantics();
       await open(tester);
-      expect(labelOf(tester, 'Close image'), contains('Close image'));
+      expect(labelOf(tester, 'Close media'), contains('Close media'));
       expect(labelOf(tester, 'Post your reply'), contains('Post your reply'));
       await tapPicture(tester);
-      expect(labelOf(tester, 'Close image'), isNot(contains('Close image')));
+      expect(labelOf(tester, 'Close media'), isNot(contains('Close media')));
       expect(
         labelOf(tester, 'Post your reply'),
         isNot(contains('Post your reply')),
@@ -423,7 +423,7 @@ void main() {
       tester.semantics.tap(find.semantics.byLabel('Image 1 of 2'));
       await settle(tester);
       expect(chromeOpacity(tester), 1);
-      expect(labelOf(tester, 'Close image'), contains('Close image'));
+      expect(labelOf(tester, 'Close media'), contains('Close media'));
       handle.dispose();
     });
 

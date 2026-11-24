@@ -48,7 +48,7 @@ Icon _icon(WidgetTester tester, IconData data) =>
     tester.widget<Icon>(find.byIcon(data));
 
 void main() {
-  testWidgets('X order: reply, repost, like, views, bookmark, share', (
+  testWidgets('Action order: reply, repost, like, share, bookmark, views', (
     tester,
   ) async {
     await _pump(tester);
@@ -57,9 +57,9 @@ void main() {
       x(Icons.chat_bubble_outline),
       x(Icons.repeat),
       x(Icons.favorite_border),
-      x(kPostViewsIcon),
-      x(Icons.bookmark_border),
       x(Icons.ios_share),
+      x(Icons.bookmark_border),
+      x(kPostViewsIcon),
     ];
     expect(xs, orderedEquals([...xs]..sort()));
     expect(xs.toSet().length, 6);
