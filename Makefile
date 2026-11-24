@@ -45,7 +45,7 @@ EMULATOR_PROJECT := demo-dzeroth-local
 # `bash scripts/...` is a single cmd.exe-safe command line (see dev below).
 EMULATOR_TMP := bash scripts/with-private-tmp.sh
 
-.PHONY: proto ci emulators test-int test-int-shard test-int-cover dev cost loadtest fmt vet test test-shard test-cover buf-check lint flutter-analyze flutter-test help
+.PHONY: proto ci emulators test-int test-int-shard test-int-cover dev cost loadtest fmt vet test test-shard test-cover buf-check lint flutter-analyze flutter-test e2ee-smoke help
 
 help:
 	@echo "Targets: proto ci emulators test-int dev cost loadtest fmt vet test"
@@ -53,6 +53,7 @@ help:
 	@echo "  make flutter-test SHARD=0/3 | make test-int-shard SHARD=0/3 + make test-int-cover   # CI shards (scripts/ci/shard.sh)"
 	@echo "  make loadtest SCENARIO=identity_getme   # runs loadtest/<scenario>.js with k6 (see loadtest/README.md)"
 	@echo "  make cost PROJECT_ID=dzeroth-dev        # also queries live Cloud Logging usage"
+	@echo "  make e2ee-smoke                         # encrypted-messaging smoke test: emulators + real API + Dart scenario (~5 min)"
 	@echo "  make crypto-test                        # MLS core (crypto/): fmt, clippy, host tests"
 	@echo "  make crypto-web                         # build the MLS wasm binding into app/web/mls/ (not committed)"
 	@echo "  make drift-worker                       # rebuild app/web/drift_worker.js from the locked drift source"
@@ -192,6 +193,11 @@ test-int-cover:
 	bash scripts/ci/cover.sh merge $(BACKEND_DIR)/cover-internal.out $(BACKEND_DIR)/cover-internal-shard-*-of-*.out
 	@echo "==> internal/ coverage gate (combined unit + integration, all shards, $(COVERAGE_THRESHOLD)%)"
 	@bash scripts/ci/cover.sh gate $(BACKEND_DIR)/cover-internal.out $(COVERAGE_THRESHOLD) internal/
+
+## e2ee-smoke: the encrypted-messaging pipeline (two users, three devices) against the real API on the emulators.
+e2ee-smoke:
+	$(EMULATOR_TMP) $(FIREBASE) emulators:exec --project $(EMULATOR_PROJECT) --only firestore,auth,pubsub,storage \
+		'bash scripts/e2ee-smoke.sh'
 
 ## dev: emulators + API + Flutter web, all torn down together (Ctrl+C in the flutter run session).
 ## Same reasoning as test-int for FIREBASE_PROJECT_ID; FIRESTORE_EMULATOR_HOST etc. are read by the
