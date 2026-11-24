@@ -158,7 +158,13 @@ class AppWidget extends StatefulWidget {
     this.vaultSession,
     this.encryptionDevice,
     this.encryptedMessaging,
+    this.e2eeFlagApplied,
   });
+
+  /// Ticks after the vault session applied an `e2ee_dm` answer (the flag
+  /// wiring's completion): the status re-reads the session's plain getters
+  /// then, not when the answer arrives (fix round F).
+  final Listenable? e2eeFlagApplied;
 
   /// Plan 5b Task 14: the vault session (the reset screen reads it), the
   /// read-only device facts, and the encrypted messaging port. All null in
@@ -439,7 +445,7 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
 
   bool _e2eeFlagOn() =>
       widget.onboardingBloc.state.enabledFeatures.contains(kFeatureE2eeDm);
-  bool? _lastE2eeFlag;
+  Set<String>? _lastEnabledFeatures;
   StreamSubscription<OnboardingState>? _e2eeFlagSub;
 
   /// The flag set may have changed (the status reads the flag, `mayStart`
@@ -453,11 +459,26 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
     }
   }
 
+  /// Any change of the enabled features re-reads the access (not only the
+  /// `e2ee_dm` bit: `dm_share_check` and the others are read live too).
   void _onE2eeFlagStream(OnboardingState state) {
-    final on = state.enabledFeatures.contains(kFeatureE2eeDm);
-    if (on == _lastE2eeFlag) return;
-    _lastE2eeFlag = on;
+    final features = state.enabledFeatures;
+    final last = _lastEnabledFeatures;
+    if (last != null &&
+        last.length == features.length &&
+        last.containsAll(features)) {
+      return;
+    }
+    _lastEnabledFeatures = {...features};
     _encryptionAccessMayHaveChanged();
+  }
+
+  /// The status's own listener covers a vault status change (it refreshes);
+  /// this only drops previews the vault no longer backs, also off screen.
+  void _onVaultStatus() {
+    if (widget.encryptionDevice != null && !_previewsAllowed()) {
+      _conversations.encryptionAccessLost();
+    }
   }
 
   // The "Turn on notifications" card's memory: one "Not now" per
@@ -604,7 +625,19 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
         _lastUnread = 0;
         _lastUnreadConversations = 0;
       })
-      ..register('push', () => unawaited(widget.pushCubit.stop()));
+      ..register('push', () => unawaited(widget.pushCubit.stop()))
+      // Encryption (fix round D): what the previous account's session left in
+      // memory, so the next one starts clean. The device's "unavailable for
+      // long", the reset run's unseen outcome and the status's dismissals.
+      ..register(
+        'encryption device',
+        () => widget.encryptionDevice?.resetForAccount(),
+      )
+      ..register('encryption reset run', () => _resetHolder?.reset())
+      ..register(
+        'encryption status',
+        () => _encryptionStatus?.resetDismissals(),
+      );
   }
 
   /// Sign-out or a switch of account: forget the previous account.
@@ -703,9 +736,10 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
     // Plan 5b Task 14: only with a device (a tree without the wiring has
     // nothing to refresh and subscribes to nothing).
     if (widget.encryptionDevice case final device?) {
-      _lastE2eeFlag = _e2eeFlagOn();
+      _lastEnabledFeatures = {...widget.onboardingBloc.state.enabledFeatures};
       _e2eeFlagSub = widget.onboardingBloc.stream.listen(_onE2eeFlagStream);
-      device.vaultStatus.addListener(_encryptionAccessMayHaveChanged);
+      device.vaultStatus.addListener(_onVaultStatus);
+      widget.e2eeFlagApplied?.addListener(_encryptionAccessMayHaveChanged);
     }
     // The probe answering, or messaging turning out to be globally off.
     widget.messagingRepository.gate.addListener(_onMessagingAccess);
@@ -860,9 +894,8 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
     _onboardingSub.cancel();
     _publicIdsSub?.cancel();
     _e2eeFlagSub?.cancel();
-    widget.encryptionDevice?.vaultStatus.removeListener(
-      _encryptionAccessMayHaveChanged,
-    );
+    widget.encryptionDevice?.vaultStatus.removeListener(_onVaultStatus);
+    widget.e2eeFlagApplied?.removeListener(_encryptionAccessMayHaveChanged);
     unawaited(_encryptionStatus?.close());
     _resetHolder?.dispose();
     unawaited(_postSender.dispose());

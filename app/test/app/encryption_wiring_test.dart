@@ -3,12 +3,20 @@ import 'dart:async';
 import 'package:bloc_test/bloc_test.dart';
 import 'package:drift/native.dart';
 import 'package:dzeroth/app/app_widget.dart';
+import 'package:dzeroth/app/session_encryption_device.dart';
+import 'package:dzeroth/app/session_wiring.dart' show wireE2eeFlag;
+import 'package:dzeroth/core/router/app_router.dart';
+import 'package:dzeroth/features/keys/domain/device_keys_service.dart';
+import 'package:dzeroth/features/settings/presentation/encryption_settings_screen.dart';
+import 'package:dzeroth/features/settings/presentation/reset_encryption_screen.dart';
+import 'package:go_router/go_router.dart';
 import 'package:dzeroth/core/network/rate_limit_hold.dart';
 import 'package:dzeroth/core/storage/app_database.dart';
 import 'package:dzeroth/core/vault/vault_session.dart';
 import 'package:dzeroth/core/vault/vault_status.dart';
 import 'package:dzeroth/features/account/data/account_repository.dart';
 import 'package:dzeroth/features/auth/data/auth_repository.dart';
+import 'package:dzeroth/features/auth/domain/app_user.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
@@ -48,6 +56,7 @@ import 'package:mocktail/mocktail.dart';
 import '../support/fake_encrypted_messaging.dart';
 import '../support/fake_encryption_device.dart';
 import '../support/fake_network_type_service.dart';
+import '../support/fake_vault_world.dart';
 import '../support/fake_push_messaging.dart';
 import '../support/media_fixtures.dart' show MockMediaRepository;
 import '../support/messaging_fixtures.dart';
@@ -165,11 +174,24 @@ void main() {
     bool withPort = true,
     bool withDevice = true,
     bool withVault = true,
+    VaultSession? vaultSession,
+    String? signedInUid,
+    Listenable? flagApplied,
+    EncryptionDevice? adapter,
   }) async {
     whenListen(
       authBloc,
       authStates.stream,
-      initialState: const AuthState(status: AuthStatus.unauthenticated),
+      initialState: signedInUid == null
+          ? const AuthState(status: AuthStatus.unauthenticated)
+          : AuthState(
+              status: AuthStatus.authenticated,
+              user: AppUser(
+                uid: signedInUid,
+                emailVerified: true,
+                isPasswordProvider: false,
+              ),
+            ),
     );
     whenListen(
       onboardingBloc,
@@ -202,8 +224,13 @@ void main() {
         likesRepository: _MockLikes(),
         pushCubit: push,
         unreadBadgeCubit: unreadBadge,
-        vaultSession: withEncryption && withVault ? _MockVaultSession() : null,
-        encryptionDevice: withEncryption && withDevice ? device : null,
+        vaultSession: withEncryption && withVault
+            ? vaultSession ?? _MockVaultSession()
+            : null,
+        e2eeFlagApplied: flagApplied,
+        encryptionDevice: withEncryption && withDevice
+            ? adapter ?? device
+            : null,
         encryptedMessaging: withEncryption && withPort ? port : null,
       ),
     );
@@ -228,14 +255,26 @@ void main() {
       expect(context.read<EncryptionStatusCubit?>(), isNull);
     });
 
-    testWidgets('the hoisted inbox takes no port and calls nothing', (
-      tester,
-    ) async {
-      await pump(
-        tester,
-        onboarding: ready(flags: {e2ee}),
-        withEncryption: false,
+    testWidgets('the hoisted inbox takes no port without a device (a port '
+        'is provided, the device is not) and calls nothing', (tester) async {
+      await pump(tester, onboarding: ready(flags: {e2ee}), withDevice: false);
+      expect(tree(tester).read<EncryptedMessaging?>(), same(port));
+      when(() => messagingRepo.refreshConversations(any())).thenAnswer(
+        (_) async => ConversationsResult(
+          ConversationsSnapshot(
+            conversations: [
+              threadConv(id: hexId(0xc1))
+                ..encryption =
+                    ConversationEncryption.CONVERSATION_ENCRYPTION_MLS,
+            ],
+          ),
+        ),
       );
+      final cubit = tree(tester)
+          .read<ConversationsSession>()
+          .cubitFor(Folder.FOLDER_INBOX);
+      await tester.runAsync(cubit.load);
+      expect(cubit.state.conversations, isNotEmpty);
       expect(port.calls, isEmpty);
     });
   });
@@ -384,6 +423,159 @@ void main() {
       await tester.pump();
       expect(cubit.state.previews, isEmpty);
       expect(cubit.state.knownEncrypted, isEmpty);
+    });
+  });
+
+  AuthState signedInAs(String uid) => AuthState(
+    status: AuthStatus.authenticated,
+    user: AppUser(uid: uid, emailVerified: true, isPasswordProvider: false),
+  );
+
+  group('fix round D: per-account state', () {
+    testWidgets('an account switch resets the device adapter, the reset '
+        'holder and the status dismissals', (tester) async {
+      device.historyLostThisOpen = true;
+      final vault = _MockVaultSession();
+      when(() => vault.resetByUser()).thenAnswer((_) async => true);
+      await pump(
+        tester,
+        onboarding: ready(flags: {e2ee}),
+        vaultSession: vault,
+        signedInUid: 'u1',
+      );
+      final context = tree(tester);
+      final status = context.read<EncryptionStatusCubit>();
+      final holder = context.read<ResetEncryptionHolder>();
+      status.dismissHistoryLost();
+      expect(status.state.historyLost, isFalse);
+      await tester.runAsync(() async {
+        await holder.cubit.run();
+        await Future<void>.delayed(Duration.zero);
+      });
+      expect(holder.cubit.state, ResetEncryptionPhase.done);
+      expect(device.resetForAccountCalls, 0);
+
+      authStates.add(signedInAs('u2'));
+      await tester.pump();
+
+      expect(device.resetForAccountCalls, 1);
+      expect(status.state.historyLost, isTrue);
+      expect(holder.cubit.state, ResetEncryptionPhase.idle);
+      expect(holder.attach(), isNull);
+    });
+  });
+
+  group('fix round F: the status follows the session applying the flag', () {
+    testWidgets('unknown to on with a ready vault: the status ends with '
+        'mayStart true (a refresh at answer time would read the old flag)', (
+      tester,
+    ) async {
+      final world = FakeVaultWorld();
+      // An earlier launch made the vault (the marker says one is here); this
+      // launch opens it before the flag answer is known.
+      await tester.runAsync(
+        () => world.launch().onSignedIn('user-a', flag: E2eeFlag.on),
+      );
+      final session = world.launch();
+      final applied = ValueNotifier<int>(0);
+      final adapter = SessionEncryptionDevice(
+        session: session,
+        deviceKeys: ValueNotifier(DeviceKeysStatus.dormant),
+        engineUnavailable: ValueNotifier(false),
+      );
+      addTearDown(adapter.dispose);
+      await tester.runAsync(
+        () => session.onSignedIn('user-a', flag: E2eeFlag.unknown),
+      );
+      expect(session.status.value, VaultStatus.ready);
+      final sub = wireE2eeFlag(
+        states: onboardingStates.stream,
+        uidOf: (_) => 'user-a',
+        vaultSession: session,
+        onFlagOnWithOpenVault: () {},
+        onFlagApplied: () => applied.value++,
+      );
+      addTearDown(sub.cancel);
+      device = FakeEncryptionDevice();
+      await pump(
+        tester,
+        onboarding: ready(),
+        flagApplied: applied,
+        adapter: adapter,
+      );
+      final status = tree(tester).read<EncryptionStatusCubit>();
+      expect(status.state.mayStart, isFalse);
+      await tester.runAsync(() async {
+        onboardingStates.add(ready(flags: {e2ee}));
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+      });
+      await tester.pump();
+      expect(session.mayStart, isTrue);
+      expect(status.state.mayStart, isTrue);
+    });
+
+    testWidgets('a change of another enabled feature also refreshes the '
+        'status', (tester) async {
+      await pump(tester, onboarding: ready(flags: {e2ee}));
+      final status = tree(tester).read<EncryptionStatusCubit>();
+      var emitted = 0;
+      final sub = status.stream.listen((_) => emitted++);
+      addTearDown(sub.cancel);
+      onboardingStates.add(ready(flags: {e2ee, 'dm_share_check'}));
+      await tester.pump();
+      expect(emitted, 1);
+      // The same set again: nothing.
+      onboardingStates.add(ready(flags: {e2ee, 'dm_share_check'}));
+      await tester.pump();
+      expect(emitted, 1);
+    });
+  });
+
+  group('fix round H: through AppWidget', () {
+    testWidgets('the port, the device and the reset holder reach a route '
+        'pushed above the router (the modal search panel)', (tester) async {
+      await pump(tester, onboarding: ready(flags: {e2ee}));
+      EncryptedMessaging? seenPort;
+      ResetEncryptionHolder? seenHolder;
+      unawaited(
+        showModalBottomSheet<void>(
+          context: tree(tester),
+          builder: (c) {
+            seenPort = c.read<EncryptedMessaging?>();
+            seenHolder = c.read<ResetEncryptionHolder?>();
+            return const SizedBox();
+          },
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(seenPort, same(port));
+      expect(seenHolder, isNotNull);
+    });
+
+    testWidgets('the encryption Settings page builds from the provided '
+        'objects', (tester) async {
+      await pump(
+        tester,
+        onboarding: ready(flags: {e2ee}),
+        signedInUid: 'u1',
+      );
+      GoRouter.of(tree(tester)).go(AppRouter.encryptionSettingsPath);
+      await tester.pumpAndSettle();
+      expect(find.byType(EncryptionSettingsScreen), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    // (The vault status listener calling encryptionAccessLost is covered by
+    // the fix round C test above.)
+    testWidgets('dispose removes every listener from the device', (
+      tester,
+    ) async {
+      await pump(tester, onboarding: ready(flags: {e2ee}));
+      final before = device.vaultStatus.listenerCount;
+      expect(before, greaterThanOrEqualTo(2));
+      await tester.pumpWidget(const SizedBox());
+      expect(device.vaultStatus.listenerCount, 0);
     });
   });
 }

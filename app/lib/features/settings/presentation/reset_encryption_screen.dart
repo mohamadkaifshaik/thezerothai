@@ -104,7 +104,9 @@ class ResetEncryptionHolder {
       final finished =
           phase == ResetEncryptionPhase.done ||
           phase == ResetEncryptionPhase.failed;
-      if (finished && _attached == 0) _unseen = phase;
+      // Only a state that is still finished: a stale event of an outcome
+      // that attach already handed over (or reset forgot) is not kept.
+      if (finished && _attached == 0 && cubit.state == phase) _unseen = phase;
     });
     return cubit;
   }
@@ -112,15 +114,37 @@ class ResetEncryptionHolder {
   /// A screen starts showing the run. Returns an outcome that arrived while
   /// no screen was attached (once), and re-arms a finished run.
   ResetEncryptionPhase? attach() {
+    // The cubit's own state is read too: an outcome emitted but not yet
+    // delivered to the stream listener (it lands a microtask later) is still
+    // unseen. A screen that saw its outcome is detached with the state
+    // re-armed (see [detach]), so a state that is finished here was not seen.
+    var unseen = _unseen;
+    final current = _cubit?.state;
+    if (unseen == null && _attached == 0 && _isFinished(current)) {
+      unseen = current;
+    }
     _attached++;
-    final unseen = _unseen;
     _unseen = null;
     _cubit?.rearm();
     return unseen;
   }
 
+  static bool _isFinished(ResetEncryptionPhase? phase) =>
+      phase == ResetEncryptionPhase.done ||
+      phase == ResetEncryptionPhase.failed;
+
   void detach() {
     if (_attached > 0) _attached--;
+    // The last screen saw whatever the run ended with: back to idle, so a
+    // later attach does not hand it over a second time.
+    if (_attached == 0) _cubit?.rearm();
+  }
+
+  /// Per-account reset (fix round D): an outcome of the previous account's
+  /// run is not shown to the next one.
+  void reset() {
+    _unseen = null;
+    _cubit?.rearm();
   }
 
   void dispose() {

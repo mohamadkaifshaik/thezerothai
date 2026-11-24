@@ -1879,6 +1879,87 @@ void main() {
     });
   });
 
+  // Fix round G (security M3): the reset capability. `VaultSession` is
+  // provided to the tree for the reset screen alone; the holder that runs the
+  // reset is named only by that screen's file and by AppWidget (which makes
+  // and provides it); no other file reads the session from the tree or drives
+  // the holder's run.
+  group('the reset capability stays with the reset screen', () {
+    Map<String, int> hits(Map<String, String> lib, RegExp pattern) => {
+      for (final e in lib.entries)
+        if (pattern
+            .allMatches(stripSource(e.value, keepStrings: false))
+            .isNotEmpty)
+          e.key: pattern
+              .allMatches(stripSource(e.value, keepStrings: false))
+              .length,
+    };
+
+    final holder = RegExp(r'(?<![\w$])ResetEncryptionHolder(?![\w$])');
+    final sessionRead = RegExp(r'(?:read|watch)\s*<\s*VaultSession\b');
+    final holderRun = RegExp(r'\.cubit\s*\??\s*\.run\s*\(');
+    const appWidget = 'lib/app/app_widget.dart';
+
+    test('ResetEncryptionHolder is named only by the reset screen and '
+        'AppWidget', () {
+      expect(hits(_lib(), holder).keys.toSet(), {_resetScreen, appWidget});
+    });
+
+    test('the VaultSession is read from the tree only by the reset screen', () {
+      expect(hits(_lib(), sessionRead).keys.toSet(), {_resetScreen});
+    });
+
+    test(
+      'the holder\'s cubit is run from no file outside the reset screen',
+      () {
+        expect(
+          hits(_lib(), holderRun).keys.where((k) => k != _resetScreen),
+          isEmpty,
+        );
+      },
+    );
+
+    test('self-test: each pattern flags a planted use, and not a comment or '
+        'a string', () {
+      expect(
+        hits({
+          'lib/x.dart': 'final h = ResetEncryptionHolder(session: s);',
+        }, holder),
+        {'lib/x.dart': 1},
+      );
+      expect(
+        hits({
+          'lib/x.dart':
+              "// ResetEncryptionHolder\nfinal s = 'ResetEncryptionHolder';",
+        }, holder),
+        isEmpty,
+      );
+      expect(
+        hits({
+          'lib/x.dart': 'final v = context.read<VaultSession>();',
+        }, sessionRead),
+        {'lib/x.dart': 1},
+      );
+      expect(
+        hits({'lib/x.dart': 'context.watch<VaultSession?>()'}, sessionRead),
+        {'lib/x.dart': 1},
+      );
+      expect(
+        hits({
+          'lib/x.dart': 'final v = context.read<VaultStatus>();',
+        }, sessionRead),
+        isEmpty,
+      );
+      expect(hits({'lib/x.dart': 'await holder.cubit.run();'}, holderRun), {
+        'lib/x.dart': 1,
+      });
+      expect(hits({'lib/x.dart': 'await holder?.cubit?.run();'}, holderRun), {
+        'lib/x.dart': 1,
+      });
+      expect(hits({'lib/x.dart': '// holder.cubit.run()'}, holderRun), isEmpty);
+    });
+  });
+
   group('flag-off inertness stays pinned by tests', () {
     // A meta-test: these tests assert that with the flag off and no vault
     // nothing shows and nothing is called. Brittle by design; if one is

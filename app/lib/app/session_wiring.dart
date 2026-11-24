@@ -143,6 +143,9 @@ E2eeFlag? knownE2eeFlag(OnboardingState s) {
       : E2eeFlag.off;
 }
 
+/// [onFlagApplied] runs after EVERY forwarded answer has been applied by the
+/// session (fix round F), also when it changed nothing.
+///
 /// Forwards each KNOWN `e2ee_dm` answer to [vaultSession] for the user the
 /// state was emitted for ([uidOf]; ignored by the session when that user is
 /// not its user when it runs). A failed GetMe never turns a known answer into
@@ -158,6 +161,7 @@ StreamSubscription<OnboardingState> wireE2eeFlag({
   required String? Function(OnboardingState state) uidOf,
   required VaultSession vaultSession,
   required void Function() onFlagOnWithOpenVault,
+  void Function()? onFlagApplied,
 }) {
   String? lastUid;
   E2eeFlag? lastAnswer;
@@ -175,6 +179,9 @@ StreamSubscription<OnboardingState> wireE2eeFlag({
     lastAnswer = answer;
     unawaited(
       vaultSession.onFlagChanged(answer, uid: uid).then((_) {
+        // The session now holds the new answer (`flag`, `mayStart`): whoever
+        // reads them as plain getters (the encryption status) re-reads them.
+        onFlagApplied?.call();
         if (turnedOn && vaultSession.vault != null) {
           onFlagOnWithOpenVault();
         }

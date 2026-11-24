@@ -348,10 +348,14 @@ Future<void> bootstrap() async {
   // Bound to the user each state was EMITTED for; when the answer turns the
   // flag on with a vault open, device upkeep resumes at once (the ready hook
   // ran at the sign-in open, before the answer, and found the gate closed).
+  // Ticks after the session applied each answer (the encryption status reads
+  // `flag` and `mayStart` as plain getters, which change only then).
+  final e2eeFlagApplied = ValueNotifier<int>(0);
   wireE2eeFlag(
     states: onboardingBloc.stream,
     uidOf: onboardingBloc.uidOf,
     vaultSession: vaultSession,
+    onFlagApplied: () => e2eeFlagApplied.value++,
     // Gate item 29: the device first, the pipeline's start second.
     onFlagOnWithOpenVault: () => unawaited(
       flagTurnedOnWithOpenVault(
@@ -792,6 +796,7 @@ Future<void> bootstrap() async {
       ),
       vaultSession: vaultSession,
       encryptionDevice: encryptionDevice,
+      e2eeFlagApplied: e2eeFlagApplied,
       encryptedMessaging: encryptedMessaging,
     ),
   );

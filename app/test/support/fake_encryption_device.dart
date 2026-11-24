@@ -61,6 +61,12 @@ class FakeEncryptionDevice implements EncryptionDevice {
 
   int retryOpenCalls = 0;
 
+  /// How many times the per-account reset ran.
+  int resetForAccountCalls = 0;
+
+  @override
+  void resetForAccount() => resetForAccountCalls++;
+
   @override
   Future<void> retryOpen() async {
     retryOpenCalls++;

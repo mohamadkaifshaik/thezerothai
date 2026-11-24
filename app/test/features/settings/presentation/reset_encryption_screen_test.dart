@@ -697,6 +697,38 @@ void main() {
       expect(h.attach(), isNull);
     });
 
+    test('fix round G: an outcome that lands between the emit and the '
+        'listener is still delivered by attach (it reads the state)', () async {
+      final hold = Completer<bool>();
+      final s = _MockVaultSession();
+      when(() => s.resetByUser()).thenAnswer((_) => hold.future);
+      final h = ResetEncryptionHolder(session: s);
+      addTearDown(h.dispose);
+      unawaited(h.cubit.run());
+      hold.complete(true);
+      // The run's continuation emitted `done`; the holder's stream listener
+      // has not run yet (its event is a later microtask).
+      await hold.future;
+      expect(h.cubit.state, ResetEncryptionPhase.done);
+      expect(h.attach(), ResetEncryptionPhase.done);
+      expect(h.cubit.state, ResetEncryptionPhase.idle);
+      await Future<void>.delayed(Duration.zero);
+      h.detach();
+      expect(h.attach(), isNull);
+    });
+
+    test('fix round D: reset forgets an unseen outcome and re-arms', () async {
+      final s = _MockVaultSession();
+      when(() => s.resetByUser()).thenAnswer((_) async => true);
+      final h = ResetEncryptionHolder(session: s);
+      addTearDown(h.dispose);
+      await h.cubit.run();
+      await Future<void>.delayed(Duration.zero);
+      h.reset();
+      expect(h.cubit.state, ResetEncryptionPhase.idle);
+      expect(h.attach(), isNull);
+    });
+
     test('attach never re-arms a run that is still going', () async {
       final hold = Completer<bool>();
       final s = _MockVaultSession();

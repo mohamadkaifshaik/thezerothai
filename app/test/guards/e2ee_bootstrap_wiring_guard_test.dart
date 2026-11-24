@@ -112,6 +112,20 @@ final _required = <String, RegExp>{
   'the port is passed to AppWidget (5b Task 14)': RegExp(
     r'AppWidget\([^;]*\bencryptedMessaging:\s*encryptedMessaging\b',
   ),
+  // Fix round H: the other objects the screens read, and the flag
+  // completion that refreshes the status.
+  'the vault session is passed to AppWidget (5b Task 14)': RegExp(
+    r'AppWidget\([^;]*\bvaultSession:\s*vaultSession\b',
+  ),
+  'the encryption device is passed to AppWidget (5b Task 14)': RegExp(
+    r'AppWidget\([^;]*\bencryptionDevice:\s*encryptionDevice\b',
+  ),
+  'the flag completion reaches AppWidget (fix round F)': RegExp(
+    r'AppWidget\([^;]*\be2eeFlagApplied:\s*e2eeFlagApplied\b',
+  ),
+  'wireE2eeFlag(... onFlagApplied) (fix round F)': RegExp(
+    r'wireE2eeFlag\([^;]*?\bonFlagApplied:',
+  ),
 };
 
 final _declaration = RegExp(

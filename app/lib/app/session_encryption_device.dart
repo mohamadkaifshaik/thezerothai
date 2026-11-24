@@ -31,14 +31,19 @@ const String kUnavailableSinceKey = 'account:e2ee_unavailable_since';
 /// or a web storage the vault does not accept) it can never become true.
 ///
 /// `vaultKnown` (plan checklist, PR 1 review): there is no listenable for it
-/// (it lives in `core/vault`, which this change does not touch). ACCEPTED in
-/// writing: it changes together with a status change on every path but one
-/// (the sign-in marker re-read failing into a status that may already be
-/// `unavailable`); there, with the flag off, the access builder can show
-/// `hidden` instead of `manage` until the next status change. Why accepted: the
-/// next status change (a retry, a resume or a sign-in) corrects it, nothing
-/// readable is wrongly shown, and the alternative needs a change in the vault
-/// layer, which is gated.
+/// (it lives in `core/vault`, which this change does not touch). It changes
+/// together with a status change on every path but one (the sign-in marker
+/// re-read failing into a status that may already be `unavailable`); there,
+/// with the flag off, the access builder can show `hidden` instead of
+/// `manage` until the next status change.
+///
+/// What this accepts, and what it does not. Accepted: only what is SHOWN can
+/// lag (a screen drawing `hidden` for a moment, a Settings row missing); the
+/// next status change (a retry, a resume, a sign-in) corrects it. NOT covered
+/// by this acceptance: sends. A send never depends on `hidden`: the composer,
+/// the draft and the share always go through the provided port, which fails
+/// closed for a conversation that is encrypted (fix round A). The limit is
+/// theirs to keep, not this comment's.
 ///
 /// Never references `resetByUser`, `onSessionEnded` or `noteAccountDeleted`.
 class SessionEncryptionDevice implements EncryptionDevice {
@@ -122,17 +127,50 @@ class SessionEncryptionDevice implements EncryptionDevice {
     return _queue;
   }
 
+  /// Per-account reset (fix round D): a switch to another account must not
+  /// keep the previous one's "unavailable for long" or its queued work.
+  /// Queued steps made before this call are dropped; the stored time is the
+  /// cache wipe's business (the `account:` prefix).
+  @override
+  void resetForAccount() {
+    if (_disposed) return;
+    _generation++;
+    _unavailableLong.value = false;
+  }
+
   void _statusChanged() {
     final database = _database;
     if (database == null || _disposed) return;
     final status = _session.status.value;
     if (status != VaultStatus.unavailable && status != VaultStatus.ready) {
+      // Any status but `unavailable` ends the "long" text (the unavailable
+      // run is over); the stored time stays, only `ready` deletes it (the
+      // launch's first statuses are `off`, then `opening`).
+      _unavailableLong.value = false;
       return;
     }
-    _queue = _queue.then((_) => _process(database, status));
+    // Captured now, so a write that lands after a sign-out is dropped (R4).
+    final epoch = database.sessionEpoch.value;
+    final generation = _generation;
+    _queue = _queue.then((_) async {
+      if (_disposed || generation != _generation) return;
+      try {
+        await _process(database, status, epoch, generation);
+      } on Object catch (_, stack) {
+        // Fixed error: no value, no key, no clock reading is carried.
+        _onUnexpectedError?.call(StateError('unavailableSince'), stack);
+      }
+    });
   }
 
-  Future<void> _process(AppDatabase database, VaultStatus status) async {
+  int _generation = 0;
+
+  Future<void> _process(
+    AppDatabase database,
+    VaultStatus status,
+    int epoch,
+    int generation,
+  ) async {
     if (_disposed) return;
     if (status == VaultStatus.ready) {
       try {
@@ -140,7 +178,9 @@ class SessionEncryptionDevice implements EncryptionDevice {
       } on Object catch (_, stack) {
         _onUnexpectedError?.call(StateError('unavailableSince.clear'), stack);
       }
-      if (!_disposed) _unavailableLong.value = false;
+      if (!_disposed && generation == _generation) {
+        _unavailableLong.value = false;
+      }
       return;
     }
     final String? stored;
@@ -150,13 +190,17 @@ class SessionEncryptionDevice implements EncryptionDevice {
       _onUnexpectedError?.call(StateError('unavailableSince.read'), stack);
       return;
     }
-    final parsed = _parse(stored);
+    final nowAt = _now();
+    final parsed = _parse(stored, nowAt);
     if (parsed == null) {
+      // Flag off and no vault here: nothing to wait for, so the clock does
+      // not start and nothing is written (flag-off inertness).
+      if (!(vaultKnown || mayStart)) return;
       try {
         await database.writeAccountSetting(
           kUnavailableSinceKey,
-          '$_launchId|${_now().microsecondsSinceEpoch}',
-          epoch: database.sessionEpoch.value,
+          '$_launchId|${nowAt.microsecondsSinceEpoch}',
+          epoch: epoch,
         );
       } on Object catch (_, stack) {
         _onUnexpectedError?.call(StateError('unavailableSince.write'), stack);
@@ -169,16 +213,22 @@ class SessionEncryptionDevice implements EncryptionDevice {
     );
     final long =
         parsed.launch != _launchId &&
-        !_now().isBefore(since.add(kUnavailableNamesSignOutAfter));
-    if (!_disposed && long) _unavailableLong.value = true;
+        !nowAt.isBefore(since.add(kUnavailableNamesSignOutAfter));
+    if (!_disposed && generation == _generation && long) {
+      _unavailableLong.value = true;
+    }
   }
 
-  static ({String launch, int micros})? _parse(String? value) {
+  /// A stored value that is malformed, not positive or later than [now] is
+  /// treated as absent (a clock set back, a damaged cache): it is replaced,
+  /// never trusted.
+  static ({String launch, int micros})? _parse(String? value, DateTime now) {
     if (value == null) return null;
     final at = value.indexOf('|');
     if (at <= 0) return null;
     final micros = int.tryParse(value.substring(at + 1));
-    if (micros == null) return null;
+    if (micros == null || micros <= 0) return null;
+    if (micros > now.microsecondsSinceEpoch) return null;
     return (launch: value.substring(0, at), micros: micros);
   }
 

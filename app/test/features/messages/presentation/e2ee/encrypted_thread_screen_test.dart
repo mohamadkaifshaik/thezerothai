@@ -259,11 +259,12 @@ void main() {
   });
 
   // Carried item 7: an open in-chat search panel (it holds decrypted hits in
-  // memory) does not outlive the thread it was opened from. A direct account
-  // switch leaves the thread for another location (the router's redirect), and
-  // a sheet pushed from the thread's page goes with that page.
+  // memory) does not outlive the thread it was opened from. This drives the
+  // router to another location (what an account switch's redirect does; the
+  // account switch itself is not driven here), and a sheet pushed from the
+  // thread's page goes with that page.
   testWidgets('an open search panel closes when the router leaves the '
-      'thread (a direct account switch)', (tester) async {
+      'thread', (tester) async {
     final r = await open(
       tester,
       entries: [entry('e1', 'first secret')],

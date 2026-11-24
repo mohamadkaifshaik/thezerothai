@@ -208,6 +208,134 @@ void main() {
       },
     );
   });
+
+  group('fix round D and E', () {
+    Future<SessionEncryptionDevice> launchUnavailable(String launch) async {
+      world.cipherUnavailable.add(_a);
+      final session = world.launch();
+      final device = adapt(session, launch);
+      await session.onSignedIn(_a, flag: E2eeFlag.on);
+      await device.idle;
+      return device;
+    }
+
+    test('a stored time in the future is treated as absent', () async {
+      final future = clock.add(const Duration(days: 400));
+      await db.writeSetting(_key, 'l0|${future.microsecondsSinceEpoch}');
+      final device = await launchUnavailable('l1');
+      addTearDown(device.dispose);
+      expect(device.unavailableLong.value, isFalse);
+      expect(await db.readSetting(_key), startsWith('l1|'));
+    });
+
+    test(
+      'a stored time that is zero or negative is treated as absent',
+      () async {
+        await db.writeSetting(_key, 'l0|-5');
+        final device = await launchUnavailable('l1');
+        addTearDown(device.dispose);
+        expect(device.unavailableLong.value, isFalse);
+        expect(await db.readSetting(_key), startsWith('l1|'));
+      },
+    );
+
+    test('any other failure in the queue step reports one fixed '
+        'StateError and the queue keeps working', () async {
+      await db.writeSetting(
+        _key,
+        'l0|${clock.subtract(const Duration(days: 3)).microsecondsSinceEpoch}',
+      );
+      var throwNow = true;
+      world.cipherUnavailable.add(_a);
+      final session = world.launch();
+      final device = SessionEncryptionDevice(
+        session: session,
+        deviceKeys: deviceKeys,
+        engineUnavailable: engine,
+        database: db,
+        now: () {
+          if (throwNow) throw StateError('secret clock detail');
+          return clock;
+        },
+        launchId: 'l1',
+        onUnexpectedError: (e, _) => reported.add(e),
+      );
+      addTearDown(device.dispose);
+      await session.onSignedIn(_a, flag: E2eeFlag.on);
+      await device.idle;
+      expect(reported, hasLength(1));
+      expect((reported.single as StateError).message, 'unavailableSince');
+      throwNow = false;
+      await device.recheck();
+      expect(device.unavailableLong.value, isTrue);
+    });
+
+    test('flag off and no vault: the 24 h clock is not started', () async {
+      final session = _MockSession();
+      when(() => session.status)
+          .thenReturn(ValueNotifier(VaultStatus.unavailable));
+      when(() => session.vaultKnown).thenReturn(false);
+      when(() => session.mayStart).thenReturn(false);
+      final device = adapt(session, 'l1');
+      addTearDown(device.dispose);
+      await device.idle;
+      expect(await db.readSetting(_key), isNull);
+    });
+
+    test('a status other than unavailable clears unavailableLong and '
+        'keeps the stored time', () async {
+      final first = await launchUnavailable('l1');
+      first.dispose();
+      clock = clock.add(kUnavailableNamesSignOutAfter);
+      world.cipherUnavailable.add(_a);
+      final session = world.launch();
+      final second = adapt(session, 'l2');
+      addTearDown(second.dispose);
+      await session.onSignedIn(_a, flag: E2eeFlag.on);
+      await second.idle;
+      expect(second.unavailableLong.value, isTrue);
+      world.cipherUnavailable.clear();
+      await session.retry();
+      await second.idle;
+      // Not ready (or it is): only `ready` may delete; a plain non-ready
+      // status leaves the key. Drive one directly.
+      (session.status as ValueNotifier<VaultStatus>).value =
+          VaultStatus.opening;
+      await second.idle;
+      expect(second.unavailableLong.value, isFalse);
+    });
+
+    test(
+      'resetForAccount clears unavailableLong and drops queued work',
+      () async {
+        final first = await launchUnavailable('l1');
+        first.dispose();
+        clock = clock.add(kUnavailableNamesSignOutAfter);
+        final second = await launchUnavailable('l2');
+        addTearDown(second.dispose);
+        expect(second.unavailableLong.value, isTrue);
+        second.resetForAccount();
+        expect(second.unavailableLong.value, isFalse);
+        await second.idle;
+        expect(second.unavailableLong.value, isFalse);
+      },
+    );
+
+    test('a write after sign-out is dropped (the epoch is captured when '
+        'the status changed)', () async {
+      world.cipherUnavailable.add(_a);
+      final session = world.launch();
+      final device = adapt(session, 'l1');
+      addTearDown(device.dispose);
+      final signing = session.onSignedIn(_a, flag: E2eeFlag.on);
+      // The status listener ran during onSignedIn; end the session before the
+      // queued step gets to write.
+      await signing;
+      db.sessionEpoch.end();
+      await device.idle;
+      expect(await db.readSetting(_key), isNull);
+    });
+  });
 }
 
 /// An [AppDatabase] whose `readSetting` throws (a cache failure).

@@ -163,6 +163,17 @@ void main() {
     },
   );
 
+  test('resetDismissals (an account switch) shows the history line again '
+      'for the next account', () async {
+    device.historyLostThisOpen = true;
+    final cubit = make();
+    cubit.dismissHistoryLost();
+    expect(cubit.state.historyLost, isFalse);
+    cubit.resetDismissals();
+    expect(cubit.state.historyLost, isTrue);
+    await cubit.close();
+  });
+
   test('dismissHistoryLost hides it until the cubit is recreated', () async {
     device.historyLostThisOpen = true;
     var cubit = make();
