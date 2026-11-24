@@ -252,6 +252,20 @@ void main() {
       expect(context.read<EncryptionStatusCubit?>(), isNotNull);
     });
 
+    testWidgets('a platform with no vault (iOS): a device, no port: the '
+        'access is unsupported, the nullable port reads as null and the '
+        'status shows nothing', (tester) async {
+      device.vaultStatus.value = VaultStatus.unsupported;
+      await pump(tester, onboarding: ready(flags: {e2ee}), withPort: false);
+      final context = tree(tester);
+      expect(EncryptionAccessBuilder.of(context), EncryptionAccess.unsupported);
+      expect(context.read<EncryptedMessaging?>(), isNull);
+      expect(
+        context.read<EncryptionStatusCubit>().state.kind,
+        EncryptionStatusKind.none,
+      );
+    });
+
     testWidgets('the access is manage with the flag off and a known vault', (
       tester,
     ) async {

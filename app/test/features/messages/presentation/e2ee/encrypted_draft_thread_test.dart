@@ -271,6 +271,33 @@ void main() {
     expect(find.text(kMessagesNotEncryptedText), findsNothing);
   });
 
+  // Plan 5b Task 14 (thread review item 6), DECISION: opening a draft for a
+  // person the vault already has a conversation with switches to that
+  // conversation at once (the thread is where the user continues; a draft
+  // screen over an existing conversation would show a different, empty
+  // thread). The draft's in-memory outbox scope is dropped by that switch:
+  // it can only hold plain "Not sent" rows of an earlier first message, which
+  // are session memory and are never sent behind the port's back. Nothing is
+  // sent by the switch.
+  testWidgets('a person the vault already has a conversation with: the draft '
+      'switches to that conversation once and sends nothing', (tester) async {
+    final o = await open(tester);
+    o.port.setThread(
+      ref,
+      EncryptedThread(
+        conversationId: kThreadId,
+        security: ConversationSecurity(
+          state: ConversationEncryptionState.ready,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(o.rig.path, AppRouter.messagePath(kThreadId));
+    expect(find.byType(DraftThreadScreen), findsNothing);
+    expect(o.port.calls, isNot(contains('send')));
+    expect(o.rig.server.sends, isEmpty);
+  });
+
   testWidgets('a second tap on a retrying draft row sends nothing more', (
     tester,
   ) async {
