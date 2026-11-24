@@ -222,14 +222,23 @@ class _DevicesView extends StatelessWidget {
         outcome == RemoveOutcome.cancelled) {
       return;
     }
+    // `other_sessions_ended` keys the text only with `device_sign_out` on,
+    // read now (the flag may have changed while the removal ran); a null
+    // answer, or the flag off, gives the plain text that claims nothing about
+    // the other sessions.
+    final ended =
+        context.mounted &&
+            featureEnabledSnapshot(context, kFeatureDeviceSignOut)
+        ? cubit.otherSessionsEnded
+        : null;
     messenger
       ..hideCurrentSnackBar()
       ..showSnackBar(
         SnackBar(
           content: Text(switch (outcome) {
-            // `other_sessions_ended` is not passed on by the port yet
-            // (Task 13-ii): the plain text until it is.
-            RemoveOutcome.removed => deviceRemovedText(),
+            RemoveOutcome.removed => deviceRemovedText(
+              otherSessionsEnded: ended,
+            ),
             // N5: still outside the sign-in window after the second
             // "Confirm it's you": about the sign-in, not conversations.
             RemoveOutcome.needsReauth => kDeviceRemoveReauthFailedText,

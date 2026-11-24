@@ -745,6 +745,35 @@ void main() {
       await tester.pumpAndSettle();
       expect(port.removedDevices, ['ref-older']);
     });
+
+    // Plan 5b Task 14b item 4: the answer of `removeDevice` keys the result
+    // text, but only with device_sign_out on (read live).
+    for (final c in <(bool, bool?, String)>[
+      (true, true, kDeviceRemovedSessionsEnded),
+      (true, false, kDeviceRemovedSessionsKept),
+      (true, null, kDeviceRemovedText),
+      (false, true, kDeviceRemovedText),
+      (false, false, kDeviceRemovedText),
+      (false, null, kDeviceRemovedText),
+    ]) {
+      testWidgets('device_sign_out ${c.$1 ? 'on' : 'off'} with other_sessions_'
+          'ended ${c.$2}: the result is the right text', (tester) async {
+        await pump(tester, deviceSignOut: c.$1);
+        port.nextRemoval = DeviceRemoval(otherSessionsEnded: c.$2);
+        await openAndConfirmRemove(tester);
+        for (final text in [
+          kDeviceRemovedSessionsEnded,
+          kDeviceRemovedSessionsKept,
+          kDeviceRemovedText,
+        ]) {
+          expect(
+            find.text(text),
+            text == c.$3 ? findsOneWidget : findsNothing,
+            reason: text,
+          );
+        }
+      });
+    }
   });
 
   test('the removed result is keyed on other_sessions_ended', () {

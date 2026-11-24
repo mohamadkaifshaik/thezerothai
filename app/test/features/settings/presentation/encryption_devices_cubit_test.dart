@@ -298,6 +298,31 @@ void main() {
       expect(c.state.list, isNotNull);
     });
 
+    test(
+      'the removal answer is kept: other_sessions_ended true, false, null',
+      () async {
+        for (final answer in [true, false, null]) {
+          port.nextRemoval = DeviceRemoval(otherSessionsEnded: answer);
+          final c = make();
+          addTearDown(c.close);
+          await c.load();
+          await c.remove('ref-other');
+          expect(c.otherSessionsEnded, answer);
+        }
+      },
+    );
+
+    test('a failed removal keeps no answer', () async {
+      port.nextRemoval = const DeviceRemoval(otherSessionsEnded: true);
+      final c = make();
+      addTearDown(c.close);
+      await c.load();
+      await c.remove('ref-other');
+      port.failNextOn('removeDevice', const NetworkException('x'));
+      await c.remove('ref-other');
+      expect(c.otherSessionsEnded, isNull);
+    });
+
     test('without confirmItsYou the port is called directly', () async {
       final c = make();
       addTearDown(c.close);
@@ -305,6 +330,147 @@ void main() {
       port.calls.clear();
       expect(await c.remove('ref-other'), RemoveOutcome.removed);
       expect(port.calls.first, 'removeDevice');
+    });
+  });
+
+  group('parked removals', () {
+    Future<bool> Function() confirm(bool answer) => () async {
+      port.calls.add('confirmItsYou');
+      return answer;
+    };
+
+    test('the re-sign-in runs before removeDevice, once, then every parked '
+        'ref is sent', () async {
+      port.park(['ref-other', 'ref-third']);
+      final c = make();
+      addTearDown(c.close);
+      await c.load();
+      port.calls.clear();
+      final outcome = await c.resumeParked(confirmItsYou: confirm(true));
+      expect(outcome, RemoveOutcome.removed);
+      expect(port.calls.take(3), [
+        'confirmItsYou',
+        'removeDevice',
+        'removeDevice',
+      ]);
+      expect(port.calls.where((x) => x == 'confirmItsYou'), hasLength(1));
+      expect(port.removedDevices, ['ref-other', 'ref-third']);
+      expect(port.parkedRemovals.value, isEmpty);
+      expect(port.needsReauth.value, isFalse);
+    });
+
+    test('a declined re-sign-in never calls removeDevice and keeps the '
+        'removals parked', () async {
+      port.park(['ref-other']);
+      final c = make();
+      addTearDown(c.close);
+      await c.load();
+      port.calls.clear();
+      expect(
+        await c.resumeParked(confirmItsYou: confirm(false)),
+        RemoveOutcome.cancelled,
+      );
+      expect(port.calls, ['confirmItsYou']);
+      expect(port.removedDevices, isEmpty);
+      expect(port.parkedRemovals.value, ['ref-other']);
+    });
+
+    test('a re-sign-in that throws is a cancel, reported as a fixed step, '
+        'and sends nothing', () async {
+      port.park(['ref-other']);
+      final c = make();
+      addTearDown(c.close);
+      await c.load();
+      final outcome = await c.resumeParked(
+        confirmItsYou: () async => throw StateError('ref-secret'),
+      );
+      expect(outcome, RemoveOutcome.cancelled);
+      expect(port.removedDevices, isEmpty);
+      expect(reported.single.toString(), isNot(contains('ref-secret')));
+    });
+
+    test('nothing parked is nothing attempted, and asks nothing', () async {
+      final c = make();
+      addTearDown(c.close);
+      await c.load();
+      port.calls.clear();
+      expect(
+        await c.resumeParked(confirmItsYou: confirm(true)),
+        RemoveOutcome.notAttempted,
+      );
+      expect(port.calls, isEmpty);
+    });
+
+    test('REAUTH_REQUIRED again is needsReauth: the removal stays parked and '
+        'no error shows', () async {
+      port.park(['ref-other']);
+      final c = make();
+      addTearDown(c.close);
+      await c.load();
+      port.failNextOn(
+        'removeDevice',
+        const ReauthRequiredException('Please sign in again.'),
+      );
+      final outcome = await c.resumeParked(confirmItsYou: confirm(true));
+      expect(outcome, RemoveOutcome.needsReauth);
+      expect(port.parkedRemovals.value, ['ref-other']);
+      expect(c.state.error, isNull);
+      expect(c.state.removing, isNull);
+    });
+
+    test('a failure stops the rest and exposes the typed error', () async {
+      port.park(['ref-other', 'ref-third']);
+      final c = make();
+      addTearDown(c.close);
+      await c.load();
+      port.failNextOn('removeDevice', const NetworkException('x'));
+      final outcome = await c.resumeParked(confirmItsYou: confirm(true));
+      expect(outcome, RemoveOutcome.failed);
+      expect(c.state.error, isA<NetworkException>());
+      expect(port.removedDevices, ['ref-other']);
+    });
+
+    test('the answer is true only when every removal says true; any false is '
+        'false; an unknown one is null', () async {
+      for (final (first, second, want) in <(bool?, bool?, bool?)>[
+        (true, true, true),
+        (true, false, false),
+        (false, null, false),
+        (true, null, null),
+      ]) {
+        port = FakeEncryptedMessaging()
+          ..setOwnDevices(const OwnDeviceList(devices: [_mine, _other]))
+          ..park(['ref-other', 'ref-third']);
+        port.queueRemovals([
+          DeviceRemoval(otherSessionsEnded: first),
+          DeviceRemoval(otherSessionsEnded: second),
+        ]);
+        final c = make();
+        addTearDown(c.close);
+        await c.load();
+        await c.resumeParked(confirmItsYou: confirm(true));
+        expect(c.otherSessionsEnded, want, reason: '$first $second');
+      }
+    });
+
+    test('dropParked drops every parked ref with no removal call', () async {
+      port.park(['ref-other', 'ref-third']);
+      final c = make();
+      addTearDown(c.close);
+      await c.dropParked();
+      expect(port.droppedRemovals, ['ref-other', 'ref-third']);
+      expect(port.removedDevices, isEmpty);
+      expect(port.needsReauth.value, isFalse);
+    });
+
+    test('a failing drop is reported as a fixed step, never the ref', () async {
+      port.park(['ref-secret']);
+      port.failNextOn('dropRemoval', StateError('ref-secret'));
+      final c = make();
+      addTearDown(c.close);
+      await c.dropParked();
+      expect(reported.single, isA<StateError>());
+      expect(reported.single.toString(), isNot(contains('ref-secret')));
     });
   });
 }

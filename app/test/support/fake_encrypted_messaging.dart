@@ -112,6 +112,13 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
   /// The answer of every `removeDevice` that does not fail (scripted).
   DeviceRemoval nextRemoval = const DeviceRemoval();
 
+  final List<DeviceRemoval> _queuedRemovals = [];
+
+  /// Answers for the next `removeDevice` calls that do not fail, one each,
+  /// then [nextRemoval] again.
+  void queueRemovals(List<DeviceRemoval> answers) =>
+      _queuedRemovals.addAll(answers);
+
   /// Call logs (recorded before a scripted failure throws).
   final List<String> discardedUnsent = [];
   final List<(String, String)> deletedUnreadable = [];
@@ -503,7 +510,7 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
     }
     // As the port (CR m1): a removal that went through is no longer parked.
     _unpark(ref);
-    return nextRemoval;
+    return _queuedRemovals.isEmpty ? nextRemoval : _queuedRemovals.removeAt(0);
   }
 
   void _unpark(String ref) {
