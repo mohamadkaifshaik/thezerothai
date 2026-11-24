@@ -771,16 +771,18 @@ void _scenario() {
       // arms one timer for its next clock moment on the pipeline's timer
       // seam. The smoke clock cannot fire a real timer, so the device's seam
       // (SmokeDevice._arm) remembers the moment each timer is due, and
-      // `fireDueTimers` runs those the advanced clock has reached; the watch
-      // is never closed and re-opened.
-      b2.fireDueTimers();
+      // `fireTimersNear` runs ONLY the one armed for the reset moment (not
+      // every due timer of B2's pipeline, which could re-emit the thread by
+      // another path); the watch is never closed and re-opened.
+      b2.fireTimersNear(resetMoment);
       await w.eventually(
         "B2's open watch shows the reset offer",
         () async => tb2.latest?.security.canReset ?? false,
         // Only the timer path: no push, which would re-emit the thread by
         // itself.
-        nudge: () async => b2.fireDueTimers(),
+        nudge: () async => b2.fireTimersNear(resetMoment),
       );
+      expect(tb2.latest?.security.canReset, isTrue);
       await b2.port.resetConversation(conv);
 
       // The plan's assertions, for the parties in the group after the reset.

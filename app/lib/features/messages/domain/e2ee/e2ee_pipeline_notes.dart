@@ -38,6 +38,7 @@ extension _PipelineNotes on E2eePipeline {
   void _dropAllNotes() {
     _notedEncrypted.clear();
     _notedAccepted.clear();
+    _notedRows.clear();
     _notedDeleted.clear();
     _notedPushes.clear();
     _owedDiscards.clear();
@@ -177,6 +178,25 @@ extension _PipelineNotes on E2eePipeline {
     }
   }
 
+  /// Whether a server row is one the pipeline takes: it says its
+  /// conversation is encrypted, or the known set already holds the id.
+  bool _takesServerRow(pb.Conversation row, _Parts? parts) =>
+      isEncryptedRow(row) ||
+      (parts != null &&
+          parts.known.isLoadedFor(parts.vault) &&
+          parts.known.contains(row.id));
+
+  /// Remembers [row] (the latest of its conversation wins; bounded).
+  void _rememberRow(pb.Conversation row, bool fromList) {
+    if (!_claimNotes()) return;
+    _notedRows
+      ..remove(row.id)
+      ..[row.id] = (row: row, fromList: fromList);
+    while (_notedRows.length > kPipelineNotesMax) {
+      _notedRows.remove(_notedRows.keys.first);
+    }
+  }
+
   /// At start, before the coordinator's sequence: the remembered ids join
   /// the known set (gate item 24). The remembered deletes were made at
   /// vault ready ([_applyDeletes]).
@@ -211,6 +231,13 @@ extension _PipelineNotes on E2eePipeline {
     }
     for (final id in pushes) {
       _inRoot(() => _pushed(parts, id));
+    }
+    // The server rows of the window, as sights (their encrypted hints are
+    // above; `note` only queues what follows).
+    final rows = [..._notedRows.values];
+    _notedRows.clear();
+    for (final r in rows) {
+      parts.contexts.note(r.row, keepPeer: true, fromList: r.fromList);
     }
     if (_inboxOwed) {
       _inboxOwed = false;

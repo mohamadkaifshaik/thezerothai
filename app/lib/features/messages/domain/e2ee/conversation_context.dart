@@ -36,6 +36,14 @@ class ConversationContext {
   /// set from a decrypted message.
   bool acceptedSightingHeld = false;
 
+  /// A full sight (a server row, [ConversationContexts.note] without
+  /// `peerOnly`) of this conversation was taken in this run.
+  bool fullSightSeen = false;
+
+  /// The thread's refresh was already asked to be a first-page read in this
+  /// run (`E2eePipeline.wantsFirstPage` answers true once per run).
+  bool firstPageAsked = false;
+
   /// The thread cannot be answered (the server said CANNOT_MESSAGE, a block
   /// or the like): [canReply] is false, and a held acceptance sighting is
   /// forgotten (the conversation is not one to settle).
@@ -334,6 +342,9 @@ class ConversationContexts {
   ConversationContext of(String conversationId) =>
       _byId.putIfAbsent(conversationId, ConversationContext.new);
 
+  /// Whether a context exists for [conversationId] (never creates one).
+  bool has(String conversationId) => _byId.containsKey(conversationId);
+
   /// Task 9 brief amendment 1 (Task 13 wires it to
   /// `MembershipUpkeep.noteAcceptedSeen`): called, synchronously, with the
   /// conversation id each time a `ListMessages` header or an inbox row says
@@ -373,8 +384,16 @@ class ConversationContexts {
   /// run already holds, e.g. from the first page the pipeline itself read).
   ///
   /// A full row is a sight: a held acceptance sighting is forgotten when it
-  /// does not say ACCEPTED, or says the thread cannot be answered
-  /// (`can_reply` false: a block, a deleted account; review m2).
+  /// does not say ACCEPTED. `requestAccepted` is a pure server fact: an
+  /// ACCEPTED sight is held and settled whatever `can_reply` says
+  /// (`can_reply` is false for a blocked or deleted peer and for every row
+  /// of a user whose blocked-by list overflowed, fail-closed on the server;
+  /// refusing to hold on it would bring the lost-sighting defect back for
+  /// those users, and commits stay gated on [ConversationContext.canReply]).
+  ///
+  /// [fromList]: the row is from a `ListConversations` answer, which never
+  /// raises `can_reply` (the list says true for a suspended peer where the
+  /// thread header says false); only a first-page header does.
   ///
   /// The caller is the repository's completion path, or a pipeline read
   /// right after its RPC: never inside a `runWrite` body, and never waiting
@@ -383,6 +402,7 @@ class ConversationContexts {
     pb.Conversation row, {
     bool peerOnly = false,
     bool keepPeer = false,
+    bool fromList = false,
   }) {
     if (row.id.isEmpty) return;
     final c = of(row.id);
@@ -392,11 +412,15 @@ class ConversationContexts {
       c.peerUserId = row.peer.userId;
     }
     if (peerOnly) return;
-    if (row.state != ConversationState.CONVERSATION_STATE_ACCEPTED ||
-        !row.canReply) {
+    c.fullSightSeen = true;
+    if (row.state != ConversationState.CONVERSATION_STATE_ACCEPTED) {
       c.acceptedSightingHeld = false;
     }
-    c.canReply = row.canReply;
+    if (!fromList) {
+      c.canReply = row.canReply;
+    } else if (!row.canReply) {
+      c.canReply = false;
+    }
     if (row.folder == Folder.FOLDER_REQUESTS) {
       c
         ..incomingRequest = true
@@ -407,11 +431,24 @@ class ConversationContexts {
         ..incomingRequest = false
         ..requestSeenInHeader = false;
     }
+    // A row with no peer reference (the inbox lists the sender of a request
+    // whose recipient account was erased as ACCEPTED while the thread header
+    // says REQUEST) is no acceptance sight. A sight already held is not
+    // handed over again (the next catch-up applies it).
     if (row.state == ConversationState.CONVERSATION_STATE_ACCEPTED &&
-        !c.acceptanceSettled) {
+        !c.acceptanceSettled &&
+        !c.acceptedSightingHeld &&
+        row.hasPeer() &&
+        row.peer.userId.isNotEmpty) {
       onAcceptedSeen?.call(row.id);
     }
-    onRowNoted?.call(row);
+    // The removal queue and the directory follow the resulting `can_reply`
+    // (a list row never raised it), not the row's own field.
+    onRowNoted?.call(
+      row.canReply == c.canReply
+          ? row
+          : (row.deepCopy()..canReply = c.canReply),
+    );
   }
 
   /// The app resumed: no conversation's own engine hold is kept.

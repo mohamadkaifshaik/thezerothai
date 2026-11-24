@@ -201,6 +201,12 @@ class E2eePipeline {
   final LinkedHashSet<String> _notedEncrypted = LinkedHashSet();
   final LinkedHashSet<String> _notedAccepted = LinkedHashSet();
 
+  /// Server rows (`noteServerRow`) that arrived before the pipeline started:
+  /// the latest of each conversation, replayed through `note` after the
+  /// start. Memory only; the account tag is [_notesUser].
+  final LinkedHashMap<String, ({pb.Conversation row, bool fromList})>
+  _notedRows = LinkedHashMap();
+
   /// Each remembered delete: its time and (fix wave ruling 6, security
   /// audit L3) the newest stored message's time when the user deleted, or
   /// null when that could not be read then (read at the delete instead).
@@ -594,6 +600,7 @@ class E2eePipeline {
     _notedEncrypted.clear();
     _notedAccepted.clear();
     _notedPushes.clear();
+    _notedRows.clear();
   }
 
   // -------------------------------------------------------------------------
@@ -642,11 +649,54 @@ class E2eePipeline {
   /// vault read, no state). Called from the repository's completion path,
   /// outside every `runWrite` body and conversation lock; `note` only queues
   /// what follows and waits for nothing.
-  void noteServerRow(pb.Conversation row) {
-    if (_disposed) return;
+  ///
+  /// Only rows of an encrypted conversation are taken: the row says it is
+  /// (`isEncryptedRow`) or the known set already holds the id. Any other
+  /// row returns at once and creates no context (a page of plaintext
+  /// conversations costs nothing here).
+  ///
+  /// Review I3, as [noteAccepted]: while there are no parts or the pipeline
+  /// is not [started], the row is remembered (bounded, the latest row of a
+  /// conversation wins, account-tagged, dropped at session end) and replayed
+  /// through `note` right after the coordinator starts; nothing of
+  /// `onAcceptedSeen` or `onRowNoted` runs before.
+  ///
+  /// [fromList]: the row came from a `ListConversations` answer (never
+  /// raises `can_reply`), not from a first-page `ListMessages` header.
+  void noteServerRow(pb.Conversation row, bool fromList) {
+    if (_disposed || row.id.isEmpty) return;
     final parts = _parts;
-    if (parts == null || !parts.live) return;
-    parts.contexts.note(row, keepPeer: true);
+    if (!_takesServerRow(row, parts)) return;
+    if (parts == null || !parts.live || !started) {
+      _rememberRow(row, fromList);
+      return;
+    }
+    parts.contexts.note(row, keepPeer: true, fromList: fromList);
+  }
+
+  /// `MessagingRepository.wantsFirstPage`: whether a thread's next refresh
+  /// should be a first-page read, so its header reaches [noteServerRow]. True
+  /// only with live parts, for a conversation in the known (encrypted) set
+  /// whose context had no full sight in this run and whose acceptance is not
+  /// settled, and at most once per conversation and run (marked when asked,
+  /// so a failing read does not turn every refresh into a cold open).
+  /// Memory only: no vault read, no context for an unknown conversation.
+  bool wantsFirstPage(String conversationId) {
+    if (_disposed || conversationId.isEmpty) return false;
+    final parts = _parts;
+    if (parts == null || !parts.live) return false;
+    if (!parts.known.isLoadedFor(parts.vault) ||
+        !parts.known.contains(conversationId)) {
+      return false;
+    }
+    final context = parts.contexts.of(conversationId);
+    if (context.firstPageAsked ||
+        context.fullSightSeen ||
+        context.acceptanceSettled) {
+      return false;
+    }
+    context.firstPageAsked = true;
+    return true;
   }
 
   /// `MessagingRepository.onConversationBlocked` (the user blocked the peer

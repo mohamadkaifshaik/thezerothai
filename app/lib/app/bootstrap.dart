@@ -689,7 +689,8 @@ Future<void> bootstrap() async {
       // The rows the app reads from the server anyway are the pipeline's
       // acceptance sightings; a block forgets a held one.
       ..onServerConversationRow = pipeline.noteServerRow
-      ..onConversationBlocked = pipeline.noteBlocked;
+      ..onConversationBlocked = pipeline.noteBlocked
+      ..wantsFirstPage = pipeline.wantsFirstPage;
     // Gate item 67: a message push pulls its conversation (welcomes only
     // without one). Lives as long as the app.
     forwardMessagePushes(

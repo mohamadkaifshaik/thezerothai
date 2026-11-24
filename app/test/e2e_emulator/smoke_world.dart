@@ -562,7 +562,8 @@ class SmokeDevice {
       ..onRequestAccepted = pipeline.noteAccepted
       ..onConversationDeleted = pipeline.noteDeleted
       ..onServerConversationRow = pipeline.noteServerRow
-      ..onConversationBlocked = pipeline.noteBlocked;
+      ..onConversationBlocked = pipeline.noteBlocked
+      ..wantsFirstPage = pipeline.wantsFirstPage;
     _running = true;
     await session.onSignedIn(user.uid, flag: E2eeFlag.on);
     for (final t in threads.values) {
@@ -597,6 +598,24 @@ class SmokeDevice {
   /// The moments (on the clients' clock) of the pipeline timers armed and
   /// not yet fired or cancelled.
   List<DateTime> get armedAt => [for (final a in _armed) a.at];
+
+  /// Runs, now, only the pipeline timers armed for a moment within
+  /// [within] of [moment] that the clients' clock has reached (so a test
+  /// proves one timer, not every due one).
+  void fireTimersNear(
+    DateTime moment, {
+    Duration within = const Duration(minutes: 1),
+  }) {
+    final now = world.clock.now();
+    for (final a in [..._armed]) {
+      if (now.isBefore(a.at) || a.at.difference(moment).abs() > within) {
+        continue;
+      }
+      _armed.remove(a);
+      a.timer.cancel();
+      a.run();
+    }
+  }
 
   /// Runs, now, every pipeline timer whose moment the clients' clock has
   /// reached (call after [SmokeClock.advance]).

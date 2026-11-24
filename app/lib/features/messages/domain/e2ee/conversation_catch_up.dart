@@ -69,18 +69,22 @@ extension _CatchUp on ConversationCrypto {
   /// the inbox and requests answers and a thread's first page, which the
   /// repository reports (`MessagingRepository.onServerConversationRow`,
   /// the pipeline's `noteServerRow`) and [ConversationContexts.note] takes.
+  /// A thread open reads a first page only when its refresh is asked to
+  /// (`wantsFirstPage`, once per conversation and run); otherwise it is a
+  /// since poll, which carries no header.
   Future<void> _settleAcceptanceSightLocked(_Operation pass, String id) async {
     final context = _contexts.of(id);
     if (context.acceptanceSettled || !pass.live) return;
     final held = context.acceptedSightingHeld;
     try {
-      final groups = await pass.vault.groups(id);
       final record = await pass.vault.conversation(id);
       if (record?.sync.requestAccepted ?? false) {
         context.acceptanceSettled = true;
         return;
       }
-      if (held && (record != null || groups.isNotEmpty)) {
+      // The groups only matter to a held sighting with no record.
+      if (held &&
+          (record != null || (await pass.vault.groups(id)).isNotEmpty)) {
         context.acceptedSightingHeld = false;
         _contexts.onAcceptedSeen?.call(id);
       }

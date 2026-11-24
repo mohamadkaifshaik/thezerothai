@@ -1,3 +1,4 @@
+import 'package:dzeroth/features/keys/domain/device_keys_service.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_crypto.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
@@ -119,7 +120,7 @@ void main() {
       try {
         await restarted(h);
 
-        h.pipeline.noteServerRow(_row(_c1));
+        h.pipeline.noteServerRow(_row(_c1), false);
         await h.settle();
 
         expect(await accepted(h.rig, _c1), isTrue);
@@ -266,7 +267,7 @@ void main() {
         expect(h.pipeline.hasParts, isFalse);
         final reads = h.rig.device.groupsReads;
 
-        h.pipeline.noteServerRow(_row(_c1));
+        h.pipeline.noteServerRow(_row(_c1), true);
         h.pipeline.noteBlocked(_c1);
         await h.settle();
 
@@ -289,17 +290,8 @@ void main() {
       expect(rig.contexts.of(_c1).acceptedSightingHeld, isFalse);
     });
 
-    test('by a full row that says the thread cannot be answered', () {
-      rig.contexts.of(_c1).acceptedSightingHeld = true;
-
-      rig.contexts.note(_row(_c1, canReply: false));
-
-      expect(rig.contexts.of(_c1).acceptedSightingHeld, isFalse);
-      expect(rig.contexts.of(_c1).canReply, isFalse);
-    });
-
-    test('not by a peer-only row, nor by an ACCEPTED row that can be '
-        'answered', () {
+    test('not by a peer-only row, nor by any ACCEPTED row, whatever its '
+        'can_reply says (acceptance is a pure server fact)', () {
       rig.contexts.of(_c1).acceptedSightingHeld = true;
 
       rig.contexts.note(_row(_c1, canReply: false), peerOnly: true);
@@ -307,15 +299,52 @@ void main() {
 
       rig.contexts.note(_row(_c1));
       expect(rig.contexts.of(_c1).acceptedSightingHeld, isTrue);
+      rig.contexts.note(_row(_c1, canReply: false));
+      expect(rig.contexts.of(_c1).acceptedSightingHeld, isTrue);
     });
 
-    test('an ACCEPTED row that cannot be answered is not held in the first '
-        'place (no record or group yet)', () async {
+    test('a held sighting from a row with can_reply false is applied when '
+        'the record or group arrives', () async {
       rig.contexts.note(_row(_c1, canReply: false), keepPeer: true);
       await rig.upkeep.idle();
+      expect(rig.contexts.of(_c1).acceptedSightingHeld, isTrue);
 
+      await rig.offer(_c1, bob);
+      expect(await rig.crypto.processWelcomes(), [_c1]);
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      await rig.upkeep.idle();
+
+      expect(await accepted(rig, _c1), isTrue);
+      expect(rig.contexts.of(_c1).canReply, isFalse);
+    });
+
+    test('a row with no peer reference is no acceptance sight: it is not '
+        'held and settles nothing, its other facts are taken', () async {
+      var seen = 0;
+      rig.contexts.onAcceptedSeen = (_) => seen++;
+      rig.contexts.note(_row(_c1, peer: ''), keepPeer: true);
+      expect(seen, 0);
       expect(rig.contexts.of(_c1).acceptedSightingHeld, isFalse);
-      expect(await accepted(rig, _c1), isFalse);
+      expect(rig.contexts.of(_c1).incomingRequest, isFalse);
+
+      await joinedThenRestarted(rig, [_c2]);
+      rig.contexts.onAcceptedSeen = (_) => seen++;
+      rig.contexts.note(_row(_c2, peer: ''), keepPeer: true);
+      await rig.upkeep.idle();
+      expect(seen, 0);
+      expect(await accepted(rig, _c2), isFalse);
+    });
+
+    test('an ACCEPTED row is not handed to the acceptance steps again while '
+        'its sighting is held', () {
+      final seen = <String>[];
+      rig.contexts.onAcceptedSeen = seen.add;
+      rig.contexts.of(_c1).acceptedSightingHeld = true;
+
+      rig.contexts.note(_row(_c1), keepPeer: true);
+      rig.contexts.note(_row(_c1), keepPeer: true);
+
+      expect(seen, isEmpty);
     });
 
     test('by a delete-for-me of the conversation', () async {
@@ -371,7 +400,9 @@ void main() {
       await rig.crypto.catchUp(_c1);
       final second = rig.device.groupsReads - g1;
 
-      expect(second, lessThan(first));
+      // The settle step reads the record only (no groups read).
+      expect(second, lessThanOrEqualTo(first));
+      expect(first, 1, reason: 'the pass itself reads the groups once');
     });
   });
 
@@ -431,6 +462,224 @@ void main() {
       rig.contexts.note(_request(_c1, peer: 'ref-two'), keepPeer: true);
 
       expect(rig.contexts.of(_c1).peerUserId, 'ref-two');
+    });
+  });
+
+  group('can_reply: a list row never raises it, a first-page header does', () {
+    late List<pb.Conversation> noted;
+
+    setUp(() {
+      noted = [];
+      rig.contexts.onRowNoted = noted.add;
+    });
+
+    test('header false then list true stays false, and the row the removal '
+        'queue and the directory see says false (no markUsable)', () {
+      rig.contexts.note(_row(_c1, canReply: false));
+      rig.contexts.note(_row(_c1), fromList: true);
+
+      expect(rig.contexts.of(_c1).canReply, isFalse);
+      expect(noted.last.canReply, isFalse);
+    });
+
+    test('a list row that says false lowers it', () {
+      rig.contexts.note(_row(_c1), fromList: true);
+      expect(rig.contexts.of(_c1).canReply, isTrue);
+      rig.contexts.note(_row(_c1, canReply: false), fromList: true);
+
+      expect(rig.contexts.of(_c1).canReply, isFalse);
+    });
+
+    test('a header that says true raises it', () {
+      rig.contexts.note(_row(_c1, canReply: false), fromList: true);
+      rig.contexts.note(_row(_c1));
+
+      expect(rig.contexts.of(_c1).canReply, isTrue);
+      expect(noted.last.canReply, isTrue);
+    });
+  });
+
+  group('the start window and the rows the pipeline takes', () {
+    pb.Conversation enc(String id, {bool accepted = true}) => _row(
+      id,
+      state: accepted
+          ? ConversationState.CONVERSATION_STATE_ACCEPTED
+          : ConversationState.CONVERSATION_STATE_REQUEST,
+    )..encryption = ConversationEncryption.CONVERSATION_ENCRYPTION_MLS;
+
+    Future<void> until(bool Function() done) async {
+      for (var i = 0; i < 500 && !done(); i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+    }
+
+    Future<PipelineHarness> notStarted() async {
+      final h = await PipelineHarness.create();
+      final owner = await RigPeer.create('bob');
+      h.rig.keys.peers['ref-bob'] = [rigKeyDevice(owner.idString, owner.key)];
+      await h.offer(_c1, owner, accepted: false);
+      h.deviceKeys.state = RemovedElsewhere.unknown;
+      await h.ready();
+      expect(h.pipeline.started, isFalse);
+      h.rig.server.rows.remove(_c1);
+      return h;
+    }
+
+    test('a server row before the start settles nothing and makes no vault '
+        'write or read; after the start it settles', () async {
+      final h = await notStarted();
+      try {
+        var writes = 0;
+        h.rig.device.onWriteAsked = () => writes++;
+        final reads = h.rig.device.groupsReads;
+        var noted = 0;
+        h.pipeline.contexts.onRowNoted = (_) => noted++;
+
+        h.pipeline.noteServerRow(enc(_c1), true);
+        await h.settle();
+
+        expect(await accepted(h.rig, _c1), isFalse);
+        expect(writes, 0);
+        expect(h.rig.device.groupsReads, reads);
+        expect(noted, 0, reason: 'no directory read or un-park before start');
+
+        h.deviceKeys.clearRemoved();
+        await until(() => h.pipeline.started);
+        await h.settle();
+        expect(h.pipeline.started, isTrue);
+        expect(await accepted(h.rig, _c1), isTrue);
+      } finally {
+        await h.dispose();
+      }
+    });
+
+    test('the latest remembered row of a conversation wins', () async {
+      final h = await notStarted();
+      try {
+        h.pipeline.noteServerRow(enc(_c1), true);
+        h.pipeline.noteServerRow(enc(_c1, accepted: false), true);
+
+        h.deviceKeys.clearRemoved();
+        await until(() => h.pipeline.started);
+        await h.settle();
+
+        expect(await accepted(h.rig, _c1), isFalse);
+      } finally {
+        await h.dispose();
+      }
+    });
+
+    test('a row noted for another account is not replayed', () async {
+      final h = await notStarted();
+      try {
+        h.pipeline.noteServerRow(enc(_c1), true);
+        // Another account is authenticated now: its first note drops the
+        // first account's, and the vault belongs to the first.
+        h.uid = 'user-b';
+        h.pipeline.noteServerRow(enc(_c2), true);
+        h.uid = 'user-a';
+
+        h.deviceKeys.clearRemoved();
+        await until(() => h.pipeline.started);
+        await h.settle();
+
+        expect(await accepted(h.rig, _c1), isFalse);
+        expect(h.pipeline.contexts.has(_c2), isFalse);
+      } finally {
+        await h.dispose();
+      }
+    });
+
+    test('a page of 20 accepted plaintext rows of unknown conversations '
+        'causes no lock run, no vault read and no new context', () async {
+      final h = await PipelineHarness.create();
+      try {
+        await h.ready();
+        final reads = h.rig.device.groupsReads;
+
+        for (var i = 100; i < 120; i++) {
+          h.pipeline.noteServerRow(_row(_id(i)), true);
+        }
+        await h.settle();
+
+        expect(h.rig.device.groupsReads, reads);
+        for (var i = 100; i < 120; i++) {
+          expect(h.pipeline.contexts.has(_id(i)), isFalse);
+        }
+      } finally {
+        await h.dispose();
+      }
+    });
+
+    test('an encrypted row not yet in the known set is taken, and so is a '
+        'plain row of a known conversation', () async {
+      final h = await PipelineHarness.create();
+      try {
+        final owner = await RigPeer.create('bob');
+        h.rig.keys.peers['ref-bob'] = [rigKeyDevice(owner.idString, owner.key)];
+        await h.offer(_c1, owner, accepted: false);
+        await h.ready();
+        expect(h.pipeline.known.contains(_c1), isTrue);
+
+        h.pipeline.noteServerRow(enc(_c2), true);
+        h.pipeline.noteServerRow(_request(_c1), true);
+
+        expect(h.pipeline.contexts.has(_c2), isTrue);
+        expect(h.pipeline.contexts.has(_c1), isTrue);
+      } finally {
+        await h.dispose();
+      }
+    });
+  });
+
+  group('wantsFirstPage', () {
+    Future<PipelineHarness> joined() async {
+      final h = await PipelineHarness.create();
+      final owner = await RigPeer.create('bob');
+      h.rig.keys.peers['ref-bob'] = [rigKeyDevice(owner.idString, owner.key)];
+      await h.offer(_c1, owner, accepted: false);
+      await h.ready();
+      h.rig.server.rows.remove(_c1);
+      h.pipeline.contexts.clear();
+      return h;
+    }
+
+    test('true once for a known, unsighted, unsettled conversation, then '
+        'false; and it reads no vault', () async {
+      final h = await joined();
+      try {
+        final reads = h.rig.device.groupsReads;
+
+        expect(h.pipeline.wantsFirstPage(_c1), isTrue);
+        expect(h.pipeline.wantsFirstPage(_c1), isFalse);
+        expect(h.rig.device.groupsReads, reads);
+      } finally {
+        await h.dispose();
+      }
+    });
+
+    test('false for a plaintext (unknown) conversation, one that had a '
+        'full sight, a settled one, and with no parts', () async {
+      final h = await joined();
+      try {
+        expect(h.pipeline.wantsFirstPage(_c2), isFalse);
+        expect(h.pipeline.contexts.has(_c2), isFalse);
+
+        h.pipeline.contexts.note(_request(_c1));
+        expect(h.pipeline.wantsFirstPage(_c1), isFalse);
+
+        h.pipeline.contexts.clear();
+        h.pipeline.contexts.of(_c1).acceptanceSettled = true;
+        expect(h.pipeline.wantsFirstPage(_c1), isFalse);
+      } finally {
+        await h.dispose();
+      }
+      final bare = await PipelineHarness.create();
+      try {
+        expect(bare.pipeline.wantsFirstPage(_c1), isFalse);
+      } finally {
+        await bare.dispose();
+      }
     });
   });
 }

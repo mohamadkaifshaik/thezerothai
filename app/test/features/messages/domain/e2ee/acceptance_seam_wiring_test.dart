@@ -44,6 +44,7 @@ void main() {
   late MessagingRepository repo;
   late FakeTransport transport;
   pb.Conversation answerRow = _row();
+  final msgRequests = <pb.ListMessagesRequest>[];
 
   Future<bool> accepted() async =>
       (await h.rig.device.vault.conversation(_c1))?.sync.requestAccepted ??
@@ -60,6 +61,7 @@ void main() {
             sinceToken: 's1',
           );
         case _listMsgs:
+          msgRequests.add(input as pb.ListMessagesRequest);
           return pb.ListMessagesResponse(
             conversation: answerRow,
             sinceToken: 's1',
@@ -97,7 +99,10 @@ void main() {
     h.rig.server.rows.remove(_c1);
     h.pipeline.contexts.clear();
     h.rig.server.calls.clear();
-    repo.onServerConversationRow = h.pipeline.noteServerRow;
+    repo
+      ..onServerConversationRow = h.pipeline.noteServerRow
+      ..wantsFirstPage = h.pipeline.wantsFirstPage;
+    msgRequests.clear();
   });
 
   tearDown(() async {
@@ -154,5 +159,52 @@ void main() {
     expect(transport.calledProcedures, [_send]);
     expect(await accepted(), isFalse);
     expect(h.pipeline.contexts.of(_c1).acceptedSightingHeld, isFalse);
+  });
+
+  group('(7) a restarted thread gets its header', () {
+    /// The thread was opened once while the server said REQUEST (a since
+    /// token is cached), then the app restarted (no memory) and the server
+    /// now says ACCEPTED; a since page carries no header.
+    Future<void> restartedWithCachedThread() async {
+      answerRow = _row(
+        folder: Folder.FOLDER_REQUESTS,
+        state: ConversationState.CONVERSATION_STATE_REQUEST,
+      );
+      await repo.refreshThread(_c1);
+      await h.settle();
+      expect(await accepted(), isFalse);
+      h.pipeline.contexts.clear();
+      answerRow = _row();
+      msgRequests.clear();
+      transport.calledProcedures.clear();
+    }
+
+    test('the next refresh is a first page and settles it, with the same '
+        'number of RPCs; the second is a since poll again', () async {
+      await restartedWithCachedThread();
+
+      await repo.refreshThread(_c1);
+      await h.settle();
+
+      expect(msgRequests, hasLength(1));
+      expect(msgRequests.single.sinceToken, isEmpty);
+      expect(transport.calledProcedures, [_listMsgs]);
+      expect(await accepted(), isTrue);
+
+      await repo.refreshThread(_c1);
+      expect(msgRequests, hasLength(2));
+      expect(msgRequests.last.sinceToken, 's1');
+    });
+
+    test('the since poll is kept for a conversation that was sighted this '
+        'run, and for a plaintext one', () async {
+      await restartedWithCachedThread();
+      // A server row of this run (the inbox) came first.
+      h.pipeline.contexts.note(_row(), fromList: true);
+
+      await repo.refreshThread(_c1);
+      expect(msgRequests.single.sinceToken, 's1');
+      expect(h.pipeline.wantsFirstPage(_id(77)), isFalse);
+    });
   });
 }
