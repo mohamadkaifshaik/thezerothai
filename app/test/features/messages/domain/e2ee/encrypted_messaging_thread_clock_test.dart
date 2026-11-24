@@ -4,8 +4,12 @@ import 'package:dzeroth/core/crypto/mls_pair.dart';
 import 'package:dzeroth/core/vault/secure_vault.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_crypto.dart'
     show kResetWaitWithoutWelcome;
+import 'package:dzeroth/features/messages/domain/e2ee/daily_ledger.dart'
+    show kAntiFlapUndosPerDay;
 import 'package:dzeroth/features/messages/domain/e2ee/device_directory.dart'
     show kDeferredWithUnattributedLimit;
+import 'package:dzeroth/features/messages/domain/e2ee/pipeline_support.dart'
+    show nextIstDayStart;
 import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging_impl.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -218,11 +222,11 @@ void main() {
         s.clockChangeAt,
         since
             .add(kDeferredWithUnattributedLimit)
-            .add(const Duration(microseconds: 1)),
+            .add(const Duration(milliseconds: 1)),
       );
 
       h.rig.clock.advance(
-        kDeferredWithUnattributedLimit + const Duration(microseconds: 1),
+        kDeferredWithUnattributedLimit + const Duration(milliseconds: 1),
       );
       s = await h.pipeline.crypto.describeState(_c1);
       expect(s.deviceListUnverifiable, isTrue);
@@ -232,6 +236,67 @@ void main() {
       s = await h.pipeline.crypto.describeState(_c1);
       expect(s.canReset, isTrue);
       expect(s.clockChangeAt, isNull);
+    });
+
+    test('a failing build after the moment passed arms no further timer '
+        '(no zero-delay spin)', () async {
+      await waiting();
+      final sub = port.watchThread(_ref).listen((_) {});
+      await _until(() => clocks().isNotEmpty);
+      final due = clocks().single;
+      h.rig.clock.value = firstSaw.add(kResetWaitWithoutWelcome);
+      h.rig.device.onMessages = () async => throw StateError('read');
+      h.scheduled.remove(due);
+      due.run();
+      // A past moment that re-armed at zero delay would fire at once and
+      // arm again on every turn: the fired timers are run, and no new one
+      // is armed by the thread (the failed build names no moment).
+      for (var i = 0; i < 4; i++) {
+        await h.settle();
+        final before = h.scheduled.length;
+        final zero = [
+          for (final e in h.scheduled)
+            if (!e.cancelled && e.delay == Duration.zero) e,
+        ];
+        for (final e in zero) {
+          h.scheduled.remove(e);
+          e.run();
+        }
+        await h.settle();
+        expect(
+          h.scheduled.length,
+          lessThanOrEqualTo(before - zero.length),
+          reason: 'a fired timer armed another',
+        );
+      }
+      expect(clocks(), isEmpty);
+      await sub.cancel();
+    });
+
+    test('the IST day turn is a clock moment while the anti-flap pause '
+        'holds, and not otherwise', () async {
+      await waiting();
+      var s = await h.pipeline.crypto.describeState(_c1);
+      expect(s.committingPausedToday, isFalse);
+      expect(s.clockChangeAt, firstSaw.add(kResetWaitWithoutWelcome));
+
+      for (var i = 0; i < kAntiFlapUndosPerDay; i++) {
+        await h.pipeline.ledger.addUndone(_c1);
+      }
+      s = await h.pipeline.crypto.describeState(_c1);
+      expect(s.committingPausedToday, isTrue);
+      final now = h.rig.clock.now().toUtc();
+      var turn = DateTime.utc(now.year, now.month, now.day, 18, 30);
+      if (!turn.isAfter(now)) turn = turn.add(const Duration(days: 1));
+      expect(s.clockChangeAt, turn);
+      expect(nextIstDayStart(now), turn);
+      // The turn itself is the 18:30 UTC start, and the one after is a day on.
+      expect(nextIstDayStart(turn), turn.add(const Duration(days: 1)));
+
+      // The thread arms a timer for it, and the pause ends there.
+      h.rig.clock.value = turn;
+      s = await h.pipeline.crypto.describeState(_c1);
+      expect(s.committingPausedToday, isFalse);
     });
 
     test('with no ready vault nothing is armed', () async {

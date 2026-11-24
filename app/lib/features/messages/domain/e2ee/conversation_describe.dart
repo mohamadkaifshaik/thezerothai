@@ -124,10 +124,12 @@ extension _Describe on ConversationCrypto {
     // and stores nothing). A ledger that cannot be asked reads as paused
     // (fail closed, as the ledger itself does for an unreadable value).
     var committingPaused = true;
+    var ledgerRead = false;
     try {
       committingPaused =
           (await _ledger.readLocked(vault)).undoneIn(id) >=
           kAntiFlapUndosPerDay;
+      ledgerRead = true;
     } on Object catch (e, s) {
       _reportIfBug(e, s, 'describeState');
     }
@@ -166,16 +168,23 @@ extension _Describe on ConversationCrypto {
     // The clock-dependent facts above, as the next moment each changes by
     // itself: the end of the wait without a welcome (the reset offer) and
     // the end of the deferral limit (the device list reads unverifiable;
-    // `deferralOutlasted` is strict, so one microsecond later). The IST
-    // day's turn (the anti-flap pause ending) is the ledger's and is not
-    // counted here. An open thread rebuilds at the earliest one.
+    // `deferralOutlasted` is strict, so one millisecond later: the rebuilt
+    // state is past it on the first fire, even on a clock with millisecond
+    // resolution) and the IST day's turn (the anti-flap pause, which came
+    // from a ledger read that worked, ends when the ledger's day turns; a
+    // pause read as unreadable is not clock-driven). An open thread
+    // rebuilds at the earliest one.
     final changes = <DateTime>[
       if (mayOffer && !canReset && resetAt != null && now.isBefore(resetAt))
         resetAt,
       if (unattributed && context.deferredSince != null && !unverifiable)
         context.deferredSince!
             .add(kDeferredWithUnattributedLimit)
-            .add(const Duration(microseconds: 1)),
+            .add(const Duration(milliseconds: 1)),
+      if (ledgerRead &&
+          committingPaused &&
+          phase != ConversationPhase.notEncrypted)
+        nextIstDayStart(now),
     ]..sort();
     return ConversationCryptoState(
       phase: phase,

@@ -178,6 +178,10 @@ class _Thread {
   Future<EncryptedThread?> _build() async {
     final impl = _impl;
     final parts = impl._pipeline.parts;
+    // Only a build that reads the state names a clock moment: a failed or
+    // id-less build keeps no old (maybe past) one, so no timer re-arms at
+    // zero delay on every turn.
+    _clockAt = null;
     if (parts == null) {
       // No ready vault: the port's empty thread (the pinned inertness
       // test), keeping the id it is addressed by; no clock moment.

@@ -1460,9 +1460,11 @@ class _RigVault implements SecureVault {
     this._confirm,
     this._beforeOutbox,
     this._beforeDeviceId,
+    this._beforeMessages,
   );
 
   final SecureVault _inner;
+  final Future<void> Function() _beforeMessages;
   final Future<bool> Function(String key, Future<bool> Function() real)
   _confirm;
   final Future<void> Function() _beforeOutbox;
@@ -1514,11 +1516,15 @@ class _RigVault implements SecureVault {
     String conversationId, {
     int limit = 50,
     String? beforeSortKey,
-  }) => _inner.messages(
-    conversationId,
-    limit: limit,
-    beforeSortKey: beforeSortKey,
-  );
+  }) async {
+    await _beforeMessages();
+    return _inner.messages(
+      conversationId,
+      limit: limit,
+      beforeSortKey: beforeSortKey,
+    );
+  }
+
   @override
   Future<StoredMessage?> message(String conversationId, String messageId) =>
       _inner.message(conversationId, messageId);
@@ -1601,6 +1607,10 @@ class RigDevice {
   /// (the vault's own read is not made then). Null: the real read.
   Future<void> Function()? onOutbox;
 
+  /// Runs before every `messages` read of the vault; throw to fail that
+  /// read. Null: the real read.
+  Future<void> Function()? onMessages;
+
   /// Runs before every `deviceId` read of the vault (a test holds it to
   /// race a start against "set up again"). Null: the real read at once.
   Future<void> Function()? onDeviceId;
@@ -1668,6 +1678,7 @@ class RigDevice {
             _confirmStored,
             () async => onOutbox?.call(),
             () async => onDeviceId?.call(),
+            () async => onMessages?.call(),
           ),
       wipeVaultFile: ({required alias, String? expectedStorage}) async {},
       deleteVaultKey: ({required alias}) async {},
