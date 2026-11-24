@@ -9,7 +9,8 @@ import '../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import '../../../gen/dzeroth/moderation/v1/moderation.pbenum.dart';
 import '../../moderation/presentation/report_sheet.dart';
 import '../domain/e2ee/encrypted_messaging.dart';
-import '../domain/e2ee/message_content_codec.dart' show MessageCheck;
+import '../domain/e2ee/message_content_codec.dart'
+    show MessageCheck, MessageCheckDetail;
 import 'bloc/thread_cubit.dart' show isConversationId;
 import 'e2ee/encryption_copy.dart';
 
@@ -80,6 +81,20 @@ String encryptedReportTargetId(
   return '$conversationId:${message.id}';
 }
 
+/// The sheet's detail for [message]: the encrypted intro, and the unverified
+/// sentence only for a real commitment mismatch (gate item 26). A message
+/// whose report key had the wrong length is also `unverified`, but the
+/// server can still verify it, so the sentence would be untrue for it. An
+/// unverified row with no detail counts as a mismatch.
+String encryptedReportDetail(DecryptedMessage message) {
+  final unverified =
+      message.check == MessageCheck.unverified &&
+      message.checkDetail != MessageCheckDetail.badReportKey;
+  return unverified
+      ? '$kReportEncryptedDetail $kReportUnverifiedDetail'
+      : kReportEncryptedDetail;
+}
+
 /// Opens the shared report sheet for one decrypted peer [message] (R13).
 ///
 /// Called after the user chose "Report message". Reads the message's exact
@@ -119,9 +134,7 @@ Future<void> reportEncryptedMessage(
     targetType: ReportTargetType.REPORT_TARGET_TYPE_MESSAGE,
     targetId: targetId,
     subject: peerHandle.isEmpty ? 'this message' : "@$peerHandle's message",
-    detail: message.check == MessageCheck.ok
-        ? kReportEncryptedDetail
-        : '$kReportEncryptedDetail $kReportUnverifiedDetail',
+    detail: encryptedReportDetail(message),
     messagePayload: payload,
   );
   thankForReport(messenger, outcome);

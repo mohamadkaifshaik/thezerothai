@@ -38,12 +38,14 @@ void main() {
     EncryptedMessageState state = EncryptedMessageState.visible,
     MessageCheck check = MessageCheck.ok,
     bool canReport = true,
+    MessageCheckDetail? detail,
   }) => DecryptedMessage(
     id: id,
     at: base.add(Duration(minutes: minutes)),
     mine: mine,
     state: state,
     check: check,
+    checkDetail: detail,
     text: state == EncryptedMessageState.visible && check == MessageCheck.ok
         ? 'secret $id'
         : '',
@@ -227,16 +229,63 @@ void main() {
       );
     });
 
-    testWidgets('an undecodable message is reportable', (tester) async {
+    testWidgets('an unverified message with a commitment mismatch adds the '
+        'sentence', (tester) async {
       await open(
         tester,
         payload: bytes(10),
-        entries: [entry(_peerMsg, check: MessageCheck.undecodable)],
+        entries: [
+          entry(
+            _peerMsg,
+            check: MessageCheck.unverified,
+            detail: MessageCheckDetail.mismatch,
+          ),
+        ],
       );
 
       await choose(tester, _peerMsg);
 
       expect(find.textContaining(kReportUnverifiedDetail), findsOneWidget);
+    });
+
+    testWidgets('an unverified message with a bad report key does not: the '
+        'server can still verify it', (tester) async {
+      await open(
+        tester,
+        payload: bytes(10),
+        entries: [
+          entry(
+            _peerMsg,
+            check: MessageCheck.unverified,
+            detail: MessageCheckDetail.badReportKey,
+          ),
+        ],
+      );
+
+      await choose(tester, _peerMsg);
+
+      expect(find.textContaining(kReportEncryptedDetail), findsOneWidget);
+      expect(find.textContaining(kReportUnverifiedDetail), findsNothing);
+    });
+
+    testWidgets('an undecodable message is reportable and gets no unverified '
+        'sentence (it is not unverified)', (tester) async {
+      await open(
+        tester,
+        payload: bytes(10),
+        entries: [
+          entry(
+            _peerMsg,
+            check: MessageCheck.undecodable,
+            detail: MessageCheckDetail.undecodable,
+          ),
+        ],
+      );
+
+      await choose(tester, _peerMsg);
+
+      expect(find.textContaining(kReportEncryptedDetail), findsOneWidget);
+      expect(find.textContaining(kReportUnverifiedDetail), findsNothing);
     });
 
     testWidgets('null payload shows the snackbar and opens nothing', (
