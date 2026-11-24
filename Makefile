@@ -54,7 +54,7 @@ help:
 	@echo "  make loadtest SCENARIO=identity_getme   # runs loadtest/<scenario>.js with k6 (see loadtest/README.md)"
 	@echo "  make cost PROJECT_ID=dzeroth-dev        # also queries live Cloud Logging usage"
 	@echo "  make e2ee-smoke                         # encrypted-messaging smoke test: emulators + real API + Dart scenario (~5 min)"
-	@echo "  make crypto-test                       # MLS core (crypto/): fmt, clippy, host tests"
+	@echo "  make crypto-test                        # MLS core (crypto/): fmt, clippy, host tests"
 	@echo "  make crypto-web                         # build the MLS wasm binding into app/web/mls/ (not committed)"
 	@echo "  make drift-worker                       # rebuild app/web/drift_worker.js from the locked drift source"
 
