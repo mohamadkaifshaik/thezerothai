@@ -666,8 +666,16 @@ class E2eePipeline {
   void noteServerRow(pb.Conversation row, bool fromList) {
     if (_disposed || row.id.isEmpty) return;
     final parts = _parts;
+    // Without live parts, or before the known set is loaded, nothing can say
+    // whether the conversation is encrypted: the row is remembered
+    // unfiltered (only while the flag may start the pipeline, or when the row
+    // says it is encrypted) and the known set filters it at the replay.
+    if (parts == null || !parts.live || !parts.known.isLoadedFor(parts.vault)) {
+      if (isEncryptedRow(row) || _session.mayStart) _rememberRow(row, fromList);
+      return;
+    }
     if (!_takesServerRow(row, parts)) return;
-    if (parts == null || !parts.live || !started) {
+    if (!started) {
       _rememberRow(row, fromList);
       return;
     }
@@ -690,6 +698,18 @@ class E2eePipeline {
       return false;
     }
     final context = parts.contexts.of(conversationId);
+    // The one extra ask owed after a list row said true over a header's or
+    // a refusal's false (at most once per conversation and run).
+    if (context.extraFirstPageOwed) {
+      context
+        ..extraFirstPageOwed = false
+        ..extraFirstPageUsed = true;
+      return true;
+    }
+    // Until a catch-up pass or a state build of this run has read the stored
+    // record the answer is unknown: false, and NOT marked, so the next
+    // refresh asks again.
+    if (!context.stateKnown) return false;
     if (context.firstPageAsked ||
         context.fullSightSeen ||
         context.acceptanceSettled) {

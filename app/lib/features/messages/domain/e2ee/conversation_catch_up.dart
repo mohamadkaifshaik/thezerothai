@@ -74,10 +74,17 @@ extension _CatchUp on ConversationCrypto {
   /// since poll, which carries no header.
   Future<void> _settleAcceptanceSightLocked(_Operation pass, String id) async {
     final context = _contexts.of(id);
-    if (context.acceptanceSettled || !pass.live) return;
+    if (!pass.live) return;
+    if (context.acceptanceSettled) {
+      context.stateKnown = true;
+      return;
+    }
     final held = context.acceptedSightingHeld;
     try {
       final record = await pass.vault.conversation(id);
+      // The stored acceptance is known to this run from here on (the
+      // `wantsFirstPage` answer waits for it).
+      context.stateKnown = true;
       if (record?.sync.requestAccepted ?? false) {
         context.acceptanceSettled = true;
         return;

@@ -482,6 +482,16 @@ void main() {
       expect(noted.last.canReply, isFalse);
     });
 
+    test('list false then list true: true again, and the row the removal '
+        'queue sees says true', () {
+      rig.contexts.note(_row(_c1, canReply: false), fromList: true);
+      expect(noted.last.canReply, isFalse);
+      rig.contexts.note(_row(_c1), fromList: true);
+
+      expect(rig.contexts.of(_c1).canReply, isTrue);
+      expect(noted.last.canReply, isTrue);
+    });
+
     test('a list row that says false lowers it', () {
       rig.contexts.note(_row(_c1), fromList: true);
       expect(rig.contexts.of(_c1).canReply, isTrue);
@@ -548,6 +558,34 @@ void main() {
         await h.settle();
         expect(h.pipeline.started, isTrue);
         expect(await accepted(h.rig, _c1), isTrue);
+      } finally {
+        await h.dispose();
+      }
+    });
+
+    test('with no parts at all a row is remembered unfiltered and the known '
+        'set filters it at the replay: a plain row of a known conversation '
+        'settles it, one of an unknown conversation is dropped', () async {
+      final h = await PipelineHarness.create();
+      try {
+        final owner = await RigPeer.create('bob');
+        h.rig.keys.peers['ref-bob'] = [rigKeyDevice(owner.idString, owner.key)];
+        await h.offer(_c1, owner, accepted: false);
+        await h.ready();
+        expect(await accepted(h.rig, _c1), isFalse);
+        h.rig.server.rows.remove(_c1);
+        // A restart: a new pipeline over the same vault, no parts yet.
+        h.pipeline.dispose();
+        h.pipeline = h.build();
+        expect(h.pipeline.hasParts, isFalse);
+
+        h.pipeline.noteServerRow(_row(_c1), true);
+        h.pipeline.noteServerRow(_row(_c2), true);
+        await h.ready();
+        await h.settle();
+
+        expect(await accepted(h.rig, _c1), isTrue);
+        expect(h.pipeline.contexts.has(_c2), isFalse);
       } finally {
         await h.dispose();
       }
@@ -644,10 +682,14 @@ void main() {
       return h;
     }
 
-    test('true once for a known, unsighted, unsettled conversation, then '
+    test('false, and not marked, until a pass or a state build of this run '
+        'knows the conversation; then true once for an unsettled one, then '
         'false; and it reads no vault', () async {
       final h = await joined();
       try {
+        expect(h.pipeline.wantsFirstPage(_c1), isFalse);
+        expect(h.pipeline.wantsFirstPage(_c1), isFalse);
+        await h.pipeline.crypto.describeState(_c1);
         final reads = h.rig.device.groupsReads;
 
         expect(h.pipeline.wantsFirstPage(_c1), isTrue);
@@ -658,10 +700,96 @@ void main() {
       }
     });
 
+    test('a settled conversation opened before its first catch-up keeps the '
+        'since poll', () async {
+      final h = await joined();
+      try {
+        await h.rig.accept(_c1);
+
+        expect(h.pipeline.wantsFirstPage(_c1), isFalse);
+        await h.pipeline.crypto.describeState(_c1);
+
+        expect(h.pipeline.contexts.of(_c1).acceptanceSettled, isTrue);
+        expect(h.pipeline.wantsFirstPage(_c1), isFalse);
+      } finally {
+        await h.dispose();
+      }
+    });
+
+    group('can_reply that must be able to come back', () {
+      test('list false then list true: true again, sends not stopped, no '
+          'extra ask', () async {
+        final h = await joined();
+        try {
+          await h.pipeline.crypto.describeState(_c1);
+          final c = h.pipeline.contexts;
+          c.note(_row(_c1, canReply: false), fromList: true);
+          expect(c.of(_c1).canReply, isFalse);
+
+          c.note(_row(_c1), fromList: true);
+
+          expect(c.of(_c1).canReply, isTrue);
+          c.note(_request(_c1));
+          expect(h.pipeline.wantsFirstPage(_c1), isFalse);
+        } finally {
+          await h.dispose();
+        }
+      });
+
+      test('header false then list true: stays false and the next open is '
+          'asked for one more first page, once; a header saying false keeps '
+          'it and no further ask; a header saying true raises it', () async {
+        final h = await joined();
+        try {
+          await h.pipeline.crypto.describeState(_c1);
+          final c = h.pipeline.contexts;
+          c.note(_row(_c1, canReply: false)); // the header
+          expect(h.pipeline.wantsFirstPage(_c1), isFalse);
+
+          c.note(_row(_c1), fromList: true);
+          expect(c.of(_c1).canReply, isFalse);
+          expect(h.pipeline.wantsFirstPage(_c1), isTrue);
+          expect(h.pipeline.wantsFirstPage(_c1), isFalse);
+
+          // The header keeps saying false (a suspended peer): the list says
+          // true on every refresh and it must not ask again in this run.
+          c.note(_row(_c1, canReply: false));
+          c.note(_row(_c1), fromList: true);
+          expect(c.of(_c1).canReply, isFalse);
+          expect(h.pipeline.wantsFirstPage(_c1), isFalse);
+
+          c.note(_row(_c1));
+          expect(c.of(_c1).canReply, isTrue);
+        } finally {
+          await h.dispose();
+        }
+      });
+
+      test('a CANNOT_MESSAGE refusal then list true: the same as a header '
+          'false', () async {
+        final h = await joined();
+        try {
+          await h.pipeline.crypto.describeState(_c1);
+          final c = h.pipeline.contexts;
+          c.note(_request(_c1)); // a full sight: no first ask is left
+          c.of(_c1).noteCannotMessage();
+
+          c.note(_row(_c1), fromList: true);
+
+          expect(c.of(_c1).canReply, isFalse);
+          expect(h.pipeline.wantsFirstPage(_c1), isTrue);
+          expect(h.pipeline.wantsFirstPage(_c1), isFalse);
+        } finally {
+          await h.dispose();
+        }
+      });
+    });
+
     test('false for a plaintext (unknown) conversation, one that had a '
         'full sight, a settled one, and with no parts', () async {
       final h = await joined();
       try {
+        await h.pipeline.crypto.describeState(_c1);
         expect(h.pipeline.wantsFirstPage(_c2), isFalse);
         expect(h.pipeline.contexts.has(_c2), isFalse);
 

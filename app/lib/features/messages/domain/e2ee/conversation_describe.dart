@@ -57,6 +57,10 @@ extension _Describe on ConversationCrypto {
     }
     final sync = record?.sync ?? const ConversationSync();
     final accepted = sync.requestAccepted;
+    // The record was just read (no extra read): this run knows the stored
+    // acceptance, which `wantsFirstPage` waits for.
+    context.stateKnown = true;
+    if (accepted) context.acceptanceSettled = true;
     GroupRecord? current;
     for (final group in groups) {
       if (!group.provisional) current = group;

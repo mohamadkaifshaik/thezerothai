@@ -174,6 +174,9 @@ void main() {
       await h.settle();
       expect(await accepted(), isFalse);
       h.pipeline.contexts.clear();
+      // The thread screen's state build of this run (it makes the
+      // conversation's state known to `wantsFirstPage`).
+      await h.pipeline.crypto.describeState(_c1);
       answerRow = _row();
       msgRequests.clear();
       transport.calledProcedures.clear();

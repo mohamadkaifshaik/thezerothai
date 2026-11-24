@@ -237,6 +237,9 @@ extension _PipelineNotes on E2eePipeline {
     final rows = [..._notedRows.values];
     _notedRows.clear();
     for (final r in rows) {
+      // Remembered unfiltered when there were no parts: the known set decides
+      // now.
+      if (!_takesServerRow(r.row, parts)) continue;
       parts.contexts.note(r.row, keepPeer: true, fromList: r.fromList);
     }
     if (_inboxOwed) {

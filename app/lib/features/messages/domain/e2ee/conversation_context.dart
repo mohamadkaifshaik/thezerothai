@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import '../../../../core/crypto/mls_pair.dart';
 import '../../../../gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import '../../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart';
@@ -49,8 +51,23 @@ class ConversationContext {
   /// forgotten (the conversation is not one to settle).
   void noteCannotMessage() {
     canReply = false;
+    canReplyLoweredByList = false;
     acceptedSightingHeld = false;
   }
+
+  /// [canReply] is false because a LIST row said so (only a list row undoes
+  /// that); a header's or a refusal's false is not this.
+  bool canReplyLoweredByList = false;
+
+  /// A list row said true while a header's or a refusal's false stands: the
+  /// thread's next refresh is asked to read one more first page. Used at most
+  /// once per conversation and run ([extraFirstPageUsed]).
+  bool extraFirstPageOwed = false;
+  bool extraFirstPageUsed = false;
+
+  /// A catch-up pass or a state build ([ConversationCrypto.describeState]) of
+  /// this run has read the stored record, so [acceptanceSettled] is known.
+  bool stateKnown = false;
 
   /// Whether the thread can be answered: from a `ListMessages` header or an
   /// inbox row of this run (never a send answer or a cached row, audit
@@ -343,6 +360,7 @@ class ConversationContexts {
       _byId.putIfAbsent(conversationId, ConversationContext.new);
 
   /// Whether a context exists for [conversationId] (never creates one).
+  @visibleForTesting
   bool has(String conversationId) => _byId.containsKey(conversationId);
 
   /// Task 9 brief amendment 1 (Task 13 wires it to
@@ -417,9 +435,25 @@ class ConversationContexts {
       c.acceptedSightingHeld = false;
     }
     if (!fromList) {
+      // A first-page header decides, up and down.
       c.canReply = row.canReply;
+      c.canReplyLoweredByList = false;
     } else if (!row.canReply) {
-      c.canReply = false;
+      if (c.canReply) {
+        c.canReply = false;
+        c.canReplyLoweredByList = true;
+      }
+    } else if (!c.canReply) {
+      if (c.canReplyLoweredByList) {
+        // A false a list row set is undone by a list row.
+        c.canReply = true;
+        c.canReplyLoweredByList = false;
+      } else if (!c.extraFirstPageUsed) {
+        // A false from a header or a refusal is not undone by a list row
+        // (the list says true for a suspended peer): the thread reads one
+        // more first page, whose header decides. At most once per run.
+        c.extraFirstPageOwed = true;
+      }
     }
     if (row.folder == Folder.FOLDER_REQUESTS) {
       c
