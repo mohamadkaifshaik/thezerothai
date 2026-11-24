@@ -383,8 +383,9 @@ class ThreadCubit extends Cubit<ThreadState> {
     try {
       cached = await _repository.cachedThread(conversationId);
     } on Object catch (error, stack) {
-      // A broken disk must not block the network path.
-      onUnexpectedError?.call(error, stack);
+      // A broken disk must not block the network path. A fixed step, never
+      // the thrown object (the thread may be an encrypted one).
+      onUnexpectedError?.call(StateError('cachedThread'), stack);
       if (isClosed) return;
       _poller.start();
       await _refresh(open: true);
@@ -410,8 +411,8 @@ class ThreadCubit extends Cubit<ThreadState> {
     final pb.Conversation? row;
     try {
       row = await _repository.cachedConversation(conversationId);
-    } on Object catch (error, stack) {
-      onUnexpectedError?.call(error, stack);
+    } on Object catch (_, stack) {
+      onUnexpectedError?.call(StateError('cachedConversation'), stack);
       return;
     }
     final header = state.conversation;
@@ -606,8 +607,8 @@ class ThreadCubit extends Cubit<ThreadState> {
   Future<void> _noteAnswered() async {
     try {
       await _repository.noteSentRequestAnswered(conversationId);
-    } on Object catch (error, stack) {
-      onUnexpectedError?.call(error, stack);
+    } on Object catch (_, stack) {
+      onUnexpectedError?.call(StateError('noteSentRequestAnswered'), stack);
     }
   }
 
@@ -784,8 +785,8 @@ class ThreadCubit extends Cubit<ThreadState> {
   Future<void> _dropBlockedRequest() async {
     try {
       await _repository.dropBlockedRequest(conversationId);
-    } on Object catch (error, stack) {
-      onUnexpectedError?.call(error, stack);
+    } on Object catch (_, stack) {
+      onUnexpectedError?.call(StateError('dropBlockedRequest'), stack);
     }
   }
 
@@ -806,8 +807,9 @@ class ThreadCubit extends Cubit<ThreadState> {
       if (isClosed) return;
       setAtBottom(true);
       _apply(snapshot, open: false);
-    } on Object catch (error, stack) {
-      onUnexpectedError?.call(error, stack);
+    } on Object catch (_, stack) {
+      // `_apply` reaches the encrypted port (`_reevaluate`): a fixed step.
+      onUnexpectedError?.call(StateError('noteSent'), stack);
     }
   }
 

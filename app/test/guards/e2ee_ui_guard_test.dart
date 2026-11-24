@@ -576,39 +576,24 @@ List<String> _reporterViolations(String source) => [
 ];
 
 /// Reporter forwards that are not a fixed `StateError`, accepted by file with
-/// the first argument and its count. Most follow a call into the PLAINTEXT
-/// cache or the plaintext repository; the forwarded object is the thrown
-/// transport / cache exception (`error is UnknownApiException`, a drift or
-/// disk error), not the decrypted body. Pinned so a new raw forward fails.
-///
-/// Not all of them stay clear of the encrypted port: the `on Object` forward
-/// at `thread_cubit.dart:791` wraps `_apply` -> `_reevaluate`, which reaches
-/// `port.hasLocal` and `port.watchThread`. That is safe today because both
-/// calls take only the conversation id (nothing decrypted is passed in or
-/// comes back through the thrown object).
-///
-/// TODO(e2ee-fixed-forwards): a lib follow-up turns the `on Object` forwards
-/// into fixed `StateError('<step>')`; these pins then shrink to the
-/// type-gated ones (`error is UnknownApiException`).
+/// the first argument and its count. Every `on Object` forward in the
+/// messages cubits is a fixed `StateError('<step>')` now; what stays here is
+/// only the forwards gated on `error is UnknownApiException` (a typed transport
+/// error of the plaintext repository, never a decrypted body), plus the
+/// `recipient_picker` and `report_cubit` ones below. Pinned so a new raw
+/// forward fails.
 const Map<String, Map<String, int>> _pinnedRawReports = {
-  // cachedThread / pollThread / sendMessage / noteSentRequestAnswered /
-  // markRead ... (plaintext repository and cache); `on Object` and the
-  // UnknownApiException guard.
-  'lib/features/messages/presentation/bloc/thread_cubit.dart': {'error': 11},
-  // sendMessage / outbox calls of the plaintext path.
+  // pollThread / markRead / delete / accept ... (plaintext repository), all
+  // behind `error is UnknownApiException`.
+  'lib/features/messages/presentation/bloc/thread_cubit.dart': {'error': 6},
+  // The plaintext send, behind `error is UnknownApiException`.
   'lib/features/messages/presentation/bloc/message_composer_cubit.dart': {
-    'error': 3,
-  },
-  // The cached search (plaintext cache) and the repository page fetch.
-  'lib/features/messages/presentation/bloc/message_search_cubit.dart': {
-    'error': 2,
+    'error': 1,
   },
   // listConversations / cache reads; UnknownApiException guard.
   'lib/features/messages/presentation/bloc/conversations_cubit.dart': {
-    'error': 4,
+    'error': 2,
   },
-  // sendMessage of the share flow (plaintext path), caught generically.
-  'lib/features/messages/presentation/bloc/share_post_cubit.dart': {'error': 1},
   // searchPeople / listFollowing style repository calls (no message text).
   'lib/features/messages/presentation/bloc/recipient_picker_cubit.dart': {
     'error': 2,
@@ -1589,7 +1574,7 @@ void main() {
       }
       // Planted into a copy of a real cubit: one more raw forward.
       const cubit =
-          'lib/features/messages/presentation/bloc/message_search_cubit.dart';
+          'lib/features/messages/presentation/bloc/conversations_cubit.dart';
       final real = _lib()[cubit]!;
       expect(_reporterViolations(real), ['error', 'error']);
       expect(

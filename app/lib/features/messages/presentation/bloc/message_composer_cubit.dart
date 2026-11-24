@@ -502,8 +502,8 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
       if (error is UnknownApiException) onUnexpectedError?.call(error, stack);
       _fail(key, text, error);
       return;
-    } on Object catch (error, stack) {
-      onUnexpectedError?.call(error, stack);
+    } on Object catch (_, stack) {
+      onUnexpectedError?.call(StateError('sendMessage'), stack);
       _fail(key, text, const UnknownApiException('Something went wrong.'));
       return;
     }
@@ -538,8 +538,8 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
     }
     try {
       await onSent?.call();
-    } on Object catch (error, stack) {
-      onUnexpectedError?.call(error, stack);
+    } on Object catch (_, stack) {
+      onUnexpectedError?.call(StateError('onSent'), stack);
     }
     if (isClosed) return;
     emit(state.copyWith(outgoing: _replace(key, null)));

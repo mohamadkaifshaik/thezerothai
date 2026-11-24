@@ -457,8 +457,8 @@ class SharePostCubit extends Cubit<SharePostState> {
           _endShare(ids.sublist(i + 1), error);
           return;
         }
-      } catch (error, stack) {
-        onUnexpectedError?.call(error, stack);
+      } catch (_, stack) {
+        onUnexpectedError?.call(StateError('sendShare'), stack);
         _setRow(
           id,
           ShareRowStatus.failed,
