@@ -29,7 +29,9 @@ void main() {
     world = FakeVaultWorld();
     deviceKeys = ValueNotifier(DeviceKeysStatus.dormant);
     engine = ValueNotifier(false);
-    clock = DateTime.utc(2026, 11, 24, 12);
+    // Relative to now (the fixed-date guard); the adapter reads the injected
+    // clock only.
+    clock = DateTime.now().toUtc();
     reported = [];
   });
   tearDown(() => db.close());

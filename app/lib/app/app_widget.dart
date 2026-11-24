@@ -28,6 +28,7 @@ import '../core/theme/text_size_cubit.dart';
 import '../core/theme/theme_mode_cubit.dart';
 import '../core/telemetry/telemetry_device_forget.dart';
 import '../core/telemetry/usage_reporter.dart';
+import '../core/vault/vault_session.dart';
 import '../core/widgets/explore_retap_signal.dart';
 import '../core/widgets/home_retap_signal.dart';
 import '../core/widgets/service_paused_view.dart';
@@ -68,8 +69,14 @@ import '../features/media/domain/quality_aware_image_processor.dart';
 import '../features/settings/presentation/bloc/undo_send_cubit.dart';
 import '../features/settings/presentation/bloc/data_usage_cubit.dart';
 import '../features/messages/data/messaging_repository.dart';
+import '../features/messages/domain/e2ee/encrypted_messaging.dart';
+import '../features/messages/domain/e2ee/encryption_access.dart';
+import '../features/messages/domain/e2ee/encryption_device.dart';
 import '../features/messages/domain/messaging_feature_flag.dart';
 import '../features/messages/presentation/bloc/conversations_session.dart';
+import '../features/messages/presentation/e2ee/encryption_status.dart';
+import '../features/settings/presentation/reset_encryption_screen.dart'
+    show ResetEncryptionHolder;
 import '../features/search/data/recent_searches_store.dart';
 import '../features/search/data/search_repository.dart';
 import '../features/search/presentation/bloc/trends_cubit.dart';
@@ -147,7 +154,19 @@ class AppWidget extends StatefulWidget {
     this.shareLinks,
     this.usage = const UsageReporter.none(),
     this.telemetryForget = const TelemetryDeviceForget.none(),
+    this.vaultSession,
+    this.encryptionDevice,
+    this.encryptedMessaging,
   });
+
+  /// Plan 5b Task 14: the vault session (the reset screen reads it), the
+  /// read-only device facts, and the encrypted messaging port. All null in
+  /// tests that do not need them and on a platform with no vault (the port);
+  /// with none of them no encryption widget is built and no call is made, so
+  /// the access is `hidden` and the app is today's app.
+  final VaultSession? vaultSession;
+  final EncryptionDevice? encryptionDevice;
+  final EncryptedMessaging? encryptedMessaging;
 
   final AuthBloc authBloc;
   final OnboardingBloc onboardingBloc;
@@ -366,7 +385,76 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
     // (0 extra reads, D10).
     onInboxSynced: (rows, {required hasMore}) =>
         _messagesBadge.resync(rows, hasMore: hasMore),
+    // Plan 5b Task 14: local previews from the port, built as the screen's
+    // own `_previewSource` builds them. Without a device the check is absent
+    // and a missing check means "not allowed" (the cubit fails closed).
+    encrypted: widget.encryptedMessaging,
+    previewsAllowed: widget.encryptionDevice == null ? null : _previewsAllowed,
   );
+
+  /// The encryption access of this device lets the lists show local previews
+  /// (`full` or `manage`). Closed over objects, never a `BuildContext`.
+  bool _previewsAllowed() {
+    final device = widget.encryptionDevice;
+    if (device == null) return false;
+    final access = encryptionAccessOf(
+      flagOn: widget.onboardingBloc.state.enabledFeatures.contains(
+        kFeatureE2eeDm,
+      ),
+      vaultKnown: device.vaultKnown,
+      status: device.vaultStatus.value,
+    );
+    return access == EncryptionAccess.full || access == EncryptionAccess.manage;
+  }
+
+  // One status for every screen (the inbox and the thread read it once in
+  // build, so it exists from the first frame, above the router). Only with a
+  // device. `onUnexpectedError` is passed: without it a failed `retryOpen`
+  // would be swallowed.
+  late final EncryptionStatusCubit? _encryptionStatus =
+      widget.encryptionDevice == null
+      ? null
+      : EncryptionStatusCubit(
+          device: widget.encryptionDevice!,
+          messaging: widget.encryptedMessaging,
+          flagOn: _e2eeFlagOn,
+          onUnexpectedError: reportUnexpectedError,
+        );
+
+  // The in-flight vault reset lives above the route, so leaving the screen
+  // mid-run neither loses the outcome nor shows a false failure on return.
+  // Only with a vault session; the holder is where `resetByUser` is
+  // referenced (the vault guard names that one file).
+  late final ResetEncryptionHolder? _resetHolder = widget.vaultSession == null
+      ? null
+      : ResetEncryptionHolder(
+          session: widget.vaultSession!,
+          onUnexpectedError: reportUnexpectedError,
+        );
+
+  bool _e2eeFlagOn() =>
+      widget.onboardingBloc.state.enabledFeatures.contains(kFeatureE2eeDm);
+  bool? _lastE2eeFlag;
+  StreamSubscription<OnboardingState>? _e2eeFlagSub;
+
+  /// The flag set may have changed (the status reads the flag, `mayStart`
+  /// and `vaultKnown` as plain getters) and the access with it: refresh the
+  /// status, and when previews are no longer allowed drop what the hoisted
+  /// inbox holds, also while it is off screen.
+  void _encryptionAccessMayHaveChanged() {
+    _encryptionStatus?.refresh();
+    if (widget.encryptionDevice != null && !_previewsAllowed()) {
+      _conversations.encryptionAccessLost();
+    }
+  }
+
+  void _onE2eeFlagStream(OnboardingState state) {
+    final on = state.enabledFeatures.contains(kFeatureE2eeDm);
+    if (on == _lastE2eeFlag) return;
+    _lastE2eeFlag = on;
+    _encryptionAccessMayHaveChanged();
+  }
+
   // The "Turn on notifications" card's memory: one "Not now" per
   // account for Home and Notifications; keyed by the signed-in uid.
   // The store is also provided to the tree: Delete account forgets the
@@ -607,6 +695,13 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
       (_) => _onPublicIdsFlipped(),
     );
     _onOnboarding(widget.onboardingBloc.state);
+    // Plan 5b Task 14: only with a device (a tree without the wiring has
+    // nothing to refresh and subscribes to nothing).
+    if (widget.encryptionDevice case final device?) {
+      _lastE2eeFlag = _e2eeFlagOn();
+      _e2eeFlagSub = widget.onboardingBloc.stream.listen(_onE2eeFlagStream);
+      device.vaultStatus.addListener(_encryptionAccessMayHaveChanged);
+    }
     // The probe answering, or messaging turning out to be globally off.
     widget.messagingRepository.gate.addListener(_onMessagingAccess);
   }
@@ -759,6 +854,12 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
     _authSub.cancel();
     _onboardingSub.cancel();
     _publicIdsSub?.cancel();
+    _e2eeFlagSub?.cancel();
+    widget.encryptionDevice?.vaultStatus.removeListener(
+      _encryptionAccessMayHaveChanged,
+    );
+    unawaited(_encryptionStatus?.close());
+    _resetHolder?.dispose();
     unawaited(_postSender.dispose());
     _pendingPosts.close();
     _engagement.close();
@@ -866,6 +967,20 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
         if (_happening case final happening?)
           RepositoryProvider<HappeningNearbySession>.value(value: happening),
         RepositoryProvider<ConversationsSession>.value(value: _conversations),
+        // Plan 5b Task 14, above the router so the thread's modal search
+        // sheet and the panels see them (they read them once in initState).
+        // The port is provided as the NULLABLE type on purpose: every
+        // screen reads `context.read<EncryptedMessaging?>()`, and null means
+        // "no encrypted messaging here" (a platform with no vault, tests).
+        if (widget.vaultSession case final vault?)
+          RepositoryProvider<VaultSession>.value(value: vault),
+        if (widget.encryptionDevice case final device?)
+          RepositoryProvider<EncryptionDevice>.value(value: device),
+        RepositoryProvider<EncryptedMessaging?>.value(
+          value: widget.encryptedMessaging,
+        ),
+        if (_resetHolder case final holder?)
+          RepositoryProvider<ResetEncryptionHolder>.value(value: holder),
         RepositoryProvider<HomeRetapSignal>.value(value: _homeRetap),
         RepositoryProvider<ExploreRetapSignal>.value(value: _exploreRetap),
       ],
@@ -892,6 +1007,10 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
           BlocProvider.value(value: _dataUsage),
           BlocProvider.value(value: _undoSend),
           BlocProvider.value(value: _servicePaused),
+          // Never a nullable type argument; read sites use
+          // `context.watch<EncryptionStatusCubit?>()`.
+          if (_encryptionStatus case final status?)
+            BlocProvider<EncryptionStatusCubit>.value(value: status),
         ],
         child: ShareLinksScope(
           links: widget.shareLinks,

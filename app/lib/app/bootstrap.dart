@@ -105,6 +105,7 @@ import 'auth_emulator.dart';
 import 'app_widget.dart';
 import 'e2ee_wiring.dart';
 import 'restored_session.dart';
+import 'session_encryption_device.dart';
 import 'session_wiring.dart';
 
 /// Entry point for every flavor/target. Initializes Firebase + App Check,
@@ -659,8 +660,20 @@ Future<void> bootstrap() async {
           onUnexpectedError: reportUnexpectedError,
         )
       : null;
-  // ignore: unused_local_variable, 5b Task 14 passes it to AppWidget (13b).
+  // Handed to AppWidget below (5b Task 14); null where the vault is not
+  // supported (the access is then `unsupported`).
   final encryptedMessaging = encryptedMessagingOver(e2eePipeline);
+  // Read-only device facts for the screens (forwards only; its one fact of
+  // its own, the 24 h `unavailable` rule, lives in the cache database). Built
+  // on every platform: on one with no vault the session answers
+  // `unsupported`, which is what the access rule keys on.
+  final encryptionDevice = SessionEncryptionDevice(
+    session: vaultSession,
+    deviceKeys: deviceKeys.status,
+    engineUnavailable: cryptoEngine.unavailable,
+    database: database,
+    onUnexpectedError: reportUnexpectedError,
+  );
   final pipeline = e2eePipeline;
   if (pipeline != null) {
     vaultSession.addVaultReadyHook(pipeline.onVaultReady);
@@ -777,6 +790,9 @@ Future<void> bootstrap() async {
         consent: telemetryConsent,
         controller: telemetry,
       ),
+      vaultSession: vaultSession,
+      encryptionDevice: encryptionDevice,
+      encryptedMessaging: encryptedMessaging,
     ),
   );
 }

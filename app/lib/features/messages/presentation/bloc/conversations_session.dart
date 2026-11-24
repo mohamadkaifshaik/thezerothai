@@ -109,6 +109,18 @@ class ConversationsSession {
     if (_drop()) _notify();
   }
 
+  /// The encryption access of this device dropped (the flag turned off or
+  /// unknown with no vault left, the vault removed): every folder's cubit
+  /// forgets previews and the vault's word at once, also while the inbox is
+  /// off screen (the screen's own check only runs while it is drawn). The
+  /// cubits stay; a placement keeps its binding, so [changes] does not tick.
+  void encryptionAccessLost() {
+    if (_disposed) return;
+    for (final cubit in _cubits.values) {
+      cubit.accessChanged();
+    }
+  }
+
   void _notify() => _revision.value++;
 
   bool _drop() {

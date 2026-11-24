@@ -234,11 +234,7 @@ void main() {
         ' localhost:9099',
         'a b:9099',
       ]) {
-        expect(
-          () => resolve(bad),
-          throwsA(isA<AppConfigError>()),
-          reason: bad,
-        );
+        expect(() => resolve(bad), throwsA(isA<AppConfigError>()), reason: bad);
       }
     });
 
