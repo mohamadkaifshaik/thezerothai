@@ -211,6 +211,38 @@ void main() {
       });
     }
 
+    // Last round, item 3: a parked removal is visible outside the page.
+    for (final width in const [390.0, 700.0, 1300.0]) {
+      testWidgets('a parked removal shows on the row at ${width.toInt()} dp, '
+          'and goes when it is dropped', (tester) async {
+        port.park(['ref-secret']);
+        await pumpAt(tester, width, flags: flagsOn);
+        expect(subtitle(tester), parkedRemovalsText(1));
+        expect(find.textContaining('ref-secret'), findsNothing);
+        await port.dropRemoval('ref-secret');
+        await tester.pumpAndSettle();
+        expect(subtitle(tester), isNull);
+      });
+    }
+
+    testWidgets('a parked removal shows on the manage row too, and a '
+        'blocking status title wins', (tester) async {
+      port.park(['ref-secret']);
+      await pumpAt(tester, 390, flags: kSettingsTabletFlags);
+      expect(subtitle(tester), parkedRemovalsText(1));
+      device.vaultStatus.value = VaultStatus.keyLost;
+      await tester.pumpAndSettle();
+      expect(subtitle(tester), kStatusKeyLostTitle);
+    });
+
+    testWidgets('hidden: no row and no port call even with a parked '
+        'removal', (tester) async {
+      port.park(['ref-secret']);
+      await pumpAt(tester, 390, flags: kSettingsTabletFlags, vaultKnown: false);
+      expect(row(), findsNothing);
+      expect(port.calls, isEmpty);
+    });
+
     testWidgets('a blocking state keeps its title; nothing to do keeps the '
         'row silent', (tester) async {
       await pumpAt(tester, 390, flags: flagsOn);

@@ -315,6 +315,7 @@ class _DevicesView extends StatelessWidget {
       title: parkedRemovalDropTitle(count),
       message: parkedRemovalDropMessage(count),
       confirmLabel: kParkedRemovalDropAction,
+      destructive: true,
     );
     if (!confirmed || !context.mounted) return;
     await cubit.dropParked();
@@ -338,7 +339,11 @@ class _DevicesView extends StatelessWidget {
     // read now (the flag may have changed while the removal ran); a null
     // answer, or the flag off, gives the plain text that claims nothing about
     // the other sessions.
-    final ended = signOutOn ? cubit.otherSessionsEnded : null;
+    // With several removals in one run the answer is a summary: no
+    // per-device claim, the plain text.
+    final ended = signOutOn && cubit.removedCount == 1
+        ? cubit.otherSessionsEnded
+        : null;
     messenger
       ..hideCurrentSnackBar()
       ..showSnackBar(

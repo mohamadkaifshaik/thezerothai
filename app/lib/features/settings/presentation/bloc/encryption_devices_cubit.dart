@@ -160,6 +160,7 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
       return RemoveOutcome.notAttempted;
     }
     _otherSessionsEnded = null;
+    _removedCount = 0;
     if (!await _confirm(confirmItsYou)) return RemoveOutcome.cancelled;
     if (isClosed || state.removing != null) return RemoveOutcome.notAttempted;
     final before = state;
@@ -174,6 +175,7 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
     try {
       final removal = await _messaging.removeDevice(ref);
       _otherSessionsEnded = removal.otherSessionsEnded;
+      _removedCount = 1;
     } on ReauthRequiredException {
       // The call missed the window: the queue parked the removal (never
       // dropped). The screen asks the user to confirm again and calls this
@@ -231,6 +233,12 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
   bool? get otherSessionsEnded => _otherSessionsEnded;
   bool? _otherSessionsEnded;
 
+  /// How many removals the last run finished (1 for [remove]). With more
+  /// than one, [otherSessionsEnded] is a summary, so the screen makes no
+  /// per-device claim.
+  int get removedCount => _removedCount;
+  int _removedCount = 0;
+
   /// Runs [confirmItsYou] with [EncryptionDevicesState.confirming] set. A
   /// throw is a cancel, reported as a fixed step.
   Future<bool> _confirm(Future<bool> Function() confirmItsYou) async {
@@ -265,6 +273,7 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
     final asked = List<String>.of(_messaging.parkedRemovals.value);
     if (asked.isEmpty) return RemoveOutcome.notAttempted;
     _otherSessionsEnded = null;
+    _removedCount = 0;
     if (!await _confirm(confirmItsYou)) return RemoveOutcome.cancelled;
     if (isClosed || state.removing != null) return RemoveOutcome.notAttempted;
     // Only what the user was asked about AND is still parked now: a removal
@@ -310,6 +319,7 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
         return RemoveOutcome.failed;
       }
     }
+    _removedCount = answers.length;
     _otherSessionsEnded = answers.contains(false)
         ? false
         : answers.every((a) => a == true)

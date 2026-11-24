@@ -1095,6 +1095,19 @@ void main() {
       expect(find.text(kDeviceRemovedSessionsEnded), findsOneWidget);
     });
 
+    testWidgets('several removals finished in one run get the plain line, '
+        'never a per-device claim', (tester) async {
+      port.park(['ref-older', 'ref-newer']);
+      port.nextRemoval = const DeviceRemoval(otherSessionsEnded: false);
+      await pump(tester, deviceSignOut: true);
+      await tester.tap(confirmAction());
+      await tester.pumpAndSettle();
+      expect(port.removedDevices, ['ref-older', 'ref-newer']);
+      expect(find.text(kDeviceRemovedText), findsOneWidget);
+      expect(find.text(kDeviceRemovedSessionsKept), findsNothing);
+      expect(find.text(kDeviceRemovedSessionsEnded), findsNothing);
+    });
+
     testWidgets('Don\'t remove asks first, says the device stays, and only '
         'then drops it, with no removal call', (tester) async {
       port.park(['ref-older']);
@@ -1103,6 +1116,12 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text(parkedRemovalDropTitle(1)), findsOneWidget);
       expect(find.text(parkedRemovalDropMessage(1)), findsOneWidget);
+      expect(
+        tester
+            .widget<AppConfirmDialog>(find.byType(AppConfirmDialog))
+            .destructive,
+        isTrue,
+      );
       expect(port.droppedRemovals, isEmpty);
 
       await tester.tap(_inDialog(kParkedRemovalDropAction));
@@ -1196,7 +1215,7 @@ void main() {
           tester.element(find.text(kDevicesOthersHeader)),
         );
         port.holdRemoveDevice = Completer<void>();
-        unawaited(cubit.remove('ref-older'));
+        unawaited(cubit.remove('ref-older', confirmItsYou: () async => true));
         await tester.pump();
         final callsBefore = port.calls.length;
         await tester.tap(_inDialog(kDeviceRemoveAction));
