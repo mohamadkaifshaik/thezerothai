@@ -636,7 +636,7 @@ void main() {
           .setMockMethodCallHandler(SystemChannels.platform, null),
     );
 
-    testWidgets('is packed after Like and '
+    testWidgets('is after Like and '
         'labelled', (tester) async {
       final handle = tester.ensureSemantics();
       await pump(tester, _view(), shareLinks: links);
@@ -644,8 +644,6 @@ void main() {
       final share = find.byIcon(Icons.ios_share);
       expect(share, findsOneWidget);
       expect(find.bySemanticsLabel('Share'), findsOneWidget);
-      // Reply, Repost, Like, Share: packed from the left, each glyph where
-      // the previous target ends.
       final bar = tester.getRect(find.byType(PostActionBar));
       final order = [
         Icons.chat_bubble_outline,
@@ -655,7 +653,7 @@ void main() {
       ];
       expect(
         tester.getTopLeft(find.byIcon(order.first)).dx,
-        closeTo(bar.left, 1),
+        greaterThan(bar.left),
       );
       for (var i = 1; i < order.length; i++) {
         final previous = tester.getRect(
@@ -668,7 +666,7 @@ void main() {
         );
         expect(
           tester.getTopLeft(find.byIcon(order[i])).dx,
-          closeTo(previous.right, 1),
+          greaterThan(previous.right),
           reason: 'item $i',
         );
       }

@@ -52,7 +52,7 @@ void main() {
       });
     }
 
-    testWidgets('open post: every action packed from the left, in order '
+    testWidgets('open post: every action evenly spaced, in order '
         '(Share, then Bookmark last), larger glyphs', (tester) async {
       await tester.pumpWidget(
         _host(
@@ -81,8 +81,6 @@ void main() {
       for (var i = 1; i < xs.length; i++) {
         expect(xs[i], greaterThan(xs[i - 1]));
       }
-      // Compact and left-aligned: the first target starts the bar, each next
-      // one starts where the last ends, and every target is 48 dp.
       final bar = tester.getRect(find.byType(PostActionBar));
       Rect box(IconData icon) => tester.getRect(
         find.ancestor(
@@ -95,10 +93,10 @@ void main() {
         expect(box(icons[i]).width, greaterThanOrEqualTo(48));
         expect(box(icons[i]).height, greaterThanOrEqualTo(48));
         if (i > 0) {
-          expect(box(icons[i]).left, closeTo(box(icons[i - 1]).right, 0.5));
+          expect(box(icons[i]).left, closeTo(box(icons[i - 1]).right + 4, 0.5));
         }
       }
-      expect(box(Icons.bookmark_border).right, lessThan(bar.right - 100));
+      expect(box(Icons.bookmark_border).right, closeTo(bar.right, 1));
       expect(
         tester.getSize(find.byIcon(Icons.repeat)).width,
         AppFocalPost.actionIcon,
@@ -123,7 +121,7 @@ void main() {
       expect(find.byIcon(Icons.ios_share), findsNothing);
     });
 
-    testWidgets('shows compact counts; the four actions are packed, in '
+    testWidgets('shows compact counts; the four actions are distributed, in '
         'order Reply, Repost, Like, Share', (tester) async {
       await tester.pumpWidget(
         _host(
@@ -163,14 +161,12 @@ void main() {
                 .first,
           ),
       ];
-      // Packed from the left: each glyph starts where the previous target
-      // (glyph, count and the 20 dp gap, at least 48 dp) ends.
-      expect(lefts[0], closeTo(bar.left, 1));
+      expect(boxes.first.left, closeTo(bar.left, 1));
       for (var i = 1; i < 4; i++) {
-        expect(lefts[i], closeTo(boxes[i - 1].right, 1));
+        expect(boxes[i].left, closeTo(boxes[i - 1].right + 4, 1));
+        expect(lefts[i], greaterThan(lefts[i - 1]));
         expect(boxes[i].width, greaterThanOrEqualTo(48));
       }
-      // A counted item is glyph + 6 + count + 20 wide, not a fixed slot.
       expect(
         boxes[0].width,
         greaterThan(AppIconSize.action + AppSpacing.actionItemGap),
@@ -205,7 +201,7 @@ void main() {
       }
     });
 
-    testWidgets('Bookmark appears only with a callback; packs after '
+    testWidgets('Bookmark appears only with a callback; comes after '
         'the other actions, outline then filled accent, labelled and '
         'selected', (tester) async {
       final handle = tester.ensureSemantics();
@@ -223,15 +219,9 @@ void main() {
           ),
         ),
       );
-      // Like and Bookmark are packed, 48 dp apart (no Share: it needs a
-      // callback or showDisabled; no count, so each target is 48 dp).
       final bar = tester.getRect(find.byType(PostActionBar));
       final icon = tester.getRect(find.byIcon(Icons.bookmark_border));
-      expect(icon.left, closeTo(bar.left + AppSpacing.minTapTarget, 1));
-      expect(
-        tester.getTopLeft(find.byIcon(Icons.favorite_border)).dx,
-        closeTo(bar.left, 1),
-      );
+      expect(icon.center.dx, closeTo(bar.left + bar.width * .75 + 1, 1));
       expect(icon.width, AppIconSize.action);
       final off = tester.getSemantics(find.bySemanticsLabel('Bookmark'));
       expect(
@@ -259,7 +249,7 @@ void main() {
       handle.dispose();
     });
 
-    testWidgets('Share sits before Bookmark, last, packed '
+    testWidgets('Share sits before Bookmark, last, '
         'after the counted actions', (tester) async {
       await tester.pumpWidget(
         _host(
@@ -280,9 +270,11 @@ void main() {
       expect(like.right, lessThan(share.left));
       expect(share.right, lessThan(bookmark.left));
       final bar = tester.getRect(find.byType(PostActionBar));
-      expect(like.left, closeTo(bar.left, 1));
-      expect(share.left, closeTo(bar.left + AppSpacing.minTapTarget, 1));
-      expect(bookmark.left, closeTo(bar.left + 2 * AppSpacing.minTapTarget, 1));
+      expect(share.center.dx, closeTo(bar.center.dx, 1));
+      expect(
+        share.center.dx - like.center.dx,
+        closeTo(bookmark.center.dx - share.center.dx, 1),
+      );
     });
 
     for (final width in const [320.0, 360.0, 400.0]) {
@@ -360,9 +352,7 @@ void main() {
       handle.dispose();
     });
 
-    testWidgets('two visible actions are packed at the left, not the edges', (
-      tester,
-    ) async {
+    testWidgets('two visible actions share available width', (tester) async {
       await tester.pumpWidget(
         _host(
           PostActionBar(
@@ -375,9 +365,9 @@ void main() {
       final repost = tester.getTopLeft(find.byIcon(Icons.repeat)).dx;
       final like = tester.getTopLeft(find.byIcon(Icons.favorite_border)).dx;
       final bar = tester.getRect(find.byType(PostActionBar));
-      expect(repost, closeTo(bar.left, 1));
-      expect(like - repost, closeTo(AppSpacing.minTapTarget, 1));
-      expect(like, lessThan(bar.left + bar.width * 0.6));
+      expect(repost, lessThan(bar.center.dx));
+      expect(like - repost, closeTo((bar.width + 4) / 2, 1));
+      expect(like, greaterThan(bar.center.dx));
     });
 
     testWidgets('dispatches callbacks, has 48dp targets and semantics', (

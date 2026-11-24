@@ -47,6 +47,16 @@ GoRoute postPhotoRoute() => GoRoute(
     child: PostPhotoScreen(
       postId: state.pathParameters['id']!,
       index: int.tryParse(state.pathParameters['index'] ?? '') ?? 0,
+      nearbyVideos: switch (state.extra) {
+        final Map<Object?, Object?> locations => {
+          for (final entry in locations.entries)
+            if (entry.key is String && entry.value is List)
+              entry.key as String: (entry.value as List)
+                  .whereType<int>()
+                  .toList(),
+        },
+        _ => const {},
+      },
     ),
   ),
 );

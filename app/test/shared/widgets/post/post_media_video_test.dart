@@ -2,10 +2,43 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/shared/widgets/post/post_media.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:video_player/video_player.dart';
 
 void main() {
+  testWidgets('tapping a video poster opens its media route', (tester) async {
+    final router = GoRouter(
+      routes: [
+        GoRoute(
+          path: '/',
+          builder: (_, _) => Scaffold(
+            body: PostMedia(
+              postId: '123',
+              media: [
+                common.MediaRef(
+                  contentType: 'video/mp4',
+                  url: 'https://cdn.example/clip.mp4',
+                ),
+              ],
+            ),
+          ),
+        ),
+        GoRoute(
+          path: '/post/:id/photo/:index',
+          builder: (_, state) => Text(
+            '${state.pathParameters['id']} / ${state.pathParameters['index']}',
+          ),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+    await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+    await tester.tap(find.byTooltip('Play video'));
+    await tester.pumpAndSettle();
+    expect(find.text('123 / 1'), findsOneWidget);
+  });
+
   for (final detail in [false, true]) {
     testWidgets('only the poster loads before play (detail $detail)', (
       tester,

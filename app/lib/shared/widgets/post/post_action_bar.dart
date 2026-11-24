@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:material_ui/material_ui.dart';
 import 'package:intl/intl.dart';
 
@@ -35,28 +37,11 @@ class PostActions {
   final ValueChanged<Rect>? onShareAt;
 }
 
-/// How a [PostActionBar] looks. [feed] is the list card's compact row;
-/// [photoViewer] is X's phone photo viewer: reply, repost, like, views,
-/// bookmark, share spread evenly across the width, outline glyphs in grey
-/// with 13 sp counts, and X's pink / green / blue when liked / reposted /
-/// bookmarked ([AppPhotoPanel]). The actions and their semantics are the same.
+/// Selects the action colours used on cards and on the dark media panel.
 enum PostActionBarStyle { feed, photoViewer }
 
-/// Reply / Repost / Like / Share / Bookmark (the owner's order, 2026-11-15),
-/// compact and left-aligned, Substack style: [iconSize] outline glyphs (18 dp,
-/// dz.css `.acts`) with compact 13 sp counts, packed from the start with
-/// [AppSpacing.actionItemGap] between items (the same on phone, tablet and
-/// desktop; never spread across the width). Each item's tap target is at
-/// least 48 dp: the target extends invisibly (an icon-only item is 48 dp wide,
-/// so its visual gap to the next is a little larger), and the first glyph
-/// lines up with the text above. A row too narrow for its items squeezes
-/// them (a count fades) rather than overflowing. A hidden action (a flag off,
-/// no callback) leaves the others packed. Bookmark is filled and
-/// accent-coloured when bookmarked. The liked / reposted state uses the like /
-/// repost colours and is announced as `selected`. A last, read-only slot
-/// (views, F1) is added when [viewCount] is given (hidden by [kShowPostViews]
-/// for now). Rendered by `PostCard` only when it is given [PostActions] (the
-/// engagement bar).
+/// Responsive post actions. Pills size to their contents and share the
+/// available space between them. Large text can flow onto another line.
 class PostActionBar extends StatelessWidget {
   const PostActionBar({
     super.key,
@@ -88,7 +73,7 @@ class PostActionBar extends StatelessWidget {
   /// passes it only while the `share_count` flag is on for the viewer.
   final int shareCount;
 
-  /// The views drawn as a read-only stat after Like; null draws none. The
+  /// The views drawn as a read-only stat after the actions; null draws none. The
   /// caller passes it only when the server set `view_count` and `post_views`
   /// is on for the viewer.
   final int? viewCount;
@@ -127,7 +112,6 @@ class PostActionBar extends StatelessWidget {
           icon: Icons.chat_bubble_outline,
           iconSize: iconSize,
           idleColor: idle,
-          compactEnd: viewer,
           countWeight: viewer ? FontWeight.w400 : FontWeight.w600,
           label: 'Reply',
           count: replyCount,
@@ -140,7 +124,6 @@ class PostActionBar extends StatelessWidget {
             icon: Icons.repeat,
             iconSize: iconSize,
             idleColor: idle,
-            compactEnd: viewer,
             countWeight: viewer ? FontWeight.w400 : FontWeight.w600,
             label: reposted ? 'Undo repost' : 'Repost',
             count: repostCount,
@@ -156,7 +139,6 @@ class PostActionBar extends StatelessWidget {
           icon: liked ? Icons.favorite : Icons.favorite_border,
           iconSize: iconSize,
           idleColor: idle,
-          compactEnd: viewer,
           countWeight: viewer ? FontWeight.w400 : FontWeight.w600,
           label: liked ? 'Unlike' : 'Like',
           count: likeCount,
@@ -174,7 +156,6 @@ class PostActionBar extends StatelessWidget {
               icon: Icons.ios_share,
               iconSize: iconSize,
               idleColor: idle,
-              compactEnd: viewer,
               countWeight: viewer ? FontWeight.w400 : FontWeight.w600,
               label: 'Share',
               count: shareCount,
@@ -190,53 +171,91 @@ class PostActionBar extends StatelessWidget {
             icon: bookmarked ? Icons.bookmark : Icons.bookmark_border,
             iconSize: iconSize,
             idleColor: idle,
-            compactEnd: viewer,
             countWeight: viewer ? FontWeight.w400 : FontWeight.w600,
             label: bookmarked ? 'Bookmarked' : 'Bookmark',
             active: bookmarked,
             activeColor: viewer ? AppPhotoPanel.bookmarked : null,
             onPressed: actions.onBookmark,
           );
-    final views = viewCount == null
-        ? null
-        : Padding(
-            padding: const EdgeInsetsDirectional.only(
-              end: AppSpacing.actionItemGap,
-            ),
-            child: PostViewsStat(
-              count: viewCount!,
-              iconSize: iconSize,
-              icon: viewsIcon,
-              color: idle,
-            ),
+    final items = <Widget>[
+      ...counted,
+      ?share,
+      ?saved,
+      if (viewCount != null)
+        Center(
+          child: PostViewsStat(
+            count: viewCount!,
+            iconSize: iconSize,
+            icon: viewsIcon,
+            color: idle,
+          ),
+        ),
+    ];
+    if (items.isEmpty) return const SizedBox.shrink();
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const gap = 4.0;
+        final largeText = MediaQuery.textScalerOf(context).scale(13) > 18;
+        if (!constraints.hasBoundedWidth ||
+            largeText ||
+            constraints.maxWidth < items.length * (48 + gap) - gap) {
+          return Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            spacing: gap,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: items,
           );
-    if (viewer) {
-      // X's order, spread evenly: each item takes an equal share and sits at
-      // the start of it, so the first glyph lines up with the text above.
-      final row = <Widget>[...counted, ?views, ?saved, ?share];
-      return Row(
-        children: [
-          for (final item in row)
-            Expanded(
-              child: Align(
-                alignment: AlignmentDirectional.centerStart,
-                child: item,
-              ),
+        }
+        // Intrinsic widths reserve space for each formatted count. The table
+        // shares spare width evenly and keeps the gutters constant.
+        return Table(
+          defaultColumnWidth: const _ActionColumnWidth(),
+          defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+          columnWidths: {
+            if (counted.isNotEmpty &&
+                (likeCount > 0 || replyCount > 0 || repostCount > 0)) ...{
+              if (share != null && shareCount <= 0)
+                2 * items.indexOf(share): const FixedColumnWidth(
+                  AppSpacing.minTapTarget,
+                ),
+              if (saved != null)
+                2 * items.indexOf(saved): const FixedColumnWidth(
+                  AppSpacing.minTapTarget,
+                ),
+            },
+            for (int i = 1; i < items.length; i++)
+              2 * i - 1: const FixedColumnWidth(gap),
+          },
+          children: [
+            TableRow(
+              children: [
+                for (var i = 0; i < items.length; i++) ...[
+                  if (i > 0) const SizedBox.shrink(),
+                  items[i],
+                ],
+              ],
             ),
-        ],
-      );
-    }
-    final items = <Widget>[...counted, ?share, ?saved, ?views];
-    // Packed from the start; loose flex so a row too narrow for its items
-    // squeezes them (a count fades) instead of overflowing.
-    return Align(
-      alignment: AlignmentDirectional.centerStart,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [for (final item in items) Flexible(child: item)],
-      ),
+          ],
+        );
+      },
     );
   }
+}
+
+/// Let a crowded row shrink a counted capsule down to its tap target.
+class _ActionColumnWidth extends IntrinsicColumnWidth {
+  const _ActionColumnWidth() : super(flex: 1);
+
+  @override
+  double maxIntrinsicWidth(Iterable<RenderBox> cells, double containerWidth) =>
+      math.max(
+        AppSpacing.minTapTarget,
+        super.maxIntrinsicWidth(cells, containerWidth),
+      );
+
+  @override
+  double minIntrinsicWidth(Iterable<RenderBox> cells, double containerWidth) =>
+      AppSpacing.minTapTarget;
 }
 
 class _ActionButton extends StatelessWidget {
@@ -250,7 +269,6 @@ class _ActionButton extends StatelessWidget {
     this.activeColor,
     this.disabledHint,
     this.idleColor,
-    this.compactEnd = false,
     this.countWeight = FontWeight.w600,
   });
 
@@ -261,9 +279,6 @@ class _ActionButton extends StatelessWidget {
   /// The colour when not active (the photo viewer's grey); null is the
   /// theme's muted text colour.
   final Color? idleColor;
-
-  /// No trailing gap after the item (the photo viewer spreads items evenly).
-  final bool compactEnd;
 
   final IconData icon;
   final double iconSize;
@@ -289,7 +304,7 @@ class _ActionButton extends StatelessWidget {
     final button = Semantics(
       button: true,
       selected: active,
-      enabled: disabledHint == null ? null : false,
+      enabled: onPressed != null,
       hint: disabledHint,
       label: shown > 0 ? '$label, $shown' : label,
       excludeSemantics: true,
@@ -305,32 +320,50 @@ class _ActionButton extends StatelessWidget {
         highlightColor: Colors.transparent,
         child: ConstrainedBox(
           constraints: BoxConstraints(
-            // The 48 dp target; the trailing gap below is part of it.
+            // The hit area extends beyond the visible capsule.
             minWidth: AppSpacing.minTapTarget,
             minHeight: AppSpacing.minTapTarget,
           ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: iconSize, color: color),
-              if (shown > 0) ...[
-                const SizedBox(width: AppSpacing.actionGap),
-                Flexible(
-                  child: Text(
-                    NumberFormat.compact().format(shown),
-                    maxLines: 1,
-                    overflow: TextOverflow.fade,
-                    softWrap: false,
-                    // dz.css `.acts span`: 13 sp, w600.
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: color,
-                      fontWeight: countWeight,
-                    ),
-                  ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 5),
+            child: DecoratedBox(
+              decoration: ShapeDecoration(
+                color: active
+                    ? color.withValues(alpha: .14)
+                    : theme.colorScheme.onSurface.withValues(alpha: .09),
+                shape: const StadiumBorder(),
+              ),
+              child: Container(
+                constraints: const BoxConstraints(minWidth: 38, minHeight: 36),
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 5),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(icon, size: iconSize, color: color),
+                    if (shown > 0) ...[
+                      const SizedBox(width: AppSpacing.actionGap),
+                      Flexible(
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            NumberFormat.compact().format(shown),
+                            maxLines: 1,
+                            overflow: TextOverflow.fade,
+                            softWrap: false,
+                            // dz.css `.acts span`: 13 sp, w600.
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: color,
+                              fontWeight: countWeight,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
-              ],
-              if (!compactEnd) const SizedBox(width: AppSpacing.actionItemGap),
-            ],
+              ),
+            ),
           ),
         ),
       ),
