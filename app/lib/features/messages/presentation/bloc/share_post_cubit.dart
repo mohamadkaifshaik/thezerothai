@@ -193,6 +193,7 @@ class SharePostCubit extends Cubit<SharePostState> {
     SharePostCheck? check,
     bool Function()? checkEnabled,
     bool Function()? mayStartEncryption,
+    bool Function()? vaultNotReady,
     this.onUnexpectedError,
     Uuid? uuid,
   }) : _repository = repository,
@@ -200,6 +201,7 @@ class SharePostCubit extends Cubit<SharePostState> {
        _check = check,
        _checkEnabled = checkEnabled ?? (() => false),
        _mayStart = mayStartEncryption ?? (() => true),
+       _vaultNotReady = vaultNotReady ?? (() => false),
        _isEnabled = isEnabled ?? (() => true),
        _uuid = uuid ?? const Uuid(),
        super(const SharePostState());
@@ -228,6 +230,10 @@ class SharePostCubit extends Cubit<SharePostState> {
   /// encrypted conversation, which an unchecked share must never reach.
   /// Absent means "may start" (fails closed).
   final bool Function() _mayStart;
+
+  /// A vault is known on this device but is not ready: nothing can be
+  /// classified, so no row is plain (its route is unknown).
+  final bool Function() _vaultNotReady;
   bool _checking = false;
   final bool Function() _isEnabled;
   final Uuid _uuid;
@@ -500,6 +506,7 @@ class SharePostCubit extends Cubit<SharePostState> {
   /// the share is refused. Anything unexpected is not plain (fails closed).
   Future<_Route> _routeOf(EncryptedMessaging port, ShareRecipient row) async {
     try {
+      if (_vaultNotReady()) return _Route.unknown;
       final conversation = await _repository.cachedConversationWith(
         row.peer.userId,
       );

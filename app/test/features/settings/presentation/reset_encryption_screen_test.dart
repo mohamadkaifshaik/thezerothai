@@ -729,6 +729,24 @@ void main() {
       expect(h.attach(), isNull);
     });
 
+    test('last round item 4: a run in flight across reset() that then fails '
+        'shows nothing to the next attach', () async {
+      final hold = Completer<bool>();
+      final s = _MockVaultSession();
+      when(() => s.resetByUser()).thenAnswer((_) => hold.future);
+      final h = ResetEncryptionHolder(session: s);
+      addTearDown(h.dispose);
+      final run = h.cubit.run();
+      expect(h.cubit.state, ResetEncryptionPhase.running);
+      h.reset();
+      expect(h.cubit.state, ResetEncryptionPhase.idle);
+      hold.complete(false);
+      await run;
+      await Future<void>.delayed(Duration.zero);
+      expect(h.cubit.state, ResetEncryptionPhase.idle);
+      expect(h.attach(), isNull);
+    });
+
     test('attach never re-arms a run that is still going', () async {
       final hold = Completer<bool>();
       final s = _MockVaultSession();

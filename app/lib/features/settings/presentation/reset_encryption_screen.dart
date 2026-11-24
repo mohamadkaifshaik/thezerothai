@@ -44,6 +44,7 @@ class ResetEncryptionCubit extends Cubit<ResetEncryptionPhase> {
       return;
     }
     emit(ResetEncryptionPhase.running);
+    final generation = _generation;
     var ok = false;
     try {
       ok = await _reset();
@@ -51,7 +52,21 @@ class ResetEncryptionCubit extends Cubit<ResetEncryptionPhase> {
       _onUnexpectedError?.call(StateError('resetByUser'), stack);
     }
     if (isClosed) return;
+    // The account changed while this run was in flight ([abandon]): its
+    // outcome belongs to the previous account and is dropped.
+    if (generation != _generation) return;
     emit(ok ? ResetEncryptionPhase.done : ResetEncryptionPhase.failed);
+  }
+
+  int _generation = 0;
+
+  /// An account switch: a run in flight is forgotten (its outcome is dropped
+  /// when it ends) and the state goes back to idle at once.
+  void abandon() {
+    _generation++;
+    if (!isClosed && state != ResetEncryptionPhase.idle) {
+      emit(ResetEncryptionPhase.idle);
+    }
   }
 
   /// Back to idle after an outcome was shown (a held cubit outlives screens,
@@ -144,7 +159,7 @@ class ResetEncryptionHolder {
   /// run is not shown to the next one.
   void reset() {
     _unseen = null;
-    _cubit?.rearm();
+    _cubit?.abandon();
   }
 
   void dispose() {

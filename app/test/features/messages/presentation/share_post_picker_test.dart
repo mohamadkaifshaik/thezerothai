@@ -5,7 +5,8 @@ import 'package:dzeroth/app/session_wiring.dart' show UnexpectedErrorReporter;
 import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
-import 'package:dzeroth/core/vault/vault_status.dart' show E2eeFlag;
+import 'package:dzeroth/core/vault/vault_status.dart'
+    show E2eeFlag, VaultStatus;
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/graph/presentation/widgets/user_list_row.dart';
 import 'package:dzeroth/features/messages/data/messaging_repository.dart';
@@ -542,7 +543,9 @@ void main() {
             await tester.pump();
             await tester.tap(find.text('Send (1)'));
             await tester.pumpAndSettle();
-            if (check) {
+            // Access hidden (no vault here, flag off) never asks the server's
+            // check, even with dm_share_check on: rows route from the cache.
+            if (check && access != 'hidden') {
               expect(rig.repo.checkedPosts, [_postId]);
               expect(port.calls, ['send']);
               expect(port.sent.single.sharedPostId, _postId);
@@ -594,6 +597,45 @@ void main() {
         );
         await tester.pumpWidget(const SizedBox());
       }
+    });
+
+    testWidgets('dm_share_check on and access hidden: zero check calls, one '
+        'plain sendMessage', (tester) async {
+      final port = FakeEncryptedMessaging();
+      final rig = await shareTo(
+        tester,
+        features: {...base, 'dm_share_check'},
+        port: port,
+        device: FakeEncryptionDevice(vaultKnown: false, flag: E2eeFlag.off),
+      );
+      expect(rig.repo.checkedPosts, isEmpty);
+      expect(rig.repo.sendRecipients, ['u1']);
+      expect(port.sent, isEmpty);
+    });
+
+    testWidgets('a vault known here but not ready: the route is unknown, so '
+        'even a cached plain row is refused (no call)', (tester) async {
+      final port = FakeEncryptedMessaging();
+      final rig = _Rig();
+      rig.repo.cachedByPeer['u1'] = pb.Conversation(id: 'c1');
+      await rig.open(
+        tester,
+        features: base,
+        port: port,
+        device: FakeEncryptionDevice(
+          vaultKnown: true,
+          flag: E2eeFlag.off,
+          status: VaultStatus.opening,
+        ),
+      );
+      await tester.tap(_person('User 1'));
+      await tester.pump();
+      await tester.tap(find.text('Send (1)'));
+      await tester.pumpAndSettle();
+      expect(rig.repo.sendRecipients, isEmpty);
+      expect(rig.repo.checkedPosts, isEmpty);
+      expect(port.calls, isEmpty);
+      expect(find.text(offLine), findsWidgets);
     });
 
     testWidgets('no wiring in the tree: today\'s plain share', (tester) async {

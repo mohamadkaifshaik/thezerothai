@@ -30,6 +30,8 @@ import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../data/following_people_source.dart';
 import '../data/messaging_repository.dart';
 import '../domain/e2ee/encrypted_messaging.dart';
+import '../domain/e2ee/encryption_access.dart';
+import '../domain/e2ee/encryption_device.dart';
 import '../domain/message_suggestions.dart';
 import '../domain/messaging_feature_flag.dart';
 import '../domain/people_source.dart';
@@ -43,6 +45,7 @@ import 'share_post_error_messages.dart' show sharePostRowReason;
 import 'widgets/messages_encryption_note.dart';
 import 'widgets/share_post_bar.dart';
 import '../../../core/session/user_ids.dart';
+import '../../../core/vault/vault_status.dart' show VaultStatus;
 
 /// The "To:" field's key.
 const kRecipientFieldKey = ValueKey('recipient-field');
@@ -301,6 +304,16 @@ class _PickerViewState extends State<_PickerView> {
       // cached conversation) is refused with the flag-off line and no call.
       final port = context.read<EncryptedMessaging?>();
       final onboarding = context.read<OnboardingBloc>();
+      final device = context.read<EncryptionDevice?>();
+      // The access, read live at each send (the flag and the vault change).
+      // No device in the tree reads as `hidden`.
+      EncryptionAccess accessNow() => device == null
+          ? EncryptionAccess.hidden
+          : encryptionAccessOf(
+              flagOn: onboarding.state.enabledFeatures.contains(kFeatureE2eeDm),
+              vaultKnown: device.vaultKnown,
+              status: device.vaultStatus.value,
+            );
       _share = SharePostCubit(
         repository: repository,
         postId: target.postId,
@@ -311,9 +324,21 @@ class _PickerViewState extends State<_PickerView> {
         check: port == null ? null : repository.checkPostShare,
         checkEnabled: port == null
             ? null
-            : () => onboarding.state.enabledFeatures.contains(
-                kFeatureDmShareCheck,
-              ),
+            : () {
+                // The server's check is used only when a vault may exist
+                // here (`full` or `manage`); with `hidden` the rows route
+                // from the cache and no CheckPostShare is made.
+                final access = accessNow();
+                return (access == EncryptionAccess.full ||
+                        access == EncryptionAccess.manage) &&
+                    onboarding.state.enabledFeatures.contains(
+                      kFeatureDmShareCheck,
+                    );
+              },
+        vaultNotReady: () =>
+            device != null &&
+            device.vaultKnown &&
+            device.vaultStatus.value != VaultStatus.ready,
         mayStartEncryption: () =>
             onboarding.state.enabledFeatures.contains(kFeatureE2eeDm),
         onUnexpectedError: context.read<UnexpectedErrorReporter>(),
