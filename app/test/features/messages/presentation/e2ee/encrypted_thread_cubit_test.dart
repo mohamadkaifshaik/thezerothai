@@ -263,6 +263,38 @@ void main() {
       expect(cubit.state.encrypted, isTrue);
     });
 
+    test('final patch S2: a late stream event cannot refill the entries '
+        'while the vault is not usable', () async {
+      var ready = true;
+      port.setThread(
+        ref,
+        EncryptedThread(
+          conversationId: kThreadId,
+          entries: [entry('a')],
+          security: const ConversationSecurity(
+            state: ConversationEncryptionState.ready,
+          ),
+        ),
+      );
+      await open(network: snap(const [], header(mls)), usable: () => ready);
+      await pumpEventQueue();
+      ready = false;
+      cubit.refreshVault();
+      expect(cubit.state.entries, isEmpty);
+      port.setThread(
+        ref,
+        EncryptedThread(
+          conversationId: kThreadId,
+          entries: [entry('b')],
+          security: const ConversationSecurity(
+            state: ConversationEncryptionState.ready,
+          ),
+        ),
+      );
+      await pumpEventQueue();
+      expect(cubit.state.entries, isEmpty);
+    });
+
     test('offline start: no header, hasLocal true, the thread is encrypted '
         'from the vault', () async {
       port.local = {kThreadId};

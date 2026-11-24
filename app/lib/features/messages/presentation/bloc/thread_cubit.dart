@@ -359,6 +359,9 @@ class ThreadCubit extends Cubit<ThreadState> {
 
   void _onEncryptedThread(EncryptedThread thread) {
     if (isClosed) return;
+    // Decrypted rows do not outlive the vault: a late event while it is not
+    // usable cannot refill what [_reevaluate] cleared.
+    if (_port != null && !(_vaultUsable?.call() ?? true)) return;
     emit(
       state.copyWith(
         entries: thread.entries,

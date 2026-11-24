@@ -797,6 +797,35 @@ void main() {
       expect(_row('vault needle'), findsNothing);
     });
 
+    testWidgets('final patch S2: the vault leaving ready while the panel is '
+        'open drops the encrypted hits and the cubit holds none', (
+      tester,
+    ) async {
+      final rig = EncryptedSearchRig(
+        conversations: [conv('c1')],
+        messages: {
+          'c1': [msg(1, text: 'cache needle')],
+        },
+      );
+      rig.port.setSearchHits([_hit('c1', 'mv', 'vault needle')]);
+      await rig.pump(tester);
+      await rig.type(tester, 'needle');
+      expect(_row('vault needle'), findsOneWidget);
+      rig.device.vaultStatus.value = VaultStatus.keyLost;
+      await tester.pumpAndSettle();
+      expect(_row('vault needle'), findsNothing);
+      final cubit = BlocProvider.of<MessageSearchCubit>(
+        tester.element(
+          find.byType(BlocBuilder<MessageSearchCubit, MessageSearchState>),
+        ),
+      );
+      expect(cubit.encryptedResults.value.isEmpty, isTrue);
+      // Typing on asks the port nothing more while the vault is not ready.
+      final asked = rig.port.searchQueries.length;
+      await rig.type(tester, 'needle x');
+      expect(rig.port.searchQueries, hasLength(asked));
+    });
+
     testWidgets('a port failure keeps the cache rows and shows no error text', (
       tester,
     ) async {
