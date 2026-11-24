@@ -55,6 +55,9 @@ void main() {
     List<ThreadEntry>? entries,
     Set<String> flags = const {'messaging', 'graph', 'reports', 'ui_shell'},
     Uint8List? payload,
+    // false: the e2ee_dm flag is off with a vault on the device (`manage`).
+    bool flagOn = true,
+    Size size = const Size(390, 844),
   }) async {
     final server = MessagingFlowRig.serverWithConversation();
     server.conversations[kThreadId]!.encryption =
@@ -82,12 +85,12 @@ void main() {
     port.setReportPayload(kThreadId, _peerMsg2, payload);
     final rig = MessagingFlowRig(
       server: server,
-      flags: {...flags, kFeatureE2eeDm},
+      flags: {...flags, if (flagOn) kFeatureE2eeDm},
     );
     await rig.pump(
       tester,
       location: AppRouter.messagePath(kThreadId),
-      size: const Size(390, 844),
+      size: size,
       encrypted: port,
       device: FakeEncryptionDevice(status: VaultStatus.ready, vaultKnown: true),
     );
@@ -146,6 +149,35 @@ void main() {
         reason: 'Send does not read the payload again',
       );
     });
+
+    // Plan 5b Task 14 (report review): the flow also works with the flag off
+    // and a vault on the device (access `manage`: a user keeps what they
+    // have), and at the tablet and desktop widths.
+    for (final (name, flagOn, size) in <(String, bool, Size)>[
+      ('flag off, a vault here, phone', false, const Size(390, 844)),
+      ('flag on, tablet', true, const Size(800, 900)),
+      ('flag off, a vault here, desktop', false, const Size(1300, 900)),
+    ]) {
+      testWidgets('Report works: $name', (tester) async {
+        final r = await open(
+          tester,
+          payload: bytes(40),
+          flagOn: flagOn,
+          size: size,
+        );
+        await choose(tester, _peerMsg);
+        expect(r.port.calls.where((c) => c == 'reportPayload'), hasLength(1));
+        expect(find.textContaining(kReportEncryptedDetail), findsOneWidget);
+        await tester.tap(find.text("It's spam"));
+        await tester.pump();
+        final send = find.widgetWithText(FilledButton, 'Send report');
+        await tester.ensureVisible(send);
+        await tester.tap(send);
+        await tester.pumpAndSettle();
+        expect(r.rig.server.reports, hasLength(1));
+        expect(r.rig.server.reports.single.messagePayload, bytes(40));
+      });
+    }
 
     testWidgets('a report payload read that throws sends nothing and reports '
         'no message detail', (tester) async {

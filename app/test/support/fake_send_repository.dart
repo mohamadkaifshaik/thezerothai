@@ -68,6 +68,20 @@ class FakeSendRepository extends Fake implements MessagingRepository {
   /// Every `shared_post_id` a send carried (null for a plain send), in order.
   final List<String?> sendSharedPostIds = [];
 
+  /// Every post id a `checkPostShare` carried, in order (the server's share
+  /// check for an encrypted share), and what it answers.
+  final List<String> checkedPosts = [];
+  String? checkAnswer;
+  Object? checkError;
+
+  @override
+  Future<String> checkPostShare(String postId) async {
+    checkedPosts.add(postId);
+    final e = checkError;
+    if (e != null) throw e;
+    return checkAnswer ?? postId;
+  }
+
   /// The "enabled" flag the share cubit asks before each send.
   @override
   bool enabled = true;
@@ -103,9 +117,22 @@ class FakeSendRepository extends Fake implements MessagingRepository {
   @override
   Stream<void> get conversationsChanged => const Stream<void>.empty();
 
+  /// Thrown by `cachedConversationWith` when set (an unreadable cache).
+  Object? cachedConversationError;
+
+  /// Conversations the cache's sticky marker says were ever encrypted.
+  final Set<String> everEncrypted = {};
+
   @override
-  Future<pb.Conversation?> cachedConversationWith(String peerUserId) async =>
-      cachedByPeer[peerUserId];
+  Future<bool> cachedEverEncrypted(String conversationId) async =>
+      everEncrypted.contains(conversationId);
+
+  @override
+  Future<pb.Conversation?> cachedConversationWith(String peerUserId) async {
+    final e = cachedConversationError;
+    if (e != null) throw e;
+    return cachedByPeer[peerUserId];
+  }
 
   @override
   Future<ThreadSnapshot> cachedThread(String conversationId) async => thread;

@@ -351,6 +351,14 @@ class EncryptionStatusCubit extends Cubit<EncryptionStatus> {
     _changed();
   }
 
+  /// Per-account reset (fix round D): what the previous account dismissed is
+  /// shown again to the next one, and a retry in flight no longer blocks it.
+  void resetDismissals() {
+    _historyDismissed = false;
+    _retrying = false;
+    _changed();
+  }
+
   @override
   Future<void> close() {
     _device.vaultStatus.removeListener(_changed);

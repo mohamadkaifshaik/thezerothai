@@ -154,6 +154,27 @@ void main() {
     expect(find.byType(DraftThreadScreen), findsOneWidget);
   });
 
+  testWidgets('last round item 5: when the vault stops being ready the '
+      'decrypted rows are no longer drawn', (tester) async {
+    final o = await open(tester);
+    await typeAndSend(tester, 'hello');
+    await tester.pumpAndSettle();
+    o.port.setThread(
+      ref,
+      EncryptedThread(
+        entries: [row(o.port.sent.single.localId)],
+        security: const ConversationSecurity(
+          state: ConversationEncryptionState.ready,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('hello'), findsOneWidget);
+    o.device.vaultStatus.value = VaultStatus.keyLost;
+    await tester.pumpAndSettle();
+    expect(find.text('hello'), findsNothing);
+  });
+
   testWidgets('when the conversation id arrives the screen switches to the '
       'thread once', (tester) async {
     final o = await open(tester);
@@ -237,18 +258,50 @@ void main() {
     expect(o.rig.server.sends, hasLength(1));
   });
 
+  // Fix round A: with access `hidden` the draft shows nothing new (no note,
+  // no thread watch), but the SEND still goes through the provided port, which
+  // is inert for a user with no vault: it answers `notEncrypted` for a plain
+  // person, and today's one SendMessage follows.
   testWidgets('without the flag and no vault on this device the draft shows '
-      'no note and the composer '
-      'does not use the port for a person it knows nothing about', (
-    tester,
-  ) async {
-    // Flag off and no vault known on this device: access is hidden.
+      'no note and no watch; a plain person: the port says notEncrypted and '
+      'exactly today\'s one SendMessage follows', (tester) async {
     final o = await open(tester, flagOn: false, vaultKnown: false);
+    o.port.nextSendOutcome = const SendOutcome(SendOutcomeKind.notEncrypted);
     expect(find.text(kMessagesNotEncryptedText), findsNothing);
+    expect(o.port.calls, isNot(contains('watchThread')));
     await typeAndSend(tester, 'hello');
     await tester.pumpAndSettle();
-    expect(o.port.sent, isEmpty);
+    expect(o.port.calls.where((c) => c == 'send'), hasLength(1));
     expect(o.rig.server.sends.single.recipientUserId, 'u-sam');
+  });
+
+  testWidgets('flag off, no vault known (marker unreadable), a person the '
+      'cache knows as encrypted: the port refuses and no SendMessage is made', (
+    tester,
+  ) async {
+    final o = await open(tester, flagOn: false, vaultKnown: false);
+    o.port.nextSendOutcome = const SendOutcome(
+      SendOutcomeKind.refused,
+      problem: SendProblem.blocked,
+    );
+    await typeAndSend(tester, 'hello');
+    await tester.pumpAndSettle();
+    expect(o.port.calls.where((c) => c == 'send'), hasLength(1));
+    expect(o.rig.server.sends, isEmpty);
+  });
+
+  testWidgets('a draft opened hidden takes the watch when a vault appears, '
+      'and never gives it back', (tester) async {
+    final o = await open(tester, flagOn: false, vaultKnown: false);
+    expect(o.port.calls, isNot(contains('watchThread')));
+    o.device.vaultKnown = true;
+    o.device.vaultStatus.value = VaultStatus.opening;
+    await tester.pumpAndSettle();
+    expect(o.port.calls, contains('watchThread'));
+    o.device.vaultKnown = false;
+    o.device.vaultStatus.value = VaultStatus.off;
+    await tester.pumpAndSettle();
+    expect(o.port.calls.where((c) => c == 'watchThread'), hasLength(1));
   });
 
   testWidgets('the not-encrypted note is gone once the draft shows an '
@@ -269,6 +322,33 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text(kOutgoingWaitingText), findsOneWidget);
     expect(find.text(kMessagesNotEncryptedText), findsNothing);
+  });
+
+  // Plan 5b Task 14 (thread review item 6), DECISION: opening a draft for a
+  // person the vault already has a conversation with switches to that
+  // conversation at once (the thread is where the user continues; a draft
+  // screen over an existing conversation would show a different, empty
+  // thread). The draft's in-memory outbox scope is dropped by that switch:
+  // it can only hold plain "Not sent" rows of an earlier first message, which
+  // are session memory and are never sent behind the port's back. Nothing is
+  // sent by the switch.
+  testWidgets('a person the vault already has a conversation with: the draft '
+      'switches to that conversation once and sends nothing', (tester) async {
+    final o = await open(tester);
+    o.port.setThread(
+      ref,
+      EncryptedThread(
+        conversationId: kThreadId,
+        security: ConversationSecurity(
+          state: ConversationEncryptionState.ready,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(o.rig.path, AppRouter.messagePath(kThreadId));
+    expect(find.byType(DraftThreadScreen), findsNothing);
+    expect(o.port.calls, isNot(contains('send')));
+    expect(o.rig.server.sends, isEmpty);
   });
 
   testWidgets('a second tap on a retrying draft row sends nothing more', (

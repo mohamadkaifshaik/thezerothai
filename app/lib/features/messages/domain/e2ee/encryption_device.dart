@@ -42,4 +42,9 @@ abstract interface class EncryptionDevice {
 
   /// VaultSession.retry(); user-pressed only.
   Future<void> retryOpen();
+
+  /// Forgets what this object remembers for one account (sign-out or a switch
+  /// of account): the "unavailable for long" fact and queued work. Registered
+  /// with the app's per-account reset.
+  void resetForAccount();
 }

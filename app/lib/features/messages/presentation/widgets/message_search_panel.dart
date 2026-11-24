@@ -14,6 +14,7 @@ import '../../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../data/messaging_repository.dart';
 import '../../domain/e2ee/encrypted_messaging.dart';
 import '../../domain/e2ee/encryption_access.dart';
+import '../../../../core/vault/vault_status.dart' show VaultStatus;
 import '../../domain/e2ee/encryption_device.dart';
 import '../../domain/message_search.dart';
 import '../../domain/messaging_feature_flag.dart';
@@ -120,10 +121,20 @@ class _MessageSearchPanelState extends State<MessageSearchPanel> {
       encrypted: vault.port,
       encryptedAllowed: vault.allowed,
     );
+    // The vault leaving `ready` drops the decrypted hits at once.
+    _device = context.read<EncryptionDevice?>();
+    _device?.vaultStatus.addListener(_vaultChanged);
+  }
+
+  EncryptionDevice? _device;
+
+  void _vaultChanged() {
+    if (!_cubit.isClosed) _cubit.accessChanged();
   }
 
   @override
   void dispose() {
+    _device?.vaultStatus.removeListener(_vaultChanged);
     _text.dispose();
     unawaited(_cubit.close());
     super.dispose();
@@ -563,6 +574,8 @@ class _Entry {
   return (
     port: port,
     allowed: () {
+      // Saved results are decrypted text: they follow the vault (ready only).
+      if (device.vaultStatus.value != VaultStatus.ready) return false;
       final access = encryptionAccessOf(
         flagOn: onboarding.state.enabledFeatures.contains(kFeatureE2eeDm),
         vaultKnown: device.vaultKnown,
