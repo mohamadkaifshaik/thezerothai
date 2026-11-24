@@ -1460,9 +1460,16 @@ class _RigVault implements SecureVault {
     this._confirm,
     this._beforeOutbox,
     this._beforeDeviceId,
+    this._beforeMessages,
+    this._onGroups,
+    this._beforeSetting,
   );
 
+  final void Function() _onGroups;
+  final Future<void> Function(String key) _beforeSetting;
+
   final SecureVault _inner;
+  final Future<void> Function() _beforeMessages;
   final Future<bool> Function(String key, Future<bool> Function() real)
   _confirm;
   final Future<void> Function() _beforeOutbox;
@@ -1493,8 +1500,11 @@ class _RigVault implements SecureVault {
   Future<GroupRecord?> group(String conversationId, int generation) =>
       _inner.group(conversationId, generation);
   @override
-  Future<List<GroupRecord>> groups(String conversationId) =>
-      _inner.groups(conversationId);
+  Future<List<GroupRecord>> groups(String conversationId) {
+    _onGroups();
+    return _inner.groups(conversationId);
+  }
+
   @override
   Future<List<String>> groupConversationIds() => _inner.groupConversationIds();
   @override
@@ -1514,11 +1524,15 @@ class _RigVault implements SecureVault {
     String conversationId, {
     int limit = 50,
     String? beforeSortKey,
-  }) => _inner.messages(
-    conversationId,
-    limit: limit,
-    beforeSortKey: beforeSortKey,
-  );
+  }) async {
+    await _beforeMessages();
+    return _inner.messages(
+      conversationId,
+      limit: limit,
+      beforeSortKey: beforeSortKey,
+    );
+  }
+
   @override
   Future<StoredMessage?> message(String conversationId, String messageId) =>
       _inner.message(conversationId, messageId);
@@ -1532,7 +1546,11 @@ class _RigVault implements SecureVault {
   }
 
   @override
-  Future<Uint8List?> setting(String key) => _inner.setting(key);
+  Future<Uint8List?> setting(String key) async {
+    await _beforeSetting(key);
+    return _inner.setting(key);
+  }
+
   @override
   Future<void> wipe() => _inner.wipe();
   @override
@@ -1601,6 +1619,18 @@ class RigDevice {
   /// (the vault's own read is not made then). Null: the real read.
   Future<void> Function()? onOutbox;
 
+  /// Runs before every `messages` read of the vault; throw to fail that
+  /// read. Null: the real read.
+  Future<void> Function()? onMessages;
+
+  /// Runs before every plain `setting` read of the vault (with the key);
+  /// throw to fail that read. Null: the real read.
+  Future<void> Function(String key)? onSetting;
+
+  /// How many `groups` reads the vault answered (a test counts the vault
+  /// reads a step makes).
+  int groupsReads = 0;
+
   /// Runs before every `deviceId` read of the vault (a test holds it to
   /// race a start against "set up again"). Null: the real read at once.
   Future<void> Function()? onDeviceId;
@@ -1668,6 +1698,9 @@ class RigDevice {
             _confirmStored,
             () async => onOutbox?.call(),
             () async => onDeviceId?.call(),
+            () async => onMessages?.call(),
+            () => groupsReads++,
+            (key) async => onSetting?.call(key),
           ),
       wipeVaultFile: ({required alias, String? expectedStorage}) async {},
       deleteVaultKey: ({required alias}) async {},
@@ -2258,12 +2291,28 @@ class RigCrypto {
     ),
   );
 
-  /// The server's header row of [conversationId] names [peerRef].
-  void header(String conversationId, String peerRef) {
+  /// The server's header row of [conversationId] names [peerRef]. By
+  /// default it is what the server sends for an accepted conversation
+  /// (INBOX, ACCEPTED).
+  ///
+  /// [incomingRequest]: the header puts the conversation in this user's
+  /// Requests folder, not accepted. [sentRequest]: "I sent a request, not
+  /// accepted yet" (INBOX folder, REQUEST state). A header read of the
+  /// catch-up takes either as the server's word.
+  void header(
+    String conversationId,
+    String peerRef, {
+    bool incomingRequest = false,
+    bool sentRequest = false,
+  }) {
+    final unaccepted = incomingRequest || sentRequest;
     server.rows[conversationId] = pb.Conversation(
       id: conversationId,
       peer: common.AuthorSnapshot(userId: peerRef),
-      folder: Folder.FOLDER_INBOX,
+      folder: incomingRequest ? Folder.FOLDER_REQUESTS : Folder.FOLDER_INBOX,
+      state: unaccepted
+          ? ConversationState.CONVERSATION_STATE_REQUEST
+          : ConversationState.CONVERSATION_STATE_ACCEPTED,
       canReply: true,
     );
   }

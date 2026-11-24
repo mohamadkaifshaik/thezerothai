@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import '../../../../core/crypto/mls_pair.dart';
 import '../../../../gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import '../../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart';
@@ -26,6 +28,46 @@ class ConversationContext {
   /// While false, every header or inbox row saying ACCEPTED hands the
   /// conversation to [ConversationContexts.onAcceptedSeen].
   bool acceptanceSettled = false;
+
+  /// A header's ACCEPTED was seen while this vault kept neither a sync
+  /// record nor a group for the conversation, so the acceptance steps did
+  /// not run (a since-poll later carries no header, so the sight would be
+  /// lost). The next catch-up pass that finds a record or a group hands the
+  /// conversation to [ConversationContexts.onAcceptedSeen] again. Memory
+  /// only, one bool per conversation (cleared with the contexts); never
+  /// set from a decrypted message.
+  bool acceptedSightingHeld = false;
+
+  /// A full sight (a server row, [ConversationContexts.note] without
+  /// `peerOnly`) of this conversation was taken in this run.
+  bool fullSightSeen = false;
+
+  /// The thread's refresh was already asked to be a first-page read in this
+  /// run (`E2eePipeline.wantsFirstPage` answers true once per run).
+  bool firstPageAsked = false;
+
+  /// The thread cannot be answered (the server said CANNOT_MESSAGE, a block
+  /// or the like): [canReply] is false, and a held acceptance sighting is
+  /// forgotten (the conversation is not one to settle).
+  void noteCannotMessage() {
+    canReply = false;
+    canReplyLoweredByList = false;
+    acceptedSightingHeld = false;
+  }
+
+  /// [canReply] is false because a LIST row said so (only a list row undoes
+  /// that); a header's or a refusal's false is not this.
+  bool canReplyLoweredByList = false;
+
+  /// A list row said true while a header's or a refusal's false stands: the
+  /// thread's next refresh is asked to read one more first page. Used at most
+  /// once per conversation and run ([extraFirstPageUsed]).
+  bool extraFirstPageOwed = false;
+  bool extraFirstPageUsed = false;
+
+  /// A catch-up pass or a state build ([ConversationCrypto.describeState]) of
+  /// this run has read the stored record, so [acceptanceSettled] is known.
+  bool stateKnown = false;
 
   /// Whether the thread can be answered: from a `ListMessages` header or an
   /// inbox row of this run (never a send answer or a cached row, audit
@@ -317,6 +359,10 @@ class ConversationContexts {
   ConversationContext of(String conversationId) =>
       _byId.putIfAbsent(conversationId, ConversationContext.new);
 
+  /// Whether a context exists for [conversationId] (never creates one).
+  @visibleForTesting
+  bool has(String conversationId) => _byId.containsKey(conversationId);
+
   /// Task 9 brief amendment 1 (Task 13 wires it to
   /// `MembershipUpkeep.noteAcceptedSeen`): called, synchronously, with the
   /// conversation id each time a `ListMessages` header or an inbox row says
@@ -350,14 +396,65 @@ class ConversationContexts {
   /// can put the user's own outgoing request in the Requests folder).
   /// Task 9 audit L6: a stale `can_reply` false of such a row blocked
   /// removals; the thread's own refusal (CANNOT_MESSAGE) still sets it.
-  void note(pb.Conversation row, {bool peerOnly = false}) {
+  ///
+  /// [keepPeer]: the peer reference is taken only when the context has none
+  /// (a row the repository read from the server must not replace one this
+  /// run already holds, e.g. from the first page the pipeline itself read).
+  ///
+  /// A full row is a sight: a held acceptance sighting is forgotten when it
+  /// does not say ACCEPTED. `requestAccepted` is a pure server fact: an
+  /// ACCEPTED sight is held and settled whatever `can_reply` says
+  /// (`can_reply` is false for a blocked or deleted peer and for every row
+  /// of a user whose blocked-by list overflowed, fail-closed on the server;
+  /// refusing to hold on it would bring the lost-sighting defect back for
+  /// those users, and commits stay gated on [ConversationContext.canReply]).
+  ///
+  /// [fromList]: the row is from a `ListConversations` answer, which never
+  /// raises `can_reply` (the list says true for a suspended peer where the
+  /// thread header says false); only a first-page header does.
+  ///
+  /// The caller is the repository's completion path, or a pipeline read
+  /// right after its RPC: never inside a `runWrite` body, and never waiting
+  /// ([onAcceptedSeen] and [onRowNoted] only queue).
+  void note(
+    pb.Conversation row, {
+    bool peerOnly = false,
+    bool keepPeer = false,
+    bool fromList = false,
+  }) {
     if (row.id.isEmpty) return;
     final c = of(row.id);
-    if (row.hasPeer() && row.peer.userId.isNotEmpty) {
+    if (row.hasPeer() &&
+        row.peer.userId.isNotEmpty &&
+        !(keepPeer && (c.peerUserId?.isNotEmpty ?? false))) {
       c.peerUserId = row.peer.userId;
     }
     if (peerOnly) return;
-    c.canReply = row.canReply;
+    c.fullSightSeen = true;
+    if (row.state != ConversationState.CONVERSATION_STATE_ACCEPTED) {
+      c.acceptedSightingHeld = false;
+    }
+    if (!fromList) {
+      // A first-page header decides, up and down.
+      c.canReply = row.canReply;
+      c.canReplyLoweredByList = false;
+    } else if (!row.canReply) {
+      if (c.canReply) {
+        c.canReply = false;
+        c.canReplyLoweredByList = true;
+      }
+    } else if (!c.canReply) {
+      if (c.canReplyLoweredByList) {
+        // A false a list row set is undone by a list row.
+        c.canReply = true;
+        c.canReplyLoweredByList = false;
+      } else if (!c.extraFirstPageUsed) {
+        // A false from a header or a refusal is not undone by a list row
+        // (the list says true for a suspended peer): the thread reads one
+        // more first page, whose header decides. At most once per run.
+        c.extraFirstPageOwed = true;
+      }
+    }
     if (row.folder == Folder.FOLDER_REQUESTS) {
       c
         ..incomingRequest = true
@@ -368,11 +465,24 @@ class ConversationContexts {
         ..incomingRequest = false
         ..requestSeenInHeader = false;
     }
+    // A row with no peer reference (the inbox lists the sender of a request
+    // whose recipient account was erased as ACCEPTED while the thread header
+    // says REQUEST) is no acceptance sight. A sight already held is not
+    // handed over again (the next catch-up applies it).
     if (row.state == ConversationState.CONVERSATION_STATE_ACCEPTED &&
-        !c.acceptanceSettled) {
+        !c.acceptanceSettled &&
+        !c.acceptedSightingHeld &&
+        row.hasPeer() &&
+        row.peer.userId.isNotEmpty) {
       onAcceptedSeen?.call(row.id);
     }
-    onRowNoted?.call(row);
+    // The removal queue and the directory follow the resulting `can_reply`
+    // (a list row never raised it), not the row's own field.
+    onRowNoted?.call(
+      row.canReply == c.canReply
+          ? row
+          : (row.deepCopy()..canReply = c.canReply),
+    );
   }
 
   /// The app resumed: no conversation's own engine hold is kept.

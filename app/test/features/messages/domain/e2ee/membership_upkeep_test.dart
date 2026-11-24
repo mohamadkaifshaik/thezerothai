@@ -2205,6 +2205,111 @@ void main() {
     });
   });
 
+  group('an acceptance sighting before the record or group exists', () {
+    /// The sighting comes before this vault keeps anything for [_c1]; the
+    /// device then joins; every later read is a since-poll (no header).
+    Future<void> sightingThenJoin() async {
+      rig = await RigCrypto.create();
+      bob = await RigPeer.create('bob');
+      rig.keys.peers['ref-bob'] = [rigKeyDevice(bob.idString, bob.key)];
+      rig.watchAcceptanceNow();
+      final accepted = headerRow(
+        state: ConversationState.CONVERSATION_STATE_ACCEPTED,
+      );
+      rig.server.rows[_c1] = accepted;
+      // The sight: no record and no group yet.
+      rig.contexts.note(accepted);
+      await rig.upkeep.idle();
+      expect((await sync()).requestAccepted, isFalse);
+      // The server's first page carries no header from now on (the join's
+      // own catch-up must not read one), as a since-poll does not.
+      rig.server.rows.remove(_c1);
+      offer = await rig.offer(_c1, bob);
+      expect(await rig.crypto.processWelcomes(), [_c1]);
+      // A probe already saved a since token: only since-polls follow.
+      await updateSync((s) => s.copyWith(sinceToken: 's:0'));
+    }
+
+    test('is applied once the record or group exists, with only since-polls '
+        'after', () async {
+      await sightingThenJoin();
+
+      await rig.receiver.pullLive(_c1);
+      expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+      await rig.upkeep.idle();
+
+      expect((await sync()).requestAccepted, isTrue);
+      expect(rig.contexts.of(_c1).acceptanceSettled, isTrue);
+    });
+
+    test(
+      'a restart that lost the sighting settles from the next server row '
+      'that says ACCEPTED, and the catch-up makes no read of its own',
+      () async {
+        rig = await RigCrypto.create();
+        bob = await RigPeer.create('bob');
+        rig.keys.peers['ref-bob'] = [rigKeyDevice(bob.idString, bob.key)];
+        rig.watchAcceptanceNow();
+        // The join (and its own catch-up) sees no header.
+        offer = await rig.offer(_c1, bob);
+        expect(await rig.crypto.processWelcomes(), [_c1]);
+        await updateSync((s) => s.copyWith(sinceToken: 's:0'));
+        // A restart: no memory of any sighting. A catch-up alone settles
+        // nothing (the server sent no header on its since-polls).
+        rig.contexts.clear();
+        expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
+        await rig.upkeep.idle();
+        expect((await sync()).requestAccepted, isFalse);
+        rig.server.calls.clear();
+
+        // The server's row (an inbox answer, a thread's first page) says
+        // ACCEPTED.
+        rig.contexts.note(
+          headerRow(state: ConversationState.CONVERSATION_STATE_ACCEPTED),
+          keepPeer: true,
+        );
+        await rig.upkeep.idle();
+        expect((await sync()).requestAccepted, isTrue);
+        expect(rig.server.calls.where((c) => c == 'listMlsMessages'), isEmpty);
+      },
+    );
+
+    test('a row that does not say ACCEPTED never accepts', () async {
+      rig = await RigCrypto.create();
+      bob = await RigPeer.create('bob');
+      rig.keys.peers['ref-bob'] = [rigKeyDevice(bob.idString, bob.key)];
+      rig.watchAcceptanceNow();
+      offer = await rig.offer(_c1, bob);
+      expect(await rig.crypto.processWelcomes(), [_c1]);
+
+      rig.contexts.note(headerRow(), keepPeer: true);
+      await rig.crypto.catchUp(_c1);
+      await rig.crypto.catchUp(_c1);
+      await rig.upkeep.idle();
+
+      expect((await sync()).requestAccepted, isFalse);
+    });
+
+    test('is never inferred: with no sighting the conversation stays '
+        'unaccepted', () async {
+      rig = await RigCrypto.create();
+      bob = await RigPeer.create('bob');
+      rig.keys.peers['ref-bob'] = [rigKeyDevice(bob.idString, bob.key)];
+      rig.watchAcceptanceNow();
+      rig.server.rows[_c1] = headerRow(
+        state: ConversationState.CONVERSATION_STATE_REQUEST,
+      );
+      offer = await rig.offer(_c1, bob);
+      expect(await rig.crypto.processWelcomes(), [_c1]);
+      await updateSync((s) => s.copyWith(sinceToken: 's:0'));
+
+      await rig.receiver.pullLive(_c1);
+      await rig.upkeep.idle();
+
+      expect((await sync()).requestAccepted, isFalse);
+    });
+  });
+
   group('the re-check timer (brief amendment 10)', () {
     test('one re-check per conversation keeps the earliest due time and is '
         'cancelled at pause and at sign-out', () async {

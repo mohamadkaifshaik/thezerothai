@@ -1100,6 +1100,7 @@ void main() {
     test('CANNOT_MESSAGE fails the row with the typed error and marks the '
         'thread read-only', () async {
       await setUpJoined();
+      rig.contexts.of(_c1).acceptedSightingHeld = true;
       rig.server.sendScript.add((
         error: const CannotMessageException(),
         stored: false,
@@ -1114,6 +1115,7 @@ void main() {
       expect(out.error, isA<CannotMessageException>());
       expect(out.retryable, isFalse);
       expect(rig.contexts.of(_c1).canReply, isFalse);
+      expect(rig.contexts.of(_c1).acceptedSightingHeld, isFalse);
       // Read-only: a retry makes no call while the thread cannot be
       // answered.
       await rig.sender.retry('l1');

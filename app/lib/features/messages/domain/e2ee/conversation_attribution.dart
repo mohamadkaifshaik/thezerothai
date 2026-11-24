@@ -334,7 +334,10 @@ extension _Attribution on ConversationCrypto {
     if (known() != null) return known();
     if (!await _takeSyncUnit(priority)) return null;
     final page = await _messaging.listMlsMessages(conversationId: id);
-    if (page.hasConversation()) _contexts.note(page.conversation);
+    // Only the header of the conversation asked for.
+    if (page.hasConversation() && page.conversation.id == id) {
+      _contexts.note(page.conversation);
+    }
     return known();
   }
 }

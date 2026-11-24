@@ -573,7 +573,7 @@ extension _Recovery on GroupStarter {
     }
     _forget(row.localId);
     _sender.rememberRefusal(row.localId, e);
-    if (e is CannotMessageException) _contexts.of(id).canReply = false;
+    if (e is CannotMessageException) _contexts.of(id).noteCannotMessage();
     _onChanged(id);
     return none;
   }

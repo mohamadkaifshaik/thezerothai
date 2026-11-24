@@ -28,6 +28,9 @@ extension _CatchUp on ConversationCrypto {
       for (var i = 0; i < _kSwitchesPerPass; i++) {
         final step = await _passLocked(pass, id);
         if (step == null) continue; // a newer generation was joined
+        // After the pass, so attribution has used the peer reference this
+        // run already held before a header could replace it.
+        await _settleAcceptanceSightLocked(pass, id);
         switch (step) {
           case CatchUpResult.stuck:
             context.stuck = true;
@@ -44,6 +47,58 @@ extension _CatchUp on ConversationCrypto {
     } on Object catch (e, s) {
       _reportIfBug(e, s, 'catchUp');
       return CatchUpResult.interrupted;
+    }
+  }
+
+  /// Defect fix (acceptance sighting): acceptance comes only from the
+  /// server's header for a conversation this device keeps state for, and a
+  /// since-poll carries none.
+  ///
+  /// 1. A sight a header made before this vault kept a record or a group
+  ///    ([ConversationContext.acceptedSightingHeld]) is handed back to
+  ///    [ConversationContexts.onAcceptedSeen] now that one exists (it only
+  ///    queues; the caller holds the lock).
+  /// 2. A stored accepted record settles the conversation for the run, so
+  ///    later passes read nothing here.
+  ///
+  /// No read is made here (a dedicated first-page read per conversation
+  /// would wait for a read-budget unit under the conversation lock, and a
+  /// per-run cap would starve an accepted conversation behind unanswered
+  /// requests: review M1, M2). A restart loses the held flag, and the
+  /// sight comes again from rows the app already reads from the server:
+  /// the inbox and requests answers and a thread's first page, which the
+  /// repository reports (`MessagingRepository.onServerConversationRow`,
+  /// the pipeline's `noteServerRow`) and [ConversationContexts.note] takes.
+  /// A thread open reads a first page only when its refresh is asked to
+  /// (`wantsFirstPage`, once per conversation and run); otherwise it is a
+  /// since poll, which carries no header.
+  Future<void> _settleAcceptanceSightLocked(_Operation pass, String id) async {
+    final context = _contexts.of(id);
+    if (!pass.live) return;
+    if (context.acceptanceSettled) {
+      context.stateKnown = true;
+      return;
+    }
+    final held = context.acceptedSightingHeld;
+    try {
+      final record = await pass.vault.conversation(id);
+      // The stored acceptance is known to this run from here on (the
+      // `wantsFirstPage` answer waits for it).
+      context.stateKnown = true;
+      if (record?.sync.requestAccepted ?? false) {
+        context.acceptanceSettled = true;
+        return;
+      }
+      // The groups only matter to a held sighting with no record.
+      if (held &&
+          (record != null || (await pass.vault.groups(id)).isNotEmpty)) {
+        context.acceptedSightingHeld = false;
+        _contexts.onAcceptedSeen?.call(id);
+      }
+    } on StateError {
+      return;
+    } on Object catch (e, s) {
+      _reportIfBug(e, s, 'catchUp.acceptanceSight');
     }
   }
 

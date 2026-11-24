@@ -105,6 +105,7 @@ class _Thread {
           _controller.add(thread);
         }
         _open();
+        armClock();
       } while (_again);
     } finally {
       _building = null;
@@ -112,6 +113,35 @@ class _Thread {
   }
 
   void _firstListener() => unawaited(refresh());
+
+  /// The next moment the last build's state changes by the clock alone
+  /// ([ConversationCryptoState.clockChangeAt]); null: none.
+  DateTime? _clockAt;
+
+  /// The one timer of this thread for [_clockAt] (cancel handle).
+  void Function()? _cancelClock;
+
+  /// (Re)arms the one clock timer: cancelled first, then armed only while
+  /// someone listens and the last build named a moment, through the
+  /// pipeline's own clock and timer seam (which arms nothing while paused
+  /// or with no ready vault). The timer rebuilds the thread, which arms the
+  /// next one. A moment already past fires at once; the rebuilt state names
+  /// no past moment, so this cannot loop.
+  void armClock() {
+    _cancelClock?.call();
+    _cancelClock = null;
+    final at = _clockAt;
+    if (at == null || !_controller.hasListener || _controller.isClosed) return;
+    final pipeline = _impl._pipeline;
+    final delay = at.difference(pipeline.clockNow());
+    _cancelClock = pipeline.scheduleThreadClock(
+      delay.isNegative ? Duration.zero : delay,
+      () {
+        _cancelClock = null;
+        refreshIfWatched();
+      },
+    );
+  }
 
   /// Closes the conversation with the coordinator, and (branch review m1)
   /// drops the decrypted window and this thread's entry in the port's map:
@@ -122,6 +152,9 @@ class _Thread {
     if (id != null) _impl._pipeline.closed(id);
     _latest = null;
     _again = false;
+    _clockAt = null;
+    _cancelClock?.call();
+    _cancelClock = null;
     if (identical(_impl._threads[ref], this)) _impl._threads.remove(ref);
   }
 
@@ -145,9 +178,14 @@ class _Thread {
   Future<EncryptedThread?> _build() async {
     final impl = _impl;
     final parts = impl._pipeline.parts;
+    // Only a build that reads the state names a clock moment: a failed or
+    // id-less build keeps no old (maybe past) one, so no timer re-arms at
+    // zero delay on every turn.
+    _clockAt = null;
     if (parts == null) {
       // No ready vault: the port's empty thread (the pinned inertness
-      // test), keeping the id it is addressed by.
+      // test), keeping the id it is addressed by; no clock moment.
+      _clockAt = null;
       return EncryptedThread(
         conversationId: ref.conversationId,
         security: _emptyThread.security,
@@ -202,6 +240,7 @@ class _Thread {
     final page = hasMore ? rows.sublist(0, window) : rows;
     final cleared = (await vault.conversation(id))?.sync.clearedAtMicros;
     final state = await parts.crypto.describeState(id);
+    _clockAt = state.clockChangeAt;
     final security = securityOf(
       state,
       usable:

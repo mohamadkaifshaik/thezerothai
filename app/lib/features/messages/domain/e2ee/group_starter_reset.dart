@@ -602,7 +602,7 @@ extension _Reset on GroupStarter {
             // Still unknown after the one resend: the record decides.
             return await _resetDecideLocked(op, id, group, pending, priority);
           }
-          if (e is CannotMessageException) _contexts.of(id).canReply = false;
+          if (e is CannotMessageException) _contexts.of(id).noteCannotMessage();
           // A refusal of the FIRST call: nothing of it can be stored.
           if (isFirst && e is! IdempotencyKeyReusedException) {
             return await _resetDropLocked(id, group, refusal: e);

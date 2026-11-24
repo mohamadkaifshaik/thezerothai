@@ -155,7 +155,9 @@ extension _Send on EncryptedSender {
         op.check(v);
         // Memory is written for the vault the send was made with only.
         _errors[localId] = error;
-        if (error is CannotMessageException) _contexts.of(id).canReply = false;
+        if (error is CannotMessageException) {
+          _contexts.of(id).noteCannotMessage();
+        }
         final row = await _rowOf(v, id, key);
         if (row == null || row.stage != OutboxStage.encrypted) return;
         await v.transaction(
