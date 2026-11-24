@@ -320,18 +320,7 @@ List<String> loggingViolations(String source) {
   for (final m in _printCall.allMatches(text)) {
     bad.add(m.group(0)!.trim());
   }
-  // Any variable holding a Logger, whatever its name (`final l = Logger(..)`,
-  // `Logger audit`), is a sink too.
-  final loggerNames = {
-    for (final m in RegExp(
-      r'(?<![\w$.])([A-Za-z_$][\w$]*)\s*=\s*Logger\s*[.(]',
-    ).allMatches(text))
-      m.group(1)!,
-    for (final m in RegExp(
-      r'(?<![\w$.])Logger\??\s+([A-Za-z_$][\w$]*)',
-    ).allMatches(text))
-      m.group(1)!,
-  };
+  final loggerNames = _loggerVariableNames(text);
   final sinks = [
     ..._sink.allMatches(text),
     if (loggerNames.isNotEmpty)
@@ -357,6 +346,45 @@ List<String> loggingViolations(String source) {
     }
   }
   return bad;
+}
+
+/// Any variable holding a Logger, whatever its name (`final l = Logger(..)`,
+/// `Logger audit`), is a sink too. [text] is comment- and string-stripped.
+Set<String> _loggerVariableNames(String text) => {
+  for (final m in RegExp(
+    r'(?<![\w$.])([A-Za-z_$][\w$]*)\s*=\s*Logger\s*[.(]',
+  ).allMatches(text))
+    m.group(1)!,
+  for (final m in RegExp(
+    r'(?<![\w$.])Logger\??\s+([A-Za-z_$][\w$]*)',
+  ).allMatches(text))
+    m.group(1)!,
+};
+
+/// Every call in [source] that writes somewhere, with its argument list text
+/// (comments and string text removed, interpolated code kept): `print(` /
+/// `debugPrint(`, every pattern of the sink regex above, and calls on any
+/// variable holding a Logger. The same discovery [loggingViolations] uses,
+/// without its name judgement, so a caller can judge the arguments by its own
+/// rule. A declaration (`void log(`) is skipped.
+List<({String call, String args})> sinkCalls(String source) {
+  final text = stripSource(source, keepStrings: false);
+  final loggerNames = _loggerVariableNames(text);
+  final matches = [
+    ..._printCall.allMatches(text),
+    ..._sink.allMatches(text),
+    if (loggerNames.isNotEmpty)
+      ...RegExp(
+        r'(?<![\w$.])(?:' +
+            loggerNames.map(RegExp.escape).join('|') +
+            r')\s*\??\s*\.\s*\w+\s*\(',
+      ).allMatches(text),
+  ];
+  return [
+    for (final m in matches)
+      if (!text.substring(0, m.start).trimRight().endsWith('void'))
+        (call: m.group(0)!.trim(), args: _balanced(text, m.end - 1)),
+  ];
 }
 
 /// The text between the `(` at [open] and its matching `)`.
