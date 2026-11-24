@@ -281,13 +281,8 @@ void _scenario() {
       text: two,
     );
     expect(out.kind, SendOutcomeKind.queued);
-    // KNOWN CLIENT ISSUE under fix: an acceptance sighting that arrives
-    // before the vault has a record or group is dropped and never retried
-    // (membership_upkeep.dart:393; the server sends the header only on a
-    // first page). That is the likely cause of the one run-4 failure of this
-    // poll (B1's counts stayed 0/0: counts are zeroed until the request is
-    // accepted, thread_view.dart:76-83). The assertion is unchanged.
-    // TODO(e2ee-acceptance-sighting-retry)
+    // The acceptance-sighting issue (a sighting before the vault had a record
+    // or group was dropped) was fixed in this PR.
     await w.eventually('A1 decrypted "two"; both codes 1/1', () async {
       if (!a1.thread(conv).showsOnce(two, mine: false)) return false;
       if (!b1.thread(conv).showsOnce(two, mine: true)) return false;
@@ -730,11 +725,8 @@ void _scenario() {
       // first sighting (catch-up's `_noteWaiting`) and the acceptance (a
       // ListMessages header saying ACCEPTED, through the receive probe).
       //
-      // KNOWN CLIENT ISSUE under fix: an acceptance sighting that arrives
-      // before the vault has a record or group is dropped and never retried
-      // (membership_upkeep.dart:393; the server sends the header only on a
-      // first page), so this wait can also be the one that times out.
-      // TODO(e2ee-acceptance-sighting-retry)
+      // The acceptance-sighting issue (a sighting before the vault had a record
+      // or group was dropped) was fixed in this PR.
       await w.eventually(
         'B2 recorded the sighting and the acceptance, waiting for a welcome',
         () async {
@@ -760,23 +752,21 @@ void _scenario() {
       // The clients' time moves past the reset's 24 h wait (the offset only
       // grows: from here the clients run a day and 32 minutes ahead).
       w.clock.advance(kResetWaitWithoutWelcome + const Duration(minutes: 1));
-      // KNOWN LIMIT (client): an open thread does not re-emit when the 24 h
-      // pass. `canReset` depends on the clock alone
-      // (conversation_describe.dart:148-163); a thread re-emits only on a
-      // pipeline or status change (encrypted_messaging_threads.dart:17-19),
-      // and `.first` replays the cached build (:68-69). So B2's watch is
-      // closed here and the next listener builds from the vault and the
-      // clock again. A client fix is being built separately; when it lands
-      // this step must drop the cancel and assert that the open watch itself
-      // shows the offer.
-      // TODO(e2ee-thread-clock-rebuild)
-      await tb2.cancel();
+      // B2's OPEN watch re-emits by itself when the wait ends: an open thread
+      // arms one timer for its next clock moment on the pipeline's timer
+      // seam. The smoke clock cannot fire a real timer, so the device's seam
+      // (SmokeDevice._arm) remembers the moment each timer is due, and
+      // `fireDueTimers` runs those the advanced clock has reached; the watch
+      // is never closed and re-opened.
+      b2.fireDueTimers();
       await w.eventually(
-        'B2 is offered a reset',
-        () async => (await fresh(b2)).security.canReset,
-        nudge: () async => b2.push(conv),
+        "B2's open watch shows the reset offer",
+        () async => tb2.latest?.security.canReset ?? false,
+        nudge: () async {
+          b2.fireDueTimers();
+          b2.push(conv);
+        },
       );
-      tb2.listen(b2.port);
       await b2.port.resetConversation(conv);
 
       // The plan's assertions, for the parties in the group after the reset.

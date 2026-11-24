@@ -359,6 +359,14 @@ class _NoAppCheck implements AppCheckTokenProvider {
   Future<String?> getAppCheckToken() async => null;
 }
 
+class _Armed {
+  _Armed(this.at, this.run);
+
+  final DateTime at;
+  final void Function() run;
+  late final Timer timer;
+}
+
 class _NoTimer implements Timer {
   @override
   void cancel() {}
@@ -537,6 +545,7 @@ class SmokeDevice {
       currentUid: () => user.uid,
       publicIdsOff: () => !user.has('public_ids'),
       now: clock.now,
+      schedule: _arm,
       onUnexpectedError: _report,
     );
     port = EncryptedMessagingImpl(pipeline);
@@ -563,6 +572,36 @@ class SmokeDevice {
           deviceKeys.status.value.phase == DeviceKeysPhase.ready &&
           pipeline.started,
     );
+  }
+
+  /// The pipeline's timer seam: a real timer that is also remembered with
+  /// the moment the clients' clock reaches, so "time passes" ([SmokeClock])
+  /// can fire it ([fireDueTimers]) without waiting for real time.
+  final List<_Armed> _armed = [];
+
+  void Function() _arm(Duration delay, void Function() run) {
+    final armed = _Armed(world.clock.now().add(delay), run);
+    armed.timer = Timer(delay, () {
+      _armed.remove(armed);
+      run();
+    });
+    _armed.add(armed);
+    return () {
+      _armed.remove(armed);
+      armed.timer.cancel();
+    };
+  }
+
+  /// Runs, now, every pipeline timer whose moment the clients' clock has
+  /// reached (call after [SmokeClock.advance]).
+  void fireDueTimers() {
+    final now = world.clock.now();
+    for (final a in [..._armed]) {
+      if (now.isBefore(a.at)) continue;
+      _armed.remove(a);
+      a.timer.cancel();
+      a.run();
+    }
   }
 
   /// Stops the app on this device (the vault file, the markers and the
