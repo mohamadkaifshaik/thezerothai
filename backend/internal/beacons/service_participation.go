@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"strconv"
 
+	"cloud.google.com/go/firestore"
+
+	"github.com/dzeroth/dzeroth/backend/internal/communities"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
@@ -132,7 +135,9 @@ func (s *service) RespondToJoinRequest(ctx context.Context, uid, key, beaconID, 
 	}
 	if accept {
 		// After the idempotency lookup, so a same-key retry of a committed ACCEPT replays its answer.
-		params.Precheck = func(ctx context.Context) error { return s.acceptable(ctx, a, uid, targetUID) }
+		params.Precheck = func(ctx context.Context, tx *firestore.Transaction, cid string) error {
+			return logger.RedactErr(s.acceptable(ctx, tx, cid, uid, targetUID), cid, uid, targetUID)
+		}
 	}
 	res, err := s.d.Repo.Respond(ctx, params)
 	if err != nil {
@@ -145,39 +150,70 @@ func (s *service) RespondToJoinRequest(ctx context.Context, uid, key, beaconID, 
 	return s.view(res.Beacon, a.organiser, uid), nil
 }
 
-// acceptable is the ACCEPT recheck of the target, run by Repo.Respond after its idempotency lookup missed (a replay
-// keeps its stored answer) and before any write: an ACTIVE profile (cached), no block either way with
-// the organiser (the organiser's graph, overflow-aware) and, for a community beacon, the target's community verdict
-// for a write (JOINED, community not suspended). An ineligible target is not_requested, the same answer as a request
-// that is no longer there; ARCHIVED is COMMUNITY_STATE community_archived; a failed read is returned (nothing written).
-// DECLINE and REMOVE never run it.
-func (s *service) acceptable(ctx context.Context, a access, organiser, target string) error {
-	profs, err := s.d.Directory.GetProfiles(ctx, []string{target})
-	if err != nil {
-		return logger.RedactErr(fmt.Errorf("beacons: load target profile: %w", err), organiser, target)
+// acceptable reads every mutable eligibility record in the participation transaction.
+func (s *service) acceptable(ctx context.Context, tx *firestore.Transaction, cid, organiser, target string) error {
+	if s.d.TxProfiles == nil || s.d.TxGraph == nil {
+		return errors.New("beacons: missing transactional eligibility readers")
 	}
-	if p, ok := profs[target]; !ok || p.Status != identity.AccountStatusActive {
+	profile, err := s.d.TxProfiles.ProfileInTx(ctx, tx, target)
+	if errors.Is(err, identity.ErrNotFound) {
 		return ErrNotRequested
 	}
-	bc, err := s.blocks(ctx, organiser)
 	if err != nil {
 		return err
 	}
-	blocked, err := bc.blocked(ctx, target)
+	if profile.Status != identity.AccountStatusActive {
+		return ErrNotRequested
+	}
+	snap, err := s.d.TxGraph.SnapshotInTx(ctx, tx, organiser)
 	if err != nil {
 		return err
 	}
-	if blocked {
+	if snap.Blocked[target] || snap.BlockedBy[target] {
 		return ErrNotRequested
 	}
-	if a.beacon.CommunityID == "" {
+	if snap.BlockedByOverflow {
+		peer, err := s.d.TxGraph.SnapshotInTx(ctx, tx, target)
+		if err != nil {
+			return err
+		}
+		if peer.Blocked[organiser] {
+			return ErrNotRequested
+		}
+	}
+	if cid == "" {
 		return nil
 	}
-	err = s.requireMember(ctx, target, a.beacon.CommunityID, false, true)
-	if errors.Is(err, ErrNotMember) || errors.Is(err, ErrNotFound) {
+	if err := GuardCommunities(ctx, s.d.CommunityFlags, target, false); err != nil {
+		return err
+	}
+	if s.d.TxCommunities == nil {
 		return ErrNotRequested
 	}
-	return err
+	c, err := s.d.TxCommunities.GetInTx(ctx, tx, cid)
+	if errors.Is(err, communities.ErrNotFound) {
+		return ErrNotRequested
+	}
+	if err != nil {
+		return err
+	}
+	if c.Status == communities.StatusSuspended {
+		return ErrNotRequested
+	}
+	if c.Status == communities.StatusArchived {
+		return communities.StateConflict(communities.StateArchived)
+	}
+	if c.RoleOf(target) != communities.RoleNone {
+		return nil
+	}
+	member, err := s.d.TxCommunities.MemberInTx(ctx, tx, cid, target)
+	if err != nil {
+		return err
+	}
+	if member != communities.MemberJoined {
+		return ErrNotRequested
+	}
+	return nil
 }
 
 // RemoveParticipant implements Service.

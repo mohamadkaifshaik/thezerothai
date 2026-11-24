@@ -5,9 +5,13 @@ package apiserver
 import (
 	"context"
 	"errors"
+	"net/http"
 	"slices"
 	"time"
 
+	"connectrpc.com/connect"
+
+	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/beacons/v1/beaconsv1connect"
 	"github.com/dzeroth/dzeroth/backend/internal/beacons"
 	"github.com/dzeroth/dzeroth/backend/internal/notifications"
 )
@@ -60,4 +64,24 @@ func (n beaconNotifier) chunked(ctx context.Context, t notifications.Type, beaco
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// registerBeacons binds the moderation and messaging readers before serving Beacon RPCs.
+func registerBeacons(routes *routeTable, reports *lateBeaconLookup, suggestions *latePlanMates, deps beacons.Deps) (beacons.Service, error) {
+	svc := beacons.New(deps)
+	reporter, ok := svc.(beacons.BeaconReporter)
+	if !ok {
+		return nil, errors.New("beacons service does not implement BeaconReporter")
+	}
+	mates, ok := svc.(planCoParticipants)
+	if !ok {
+		return nil, errors.New("beacons service does not implement RecentCoParticipants")
+	}
+	reports.r = reporter
+	suggestions.src = mates
+	server := beacons.NewServer(deps.Flags, svc)
+	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
+		return beaconsv1connect.NewBeaconServiceHandler(server, o...)
+	})
+	return svc, nil
 }

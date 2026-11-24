@@ -80,7 +80,7 @@ func (r *FirestoreRepo) SetSuspended(ctx context.Context, id string, suspend boo
 	}
 	_, err = r.run(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
 		changed, before, after = false, "", ""
-		c, err := r.getInTx(ctx, tx, id)
+		c, err := r.GetInTx(ctx, tx, id)
 		if err != nil {
 			return err
 		}
@@ -116,7 +116,7 @@ func (r *FirestoreRepo) Archive(ctx context.Context, id string, now time.Time, m
 	var res ArchiveResult
 	_, err := r.run(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
 		res = ArchiveResult{}
-		c, err := r.getInTx(ctx, tx, id)
+		c, err := r.GetInTx(ctx, tx, id)
 		if err != nil {
 			return err
 		}
@@ -163,7 +163,7 @@ func (r *FirestoreRepo) Append(ctx context.Context, cid string, postIDs []string
 	appended := 0
 	_, err := r.run(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
 		appended = 0
-		c, err := r.getInTx(ctx, tx, cid)
+		c, err := r.GetInTx(ctx, tx, cid)
 		if err != nil {
 			return err
 		}

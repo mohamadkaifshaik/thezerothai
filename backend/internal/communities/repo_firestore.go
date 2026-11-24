@@ -226,8 +226,8 @@ func (r *FirestoreRepo) lookup(ctx context.Context, tx *firestore.Transaction, k
 	}
 }
 
-// getInTx reads communities/{id} inside tx and decodes it, or ErrNotFound when it is missing.
-func (r *FirestoreRepo) getInTx(ctx context.Context, tx *firestore.Transaction, id string) (Community, error) {
+// GetInTx reads communities/{id} inside tx and decodes it, or ErrNotFound when it is missing.
+func (r *FirestoreRepo) GetInTx(ctx context.Context, tx *firestore.Transaction, id string) (Community, error) {
 	snap, err := tx.Get(r.ref(id))
 	if err != nil {
 		if status.Code(err) == codes.NotFound {
@@ -249,7 +249,7 @@ func (r *FirestoreRepo) replay(ctx context.Context, tx *firestore.Transaction, r
 	if id == "" {
 		return Community{}, ErrNotFound
 	}
-	c, err := r.getInTx(ctx, tx, id)
+	c, err := r.GetInTx(ctx, tx, id)
 	if err != nil {
 		return Community{}, err
 	}
@@ -364,7 +364,7 @@ func (r *FirestoreRepo) Update(ctx context.Context, p UpdateParams) (UpdateResul
 			}
 			return err
 		}
-		c, err := r.getInTx(ctx, tx, p.ID)
+		c, err := r.GetInTx(ctx, tx, p.ID)
 		if err != nil {
 			return err
 		}

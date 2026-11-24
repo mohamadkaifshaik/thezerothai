@@ -12,6 +12,8 @@ import (
 
 	"cloud.google.com/go/firestore"
 
+	"github.com/dzeroth/dzeroth/backend/internal/graph"
+	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 )
 
@@ -572,15 +574,15 @@ func TestRepo_RespondPrecheckOnlyOnMiss(t *testing.T) {
 	b := e.create(t, "org-pc", itKeyA, e.beaconAt("org-pc", "", e.now.Add(time.Hour))).Beacon
 	e.mustRequest(t, "pc-p1", "integration-key-pc01", b.ID)
 	e.mustRequest(t, "pc-p2", "integration-key-pc02", b.ID)
-	params := func(key, target string, pre func(context.Context) error) RespondParams {
+	params := func(key, target string, pre func(context.Context, *firestore.Transaction, string) error) RespondParams {
 		return RespondParams{
 			UID: "org-pc", BeaconID: b.ID, TargetUID: target, IdemKey: idempotency.Key("org-pc", rpcRespondToJoinRequest, key),
 			RequestHash: idempotency.HashRequest(b.ID + "|" + target + "|accept"), Accept: true, Now: e.now, Precheck: pre,
 		}
 	}
 	ran := 0
-	ok := func(context.Context) error { ran++; return nil }
-	refuse := func(context.Context) error { ran++; return ErrNotRequested }
+	ok := func(context.Context, *firestore.Transaction, string) error { ran++; return nil }
+	refuse := func(context.Context, *firestore.Transaction, string) error { ran++; return ErrNotRequested }
 	res, err := e.repo.Respond(ctx, params("integration-key-pc03", "pc-p1", ok))
 	if err != nil || res.Outcome != Written || ran != 1 {
 		t.Fatalf("accept = %+v, %v (precheck ran %d), want written", res.Outcome, err, ran)
@@ -599,6 +601,49 @@ func TestRepo_RespondPrecheckOnlyOnMiss(t *testing.T) {
 	got, err := e.repo.Get(ctx, b.ID)
 	if err != nil || got.AcceptedCount != 1 {
 		t.Fatalf("beacon = %+v, %v, want one seat taken", got, err)
+	}
+}
+
+// The account is active when the request is issued. A suspension committed
+// before the admission reads must win over that earlier decision.
+func TestRespondAcceptSeesRevocation(t *testing.T) {
+	e := newRepoEnv(t)
+	ctx := context.Background()
+	const org, target = "org-revoke", "target-revoke"
+	b := e.create(t, org, itKeyA, e.beaconAt(org, "", e.now.Add(time.Hour))).Beacon
+	e.mustRequest(t, target, "integration-key-rv01", b.ID)
+	profile := e.client.Collection("users").Doc(target)
+	if _, err := profile.Set(ctx, map[string]any{"status": "ACTIVE"}); err != nil {
+		t.Fatal(err)
+	}
+	graphs := graph.NewFirestoreRepo(e.client)
+	svc := service{d: Deps{TxProfiles: identity.NewFirestoreRepo(e.client, graphs), TxGraph: graphs}}
+	started, revoked := make(chan struct{}), make(chan error, 1)
+	go func() {
+		<-started
+		_, err := profile.Update(ctx, []firestore.Update{{Path: "status", Value: "SUSPENDED"}})
+		revoked <- err
+	}()
+	var once sync.Once
+	params := RespondParams{UID: org, BeaconID: b.ID, TargetUID: target, IdemKey: idempotency.Key(org, rpcRespondToJoinRequest, "integration-key-rv02"), RequestHash: respondHash(b.ID, target, true), Accept: true, Now: e.now,
+		Precheck: func(ctx context.Context, tx *firestore.Transaction, cid string) error {
+			var revokeErr error
+			once.Do(func() { close(started); revokeErr = <-revoked })
+			if revokeErr != nil {
+				return revokeErr
+			}
+			return svc.acceptable(ctx, tx, cid, org, target)
+		}}
+	if _, err := e.repo.Respond(ctx, params); !errors.Is(err, ErrNotRequested) {
+		t.Fatalf("expected revoked acceptance to fail, got %v", err)
+	}
+	participant, err := e.repo.GetParticipant(ctx, b.ID, target)
+	if err != nil || participant.State != PStateRequested {
+		t.Fatalf("participant=%v err=%v", participant, err)
+	}
+	got, err := e.repo.Get(ctx, b.ID)
+	if err != nil || got.AcceptedCount != 0 {
+		t.Fatalf("count=%d err=%v", got.AcceptedCount, err)
 	}
 }
 

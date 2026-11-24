@@ -147,7 +147,8 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: refs/tags/${{ steps.tagname.outputs.tag }}
+          ref: ${{ github.sha }}
+          persist-credentials: false
 
       - name: Require a recorded production-reviewer GO verdict
         env:
@@ -200,22 +201,9 @@ jobs:
             exit 1
           fi
 
-          # release-prod.yml pushes the image with `ko build -t "${RELEASE_TAG}"`, so
-          # <repo>/api:<RELEASE_TAG> is a real Artifact Registry tag. Cloud Run pins a
-          # revision to a digest (repo/api@sha256:...). Proving "the revision behind the candidate tag
-          # was built from this git tag" = the digest the release tag points to equals
-          # the revision's digest. This catches a stale candidate left over from a different
-          # release (the `candidate` traffic tag moves on every release-prod run).
-          # (`gcloud artifacts docker tags list <image@digest>` returns NOT_FOUND and
-          # reports tags as full resource paths, so it can't be used for this; verified.)
-          repo_image="${image%@*}"
-          rev_digest=$(gcloud artifacts docker images describe "${image}" --format='value(image_summary.digest)')
-          tag_digest=$(gcloud artifacts docker images describe "${repo_image}:${RELEASE_TAG}" --format='value(image_summary.digest)' || true)
-          if [ -z "${rev_digest}" ] || [ "${rev_digest}" != "${tag_digest}" ]; then
-            echo "::error::candidate revision '${revision}' (${rev_digest:-unknown digest}) is not the image tagged '${RELEASE_TAG}' (${tag_digest:-tag not found}); the candidate tag points at a different release. Re-run release-prod.yml for ${RELEASE_TAG}, then retry this promotion."
-            exit 1
-          fi
-
+          # Match the candidate against both the release tag and the image built
+          # for this tag at the workflow event's exact source revision.
+          rev_digest=$(bash scripts/promotion/check-candidate-image.sh "$image" "$RELEASE_TAG" "$GITHUB_SHA")
           echo "digest=$rev_digest" >> "$GITHUB_OUTPUT"
           echo "revision=${revision}" >> "$GITHUB_OUTPUT"
           echo "Verified candidate revision ${revision} (image ${image}) matches tag ${RELEASE_TAG}"
