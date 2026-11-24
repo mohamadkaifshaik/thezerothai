@@ -146,6 +146,7 @@ void main() {
       messaging: rig.messaging,
       directory: rig.directory,
       syncBudget: rig.syncBudget,
+      readBudget: rig.readBudget,
       locks: rig.locks,
       contexts: rig.contexts,
       known: rig.known,

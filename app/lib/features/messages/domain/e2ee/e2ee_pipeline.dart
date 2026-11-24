@@ -640,6 +640,9 @@ class E2eePipeline {
     if (_disposed || conversationId.isEmpty) return;
     final at = _now().microsecondsSinceEpoch;
     final parts = _parts;
+    // A conversation the user deleted is not one to settle: a held
+    // acceptance sighting is forgotten.
+    parts?.contexts.of(conversationId).acceptedSightingHeld = false;
     if (parts == null || !parts.live) {
       _rememberDelete(conversationId, at);
       return;

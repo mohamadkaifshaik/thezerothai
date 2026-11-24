@@ -42,6 +42,17 @@ class ConversationContext {
   /// the read answered.
   bool acceptanceHeaderRead = false;
 
+  /// Failed restart header reads of this conversation in this run.
+  int acceptanceHeaderFailures = 0;
+
+  /// The thread cannot be answered (the server said CANNOT_MESSAGE, a block
+  /// or the like): [canReply] is false, and a held acceptance sighting is
+  /// forgotten (the conversation is not one to settle).
+  void noteCannotMessage() {
+    canReply = false;
+    acceptedSightingHeld = false;
+  }
+
   /// Whether the thread can be answered: from a `ListMessages` header or an
   /// inbox row of this run (never a send answer or a cached row, audit
   /// L6), or false after a CANNOT_MESSAGE answer.
@@ -365,13 +376,30 @@ class ConversationContexts {
   /// can put the user's own outgoing request in the Requests folder).
   /// Task 9 audit L6: a stale `can_reply` false of such a row blocked
   /// removals; the thread's own refusal (CANNOT_MESSAGE) still sets it.
-  void note(pb.Conversation row, {bool peerOnly = false}) {
+  ///
+  /// [keepPeer]: the peer reference is taken only when the context has none
+  /// (the restart header read must not replace one this run already holds).
+  ///
+  /// A full header is a first-page sight: it counts as this run's header
+  /// read ([ConversationContext.acceptanceHeaderRead]), and a held
+  /// acceptance sighting is forgotten when it does not say ACCEPTED.
+  void note(
+    pb.Conversation row, {
+    bool peerOnly = false,
+    bool keepPeer = false,
+  }) {
     if (row.id.isEmpty) return;
     final c = of(row.id);
-    if (row.hasPeer() && row.peer.userId.isNotEmpty) {
+    if (row.hasPeer() &&
+        row.peer.userId.isNotEmpty &&
+        !(keepPeer && (c.peerUserId?.isNotEmpty ?? false))) {
       c.peerUserId = row.peer.userId;
     }
     if (peerOnly) return;
+    c.acceptanceHeaderRead = true;
+    if (row.state != ConversationState.CONVERSATION_STATE_ACCEPTED) {
+      c.acceptedSightingHeld = false;
+    }
     c.canReply = row.canReply;
     if (row.folder == Folder.FOLDER_REQUESTS) {
       c
@@ -397,6 +425,13 @@ class ConversationContexts {
     }
   }
 
+  /// The restart header reads this run made, across conversations (bounded
+  /// by `kAcceptanceHeaderReadsPerRun`).
+  int acceptanceHeaderReads = 0;
+
   /// Sign-out or a new vault.
-  void clear() => _byId.clear();
+  void clear() {
+    _byId.clear();
+    acceptanceHeaderReads = 0;
+  }
 }

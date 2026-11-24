@@ -79,6 +79,7 @@ class _Parts {
       messaging: messaging,
       directory: directory,
       syncBudget: syncBudget,
+      readBudget: readBudget,
       locks: locks,
       contexts: contexts,
       known: known,

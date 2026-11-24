@@ -85,7 +85,7 @@ extension _CommitSend on CommitRunner {
             return CommitOutcome.pending;
           }
           // A refusal. Remembered whatever becomes of the commit.
-          if (e is CannotMessageException) context.canReply = false;
+          if (e is CannotMessageException) context.noteCannotMessage();
           if (e is RateLimitedException) {
             lastRateLimit = e;
             _rateLimitIn[id] = e;

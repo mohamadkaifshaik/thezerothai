@@ -522,7 +522,10 @@ extension _Walks on MessageReceiver {
       return _Probe(outcome: ReceiveOutcome.stopped(_now().add(kWalkBackoff)));
     }
     final seq = ++_seq;
-    if (page.hasConversation()) _contexts.note(page.conversation);
+    // Only the header of the conversation asked for.
+    if (page.hasConversation() && page.conversation.id == id) {
+      _contexts.note(page.conversation);
+    }
     // A since token outside the one token shape reads as no token: it is
     // never the anchor, never kept for §4 rule 2 and never saved by the fast
     // path (the stored token stays).
