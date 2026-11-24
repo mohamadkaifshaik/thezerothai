@@ -384,17 +384,33 @@ class EncryptedMessagingImpl implements EncryptedMessaging {
     // (1) C1 step 5: a vault on this device that is not ready (opening
     // included): no conversation can be classified.
     if (session.vaultKnown) return _refused(SendProblem.blocked);
+    // Plan 5b Task 14 (last round, item 1): the flag is KNOWN OFF (an answer
+    // was given and it is off; `unknown` is not off) and no vault is known
+    // here. The two "cannot tell yet" refusals below (sign-in step not
+    // finished; marker unreadable) are skipped: the cache check still
+    // refuses a conversation the cache marked as ever encrypted, and anything
+    // else answers `notEncrypted`. Why: with the flag known off the server's
+    // ErrEncryptionRequired gate is the control for a conversation the cache
+    // has not marked, exactly as it was before the port was handed to these
+    // users; refusing every DM for a whole launch would change the app for
+    // everyone to defend a state the server already defends. With the flag
+    // on or unknown, and whenever a vault is known here, nothing changes.
+    final flagKnownOff = session.flag == E2eeFlag.off;
     // 13b-i review M4 (Task 8 review N2): before the signed-in user's
     // sign-in step finished, the status is the initial `off`, which cannot
     // be told from "no vault here" (a vault-known conversation whose cache
     // mark is gone would go out plaintext): "try again". No send can be
     // made before sign-in, so this costs nothing.
-    if (!session.signInStepDone) return _refused(SendProblem.retryable);
+    if (!flagKnownOff && !session.signInStepDone) {
+      return _refused(SendProblem.retryable);
+    }
     // F5 / Task 8 review N2: "no vault" only from a session that says so
     // (`off`, or `unsupported`). A marker that could not be read (or a
     // vault being created) may hide a vault: "try again", never plaintext.
     final status = session.status.value;
-    if (status != VaultStatus.off && status != VaultStatus.unsupported) {
+    if (!flagKnownOff &&
+        status != VaultStatus.off &&
+        status != VaultStatus.unsupported) {
       return _refused(SendProblem.retryable);
     }
     // (2) No vault on this device: the cache's sticky marker (C1), for a
@@ -417,7 +433,8 @@ class EncryptedMessagingImpl implements EncryptedMessaging {
       return _refused(SendProblem.blocked);
     }
     // L1: no await from here to the answer.
-    if (_pipeline.authenticatedUid != account || !session.signInStepDone) {
+    if (_pipeline.authenticatedUid != account ||
+        (!flagKnownOff && !session.signInStepDone)) {
       return _refused(SendProblem.retryable);
     }
     return SendOutcome(
