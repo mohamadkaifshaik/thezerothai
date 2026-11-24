@@ -2259,11 +2259,22 @@ class RigCrypto {
   );
 
   /// The server's header row of [conversationId] names [peerRef].
-  void header(String conversationId, String peerRef) {
+  ///
+  /// [incomingRequest]: the header puts the conversation in this user's
+  /// Requests folder, not accepted (what a joined, unaccepted fixture
+  /// models; a header read of the catch-up takes it as the server's word).
+  void header(
+    String conversationId,
+    String peerRef, {
+    bool incomingRequest = false,
+  }) {
     server.rows[conversationId] = pb.Conversation(
       id: conversationId,
       peer: common.AuthorSnapshot(userId: peerRef),
-      folder: Folder.FOLDER_INBOX,
+      folder: incomingRequest ? Folder.FOLDER_REQUESTS : Folder.FOLDER_INBOX,
+      state: incomingRequest
+          ? ConversationState.CONVERSATION_STATE_REQUEST
+          : null,
       canReply: true,
     );
   }

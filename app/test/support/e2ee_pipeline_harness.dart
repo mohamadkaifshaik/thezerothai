@@ -268,7 +268,7 @@ class PipelineHarness {
     bool accepted = true,
   }) async {
     if (accepted) await rig.accept(c);
-    rig.header(c, 'ref-bob');
+    rig.header(c, 'ref-bob', incomingRequest: !accepted);
     return rig.offer(c, owner);
   }
 

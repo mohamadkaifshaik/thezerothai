@@ -390,7 +390,12 @@ class MembershipUpkeep {
       }
       // Only a conversation this vault keeps encrypted state for: a
       // plaintext conversation gets no sync record from a header.
-      if (record == null && (await vault.groups(id)).isEmpty) return;
+      if (record == null && (await vault.groups(id)).isEmpty) {
+        // The sight is not lost: a since-poll carries no header, so the
+        // next catch-up that finds a record or a group hands it back.
+        _contexts.of(id).acceptedSightingHeld = true;
+        return;
+      }
       await _onAcceptedLocked(id, BudgetPriority.background);
     } on Object catch (e, s) {
       _reportIfBug(e, s, 'upkeep.acceptedSeen');

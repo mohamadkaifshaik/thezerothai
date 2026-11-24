@@ -28,6 +28,9 @@ extension _CatchUp on ConversationCrypto {
       for (var i = 0; i < _kSwitchesPerPass; i++) {
         final step = await _passLocked(pass, id);
         if (step == null) continue; // a newer generation was joined
+        // After the pass, so attribution has used the peer reference this
+        // run already held before a header could replace it.
+        await _settleAcceptanceSightLocked(pass, id);
         switch (step) {
           case CatchUpResult.stuck:
             context.stuck = true;
@@ -44,6 +47,55 @@ extension _CatchUp on ConversationCrypto {
     } on Object catch (e, s) {
       _reportIfBug(e, s, 'catchUp');
       return CatchUpResult.interrupted;
+    }
+  }
+
+  /// Defect fix (acceptance sighting): acceptance comes only from the
+  /// server's header for a conversation this device keeps state for, and a
+  /// since-poll carries none.
+  ///
+  /// 1. A sight a header made before this vault kept a record or a group
+  ///    ([ConversationContext.acceptedSightingHeld]) is handed back to
+  ///    [ConversationContexts.onAcceptedSeen] now that one exists (it only
+  ///    queues; the caller holds the lock).
+  /// 2. A restart loses that memory: while a final group is here and the
+  ///    stored record is not accepted, one first-page `ListMessages` read
+  ///    per conversation and run takes the header (the same read and
+  ///    sync-budget unit as attribution's peer lookup, never a new RPC).
+  ///    Nothing when the pass is not live, a rate limit holds, or the
+  ///    budget refuses; a failed read is retried at a later pass.
+  Future<void> _settleAcceptanceSightLocked(_Operation pass, String id) async {
+    final context = _contexts.of(id);
+    final held = context.acceptedSightingHeld;
+    final wantRead =
+        !context.acceptanceSettled && !context.acceptanceHeaderRead;
+    if ((!held && !wantRead) || !pass.live) return;
+    try {
+      final groups = await pass.vault.groups(id);
+      final record = await pass.vault.conversation(id);
+      if (held && (record != null || groups.isNotEmpty)) {
+        context.acceptedSightingHeld = false;
+        _contexts.onAcceptedSeen?.call(id);
+      }
+      if (!wantRead ||
+          !groups.any((g) => !g.provisional) ||
+          (record?.sync.requestAccepted ?? false) ||
+          !pass.live ||
+          _messaging.rateLimitedFor() != null) {
+        return;
+      }
+    } on Object catch (e, s) {
+      _reportIfBug(e, s, 'catchUp.acceptanceHeader');
+      return;
+    }
+    if (!await _takeSyncUnit(pass.priority) || !pass.live) return;
+    try {
+      final page = await _messaging.listMlsMessages(conversationId: id);
+      if (!pass.live) return;
+      context.acceptanceHeaderRead = true;
+      if (page.hasConversation()) _contexts.note(page.conversation);
+    } on Object catch (e, s) {
+      _reportIfBug(e, s, 'catchUp.acceptanceHeader');
     }
   }
 

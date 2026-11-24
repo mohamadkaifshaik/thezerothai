@@ -27,6 +27,21 @@ class ConversationContext {
   /// conversation to [ConversationContexts.onAcceptedSeen].
   bool acceptanceSettled = false;
 
+  /// A header's ACCEPTED was seen while this vault kept neither a sync
+  /// record nor a group for the conversation, so the acceptance steps did
+  /// not run (a since-poll later carries no header, so the sight would be
+  /// lost). The next catch-up pass that finds a record or a group hands the
+  /// conversation to [ConversationContexts.onAcceptedSeen] again. Memory
+  /// only, one bool per conversation (cleared with the contexts); never
+  /// set from a decrypted message.
+  bool acceptedSightingHeld = false;
+
+  /// This run read one first page of the conversation to look at its
+  /// header while a group existed and acceptance was not settled (a
+  /// restart loses [acceptedSightingHeld]). Once per run, set only after
+  /// the read answered.
+  bool acceptanceHeaderRead = false;
+
   /// Whether the thread can be answered: from a `ListMessages` header or an
   /// inbox row of this run (never a send answer or a cached row, audit
   /// L6), or false after a CANNOT_MESSAGE answer.
