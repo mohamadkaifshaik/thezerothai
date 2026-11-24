@@ -820,11 +820,39 @@ class SmokeWorld {
       }
       if (await done()) return;
       if (DateTime.now().isAfter(end)) {
-        fail('timed out: $what\n${describe()}');
+        fail('timed out: $what\n${describe()}\n${await diagnose()}');
       }
       if (nudge != null) await nudge();
       await Future<void>.delayed(every);
     }
+  }
+
+  /// Failure-only detail per running device and thread: the port's fresh
+  /// security code answer (the reason a code is missing), the crypto state
+  /// it reads and the stored pins by side. Reads only.
+  Future<String> diagnose() async {
+    final lines = <String>['  diagnosis:'];
+    for (final d in devices) {
+      for (final t in d.threads.values) {
+        try {
+          final code = await d.port.securityCode(t.conversationId);
+          final parts = d.pipeline.parts;
+          final state = await parts?.crypto.describeState(t.conversationId);
+          final pins = [
+            for (final m in await d.vault.members(t.conversationId)) m.side,
+          ];
+          lines.add(
+            '    ${d.name} ${t.conversationId.substring(0, 8)}: '
+            'code(digits=${code.digits != null} reason=${code.reason} '
+            'my=${code.myDevices} their=${code.theirDevices}) pins=$pins '
+            'state=$state',
+          );
+        } on Object catch (e) {
+          lines.add('    ${d.name}: diagnosis failed: $e');
+        }
+      }
+    }
+    return lines.join('\n');
   }
 
   String describe() => [

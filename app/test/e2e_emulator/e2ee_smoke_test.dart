@@ -732,11 +732,20 @@ void _scenario() {
       // The clients' time moves past the reset's 24 h wait (the offset only
       // grows: from here the clients run a day and 32 minutes ahead).
       w.clock.advance(kResetWaitWithoutWelcome + const Duration(minutes: 1));
+      // `canReset` depends on the clock alone here: nothing is stored or
+      // received when the 24 h pass, so a watched thread keeps emitting the
+      // build made before (a later `watchThread(...).first` replays that
+      // `_latest`; encrypted_messaging_threads.dart:68-69). The screen reads
+      // it fresh when it opens, so B2's watch is closed first: the next
+      // listener builds from the vault and the clock again (the same
+      // assertion: the port offers the reset).
+      await tb2.cancel();
       await w.eventually(
         'B2 is offered a reset',
         () async => (await fresh(b2)).security.canReset,
         nudge: () async => b2.push(conv),
       );
+      tb2.listen(b2.port);
       await b2.port.resetConversation(conv);
 
       // The plan's assertions, for the parties in the group after the reset.
