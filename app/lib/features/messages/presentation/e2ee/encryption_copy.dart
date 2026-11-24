@@ -590,6 +590,29 @@ const kConfirmItsYouAgainBody =
 const kDeviceRemoveReauthFailedText =
     "Couldn't confirm it's you, so the device wasn't removed. Try again.";
 
+// Parked device removals (Plan 5b Task 14b item 5; NEW COPY, the owner may
+// edit it): a removal the server answered REAUTH_REQUIRED waits for the user
+// to sign in again. Shown on the Settings page whatever device_sign_out says.
+
+/// The banner for [count] parked removals; its action is [kConfirmItsYouTitle].
+String parkedRemovalsText(int count) => count == 1
+    ? "A device removal is waiting. Confirm it's you to finish it."
+    : "$count device removals are waiting. Confirm it's you to finish them.";
+
+/// The banner's second action: give the removals up. The device stays.
+const kParkedRemovalDropAction = "Don't remove";
+
+/// The confirmation of [kParkedRemovalDropAction]: title for [count] removals.
+String parkedRemovalDropTitle(int count) =>
+    count == 1 ? "Don't remove this device?" : "Don't remove these devices?";
+
+/// The same: the message says the device stays.
+String parkedRemovalDropMessage(int count) => count == 1
+    ? 'The device stays. It can still read and send in your encrypted '
+          'conversations.'
+    : 'The devices stay. They can still read and send in your encrypted '
+          'conversations.';
+
 /// Removed, `other_sessions_ended` false. Plan 5a Task 13b (controller
 /// ruling 3, 2026-11-23): no "change your password too". Why: the #1097
 /// audit (H1) found that a password change alone may not sign a thief's
