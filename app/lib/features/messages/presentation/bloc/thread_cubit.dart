@@ -54,6 +54,7 @@ class ThreadState {
     this.entries = const [],
     this.security,
     this.encryptedHasMore = false,
+    this.unreadableUnsent = const [],
     this.resetting = false,
     this.resetError,
     this.mls = false,
@@ -74,6 +75,12 @@ class ThreadState {
   /// Null until the first `EncryptedThread`.
   final ConversationSecurity? security;
   final bool encryptedHasMore;
+
+  /// The port's opaque handles of own unsent rows that no longer open on this
+  /// device (`EncryptedThread.unreadableUnsent`). Never displayed, logged,
+  /// keyed on or routed: passed back unchanged to
+  /// `deleteUnreadableUnsent`. Empty unless [encrypted].
+  final List<String> unreadableUnsent;
 
   /// `resetConversation` is in flight.
   final bool resetting;
@@ -156,6 +163,7 @@ class ThreadState {
     List<ThreadEntry>? entries,
     ConversationSecurity? security,
     bool? encryptedHasMore,
+    List<String>? unreadableUnsent,
     bool? resetting,
     Object? resetError = _keep,
     bool? mls,
@@ -181,6 +189,7 @@ class ThreadState {
       entries: entries ?? this.entries,
       security: security ?? this.security,
       encryptedHasMore: encryptedHasMore ?? this.encryptedHasMore,
+      unreadableUnsent: unreadableUnsent ?? this.unreadableUnsent,
       resetting: resetting ?? this.resetting,
       resetError: identical(resetError, _keep) ? this.resetError : resetError,
       mls: mls ?? this.mls,
@@ -349,7 +358,7 @@ class ThreadCubit extends Cubit<ThreadState> {
     // Decrypted rows do not outlive the vault: once it is not usable the
     // entries are dropped (they come back with the next thread update).
     if (port != null && !usable && state.entries.isNotEmpty) {
-      emit(state.copyWith(entries: const []));
+      emit(state.copyWith(entries: const [], unreadableUnsent: const []));
     }
     if (encrypted && port != null && _watch == null && !_waitForVaultChange) {
       final sub = port
@@ -398,6 +407,7 @@ class ThreadCubit extends Cubit<ThreadState> {
         entries: thread.entries,
         security: thread.security,
         encryptedHasMore: thread.hasMore,
+        unreadableUnsent: thread.unreadableUnsent,
       ),
     );
   }

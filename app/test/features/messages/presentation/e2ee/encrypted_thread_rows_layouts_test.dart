@@ -2,8 +2,11 @@ import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/message_content_codec.dart';
 import 'package:dzeroth/features/messages/presentation/e2ee/encrypted_thread_items.dart';
+import 'package:dzeroth/features/messages/presentation/e2ee/encryption_copy.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:dzeroth/features/messages/presentation/e2ee/widgets/own_device_alert.dart';
 import 'package:dzeroth/features/messages/presentation/e2ee/widgets/system_line_row.dart';
+import 'package:dzeroth/features/messages/presentation/e2ee/widgets/unreadable_unsent_row.dart';
 import 'package:dzeroth/features/messages/presentation/thread_items.dart';
 import 'package:dzeroth/features/messages/presentation/widgets/message_bubble.dart';
 import 'package:flutter/widgets.dart';
@@ -92,7 +95,11 @@ Widget _thread() {
     _l(SystemLineKind.deviceAdded, LineSide.mine),
     _m('z', mine: false),
   ];
-  final items = buildEncryptedThreadItems(entries);
+  final items = [
+    const UnreadableUnsentItem(0, 'handle-a'),
+    const UnreadableUnsentItem(1, 'handle-b'),
+    ...buildEncryptedThreadItems(entries),
+  ];
   return SingleChildScrollView(
     child: Column(
       children: [
@@ -107,7 +114,9 @@ Widget _thread() {
               onOpenLink: (_) {},
               onOpenPost: (_) {},
               onRetry: (_) {},
+              onDiscard: (_) {},
             ),
+            UnreadableUnsentItem() => UnreadableUnsentRow(onDelete: () {}),
             SystemLineItem() => SystemLineRow(
               line: item.line,
               peerName: 'Sam Rivera',
@@ -139,6 +148,7 @@ void main() {
     expect(find.byType(MessageBubble), findsWidgets);
     expect(find.byType(SystemLineRow), findsWidgets);
     expect(find.byType(OwnDeviceAlert), findsOneWidget);
+    expect(find.byType(UnreadableUnsentRow), findsNWidgets(2));
   });
 
   forEachThemeAndWidth(
@@ -202,6 +212,38 @@ void main() {
               ? column * kBubbleMaxWidthFraction
               : column,
         ),
+      );
+    });
+
+    testWidgets('an unreadable row is capped at 480 only on desktop at '
+        '$width and keeps a 48dp Delete', (tester) async {
+      await pumpThemed(
+        tester,
+        UnreadableUnsentRow(onDelete: () {}),
+        size: Size(width, 800),
+        textScale: 2.0,
+      );
+      expect(tester.takeException(), isNull);
+      final size = tester.getSize(find.byType(DecoratedBox).first);
+      if (width >= AppBreakpoints.tablet) {
+        expect(size.width, AppMessagesLayout.ownDeviceAlertMaxWidth);
+      } else {
+        expect(size.width, width - 2 * AppSpacing.md);
+      }
+      expect(
+        tester.getSize(find.text(kUnsentUnreadableDeleteAction)).height,
+        greaterThan(0),
+      );
+      expect(
+        tester
+            .getSize(
+              find.ancestor(
+                of: find.text(kUnsentUnreadableDeleteAction),
+                matching: find.byType(AppPillButton),
+              ),
+            )
+            .height,
+        greaterThanOrEqualTo(AppSpacing.minTapTarget),
       );
     });
 

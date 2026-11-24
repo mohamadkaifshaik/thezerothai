@@ -26,6 +26,7 @@ import '../domain/messaging_feature_flag.dart';
 import 'bloc/message_composer_cubit.dart';
 import 'e2ee/encrypted_thread_items.dart';
 import 'e2ee/encryption_access_builder.dart';
+import 'e2ee/encryption_copy.dart' show unsentDiscardText;
 import 'e2ee/encryption_status.dart';
 import 'e2ee/screen_encrypted_port.dart';
 import 'e2ee/widgets/thread_status_banner.dart';
@@ -353,9 +354,33 @@ class _DraftViewState extends State<_DraftView> {
           linksEnabled: item.message.mine,
           onOpenLink: (uri) => unawaited(launchPostLink(uri)),
           onRetry: _retryRow,
+          onDiscard: (id) => unawaited(_discardRow(id)),
         );
       },
     );
+  }
+
+  /// One discard per row at a time: a double tap asks once.
+  final Set<String> _discarding = {};
+
+  /// "Discard" under an own row that is not delivered (the first message of
+  /// a new conversation included: the port's init discard decides). The line
+  /// of the answer, when it has one; `held` is "may still be delivered".
+  Future<void> _discardRow(String localId) async {
+    final composer = context.read<MessageComposerCubit>();
+    if (!composer.hasPort || !_discarding.add(localId)) return;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final answer = await composer.discardUnsent(localId);
+      final line = answer == null ? null : unsentDiscardText(answer);
+      if (line != null) {
+        messenger
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(content: Text(line)));
+      }
+    } finally {
+      _discarding.remove(localId);
+    }
   }
 
   /// One call per row at a time: a double tap retries once.

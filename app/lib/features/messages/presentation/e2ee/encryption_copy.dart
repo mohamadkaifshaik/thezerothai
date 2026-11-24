@@ -190,6 +190,25 @@ const kUnsentUnreadableText =
     "This message couldn't be read on this device, so it won't be sent. "
     'Delete it?';
 
+/// The action under an own message that has not been delivered (the port's
+/// `discardUnsent`). NEW COPY (Plan 5b Task 14b): the owner may edit it.
+const kUnsentDiscardAction = 'Discard';
+
+/// The action of an unreadable unsent row (the port's
+/// `deleteUnreadableUnsent`); the row's text ends "Delete it?". NEW COPY
+/// (Plan 5b Task 14b): the owner may edit it.
+const kUnsentUnreadableDeleteAction = 'Delete';
+
+/// After an unreadable unsent row is deleted while other own messages are
+/// still waiting: the port does not send them by itself, so the user is
+/// offered one try. NEW COPY (Plan 5b Task 14b): the owner may edit it.
+const kUnsentDeletedWaitingText =
+    'Deleted. Your other messages are still waiting.';
+
+/// The action of the line above (the port's `retrySend` of the oldest waiting
+/// row). NEW COPY (Plan 5b Task 14b): the owner may edit it.
+const kUnsentRetryWaitingAction = 'Try sending';
+
 /// The line for the port's `discardUnsent` answer (port additions, gate items
 /// 14, 15, 23); null where the thread itself shows the result (the row is
 /// gone, shown delivered, or was not there).

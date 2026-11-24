@@ -4,7 +4,6 @@ import 'package:dzeroth/features/messages/data/messaging_repository.dart';
 import 'package:dzeroth/features/messages/data/messaging_store.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging.dart';
 import 'package:dzeroth/features/messages/presentation/bloc/thread_cubit.dart';
-import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
