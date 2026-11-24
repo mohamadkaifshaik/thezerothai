@@ -30,9 +30,7 @@ import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../data/following_people_source.dart';
 import '../data/messaging_repository.dart';
 import '../domain/e2ee/encrypted_messaging.dart';
-import '../domain/e2ee/encryption_access.dart';
 import '../domain/message_suggestions.dart';
-import 'e2ee/encryption_access_builder.dart';
 import '../domain/messaging_feature_flag.dart';
 import '../domain/people_source.dart';
 import '../domain/share_post_target.dart';
@@ -290,21 +288,18 @@ class _PickerViewState extends State<_PickerView> {
     final target = widget.share;
     if (target != null) {
       final repository = context.read<MessagingRepository>();
-      // Plan 5b Task 14: the port only with access `full` or `manage`
-      // (`hidden` and `unsupported` keep today's plain share, so a user with
-      // no vault is unchanged). With a port, an encrypted share needs the
-      // server's check: `checkPostShare`, asked once before any send, and
-      // the cubit refuses the share (no call) unless BOTH `e2ee_dm` and
-      // `dm_share_check` are in the enabled features, read live at each send.
-      // `postId` stays the share target's id (`engagementTargetId`: a REPOST's
-      // original), which is what the check is asked about.
-      // Decision: `manage` (flag off, a vault here) gets the port too, so a
-      // conversation that is already encrypted never receives a plaintext
-      // share; the price is that its shares need `dm_share_check` as well.
-      final port =
-          EncryptionAccessBuilder.of(context) == EncryptionAccess.hidden
-          ? null
-          : context.read<EncryptedMessaging?>();
+      // Plan 5b Task 14, fix round A and B: the share cubit ALWAYS gets the
+      // provided port, whatever the access is (a send that skips the port
+      // bypasses its fail-closed answers). `postId` stays the share target's
+      // id (`engagementTargetId`: a REPOST's original), which the check is
+      // asked about. `checkEnabled` is true exactly when `dm_share_check` is
+      // on, read live at each send. With it on: one `checkPostShare`, then
+      // the per-row sends through the port. With it off the cubit routes
+      // each row from the cache and the vault's known set without sending: a
+      // plain row is today's plain share (the server runs its own check), an
+      // encrypted row (or one that could start encrypted, `e2ee_dm` on and no
+      // cached conversation) is refused with the flag-off line and no call.
+      final port = context.read<EncryptedMessaging?>();
       final onboarding = context.read<OnboardingBloc>();
       _share = SharePostCubit(
         repository: repository,
@@ -316,11 +311,11 @@ class _PickerViewState extends State<_PickerView> {
         check: port == null ? null : repository.checkPostShare,
         checkEnabled: port == null
             ? null
-            : () {
-                final features = onboarding.state.enabledFeatures;
-                return features.contains(kFeatureE2eeDm) &&
-                    features.contains(kFeatureDmShareCheck);
-              },
+            : () => onboarding.state.enabledFeatures.contains(
+                kFeatureDmShareCheck,
+              ),
+        mayStartEncryption: () =>
+            onboarding.state.enabledFeatures.contains(kFeatureE2eeDm),
         onUnexpectedError: context.read<UnexpectedErrorReporter>(),
       );
       unawaited(_loadRecents(repository));

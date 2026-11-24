@@ -117,9 +117,22 @@ class FakeSendRepository extends Fake implements MessagingRepository {
   @override
   Stream<void> get conversationsChanged => const Stream<void>.empty();
 
+  /// Thrown by `cachedConversationWith` when set (an unreadable cache).
+  Object? cachedConversationError;
+
+  /// Conversations the cache's sticky marker says were ever encrypted.
+  final Set<String> everEncrypted = {};
+
   @override
-  Future<pb.Conversation?> cachedConversationWith(String peerUserId) async =>
-      cachedByPeer[peerUserId];
+  Future<bool> cachedEverEncrypted(String conversationId) async =>
+      everEncrypted.contains(conversationId);
+
+  @override
+  Future<pb.Conversation?> cachedConversationWith(String peerUserId) async {
+    final e = cachedConversationError;
+    if (e != null) throw e;
+    return cachedByPeer[peerUserId];
+  }
 
   @override
   Future<ThreadSnapshot> cachedThread(String conversationId) async => thread;

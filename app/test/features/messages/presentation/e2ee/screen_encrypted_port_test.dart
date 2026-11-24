@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/core/vault/vault_status.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging.dart';
@@ -20,14 +22,17 @@ void main() {
   late FakeEncryptedMessaging port;
   late FakeEncryptionDevice device;
   late _MockOnboardingBloc onboarding;
-  final seen = <EncryptedMessaging?>[];
+  late StreamController<OnboardingState> states;
+  final seen = <ScreenPorts>[];
 
   setUp(() {
     port = FakeEncryptedMessaging();
     device = FakeEncryptionDevice(vaultKnown: false, flag: E2eeFlag.off);
     onboarding = _MockOnboardingBloc();
+    states = StreamController<OnboardingState>.broadcast();
     seen.clear();
   });
+  tearDown(() => states.close());
 
   Future<void> pump(
     WidgetTester tester, {
@@ -36,7 +41,7 @@ void main() {
   }) async {
     whenListen(
       onboarding,
-      const Stream<OnboardingState>.empty(),
+      states.stream,
       initialState: const OnboardingState(),
     );
     await tester.pumpWidget(
@@ -49,55 +54,74 @@ void main() {
         ],
         child: BlocProvider<OnboardingBloc>.value(
           value: onboarding,
-          child: StatefulBuilder(
-            builder: (context, setState) => ScreenEncryptedPort(
-              builder: (context, p) {
-                seen.add(p);
-                return GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () => setState(() {}),
-                  child: const SizedBox(width: 50, height: 50),
-                );
-              },
-            ),
+          child: ScreenEncryptedPort(
+            builder: (context, ports) {
+              seen.add(ports);
+              return const SizedBox();
+            },
           ),
         ),
       ),
     );
   }
 
-  testWidgets('access hidden: no port', (tester) async {
+  testWidgets('access hidden: sends still get the port, reads do not', (
+    tester,
+  ) async {
     await pump(tester);
-    expect(seen.single, isNull);
+    expect(seen.last.send, same(port));
+    expect(seen.last.read, isNull);
   });
 
-  testWidgets('manage (a vault here, flag off): the port', (tester) async {
+  testWidgets('manage (a vault here, flag off): both are the port', (
+    tester,
+  ) async {
     device.vaultKnown = true;
     await pump(tester);
-    expect(seen.single, same(port));
+    expect(seen.last.send, same(port));
+    expect(seen.last.read, same(port));
   });
 
-  testWidgets('no provider for the port or the device: no port', (
+  testWidgets('no provider for the port: neither; no device: reads null', (
     tester,
   ) async {
     await pump(tester, withPort: false);
-    expect(seen.single, isNull);
-    seen.clear();
+    expect(seen.last.send, isNull);
+    expect(seen.last.read, isNull);
     await pump(tester, withDevice: false);
-    expect(seen.single, isNull);
+    expect(seen.last.send, same(port));
+    expect(seen.last.read, isNull);
   });
 
-  testWidgets('the answer is taken once: a later access change and rebuilds '
-      'give every reader the same port', (tester) async {
+  testWidgets('upgrade-only: hidden then a vault appears (a status change) '
+      'gives the read port, and it is never taken back', (tester) async {
     await pump(tester);
-    expect(seen.single, isNull);
-    // The vault appears while the screen is open.
+    expect(seen.last.read, isNull);
     device.vaultKnown = true;
-    await tester.tap(find.byType(GestureDetector));
+    device.vaultStatus.value = VaultStatus.opening;
     await tester.pump();
-    await tester.tap(find.byType(GestureDetector));
+    expect(seen.last.read, same(port));
+    device.vaultKnown = false;
+    device.vaultStatus.value = VaultStatus.off;
     await tester.pump();
-    expect(seen.length, greaterThan(1));
-    expect(seen.every((p) => p == null), isTrue);
+    expect(seen.last.read, same(port), reason: 'never port to null');
+    expect(seen.last.send, same(port));
+  });
+
+  testWidgets('upgrade-only: the flag turning on (a flag-set change) gives '
+      'the read port', (tester) async {
+    await pump(tester);
+    expect(seen.last.read, isNull);
+    states.add(const OnboardingState(enabledFeatures: {'e2ee_dm'}));
+    await tester.pump();
+    await tester.pump();
+    expect(seen.last.read, same(port));
+  });
+
+  testWidgets('the listeners are removed on dispose', (tester) async {
+    await pump(tester);
+    expect(device.vaultStatus.listenerCount, 1);
+    await tester.pumpWidget(const SizedBox());
+    expect(device.vaultStatus.listenerCount, 0);
   });
 }

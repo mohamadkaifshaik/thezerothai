@@ -10,6 +10,7 @@ import '../../../app/session_wiring.dart' show UnexpectedErrorReporter;
 import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/vault/vault_status.dart' show VaultStatus;
 import '../../../core/widgets/app_top_bar.dart';
 import '../../../core/widgets/scroll_constants.dart';
 import '../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart';
@@ -353,9 +354,15 @@ class _ConversationsViewState extends State<ConversationsList>
                   // full or manage; with it lost, the cubit drops them too.
                   return EncryptionAccessBuilder(
                     builder: (context, access) {
+                      // Previews follow the vault: none unless it is ready.
                       final showPreviews =
-                          access == EncryptionAccess.full ||
-                          access == EncryptionAccess.manage;
+                          (access == EncryptionAccess.full ||
+                              access == EncryptionAccess.manage) &&
+                          context
+                                  .read<EncryptionDevice?>()
+                                  ?.vaultStatus
+                                  .value ==
+                              VaultStatus.ready;
                       if (!showPreviews &&
                           (state.previews.isNotEmpty ||
                               state.knownEncrypted.isNotEmpty)) {
@@ -626,6 +633,8 @@ class _InboxEncryptionBanner extends StatelessWidget {
   return (
     port: port,
     allowed: () {
+      // Previews follow the vault (fix round C): none unless it is ready.
+      if (device.vaultStatus.value != VaultStatus.ready) return false;
       final access = encryptionAccessOf(
         flagOn: onboarding.state.enabledFeatures.contains(kFeatureE2eeDm),
         vaultKnown: device.vaultKnown,

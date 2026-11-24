@@ -220,13 +220,15 @@ class ThreadScreen extends StatelessWidget {
   }
 
   Widget _body(BuildContext context) {
-    // The port is decided once for this screen (see [ScreenEncryptedPort]):
-    // the thread cubit and the lazily created composer cubit share it.
+    // Two ports (see [ScreenEncryptedPort]): the composer ALWAYS gets the
+    // provided port (a send never skips the port's fail-closed answers), the
+    // thread draws from it only while the access shows it, and takes it later
+    // when the access opens up (upgrade-only, [_PortUpgrade]).
     return ScreenEncryptedPort(
-      builder: (context, port) => MultiBlocProvider(
+      builder: (context, ports) => MultiBlocProvider(
         providers: [
           BlocProvider<ThreadCubit>(
-            create: (context) => _createThreadCubit(context, port),
+            create: (context) => _createThreadCubit(context, ports.read),
           ),
           BlocProvider<MessageComposerCubit>(
             create: (context) {
@@ -237,10 +239,10 @@ class ThreadScreen extends StatelessWidget {
                 repository: context.read<MessagingRepository>(),
                 conversationId: conversationId,
                 outbox: context.read<MessagingRepository>().outbox,
-                // The same port as the thread's: a plaintext thread of a
-                // flag-on user sends through it too and gets `notEncrypted`
-                // back.
-                encrypted: port,
+                // A plaintext thread sends through the port too and gets
+                // `notEncrypted` back (the port reads the cache only, with no
+                // vault).
+                encrypted: ports.send,
                 onActivity: thread.noteInput,
                 onSent: thread.noteSent,
                 onCannotMessage: thread.markCannotMessage,
@@ -251,15 +253,18 @@ class ThreadScreen extends StatelessWidget {
         ],
         // The badge knows this conversation is open; a foreground push
         // for it pulls the thread.
-        child: ThreadPushScope(
-          conversationId: conversationId,
-          child: _ThreadView(
-            composerBuilder: composerBuilder,
-            bannerBuilder: bannerBuilder,
-            onReport: onReport,
-            onOpenLink: onOpenLink,
-            now: now,
-            highlightMessageId: highlightMessageId,
+        child: _PortUpgrade(
+          port: ports.read,
+          child: ThreadPushScope(
+            conversationId: conversationId,
+            child: _ThreadView(
+              composerBuilder: composerBuilder,
+              bannerBuilder: bannerBuilder,
+              onReport: onReport,
+              onOpenLink: onOpenLink,
+              now: now,
+              highlightMessageId: highlightMessageId,
+            ),
           ),
         ),
       ),
@@ -328,6 +333,32 @@ bool _showEncryptionEntry(ThreadState state) {
   return state.encrypted &&
       security != null &&
       security.state != ConversationEncryptionState.pendingRequest;
+}
+
+/// Hands the thread cubit the read port when the screen's access opens up
+/// after the cubit was made without one (upgrade-only).
+class _PortUpgrade extends StatefulWidget {
+  const _PortUpgrade({required this.port, required this.child});
+
+  final EncryptedMessaging? port;
+  final Widget child;
+
+  @override
+  State<_PortUpgrade> createState() => _PortUpgradeState();
+}
+
+class _PortUpgradeState extends State<_PortUpgrade> {
+  @override
+  void didUpdateWidget(_PortUpgrade old) {
+    super.didUpdateWidget(old);
+    final port = widget.port;
+    if (old.port == null && port != null) {
+      context.read<ThreadCubit>().usePort(port);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 class _ThreadView extends StatefulWidget {

@@ -79,18 +79,19 @@ class DraftThreadScreen extends StatelessWidget {
         ),
       );
     }
-    // One port for the whole screen (see [ScreenEncryptedPort]): the
-    // composer cubit, the person's thread watch and the not-encrypted note
-    // all use the answer taken when the screen opened.
+    // Two ports (see [ScreenEncryptedPort]): the composer always gets the
+    // provided one (a first message never skips the port's fail-closed
+    // answers); the person's thread watch and the not-encrypted note follow
+    // the visible one, which only ever upgrades.
     return ScreenEncryptedPort(
-      builder: (context, port) => BlocProvider<MessageComposerCubit>(
+      builder: (context, ports) => BlocProvider<MessageComposerCubit>(
         create: (context) => MessageComposerCubit(
           vaultNotOpen: _vaultNotOpenOf(context),
           repository: context.read<MessagingRepository>(),
           recipientUserId: peer.userId,
           // R1: the person is addressed from this snapshot only.
           recipient: peer,
-          encrypted: port,
+          encrypted: ports.send,
           outbox: context.read<MessagingRepository>().outbox,
           onConversationCreated: (id) {
             if (!context.mounted) return;
@@ -106,7 +107,7 @@ class DraftThreadScreen extends StatelessWidget {
           },
           onUnexpectedError: context.read<UnexpectedErrorReporter>(),
         ),
-        child: _DraftView(peer: peer, port: port),
+        child: _DraftView(peer: peer, port: ports.read),
       ),
     );
   }
@@ -147,10 +148,21 @@ class _DraftViewState extends State<_DraftView> {
   @override
   void initState() {
     super.initState();
+    _startWatch();
+  }
+
+  void _startWatch() {
     final port = widget.port;
-    if (port != null) {
+    if (port != null && _watch == null) {
       _watch = port.watchThread(ThreadRef.recipientOf(peer)).listen(_onThread);
     }
+  }
+
+  @override
+  void didUpdateWidget(_DraftView old) {
+    super.didUpdateWidget(old);
+    // Upgrade-only: a port that appears later is watched; one never goes.
+    if (old.port == null) _startWatch();
   }
 
   void _onThread(EncryptedThread thread) {

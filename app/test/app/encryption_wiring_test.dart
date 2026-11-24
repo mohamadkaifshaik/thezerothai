@@ -340,6 +340,29 @@ void main() {
       expect(port.calls, isEmpty);
     });
 
+    testWidgets('fix round C: the vault leaving ready (flag still on) drops '
+        'the previews from the hoisted cubit while the inbox is off screen', (
+      tester,
+    ) async {
+      await pump(tester, onboarding: ready(flags: {e2ee}));
+      port.local.add(hexId(0xc1));
+      port.setPreviews({
+        hexId(0xc1): const ConversationPreview(
+          kind: PreviewKind.text,
+          text: 'hello',
+        ),
+      });
+      await openInbox(tester);
+      final cubit = tree(tester)
+          .read<ConversationsSession>()
+          .ifCreated(Folder.FOLDER_INBOX)!;
+      expect(cubit.state.previews, isNotEmpty);
+      device.vaultStatus.value = VaultStatus.keyLost;
+      await tester.pump();
+      expect(cubit.state.previews, isEmpty);
+      expect(cubit.state.knownEncrypted, isEmpty);
+    });
+
     testWidgets('an access drop clears the previews while the inbox is off '
         'screen', (tester) async {
       await pump(tester, onboarding: ready(flags: {e2ee}));

@@ -29,6 +29,7 @@ import '../core/theme/theme_mode_cubit.dart';
 import '../core/telemetry/telemetry_device_forget.dart';
 import '../core/telemetry/usage_reporter.dart';
 import '../core/vault/vault_session.dart';
+import '../core/vault/vault_status.dart' show VaultStatus;
 import '../core/widgets/explore_retap_signal.dart';
 import '../core/widgets/home_retap_signal.dart';
 import '../core/widgets/service_paused_view.dart';
@@ -393,10 +394,14 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
   );
 
   /// The encryption access of this device lets the lists show local previews
-  /// (`full` or `manage`). Closed over objects, never a `BuildContext`.
+  /// (`full` or `manage`) AND the vault is `ready` (fix round C, security
+  /// M2: previews are decrypted text, they follow the vault: a key lost, a
+  /// vault held elsewhere or unavailable shows none, whatever the flag says).
+  /// Closed over objects, never a `BuildContext`.
   bool _previewsAllowed() {
     final device = widget.encryptionDevice;
     if (device == null) return false;
+    if (device.vaultStatus.value != VaultStatus.ready) return false;
     final access = encryptionAccessOf(
       flagOn: widget.onboardingBloc.state.enabledFeatures.contains(
         kFeatureE2eeDm,

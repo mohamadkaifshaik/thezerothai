@@ -259,7 +259,7 @@ class ThreadCubit extends Cubit<ThreadState> {
   String? _acceptKey;
   StreamSubscription<void>? _changes;
 
-  final EncryptedMessaging? _port;
+  EncryptedMessaging? _port;
   final bool Function()? _vaultUsable;
   StreamSubscription<EncryptedThread>? _watch;
 
@@ -280,6 +280,17 @@ class ThreadCubit extends Cubit<ThreadState> {
 
   /// Encrypted messaging is present for this thread (a port was given).
   bool get hasPort => _port != null;
+
+  /// The screen opened with no visible port (access `hidden`, for example at
+  /// cold start before the sign-in step) and the access now allows one: take
+  /// it and re-evaluate, so an encrypted conversation is drawn without
+  /// reopening. Upgrade-only: a second call, or one with a port already
+  /// held, does nothing (a port is never taken back).
+  void usePort(EncryptedMessaging port) {
+    if (isClosed || _port != null) return;
+    _port = port;
+    _reevaluate();
+  }
 
   /// The vault became (un)usable: re-evaluates the rules. The screen calls it
   /// when the vault status changes.

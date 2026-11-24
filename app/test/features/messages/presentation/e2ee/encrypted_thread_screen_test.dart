@@ -194,6 +194,70 @@ void main() {
     expect(find.text(olderText), findsNothing);
   });
 
+  // Fix round A: a thread opened while the access is `hidden` (cold start
+  // before the sign-in step, flag unknown, no vault known yet) draws nothing
+  // new, takes the port when the access opens up, and its composer always
+  // sends through the port.
+  testWidgets('a thread opened before the sign-in step shows the encrypted '
+      'thread once the vault is ready, without reopening', (tester) async {
+    final r = await open(
+      tester,
+      entries: [entry('e1', 'first secret')],
+      extraFlags: const <String>{},
+      vault: VaultStatus.off,
+      vaultKnown: false,
+    );
+    expect(find.text('first secret'), findsNothing);
+    expect(r.port.calls, isNot(contains('watchThread')));
+    r.device.vaultKnown = true;
+    r.device.vaultStatus.value = VaultStatus.ready;
+    await tester.pumpAndSettle();
+    expect(find.text('first secret'), findsOneWidget);
+    expect(r.port.calls, contains('watchThread'));
+  });
+
+  Future<void> typeAndSend(WidgetTester tester, String text) async {
+    await tester.enterText(find.byKey(MessageComposer.fieldKey), text);
+    await tester.pump();
+    await tester.tap(find.byKey(MessageComposer.sendKey));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('hidden, a plain conversation: the composer asks the port, it '
+      'says notEncrypted, and exactly today\'s one SendMessage follows', (
+    tester,
+  ) async {
+    final r = await open(
+      tester,
+      encryption: _none,
+      extraFlags: const <String>{},
+      vault: VaultStatus.off,
+      vaultKnown: false,
+    );
+    r.port.nextSendOutcome = const SendOutcome(SendOutcomeKind.notEncrypted);
+    await typeAndSend(tester, 'hello');
+    expect(r.port.calls.where((c) => c == 'send'), hasLength(1));
+    expect(r.rig.server.sends, hasLength(1));
+  });
+
+  testWidgets('hidden, the port refuses (marker unreadable, conversation '
+      'cached as encrypted): zero SendMessage calls', (tester) async {
+    final r = await open(
+      tester,
+      encryption: _none,
+      extraFlags: const <String>{},
+      vault: VaultStatus.off,
+      vaultKnown: false,
+    );
+    r.port.nextSendOutcome = const SendOutcome(
+      SendOutcomeKind.refused,
+      problem: SendProblem.blocked,
+    );
+    await typeAndSend(tester, 'hello');
+    expect(r.port.calls.where((c) => c == 'send'), hasLength(1));
+    expect(r.rig.server.sends, isEmpty);
+  });
+
   // Carried item 7: an open in-chat search panel (it holds decrypted hits in
   // memory) does not outlive the thread it was opened from. A direct account
   // switch leaves the thread for another location (the router's redirect), and
