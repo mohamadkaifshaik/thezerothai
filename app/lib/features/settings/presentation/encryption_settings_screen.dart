@@ -265,7 +265,14 @@ class _DevicesView extends StatelessWidget {
         confirmItsYou: confirm(true),
       );
     }
-    _sayOutcome(context, messenger, cubit, outcome);
+    _sayOutcome(
+      messenger,
+      cubit,
+      outcome,
+      signOutOn:
+          context.mounted &&
+          featureEnabledSnapshot(context, kFeatureDeviceSignOut),
+    );
   }
 
   /// The banner's "Confirm it's you": the removals REAUTH_REQUIRED parked are
@@ -286,8 +293,14 @@ class _DevicesView extends StatelessWidget {
     if (outcome == RemoveOutcome.needsReauth && context.mounted) {
       outcome = await cubit.resumeParked(confirmItsYou: confirm(true));
     }
-    if (!context.mounted) return;
-    _sayOutcome(context, messenger, cubit, outcome);
+    _sayOutcome(
+      messenger,
+      cubit,
+      outcome,
+      signOutOn:
+          context.mounted &&
+          featureEnabledSnapshot(context, kFeatureDeviceSignOut),
+    );
   }
 
   /// The banner's "Don't remove": asks first, in words that say the device
@@ -310,11 +323,11 @@ class _DevicesView extends StatelessWidget {
   /// The snackbar for a finished removal; nothing when none was attempted or
   /// the user did not confirm it was them.
   void _sayOutcome(
-    BuildContext context,
     ScaffoldMessengerState messenger,
     EncryptionDevicesCubit cubit,
-    RemoveOutcome outcome,
-  ) {
+    RemoveOutcome outcome, {
+    required bool signOutOn,
+  }) {
     // Nothing was attempted (a removal was already running) or the user did
     // not confirm it was them: nothing to say.
     if (outcome == RemoveOutcome.notAttempted ||
@@ -325,11 +338,7 @@ class _DevicesView extends StatelessWidget {
     // read now (the flag may have changed while the removal ran); a null
     // answer, or the flag off, gives the plain text that claims nothing about
     // the other sessions.
-    final ended =
-        context.mounted &&
-            featureEnabledSnapshot(context, kFeatureDeviceSignOut)
-        ? cubit.otherSessionsEnded
-        : null;
+    final ended = signOutOn ? cubit.otherSessionsEnded : null;
     messenger
       ..hideCurrentSnackBar()
       ..showSnackBar(
