@@ -152,7 +152,10 @@ void main() {
           expect(find.text(point), findsOneWidget, reason: point);
         }
         // Explain how long an already-issued link continues to work.
-        expect(find.textContaining('for up to five minutes'), findsOneWidget);
+        expect(
+          find.textContaining('for up to five minutes'),
+          findsOneWidget,
+        );
         expect(tester.takeException(), isNull);
         for (final label in ['Cancel', kProtectConfirmAction]) {
           final button = find.widgetWithText(TextButton, label);

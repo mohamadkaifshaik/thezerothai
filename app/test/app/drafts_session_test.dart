@@ -110,7 +110,10 @@ void main() {
         'da',
         'a',
         'A private thought',
-        poll: DraftPoll(choices: const ['x', 'y'], durationMinutes: 1440),
+        poll: DraftPoll(
+          choices: const ['x', 'y'],
+          durationMinutes: 1440,
+        ),
       ),
     );
 

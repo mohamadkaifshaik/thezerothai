@@ -51,7 +51,6 @@ import '../support/fake_network_type_service.dart';
 import '../support/fake_push_messaging.dart';
 import '../support/media_fixtures.dart' show MockMediaRepository;
 import '../support/messaging_fixtures.dart';
-import '../support/notifications_fixtures.dart';
 import '../support/suggestions_fixtures.dart';
 import '../support/thread_test_support.dart';
 
