@@ -5,7 +5,7 @@ import 'package:dzeroth/core/vault/secure_vault.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/conversation_crypto.dart'
     show kResetWaitWithoutWelcome;
 import 'package:dzeroth/features/messages/domain/e2ee/daily_ledger.dart'
-    show kAntiFlapUndosPerDay;
+    show kAntiFlapUndosPerDay, kVaultSettingE2eeDaily;
 import 'package:dzeroth/features/messages/domain/e2ee/device_directory.dart'
     show kDeferredWithUnattributedLimit;
 import 'package:dzeroth/features/messages/domain/e2ee/pipeline_support.dart'
@@ -297,6 +297,54 @@ void main() {
       h.rig.clock.value = turn;
       s = await h.pipeline.crypto.describeState(_c1);
       expect(s.committingPausedToday, isFalse);
+    });
+
+    test('a ledger that cannot be read adds no IST day moment (the pause '
+        'reads as held, and is not clock-driven)', () async {
+      await waiting();
+      for (var i = 0; i < kAntiFlapUndosPerDay; i++) {
+        await h.pipeline.ledger.addUndone(_c1);
+      }
+      h.rig.device.onSetting = (key) async {
+        if (key == kVaultSettingE2eeDaily) throw StateError('read');
+      };
+
+      final s = await h.pipeline.crypto.describeState(_c1);
+
+      // Fail closed: paused, so the reset is offered now; no moment names
+      // the day's turn (the read that would end the pause did not work).
+      expect(s.committingPausedToday, isTrue);
+      expect(s.canReset, isTrue);
+      expect(s.clockChangeAt, isNull);
+    });
+
+    test('an open thread arms a timer for the IST day turn while the '
+        'anti-flap pause holds', () async {
+      await waiting();
+      for (var i = 0; i < kAntiFlapUndosPerDay; i++) {
+        await h.pipeline.ledger.addUndone(_c1);
+      }
+      final now = h.rig.clock.now();
+      final turn = nextIstDayStart(now);
+
+      final seen = <EncryptedThread>[];
+      final sub = port.watchThread(_ref).listen(seen.add);
+      await _until(() => seen.isNotEmpty);
+      await h.settle();
+
+      expect(seen.last.security.canReset, isTrue);
+      final armed = [
+        for (final e in h.scheduled)
+          if (!e.cancelled && e.delay == turn.difference(now)) e,
+      ];
+      expect(armed, hasLength(1));
+
+      // Firing it rebuilds the thread once the pause ended.
+      h.rig.clock.value = turn;
+      h.scheduled.remove(armed.single);
+      armed.single.run();
+      await _until(() => !seen.last.security.canReset);
+      await sub.cancel();
     });
 
     test('with no ready vault nothing is armed', () async {

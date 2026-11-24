@@ -58,28 +58,21 @@ extension _CatchUp on ConversationCrypto {
   ///    ([ConversationContext.acceptedSightingHeld]) is handed back to
   ///    [ConversationContexts.onAcceptedSeen] now that one exists (it only
   ///    queues; the caller holds the lock).
-  /// 2. A restart loses that memory: while a final group is here and the
-  ///    stored record is not accepted, one first-page `ListMessages` read
-  ///    takes the header. It is the receiver's read (the READ budget, lane
-  ///    = the conversation, paused on a rate limit as the probe does), at
-  ///    background priority only (a user-priority pass, which a send may
-  ///    follow, makes none), once per conversation and run, at most
-  ///    [kAcceptanceHeaderReadsPerRun] across conversations and
-  ///    [kAcceptanceHeaderFailuresPerRun] failures per conversation. None
-  ///    when a header of the conversation was already noted this run or a
-  ///    held sight was just applied. The header is taken for state, folder
-  ///    and `can_reply`; a peer reference the context already holds stays.
-  /// 3. A stored accepted record settles the conversation for the run, so
+  /// 2. A stored accepted record settles the conversation for the run, so
   ///    later passes read nothing here.
+  ///
+  /// No read is made here (a dedicated first-page read per conversation
+  /// would wait for a read-budget unit under the conversation lock, and a
+  /// per-run cap would starve an accepted conversation behind unanswered
+  /// requests: review M1, M2). A restart loses the held flag, and the
+  /// sight comes again from rows the app already reads from the server:
+  /// the inbox and requests answers and a thread's first page, which the
+  /// repository reports (`MessagingRepository.onServerConversationRow`,
+  /// the pipeline's `noteServerRow`) and [ConversationContexts.note] takes.
   Future<void> _settleAcceptanceSightLocked(_Operation pass, String id) async {
     final context = _contexts.of(id);
     if (context.acceptanceSettled || !pass.live) return;
     final held = context.acceptedSightingHeld;
-    final wantRead =
-        !context.acceptanceHeaderRead &&
-        context.acceptanceHeaderFailures < kAcceptanceHeaderFailuresPerRun &&
-        _contexts.acceptanceHeaderReads < kAcceptanceHeaderReadsPerRun &&
-        pass.priority != BudgetPriority.user;
     try {
       final groups = await pass.vault.groups(id);
       final record = await pass.vault.conversation(id);
@@ -90,44 +83,11 @@ extension _CatchUp on ConversationCrypto {
       if (held && (record != null || groups.isNotEmpty)) {
         context.acceptedSightingHeld = false;
         _contexts.onAcceptedSeen?.call(id);
-        return;
       }
-      if (!wantRead ||
-          !groups.any((g) => !g.provisional) ||
-          !pass.live ||
-          _messaging.rateLimitedFor() != null ||
-          _readBudget.paused ||
-          _removedElsewhere()) {
-        return;
-      }
-      _contexts.acceptanceHeaderReads++;
-      await _readBudget.take(BudgetPriority.background, lane: id);
-      if (!pass.live || _removedElsewhere()) return;
-    } on BudgetPaused {
-      return;
     } on StateError {
       return;
     } on Object catch (e, s) {
-      _reportIfBug(e, s, 'catchUp.acceptanceHeader');
-      return;
-    }
-    try {
-      final page = await _messaging.listMlsMessages(conversationId: id);
-      if (!pass.live) return;
-      context.acceptanceHeaderRead = true;
-      // Only the header of the conversation asked for.
-      if (page.hasConversation() && page.conversation.id == id) {
-        _contexts.note(page.conversation, keepPeer: true);
-      }
-    } on RateLimitedException catch (e) {
-      context.acceptanceHeaderFailures++;
-      var wait = e.retryAfter ?? const Duration(minutes: 1);
-      if (wait > kMaxServerRetryWait) wait = kMaxServerRetryWait;
-      if (wait.isNegative) wait = Duration.zero;
-      _readBudget.pauseUntil(_now().add(wait));
-    } on Object catch (e, s) {
-      context.acceptanceHeaderFailures++;
-      _reportIfBug(e, s, 'catchUp.acceptanceHeader');
+      _reportIfBug(e, s, 'catchUp.acceptanceSight');
     }
   }
 

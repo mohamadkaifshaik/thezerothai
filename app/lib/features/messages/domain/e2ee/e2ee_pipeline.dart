@@ -629,6 +629,34 @@ class E2eePipeline {
     _inRoot(() => parts.accepted(conversationId));
   }
 
+  /// `MessagingRepository.onServerConversationRow`: a conversation row the
+  /// repository has just read FROM THE SERVER in this run (an inbox or
+  /// requests answer, or the header of a thread's first page; never a cached
+  /// row or a send answer) is a full sight: its state, folder and `can_reply`
+  /// are taken, and an ACCEPTED one settles the acceptance (or is held until
+  /// the vault keeps a record or a group for the conversation). This is how
+  /// a restart that lost the held sight learns it again, without a read of
+  /// its own: the app reads those rows anyway (`ConversationContexts.note`).
+  ///
+  /// Does nothing without parts (no ready vault, the flag-off shape: no
+  /// vault read, no state). Called from the repository's completion path,
+  /// outside every `runWrite` body and conversation lock; `note` only queues
+  /// what follows and waits for nothing.
+  void noteServerRow(pb.Conversation row) {
+    if (_disposed) return;
+    final parts = _parts;
+    if (parts == null || !parts.live) return;
+    parts.contexts.note(row, keepPeer: true);
+  }
+
+  /// `MessagingRepository.onConversationBlocked` (the user blocked the peer
+  /// from the thread): a held acceptance sighting of it is forgotten (a
+  /// block makes no server row until the next first-page read).
+  void noteBlocked(String conversationId) {
+    if (_disposed || conversationId.isEmpty) return;
+    _parts?.contexts.of(conversationId).acceptedSightingHeld = false;
+  }
+
   /// `MessagingRepository.onConversationDeleted` (delete-for-me): every
   /// local copy and unsent row of [conversationId] goes in one transaction;
   /// the group, the marks and the sync record stay, with `cleared_at` now

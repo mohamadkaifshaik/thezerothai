@@ -36,15 +36,6 @@ class ConversationContext {
   /// set from a decrypted message.
   bool acceptedSightingHeld = false;
 
-  /// This run read one first page of the conversation to look at its
-  /// header while a group existed and acceptance was not settled (a
-  /// restart loses [acceptedSightingHeld]). Once per run, set only after
-  /// the read answered.
-  bool acceptanceHeaderRead = false;
-
-  /// Failed restart header reads of this conversation in this run.
-  int acceptanceHeaderFailures = 0;
-
   /// The thread cannot be answered (the server said CANNOT_MESSAGE, a block
   /// or the like): [canReply] is false, and a held acceptance sighting is
   /// forgotten (the conversation is not one to settle).
@@ -378,11 +369,16 @@ class ConversationContexts {
   /// removals; the thread's own refusal (CANNOT_MESSAGE) still sets it.
   ///
   /// [keepPeer]: the peer reference is taken only when the context has none
-  /// (the restart header read must not replace one this run already holds).
+  /// (a row the repository read from the server must not replace one this
+  /// run already holds, e.g. from the first page the pipeline itself read).
   ///
-  /// A full header is a first-page sight: it counts as this run's header
-  /// read ([ConversationContext.acceptanceHeaderRead]), and a held
-  /// acceptance sighting is forgotten when it does not say ACCEPTED.
+  /// A full row is a sight: a held acceptance sighting is forgotten when it
+  /// does not say ACCEPTED, or says the thread cannot be answered
+  /// (`can_reply` false: a block, a deleted account; review m2).
+  ///
+  /// The caller is the repository's completion path, or a pipeline read
+  /// right after its RPC: never inside a `runWrite` body, and never waiting
+  /// ([onAcceptedSeen] and [onRowNoted] only queue).
   void note(
     pb.Conversation row, {
     bool peerOnly = false,
@@ -396,8 +392,8 @@ class ConversationContexts {
       c.peerUserId = row.peer.userId;
     }
     if (peerOnly) return;
-    c.acceptanceHeaderRead = true;
-    if (row.state != ConversationState.CONVERSATION_STATE_ACCEPTED) {
+    if (row.state != ConversationState.CONVERSATION_STATE_ACCEPTED ||
+        !row.canReply) {
       c.acceptedSightingHeld = false;
     }
     c.canReply = row.canReply;
@@ -425,13 +421,6 @@ class ConversationContexts {
     }
   }
 
-  /// The restart header reads this run made, across conversations (bounded
-  /// by `kAcceptanceHeaderReadsPerRun`).
-  int acceptanceHeaderReads = 0;
-
   /// Sign-out or a new vault.
-  void clear() {
-    _byId.clear();
-    acceptanceHeaderReads = 0;
-  }
+  void clear() => _byId.clear();
 }

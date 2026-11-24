@@ -631,6 +631,23 @@ void main() {
       expect((await state()).canReset, isTrue);
     });
 
+    test('CANNOT_MESSAGE on the reset call marks the thread read-only and '
+        'forgets a held acceptance sighting', () async {
+      await setUpJoined();
+      await makeStuck();
+      rig.contexts.of(_c1).acceptedSightingHeld = true;
+      rig.server.commitScript.add((
+        error: const CannotMessageException(),
+        stored: false,
+      ));
+
+      await reset().then<void>((_) {}, onError: (Object _) {});
+
+      expect(rig.contexts.of(_c1).canReply, isFalse);
+      expect(rig.contexts.of(_c1).acceptedSightingHeld, isFalse);
+      expect(await groupAt(2), isNull);
+    });
+
     test('a stage-encrypted row of g is re-encrypted in g + 1 after its '
         'STALE_EPOCH', () async {
       await setUpJoined();

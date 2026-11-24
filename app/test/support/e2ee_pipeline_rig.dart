@@ -1462,9 +1462,11 @@ class _RigVault implements SecureVault {
     this._beforeDeviceId,
     this._beforeMessages,
     this._onGroups,
+    this._beforeSetting,
   );
 
   final void Function() _onGroups;
+  final Future<void> Function(String key) _beforeSetting;
 
   final SecureVault _inner;
   final Future<void> Function() _beforeMessages;
@@ -1544,7 +1546,11 @@ class _RigVault implements SecureVault {
   }
 
   @override
-  Future<Uint8List?> setting(String key) => _inner.setting(key);
+  Future<Uint8List?> setting(String key) async {
+    await _beforeSetting(key);
+    return _inner.setting(key);
+  }
+
   @override
   Future<void> wipe() => _inner.wipe();
   @override
@@ -1616,6 +1622,10 @@ class RigDevice {
   /// Runs before every `messages` read of the vault; throw to fail that
   /// read. Null: the real read.
   Future<void> Function()? onMessages;
+
+  /// Runs before every plain `setting` read of the vault (with the key);
+  /// throw to fail that read. Null: the real read.
+  Future<void> Function(String key)? onSetting;
 
   /// How many `groups` reads the vault answered (a test counts the vault
   /// reads a step makes).
@@ -1690,6 +1700,7 @@ class RigDevice {
             () async => onDeviceId?.call(),
             () async => onMessages?.call(),
             () => groupsReads++,
+            (key) async => onSetting?.call(key),
           ),
       wipeVaultFile: ({required alias, String? expectedStorage}) async {},
       deleteVaultKey: ({required alias}) async {},
@@ -2125,7 +2136,6 @@ class RigCrypto {
       messaging: messaging,
       directory: directory,
       syncBudget: syncBudget,
-      readBudget: readBudget,
       locks: locks,
       contexts: contexts,
       known: known,

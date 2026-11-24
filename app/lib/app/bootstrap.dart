@@ -668,7 +668,11 @@ Future<void> bootstrap() async {
     messagingRepository
       ..onEncryptedConversation = pipeline.noteEncrypted
       ..onRequestAccepted = pipeline.noteAccepted
-      ..onConversationDeleted = pipeline.noteDeleted;
+      ..onConversationDeleted = pipeline.noteDeleted
+      // The rows the app reads from the server anyway are the pipeline's
+      // acceptance sightings; a block forgets a held one.
+      ..onServerConversationRow = pipeline.noteServerRow
+      ..onConversationBlocked = pipeline.noteBlocked;
     // Gate item 67: a message push pulls its conversation (welcomes only
     // without one). Lives as long as the app.
     forwardMessagePushes(

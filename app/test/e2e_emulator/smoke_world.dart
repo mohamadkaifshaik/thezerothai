@@ -560,7 +560,9 @@ class SmokeDevice {
     messaging
       ..onEncryptedConversation = pipeline.noteEncrypted
       ..onRequestAccepted = pipeline.noteAccepted
-      ..onConversationDeleted = pipeline.noteDeleted;
+      ..onConversationDeleted = pipeline.noteDeleted
+      ..onServerConversationRow = pipeline.noteServerRow
+      ..onConversationBlocked = pipeline.noteBlocked;
     _running = true;
     await session.onSignedIn(user.uid, flag: E2eeFlag.on);
     for (final t in threads.values) {
@@ -591,6 +593,10 @@ class SmokeDevice {
       armed.timer.cancel();
     };
   }
+
+  /// The moments (on the clients' clock) of the pipeline timers armed and
+  /// not yet fired or cancelled.
+  List<DateTime> get armedAt => [for (final a in _armed) a.at];
 
   /// Runs, now, every pipeline timer whose moment the clients' clock has
   /// reached (call after [SmokeClock.advance]).

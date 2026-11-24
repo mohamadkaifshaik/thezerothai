@@ -749,6 +749,21 @@ void _scenario() {
         1,
         reason: 'precondition: B2 is not a member',
       );
+      // B2's open watch has armed its one clock timer for the end of the
+      // wait: about its recorded first sighting + 24 h. Asserted BEFORE the
+      // clock moves, so the step below can only pass through that timer (a
+      // push would re-emit the thread by itself and hide a missing timer).
+      final firstSaw = DateTime.fromMicrosecondsSinceEpoch(
+        (await b2.vault.conversation(conv))!.sync.firstSawGenerationAtMicros!,
+        isUtc: true,
+      );
+      final resetMoment = firstSaw.add(kResetWaitWithoutWelcome);
+      await w.eventually(
+        'B2 armed a timer for its first sighting + the reset wait',
+        () async => b2.armedAt.any(
+          (at) => at.difference(resetMoment).abs() < const Duration(minutes: 1),
+        ),
+      );
       // The clients' time moves past the reset's 24 h wait (the offset only
       // grows: from here the clients run a day and 32 minutes ahead).
       w.clock.advance(kResetWaitWithoutWelcome + const Duration(minutes: 1));
@@ -762,10 +777,9 @@ void _scenario() {
       await w.eventually(
         "B2's open watch shows the reset offer",
         () async => tb2.latest?.security.canReset ?? false,
-        nudge: () async {
-          b2.fireDueTimers();
-          b2.push(conv);
-        },
+        // Only the timer path: no push, which would re-emit the thread by
+        // itself.
+        nudge: () async => b2.fireDueTimers(),
       );
       await b2.port.resetConversation(conv);
 

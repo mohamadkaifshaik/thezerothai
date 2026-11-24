@@ -392,8 +392,11 @@ class MembershipUpkeep {
       // plaintext conversation gets no sync record from a header.
       if (record == null && (await vault.groups(id)).isEmpty) {
         // The sight is not lost: a since-poll carries no header, so the
-        // next catch-up that finds a record or a group hands it back.
-        _contexts.of(id).acceptedSightingHeld = true;
+        // next catch-up that finds a record or a group hands it back. Not
+        // held for a thread known to be unanswerable (`can_reply` false of
+        // the same row, a block, CANNOT_MESSAGE): it is not one to settle.
+        final context = _contexts.of(id);
+        if (context.canReply) context.acceptedSightingHeld = true;
         return;
       }
       await _onAcceptedLocked(id, BudgetPriority.background);

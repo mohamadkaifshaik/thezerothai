@@ -2243,8 +2243,8 @@ void main() {
     });
 
     test(
-      'a group here with acceptance unsettled reads one first-page header '
-      'per run, and the header settles it (a restart lost the sighting)',
+      'a restart that lost the sighting settles from the next server row '
+      'that says ACCEPTED, and the catch-up makes no read of its own',
       () async {
         rig = await RigCrypto.create();
         bob = await RigPeer.create('bob');
@@ -2254,51 +2254,40 @@ void main() {
         offer = await rig.offer(_c1, bob);
         expect(await rig.crypto.processWelcomes(), [_c1]);
         await updateSync((s) => s.copyWith(sinceToken: 's:0'));
-        // A restart: no memory of any sighting; the server's header now
-        // says ACCEPTED.
+        // A restart: no memory of any sighting. A catch-up alone settles
+        // nothing (the server sent no header on its since-polls).
         rig.contexts.clear();
-        rig.server.rows[_c1] = headerRow(
-          state: ConversationState.CONVERSATION_STATE_ACCEPTED,
-        );
-        rig.server.calls.clear();
-
         expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
         await rig.upkeep.idle();
-        expect((await sync()).requestAccepted, isTrue);
-        expect((await sync()).requestAccepted, isTrue);
-        expect(
-          rig.server.calls.where((c) => c == 'listMlsMessages'),
-          hasLength(1),
-        );
+        expect((await sync()).requestAccepted, isFalse);
+        rig.server.calls.clear();
 
-        // Settled: no further header read.
-        expect(await rig.crypto.catchUp(_c1), CatchUpResult.current);
-        expect(
-          rig.server.calls.where((c) => c == 'listMlsMessages'),
-          hasLength(1),
+        // The server's row (an inbox answer, a thread's first page) says
+        // ACCEPTED.
+        rig.contexts.note(
+          headerRow(state: ConversationState.CONVERSATION_STATE_ACCEPTED),
+          keepPeer: true,
         );
+        await rig.upkeep.idle();
+        expect((await sync()).requestAccepted, isTrue);
+        expect(rig.server.calls.where((c) => c == 'listMlsMessages'), isEmpty);
       },
     );
 
-    test('a header that does not say ACCEPTED is read once per run and never '
-        'accepts', () async {
+    test('a row that does not say ACCEPTED never accepts', () async {
       rig = await RigCrypto.create();
       bob = await RigPeer.create('bob');
       rig.keys.peers['ref-bob'] = [rigKeyDevice(bob.idString, bob.key)];
       rig.watchAcceptanceNow();
-      rig.server.rows[_c1] = headerRow();
       offer = await rig.offer(_c1, bob);
       expect(await rig.crypto.processWelcomes(), [_c1]);
 
+      rig.contexts.note(headerRow(), keepPeer: true);
       await rig.crypto.catchUp(_c1);
       await rig.crypto.catchUp(_c1);
       await rig.upkeep.idle();
 
       expect((await sync()).requestAccepted, isFalse);
-      expect(
-        rig.server.calls.where((c) => c == 'listMlsMessages'),
-        hasLength(1),
-      );
     });
 
     test('is never inferred: with no sighting the conversation stays '

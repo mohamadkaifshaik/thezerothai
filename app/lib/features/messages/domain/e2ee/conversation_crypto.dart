@@ -8,7 +8,6 @@ import '../../../../core/crypto/crypto_engine.dart';
 import '../../../../core/crypto/crypto_types.dart';
 import '../../../../core/crypto/guarded_crypto_engine.dart';
 import '../../../../core/crypto/mls_pair.dart';
-import '../../../../core/network/app_exception.dart' show RateLimitedException;
 import '../../../../core/vault/secure_vault.dart';
 import '../../../../core/vault/vault_session.dart';
 import '../../../../core/vault/vault_status.dart';
@@ -79,19 +78,6 @@ const int _kCommitPagesMax = 20;
 /// R12, MP "Catch-up": a conversation waiting for a welcome may be reset this
 /// long after its first-saw time.
 const Duration kResetWaitWithoutWelcome = Duration(hours: 24);
-
-/// The most first-page header reads (`ListMessages`, to settle an acceptance
-/// a restart made this device forget) one run makes across ALL conversations.
-/// Why a small cap: the server's read bucket is 30 a minute per user, shared
-/// with the inbox and thread reads of every device of the user, and a sender
-/// with many accounts can create many joined-but-unaccepted conversations
-/// here. Conversations beyond the cap wait for a later run or for their own
-/// first-page probe (which carries the same header).
-const int kAcceptanceHeaderReadsPerRun = 5;
-
-/// A conversation's failed header reads in one run after which it makes no
-/// more in that run.
-const int kAcceptanceHeaderFailuresPerRun = 2;
 
 /// The contract's page size for `ListConversationCommits` (at most 50).
 const int kCommitPageSize = 50;
@@ -173,7 +159,6 @@ class ConversationCrypto {
     required MessagingRepository messaging,
     required DeviceDirectory directory,
     required SyncBudget syncBudget,
-    required SyncBudget readBudget,
     required ConversationLocks locks,
     required ConversationContexts contexts,
     required KnownConversations known,
@@ -187,7 +172,6 @@ class ConversationCrypto {
        _messaging = messaging,
        _directory = directory,
        _syncBudget = syncBudget,
-       _readBudget = readBudget,
        _locks = locks,
        _contexts = contexts,
        _known = known,
@@ -204,10 +188,6 @@ class ConversationCrypto {
   final MessagingRepository _messaging;
   final DeviceDirectory _directory;
   final SyncBudget _syncBudget;
-
-  /// The receiver's read budget (`ListMessages`): the restart header read
-  /// is a `ListMessages` and is charged here, never to [_syncBudget].
-  final SyncBudget _readBudget;
   final ConversationLocks _locks;
   final ConversationContexts _contexts;
   final KnownConversations _known;
