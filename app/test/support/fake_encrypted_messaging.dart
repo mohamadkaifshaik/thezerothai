@@ -217,6 +217,10 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
     }
   }
 
+  /// False: a new watcher stream emits nothing until [setThread] (the port
+  /// emits at once; a screen test of what stays drawn before it does).
+  bool emitOnWatch = true;
+
   /// Ends every open watcher stream of [ref] (done, no error), as the port
   /// does when the vault it reads changes.
   void endWatchers(ThreadRef ref) {
@@ -324,7 +328,9 @@ class FakeEncryptedMessaging implements EncryptedMessaging {
     late StreamController<EncryptedThread> c;
     final list = _controllers.putIfAbsent(ref, () => []);
     c = StreamController<EncryptedThread>(
-      onListen: () => c.add(_threads[ref] ?? _empty(ref)),
+      onListen: () {
+        if (emitOnWatch) c.add(_threads[ref] ?? _empty(ref));
+      },
       onCancel: () => list.remove(c),
     );
     list.add(c);

@@ -121,6 +121,57 @@ void main() {
     expect(watches(), 2);
   });
 
+  EncryptedThread withUnreadable() => EncryptedThread(
+    conversationId: kThreadId,
+    entries: [entry('a')],
+    security: const ConversationSecurity(
+      state: ConversationEncryptionState.ready,
+    ),
+    unreadableUnsent: const ['h1'],
+  );
+
+  test('the old vault\'s rows and handles are cleared before the new stream '
+      'is listened to', () async {
+    port.setThread(ref, withUnreadable());
+    await pumpEventQueue();
+    expect(cubit.state.entries, isNotEmpty);
+    expect(cubit.state.unreadableUnsent, ['h1']);
+
+    final seen = <ThreadState>[];
+    final sub = cubit.stream.listen(seen.add);
+    addTearDown(sub.cancel);
+    port.endWatchers(ref);
+    await pumpEventQueue();
+
+    // A state with nothing of the old vault came before the new emission.
+    expect(
+      seen.any((s) => s.entries.isEmpty && s.unreadableUnsent.isEmpty),
+      isTrue,
+    );
+  });
+
+  test('handles are cleared when the vault is not usable even with no '
+      'entries', () async {
+    port.setThread(
+      ref,
+      EncryptedThread(
+        conversationId: kThreadId,
+        security: ConversationSecurity(
+          state: ConversationEncryptionState.ready,
+        ),
+        unreadableUnsent: ['h1'],
+      ),
+    );
+    await pumpEventQueue();
+    expect(cubit.state.entries, isEmpty);
+    expect(cubit.state.unreadableUnsent, ['h1']);
+
+    usable = false;
+    cubit.refreshVault();
+    await pumpEventQueue();
+    expect(cubit.state.unreadableUnsent, isEmpty);
+  });
+
   test('closing the cubit leaves no stream behind', () async {
     port.endWatchers(ref);
     await pumpEventQueue();

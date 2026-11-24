@@ -428,6 +428,30 @@ void main() {
     expect(o.port.watcherCount(ref), 1);
   });
 
+  testWidgets('when the stream ends the old vault\'s rows are not drawn '
+      'while the new stream has not answered', (tester) async {
+    final o = await open(tester);
+    await typeAndSend(tester, 'hello');
+    await tester.pumpAndSettle();
+    o.port.setThread(
+      ref,
+      EncryptedThread(
+        entries: [row(o.port.sent.single.localId)],
+        security: const ConversationSecurity(
+          state: ConversationEncryptionState.ready,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('hello'), findsOneWidget);
+
+    o.port.emitOnWatch = false;
+    o.port.endWatchers(ref);
+    await tester.pumpAndSettle();
+    expect(o.port.watcherCount(ref), 1);
+    expect(find.text('hello'), findsNothing);
+  });
+
   testWidgets('leaving the screen cancels the watch', (tester) async {
     final o = await open(tester);
     o.port.endWatchers(ref);

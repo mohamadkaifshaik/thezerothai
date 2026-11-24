@@ -357,7 +357,9 @@ class ThreadCubit extends Cubit<ThreadState> {
     }
     // Decrypted rows do not outlive the vault: once it is not usable the
     // entries are dropped (they come back with the next thread update).
-    if (port != null && !usable && state.entries.isNotEmpty) {
+    if (port != null &&
+        !usable &&
+        (state.entries.isNotEmpty || state.unreadableUnsent.isNotEmpty)) {
       emit(state.copyWith(entries: const [], unreadableUnsent: const []));
     }
     if (encrypted && port != null && _watch == null && !_waitForVaultChange) {
@@ -388,6 +390,11 @@ class ThreadCubit extends Cubit<ThreadState> {
   void _onWatchEnded(StreamSubscription<EncryptedThread> ended) {
     if (isClosed || !identical(_watch, ended)) return;
     _watch = null;
+    // The stream ended because the vault changed: nothing of the old vault
+    // stays on screen while the new stream (if any) has not answered.
+    if (state.entries.isNotEmpty || state.unreadableUnsent.isNotEmpty) {
+      emit(state.copyWith(entries: const [], unreadableUnsent: const []));
+    }
     final usable = _vaultUsable?.call() ?? true;
     if (_resubscribed || !usable) {
       _waitForVaultChange = true;
@@ -423,7 +430,7 @@ class ThreadCubit extends Cubit<ThreadState> {
     final ThreadSnapshot cached;
     try {
       cached = await _repository.cachedThread(conversationId);
-    } on Object catch (error, stack) {
+    } on Object catch (_, stack) {
       // A broken disk must not block the network path. A fixed step, never
       // the thrown object (the thread may be an encrypted one).
       onUnexpectedError?.call(StateError('cachedThread'), stack);

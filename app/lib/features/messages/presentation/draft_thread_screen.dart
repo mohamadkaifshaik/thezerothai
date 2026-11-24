@@ -205,6 +205,9 @@ class _DraftViewState extends State<_DraftView> {
   void _onWatchEnded(StreamSubscription<EncryptedThread> ended) {
     if (!mounted || !identical(_watch, ended)) return;
     _watch = null;
+    // The vault it read changed: its decrypted rows are not drawn while the
+    // new stream has not answered.
+    if (_rows.isNotEmpty) setState(() => _rows = const []);
     if (_resubscribed || !_vaultReady) {
       _waitForVaultChange = true;
       return;
