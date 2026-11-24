@@ -31,6 +31,14 @@ import 'smoke_world.dart';
 // defines below. With E2EE_SMOKE_API empty every test is skipped, so
 // `make flutter-test` and CI never run it.
 //
+// What this does NOT prove: the engine is a fake, so real MLS commit, welcome
+// and ciphertext validity, real group-state serialization, real security-code
+// derivation, the web worker and the persistence barrier are all untested
+// here. The real-engine run is owed (plan 5a Task 17 Step 2).
+//
+// Step 7 asserts a DEVICE_REMOVED refusal of a removed device's register or
+// upload (owner decision 2026-11-23), not the plan's "second list answer".
+//
 // One test per scenario step; the steps share one world and run in order. A
 // step whose earlier step failed fails at once naming it (the world is not in
 // the state it needs). Every assertion is on vault contents or port values,
@@ -91,6 +99,8 @@ void _scenario() {
   final shareCd = text('share-cd');
   final walkOne = text('walk-one');
   final walkTwo = text('walk-two');
+  // The texts sent before step 10 (`seven` is never sent: step 7 asserts so;
+  // the walk texts go out in step 10a and join the scan at its end).
   final all = [
     one,
     two,
@@ -99,14 +109,11 @@ void _scenario() {
     fiveA,
     fiveB,
     six,
-    seven,
     eightA,
     eightB,
     shareAb,
     firstCd,
     shareCd,
-    walkOne,
-    walkTwo,
   ];
 
   void step(
@@ -274,6 +281,13 @@ void _scenario() {
       text: two,
     );
     expect(out.kind, SendOutcomeKind.queued);
+    // KNOWN CLIENT ISSUE under fix: an acceptance sighting that arrives
+    // before the vault has a record or group is dropped and never retried
+    // (membership_upkeep.dart:393; the server sends the header only on a
+    // first page). That is the likely cause of the one run-4 failure of this
+    // poll (B1's counts stayed 0/0: counts are zeroed until the request is
+    // accepted, thread_view.dart:76-83). The assertion is unchanged.
+    // TODO(e2ee-acceptance-sighting-retry)
     await w.eventually('A1 decrypted "two"; both codes 1/1', () async {
       if (!a1.thread(conv).showsOnce(two, mine: false)) return false;
       if (!b1.thread(conv).showsOnce(two, mine: true)) return false;
@@ -549,8 +563,11 @@ void _scenario() {
       ];
       expect(others, hasLength(1), reason: 'A1 lists A2');
       final a2SendsBefore = a2.wire.sends.length;
-      final a2CallsBefore = a2.wire.calls.length;
       await a1.port.removeDevice(others.single.ref);
+      // Taken after the removal answered: a background upload A2 made while
+      // the call was in flight was legitimate and must not fail the step;
+      // every call after this point is held to the strict checks below.
+      final a2CallsBefore = a2.wire.calls.length;
 
       await w.eventually(
         'A2 removed from the group: codes 1/1, a deviceRemoved row on B1',
@@ -672,7 +689,12 @@ void _scenario() {
 
       // 1. B1's healthy conversation: no reset offered, the call refused
       // before any reset RPC.
+      // B1 already watches the conversation, so its watch is closed first
+      // and re-opened after: the read below is a build, not a replay.
+      final tb1 = b1.thread(conv);
+      await tb1.cancel();
       expect((await fresh(b1)).security.canReset, isFalse);
+      tb1.listen(b1.port);
       final b1Before = b1.wire.calls.length;
       await expectLater(
         b1.port.resetConversation(conv),
@@ -707,6 +729,12 @@ void _scenario() {
       // facts `canReset` reads (conversation_describe.dart:132-160): the
       // first sighting (catch-up's `_noteWaiting`) and the acceptance (a
       // ListMessages header saying ACCEPTED, through the receive probe).
+      //
+      // KNOWN CLIENT ISSUE under fix: an acceptance sighting that arrives
+      // before the vault has a record or group is dropped and never retried
+      // (membership_upkeep.dart:393; the server sends the header only on a
+      // first page), so this wait can also be the one that times out.
+      // TODO(e2ee-acceptance-sighting-retry)
       await w.eventually(
         'B2 recorded the sighting and the acceptance, waiting for a welcome',
         () async {
@@ -732,13 +760,16 @@ void _scenario() {
       // The clients' time moves past the reset's 24 h wait (the offset only
       // grows: from here the clients run a day and 32 minutes ahead).
       w.clock.advance(kResetWaitWithoutWelcome + const Duration(minutes: 1));
-      // `canReset` depends on the clock alone here: nothing is stored or
-      // received when the 24 h pass, so a watched thread keeps emitting the
-      // build made before (a later `watchThread(...).first` replays that
-      // `_latest`; encrypted_messaging_threads.dart:68-69). The screen reads
-      // it fresh when it opens, so B2's watch is closed first: the next
-      // listener builds from the vault and the clock again (the same
-      // assertion: the port offers the reset).
+      // KNOWN LIMIT (client): an open thread does not re-emit when the 24 h
+      // pass. `canReset` depends on the clock alone
+      // (conversation_describe.dart:148-163); a thread re-emits only on a
+      // pipeline or status change (encrypted_messaging_threads.dart:17-19),
+      // and `.first` replays the cached build (:68-69). So B2's watch is
+      // closed here and the next listener builds from the vault and the
+      // clock again. A client fix is being built separately; when it lands
+      // this step must drop the cancel and assert that the open watch itself
+      // shows the offer.
+      // TODO(e2ee-thread-clock-rebuild)
       await tb2.cancel();
       await w.eventually(
         'B2 is offered a reset',
@@ -913,7 +944,9 @@ void _scenario() {
     },
   );
 
-  step('10', 'nothing of any message is in a MessagingStore', ['1'], () async {
+  // Every launched device's cache database holds none of [texts]: a refresh of
+  // every watched thread first (a refused read stores nothing).
+  Future<List<String>> cacheScan(List<String> texts) async {
     final hits = <String>[];
     for (final dev in launched) {
       await dev.nudgeInbox();
@@ -924,8 +957,13 @@ void _scenario() {
           // A refused read stores nothing.
         }
       }
-      hits.addAll(await dev.cacheHits(all));
+      hits.addAll(await dev.cacheHits(texts));
     }
+    return hits;
+  }
+
+  step('10', 'nothing of any message is in a MessagingStore', ['1'], () async {
+    final hits = await cacheScan(all);
     expect(hits, isEmpty, reason: 'plaintext in the cache database');
     // Review M3: no device's session was ended (device_sign_out is off, and
     // token refreshes keep their session's auth_time).
@@ -1049,6 +1087,14 @@ void _scenario() {
       tombstones[later.messageId],
       MessageState.MESSAGE_STATE_REMOVED,
       reason: 'Part D (4): ListMessageTombstones lists the fresh takedown',
+    );
+
+    // The last word on the cache: every text this run sent, the walk
+    // messages and the taken-down one included (step 10 ran before them).
+    expect(
+      await cacheScan([...all, walkOne, walkTwo]),
+      isEmpty,
+      reason: 'plaintext in the cache database after step 10a',
     );
   });
 }

@@ -62,6 +62,12 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+# The checks below and the readiness wait need curl: say so now rather than fail obscurely later.
+command -v curl >/dev/null || {
+	echo "e2ee-smoke: curl is required (stale-API check and readiness wait); install it and retry" >&2
+	exit 1
+}
+
 # A server already answering on the port (a stale API from an earlier run) would take the test's calls with other
 # flags: refuse to start rather than test it.
 if curl -fsS --max-time 2 "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then
