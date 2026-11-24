@@ -22,6 +22,7 @@ import '../data/beacons_repository.dart';
 import 'beacons_error_messages.dart';
 import 'bloc/beacon_people_cubit.dart';
 import 'bloc/beacon_people_state.dart';
+import 'bloc/plans_session.dart';
 import 'widgets/participant_row.dart';
 
 /// `/plans/:id/people` (R38): who is going, and for the organiser the
@@ -83,6 +84,7 @@ class _BeaconPeopleScreenState extends State<BeaconPeopleScreen> {
             beaconId: widget.beaconId,
             filter: pb.ParticipantFilter.PARTICIPANT_FILTER_REQUESTED,
             graph: graph,
+            pendingBlocks: context.read<PlansSession?>()?.pendingBlocks,
           )..load();
         }
       });

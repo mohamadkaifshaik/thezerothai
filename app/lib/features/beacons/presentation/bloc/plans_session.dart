@@ -8,6 +8,7 @@ import '../../data/beacons_repository.dart';
 import '../../domain/beacons_feature_flag.dart';
 import 'beacons_cubit.dart';
 import 'my_beacons_cubit.dart';
+import 'pending_beacon_blocks.dart';
 
 /// The `/plans` list and its "Your plans" section, hoisted above both of
 /// their placements (tablet plan section 5.2): the band A list (the route
@@ -46,6 +47,8 @@ class PlansSession {
   MyBeaconsCubit? _yourPlans;
   bool _disposed = false;
   final ValueNotifier<int> _revision = ValueNotifier(0);
+  PendingBeaconBlocks _pendingBlocks = PendingBeaconBlocks();
+  PendingBeaconBlocks get pendingBlocks => _pendingBlocks;
   final Set<String> _requested = {};
 
   /// Whether this account asked to join plan [beaconId] from a post's plan
@@ -114,6 +117,8 @@ class PlansSession {
   /// fresh, empty cubits).
   void reset() {
     if (_disposed) return;
+    pendingBlocks.dispose();
+    _pendingBlocks = PendingBeaconBlocks();
     _requested.clear();
     if (_drop()) _notify();
   }
@@ -138,6 +143,7 @@ class PlansSession {
   }
 
   void dispose() {
+    pendingBlocks.dispose();
     _drop();
     _disposed = true;
     _revision.dispose();

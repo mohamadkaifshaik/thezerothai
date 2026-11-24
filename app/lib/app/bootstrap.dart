@@ -249,7 +249,14 @@ Future<void> bootstrap() async {
   // While the API is paused, Google's front end answers HTTP 403;
   // the interceptor flips this cubit and the root shows the paused screen.
   final servicePaused = ServicePausedCubit(
-    probe: () => probeServicePaused(http.Client(), config.apiBaseUrl),
+    probe: () async {
+      final client = http.Client();
+      try {
+        return await probeServicePaused(client, config.apiBaseUrl);
+      } finally {
+        client.close();
+      }
+    },
   );
   // The session every API call is bound to: the auth bloc's user, i.e. the
   // account the app has processed (the auth SDK switches before the app

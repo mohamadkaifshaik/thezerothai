@@ -5,6 +5,8 @@ import (
 	"sync"
 	"time"
 
+	"cloud.google.com/go/firestore"
+
 	"github.com/dzeroth/dzeroth/backend/internal/communities"
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
@@ -159,9 +161,10 @@ func (f *fakeRepo) Respond(ctx context.Context, p RespondParams) (ParticipantRes
 		res.Outcome = Replayed
 		return res, nil
 	}
+	cid := f.docs[p.BeaconID].CommunityID
 	f.mu.Unlock()
 	if p.Precheck != nil {
-		if err := p.Precheck(ctx); err != nil {
+		if err := p.Precheck(ctx, nil, cid); err != nil {
 			return ParticipantResult{}, err
 		}
 	}
@@ -514,6 +517,7 @@ func newEnv() *env {
 		now:    testNow,
 	}
 	e.deps = Deps{
+		TxProfiles: e.dir, TxGraph: e.graph, TxCommunities: e.comm,
 		Repo: e.repo, Directory: e.dir, Graph: e.graph, Communities: e.comm, CommunityFlags: e.flags, Flags: e.flags, Follows: e.graph, IDs: fakeIDs{},
 		CursorKey: []byte("0123456789abcdef0123456789abcdef"), Limits: Limits{MaxOpenPerUser: 5, MaxPendingRequests: 10, MaxOpenSpots: 20},
 		Events: e.events, Now: func() time.Time { return e.now },
@@ -548,4 +552,23 @@ func validCreate() CreateInput {
 		Key: testKey, Public: true, Activity: ActivityCoffee, Title: "Coffee", Details: "", Venue: "Hall",
 		StartAt: testNow.Add(time.Hour), DurationMin: 25, OpenSpots: 3, Cost: CostFree, ChatPref: ChatQuiet,
 	}
+}
+
+func (d *fakeDirectory) ProfileInTx(ctx context.Context, _ *firestore.Transaction, uid string) (identity.Profile, error) {
+	profiles, err := d.GetProfiles(ctx, []string{uid})
+	return profiles[uid], err
+}
+func (g *fakeGraph) SnapshotInTx(ctx context.Context, _ *firestore.Transaction, uid string) (graph.Snapshot, error) {
+	return g.Snapshot(ctx, uid)
+}
+func (c *fakeCommunities) GetInTx(ctx context.Context, _ *firestore.Transaction, cid string) (communities.Community, error) {
+	return c.Get(ctx, cid)
+}
+func (c *fakeCommunities) MemberInTx(ctx context.Context, _ *firestore.Transaction, cid, uid string) (communities.MemberState, error) {
+	role, err := c.Role(ctx, cid, uid)
+	switch role {
+	case communities.RoleMember, communities.RoleModerator, communities.RoleOwner:
+		return communities.MemberJoined, err
+	}
+	return communities.MemberNone, err
 }

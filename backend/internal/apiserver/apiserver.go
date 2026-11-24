@@ -4,7 +4,7 @@
 // the exact same handler inside an httptest.Server against the Firebase Emulator Suite.
 //
 // This package exists only because Go cannot import a `package main` from another package ("is a
-// program, not an importable package") — extracting the wiring here is the seam that lets backend/e2e
+// program, not an importable package") â€” extracting the wiring here is the seam that lets backend/e2e
 // exercise the real handler without a second copy of it. cmd/api/main.go is left as a thin
 // config-load-and-serve wrapper around Build.
 package apiserver
@@ -25,7 +25,6 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/beacons"
 	"github.com/dzeroth/dzeroth/backend/internal/billing"
 
-	beaconsv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/beacons/v1/beaconsv1connect"
 	communitiesv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/communities/v1/communitiesv1connect"
 	engagementv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/engagement/v1/engagementv1connect"
 	graphv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/graph/v1/graphv1connect"
@@ -86,7 +85,7 @@ var healthPaths = map[string]struct{}{"/health": {}, "/healthz": {}}
 // http.Handler, and cmd/api/main.go / backend/e2e only ever need an http.Handler (net/http's native h2c
 // support / httptest.NewServer), so nothing downstream needs ServeMux itself.
 //
-// Full per-request pipeline, outermost to innermost (document any change here in the PR body — it's the
+// Full per-request pipeline, outermost to innermost (document any change here in the PR body â€” it's the
 // order plus the plain-net/http layers M1/hardening added in front of it):
 //
 //	CORS -> PreAuthIPMiddleware (M1: coarse per-IP flood backstop, pre-auth) -> MaxBytesHandler (hardening)
@@ -94,7 +93,7 @@ var healthPaths = map[string]struct{}{"/health": {}, "/healthz": {}}
 //	    -> logging -> recover -> App Check -> ID token -> rate limit (fine-grained, per-uid/IP, post-auth)
 //	       -> degraded mode -> account status -> errorMapping -> handler
 //
-// M1 of the v0.1.0 security audit — distinct from the earlier "Phase 0 review M1"
+// M1 of the v0.1.0 security audit â€” distinct from the earlier "Phase 0 review M1"
 // amendment, coincidentally the same finding ID and date): the rate-limit interceptor still
 // sits *after* App Check/ID token verification, so on its own it can't stop an unauthenticated flood from
 // paying JWT-verify CPU. PreAuthIPMiddleware is a second, independent Limiter (never the same
@@ -162,10 +161,10 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// graph.FirestoreRepo backs both identity.GraphInitializer (creating the empty graph/{uid} doc inside
 	// CreateProfile's transaction, unchanged since the Phase 0 bootstrap) and the full GraphService.
 	// Graph depends on identity.Directory/Counters directly; identity depends on graph only
-	// through the consumer-side identity.BlockChecker interface it declares itself (identity/api.go) — no
+	// through the consumer-side identity.BlockChecker interface it declares itself (identity/api.go) â€” no
 	// import cycle. graph.Service needs identity.Directory (implemented by identitySvc) and identitySvc
 	// needs graph.Service as its BlockChecker: SetDirectory breaks that construction-order cycle (see
-	// graph.service's doc comment) — safe because it runs once, synchronously, before ListenAndServe.
+	// graph.service's doc comment) â€” safe because it runs once, synchronously, before ListenAndServe.
 	graphRepo := graph.NewFirestoreRepo(fsClient)
 	identityRepo := identity.NewFirestoreRepo(fsClient, graphRepo)
 	// identityRepo implements identity.Counters (AddFollowersCount/AddFollowingCount); the increments must
@@ -613,15 +612,13 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		identity.WithLifecycle(lifecycle), identity.WithReauthMaxAge(cfg.AccountDeleteReauthMaxAge))
 	graphServer := graph.NewServer(graphSvc)
 
-	// search and admin are not implemented yet; their Connect servers are not registered.
-
 	// --- interceptors ---
 	accountStatusProvider := accountStatusAdapter{svc: identitySvc, peek: identityCache.GetProfile, ages: actorAges}
 	profileExempt := profileExemptProcedures()
 
 	// M1: rate limit (and degraded mode, also a free in-memory check) now run *before* account status.
 	// Previously account status ran first, so a caller who never completes sign-up (no users/{uid}) could
-	// call any non-exempt RPC as many times as it wanted — each rejected with PROFILE_REQUIRED — without
+	// call any non-exempt RPC as many times as it wanted â€” each rejected with PROFILE_REQUIRED â€” without
 	// ever tripping the per-uid/per-IP limiter, because AccountStatusInterceptor returned before
 	// ratelimit.Interceptor got a chance to run at all. Moving the free checks first means every call is
 	// rate-limited regardless of how it's ultimately rejected, and identity.Cache's ~10s negative "no
@@ -665,7 +662,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 
 	// M8: outside ENV=local, config.Load already refuses to start unless both InternalOIDCAudience and
 	// InternalOIDCAllowedEmails are set (fail closed), so /internal/* is only ever unauthenticated here
-	// when cfg.Env == "local" — where no real Pub/Sub push subscription exists yet to forge a call from.
+	// when cfg.Env == "local" â€” where no real Pub/Sub push subscription exists yet to forge a call from.
 	protectInternal := func(h http.Handler) http.Handler { return h }
 	if cfg.InternalOIDCAudience != "" {
 		protectInternal = pubsubpush.NewVerifier(cfg.InternalOIDCAudience, cfg.InternalOIDCAllowedEmails...).Middleware
@@ -697,7 +694,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	routes.public("/healthz", http.HandlerFunc(health.Handler()))
 
 	// Hardening (2026-09-27 security audit, informational finding): connect.WithReadMaxBytes caps the
-	// *decompressed* body size at the Connect codec layer (a gzip-bomb guard — see limits.MaxRequestBytes's
+	// *decompressed* body size at the Connect codec layer (a gzip-bomb guard â€” see limits.MaxRequestBytes's
 	// doc comment); http.MaxBytesHandler below caps the raw bytes read off the socket before that.
 	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
 		return identityv1connect.NewIdentityServiceHandler(identityServer, o...)
@@ -824,11 +821,12 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	if err != nil {
 		return nil, nil, err
 	}
-	var beaconEvents beacons.Events = beaconNotifier{slot: notifSlot} // request, accept and cancel → notifications (PR 5)
+	var beaconEvents beacons.Events = beaconNotifier{slot: notifSlot} // request, accept and cancel â†’ notifications (PR 5)
 	if bo.inlineBeaconEvents != nil {
 		beaconEvents = bo.inlineBeaconEvents(beaconEvents)
 	}
-	beaconsSvc := beacons.New(beacons.Deps{
+	beaconsSvc, err := registerBeacons(routes, lateBeacons, suggestPlans, beacons.Deps{
+		TxProfiles: identityRepo, TxGraph: graphRepo, TxCommunities: communitiesRepo,
 		Repo: beaconsRepo, Directory: identitySvc.(identity.Directory), Graph: graphSvc, Communities: communitiesSvc.(communities.Reader),
 		CommunityFlags: featureFlags, Flags: featureFlags, Follows: graphSvc, IDs: snowflakeNode, CursorKey: cfg.CursorHMACKey,
 		Events: beaconEvents,
@@ -839,16 +837,9 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		},
 		Areas: locationMod.catalog, MyArea: locationMod.svc, // plan areas and ListNearbyBeacons (Location P2)
 	})
-	beaconReporter, ok := beaconsSvc.(beacons.BeaconReporter)
-	if !ok {
-		return nil, nil, errors.New("beacons service does not implement BeaconReporter")
+	if err != nil {
+		return nil, nil, err
 	}
-	lateBeacons.r = beaconReporter // bound before ListenAndServe: a BEACON report can now reach the beacon
-	planMates, ok := beaconsSvc.(planCoParticipants)
-	if !ok {
-		return nil, nil, errors.New("beacons service does not implement RecentCoParticipants")
-	}
-	suggestPlans.src = planMates
 	communityMates, ok := communitiesSvc.(communityCoMembers)
 	if !ok {
 		return nil, nil, errors.New("communities service does not implement RecentCoMembers")
@@ -858,10 +849,6 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// owner lists, and SearchPosts below through PostsDeps.Plans).
 	plans := postPlans{svc: beaconsSvc}
 	wirePostPlans(plans, postsSvc, postsServer, timelineServer, engagementServer)
-	beaconsServer := beacons.NewServer(featureFlags, beaconsSvc)
-	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
-		return beaconsv1connect.NewBeaconServiceHandler(beaconsServer, o...)
-	})
 
 	// Location: the module was built before beacons (the catalogue is parsed there: a bad areas.json fails boot); its
 	// lifecycle step and export section are registered after every other module's (users/{uid}/locationArea and
@@ -989,8 +976,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// acknowledges and drops (never a 5xx, so a switched-off feature cannot fill the DLQ).
 	routes.internal("/internal/pubsub/notifications-fanout", notifFanout.Handler())
 
-	// M1: a coarse, pre-auth per-IP token bucket wraps the whole mux — /health,
-	// /internal/* and every module's Connect handler — as plain net/http middleware, so an unauthenticated
+	// M1: a coarse, pre-auth per-IP token bucket wraps the whole mux â€” /health,
+	// /internal/* and every module's Connect handler â€” as plain net/http middleware, so an unauthenticated
 	// flood is rejected before it costs any App Check / ID token JWT-verify CPU (that verification happens
 	// only once a request reaches a Connect handler's own interceptor chain inside mux, below this layer).
 	// This is a *different* Limiter instance from the one ratelimit.Interceptor uses above (rlIP): a
@@ -1000,7 +987,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// decompression) for every route on mux, using the same limits.MaxRequestBytes as
 	// connect.WithReadMaxBytes above.
 	//
-	// Both wrap mux itself, *before* it is mounted twice below — so exemptPaths (healthPaths) and every
+	// Both wrap mux itself, *before* it is mounted twice below â€” so exemptPaths (healthPaths) and every
 	// route see the same normalized path regardless of whether the request arrived at "/health" directly or
 	// "/api/health" via Firebase Hosting's rewrite (http.StripPrefix runs first on that path, then this
 	// same wrapped handler runs against the already-stripped "/health").
@@ -1013,7 +1000,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// above must also answer under that prefix: apiRoot (routes.go) mounts the same protected mux at "/" and,
 	// through http.StripPrefix, at "/api/", so this stays correct as new modules are added.
 	// M10: CORS is off unless cfg.CORSAllowedOrigins is non-empty (local dev by default, or an explicit
-	// CORS_ALLOWED_ORIGINS elsewhere) — see pkg/platform/httpcors's doc comment.
+	// CORS_ALLOWED_ORIGINS elsewhere) â€” see pkg/platform/httpcors's doc comment.
 	transferred = true
 	return httpcors.Wrap(cfg.CORSAllowedOrigins, apiRoot(protectedMux)), fsClient, nil
 }

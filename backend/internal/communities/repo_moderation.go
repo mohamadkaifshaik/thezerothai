@@ -83,7 +83,7 @@ func (r *FirestoreRepo) stageModlogged(b store.Batch, uid, cid string, ms Member
 
 // openForModeration is the shared head of the moderation transactions: the community fresh (a missing or SUSPENDED one is ErrNotFound).
 func (r *FirestoreRepo) openForModeration(ctx context.Context, tx *firestore.Transaction, cid string) (Community, error) {
-	c, err := r.getInTx(ctx, tx, cid)
+	c, err := r.GetInTx(ctx, tx, cid)
 	if err != nil {
 		return Community{}, err
 	}

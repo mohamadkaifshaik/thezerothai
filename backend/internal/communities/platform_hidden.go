@@ -122,7 +122,7 @@ func (r *FirestoreRepo) RestoreHidden(ctx context.Context, p RestoreHiddenParams
 	var res RestoreHiddenResult
 	_, err := r.run(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
 		res = RestoreHiddenResult{}
-		c, err := r.getInTx(ctx, tx, p.CID) // not openForModeration: a SUSPENDED community is recovered too
+		c, err := r.GetInTx(ctx, tx, p.CID) // not openForModeration: a SUSPENDED community is recovered too
 		if err != nil {
 			return err
 		}
