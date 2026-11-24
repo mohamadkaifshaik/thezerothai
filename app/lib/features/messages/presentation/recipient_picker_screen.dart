@@ -29,6 +29,9 @@ import '../../onboarding/data/identity_repository.dart';
 import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../data/following_people_source.dart';
 import '../data/messaging_repository.dart';
+import '../domain/e2ee/encrypted_messaging.dart';
+import '../domain/e2ee/encryption_access.dart';
+import '../domain/e2ee/encryption_device.dart';
 import '../domain/message_suggestions.dart';
 import '../domain/messaging_feature_flag.dart';
 import '../domain/people_source.dart';
@@ -42,6 +45,7 @@ import 'share_post_error_messages.dart' show sharePostRowReason;
 import 'widgets/messages_encryption_note.dart';
 import 'widgets/share_post_bar.dart';
 import '../../../core/session/user_ids.dart';
+import '../../../core/vault/vault_status.dart' show VaultStatus;
 
 /// The "To:" field's key.
 const kRecipientFieldKey = ValueKey('recipient-field');
@@ -287,12 +291,56 @@ class _PickerViewState extends State<_PickerView> {
     final target = widget.share;
     if (target != null) {
       final repository = context.read<MessagingRepository>();
+      // Plan 5b Task 14, fix round A and B: the share cubit ALWAYS gets the
+      // provided port, whatever the access is (a send that skips the port
+      // bypasses its fail-closed answers). `postId` stays the share target's
+      // id (`engagementTargetId`: a REPOST's original), which the check is
+      // asked about. `checkEnabled` is true exactly when `dm_share_check` is
+      // on, read live at each send. With it on: one `checkPostShare`, then
+      // the per-row sends through the port. With it off the cubit routes
+      // each row from the cache and the vault's known set without sending: a
+      // plain row is today's plain share (the server runs its own check), an
+      // encrypted row (or one that could start encrypted, `e2ee_dm` on and no
+      // cached conversation) is refused with the flag-off line and no call.
+      final port = context.read<EncryptedMessaging?>();
+      final onboarding = context.read<OnboardingBloc>();
+      final device = context.read<EncryptionDevice?>();
+      // The access, read live at each send (the flag and the vault change).
+      // No device in the tree reads as `hidden`.
+      EncryptionAccess accessNow() => device == null
+          ? EncryptionAccess.hidden
+          : encryptionAccessOf(
+              flagOn: onboarding.state.enabledFeatures.contains(kFeatureE2eeDm),
+              vaultKnown: device.vaultKnown,
+              status: device.vaultStatus.value,
+            );
       _share = SharePostCubit(
         repository: repository,
         postId: target.postId,
         url: target.url,
         ownUserId: ownUserId,
         isEnabled: () => repository.enabled,
+        encrypted: port,
+        check: port == null ? null : repository.checkPostShare,
+        checkEnabled: port == null
+            ? null
+            : () {
+                // The server's check is used only when a vault may exist
+                // here (`full` or `manage`); with `hidden` the rows route
+                // from the cache and no CheckPostShare is made.
+                final access = accessNow();
+                return (access == EncryptionAccess.full ||
+                        access == EncryptionAccess.manage) &&
+                    onboarding.state.enabledFeatures.contains(
+                      kFeatureDmShareCheck,
+                    );
+              },
+        vaultNotReady: () =>
+            device != null &&
+            device.vaultKnown &&
+            device.vaultStatus.value != VaultStatus.ready,
+        mayStartEncryption: () =>
+            onboarding.state.enabledFeatures.contains(kFeatureE2eeDm),
         onUnexpectedError: context.read<UnexpectedErrorReporter>(),
       );
       unawaited(_loadRecents(repository));

@@ -63,6 +63,7 @@ void main() {
   late EncryptionStatusCubit status;
   late GoRouter router;
   late _MockAuthBloc auth;
+  late ResetEncryptionHolder holder;
 
   setUp(() {
     // A device whose key was lost: the reset is offered, the flag is on.
@@ -93,6 +94,8 @@ void main() {
     bool pushed = false,
     // The screen sits with no Navigator above it: showDialog throws.
     bool noNavigator = false,
+    // The run held above the route, as AppWidget provides it.
+    bool withHolder = false,
   }) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = Size(width, 2400);
@@ -162,6 +165,13 @@ void main() {
     Widget app = MultiRepositoryProvider(
       providers: [
         if (withSession) RepositoryProvider<VaultSession>.value(value: session),
+        if (withHolder)
+          RepositoryProvider<ResetEncryptionHolder>.value(
+            value: holder = ResetEncryptionHolder(
+              session: session,
+              onUnexpectedError: (e, _) => reported.add(e),
+            ),
+          ),
         RepositoryProvider<UnexpectedErrorReporter?>.value(
           value: (e, _) => reported.add(e),
         ),
@@ -650,6 +660,156 @@ void main() {
         ResetEncryptionPhase.done,
       ]);
       await cubit.close();
+    });
+  });
+
+  group('ResetEncryptionHolder (the run held above the route)', () {
+    test('an outcome that ends while no screen is attached is kept once, '
+        'and attach re-arms a finished run', () async {
+      final hold = Completer<bool>();
+      final s = _MockVaultSession();
+      when(() => s.resetByUser()).thenAnswer((_) => hold.future);
+      final h = ResetEncryptionHolder(session: s);
+      addTearDown(h.dispose);
+      expect(h.cubitIfCreated, isNull);
+      expect(h.attach(), isNull);
+      final run = h.cubit.run();
+      h.detach();
+      hold.complete(true);
+      await run;
+      await Future<void>.delayed(Duration.zero);
+      expect(h.cubit.state, ResetEncryptionPhase.done);
+      // Back: the outcome is handed over once and the run is idle again.
+      expect(h.attach(), ResetEncryptionPhase.done);
+      expect(h.cubit.state, ResetEncryptionPhase.idle);
+      h.detach();
+      expect(h.attach(), isNull);
+    });
+
+    test('an outcome seen by an attached screen is not kept', () async {
+      final s = _MockVaultSession();
+      when(() => s.resetByUser()).thenAnswer((_) async => false);
+      final h = ResetEncryptionHolder(session: s);
+      addTearDown(h.dispose);
+      h.attach();
+      await h.cubit.run();
+      h.detach();
+      expect(h.attach(), isNull);
+    });
+
+    test('fix round G: an outcome that lands between the emit and the '
+        'listener is still delivered by attach (it reads the state)', () async {
+      final hold = Completer<bool>();
+      final s = _MockVaultSession();
+      when(() => s.resetByUser()).thenAnswer((_) => hold.future);
+      final h = ResetEncryptionHolder(session: s);
+      addTearDown(h.dispose);
+      unawaited(h.cubit.run());
+      hold.complete(true);
+      // The run's continuation emitted `done`; the holder's stream listener
+      // has not run yet (its event is a later microtask).
+      await hold.future;
+      expect(h.cubit.state, ResetEncryptionPhase.done);
+      expect(h.attach(), ResetEncryptionPhase.done);
+      expect(h.cubit.state, ResetEncryptionPhase.idle);
+      await Future<void>.delayed(Duration.zero);
+      h.detach();
+      expect(h.attach(), isNull);
+    });
+
+    test('fix round D: reset forgets an unseen outcome and re-arms', () async {
+      final s = _MockVaultSession();
+      when(() => s.resetByUser()).thenAnswer((_) async => true);
+      final h = ResetEncryptionHolder(session: s);
+      addTearDown(h.dispose);
+      await h.cubit.run();
+      await Future<void>.delayed(Duration.zero);
+      h.reset();
+      expect(h.cubit.state, ResetEncryptionPhase.idle);
+      expect(h.attach(), isNull);
+    });
+
+    test('last round item 4: a run in flight across reset() that then fails '
+        'shows nothing to the next attach', () async {
+      final hold = Completer<bool>();
+      final s = _MockVaultSession();
+      when(() => s.resetByUser()).thenAnswer((_) => hold.future);
+      final h = ResetEncryptionHolder(session: s);
+      addTearDown(h.dispose);
+      final run = h.cubit.run();
+      expect(h.cubit.state, ResetEncryptionPhase.running);
+      h.reset();
+      expect(h.cubit.state, ResetEncryptionPhase.idle);
+      hold.complete(false);
+      await run;
+      await Future<void>.delayed(Duration.zero);
+      expect(h.cubit.state, ResetEncryptionPhase.idle);
+      expect(h.attach(), isNull);
+    });
+
+    test('attach never re-arms a run that is still going', () async {
+      final hold = Completer<bool>();
+      final s = _MockVaultSession();
+      when(() => s.resetByUser()).thenAnswer((_) => hold.future);
+      final h = ResetEncryptionHolder(session: s);
+      addTearDown(h.dispose);
+      h.attach();
+      final run = h.cubit.run();
+      h.detach();
+      expect(h.attach(), isNull);
+      expect(h.cubit.state, ResetEncryptionPhase.running);
+      hold.complete(true);
+      await run;
+    });
+
+    testWidgets('leaving mid-run and coming back shows the outcome, with one '
+        'call and no false failure', (tester) async {
+      final hold = Completer<bool>();
+      when(() => session.resetByUser()).thenAnswer((_) => hold.future);
+      await pump(tester, withHolder: true);
+      addTearDown(holder.dispose);
+      await confirmFirst(tester);
+      expect(find.text(kResetFailedText), findsNothing);
+      // Leave while the wipe runs (a link or a tab switch, not the back
+      // button, which is disabled).
+      router.go(AppRouter.encryptionSettingsPath);
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.text('encryption page'), findsOneWidget);
+      hold.complete(true);
+      await tester.pump();
+      // Back on the reset page: the status no longer offers a reset, the
+      // run's outcome is shown once.
+      device.vaultStatus.value = VaultStatus.off;
+      status.refresh();
+      router.go(AppRouter.resetEncryptionPath);
+      await _settle(tester);
+      expect(find.text(kResetFailedText), findsNothing);
+      verify(() => session.resetByUser()).called(1);
+      expect(find.text('encryption page'), findsOneWidget);
+    });
+
+    testWidgets('coming back while it still runs shows the busy form', (
+      tester,
+    ) async {
+      final hold = Completer<bool>();
+      when(() => session.resetByUser()).thenAnswer((_) => hold.future);
+      await pump(tester, withHolder: true);
+      addTearDown(holder.dispose);
+      await confirmFirst(tester);
+      router.go(AppRouter.encryptionSettingsPath);
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      // The wipe changed the status meanwhile.
+      device.vaultStatus.value = VaultStatus.off;
+      status.refresh();
+      router.go(AppRouter.resetEncryptionPath);
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.text(kResetNothingTitle), findsNothing);
+      expect(_action(), findsOneWidget);
+      hold.complete(true);
+      await _settle(tester);
     });
   });
 }

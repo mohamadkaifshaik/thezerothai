@@ -261,21 +261,30 @@ void main() {
       },
     );
 
-    test('a device whose vault marker cannot be read answers try again '
-        '(retryable), never notEncrypted or blocked (F5)', () async {
-      final s = await noVault(E2eeFlag.off, unreadable: true);
-      expect(s.status.value, VaultStatus.unavailable);
-      expect(s.vaultKnown, isFalse);
-      final p = (await over(s)).port;
-      for (final to in [const ThreadRef.conversation(_c2), _to('ref-dave')]) {
-        final out = await p.send(to: to, localId: 'local-1', text: 'hi');
-        expect(
-          (out.kind, out.problem),
-          (SendOutcomeKind.refused, SendProblem.retryable),
-        );
-      }
-      expect(h.rig.keys.getCalls, isEmpty);
-    });
+    // Plan 5b Task 14 last round, item 1: this pinned test used the flag KNOWN
+    // OFF (old expectation: refused retryable). With the flag known off the
+    // port now goes on to the cache check (notEncrypted for an unmarked
+    // conversation; covered by encrypted_messaging_flag_off_send_test.dart).
+    // The F5 rule itself still holds where the flag is not known off, so this
+    // test now runs with the flag UNKNOWN.
+    test(
+      'a device whose vault marker cannot be read answers try again '
+      '(retryable), never notEncrypted or blocked (F5), flag unknown',
+      () async {
+        final s = await noVault(E2eeFlag.unknown, unreadable: true);
+        expect(s.status.value, VaultStatus.unavailable);
+        expect(s.vaultKnown, isFalse);
+        final p = (await over(s)).port;
+        for (final to in [const ThreadRef.conversation(_c2), _to('ref-dave')]) {
+          final out = await p.send(to: to, localId: 'local-1', text: 'hi');
+          expect(
+            (out.kind, out.problem),
+            (SendOutcomeKind.refused, SendProblem.retryable),
+          );
+        }
+        expect(h.rig.keys.getCalls, isEmpty);
+      },
+    );
 
     test('a recipient ref of the other id kind with an empty device list is '
         'never notEncrypted when a cached row for that peer is encrypted '

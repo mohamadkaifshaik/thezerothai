@@ -7,10 +7,19 @@ import 'package:dzeroth/features/messages/presentation/e2ee/encryption_copy.dart
 import 'package:dzeroth/features/messages/presentation/bloc/share_post_cubit.dart';
 import 'package:dzeroth/features/messages/presentation/share_post_error_messages.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
+import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
+import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart'
+    show ConversationEncryption;
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/fake_encrypted_messaging.dart';
 import '../../../support/fake_send_repository.dart';
+
+pb.Conversation _conv(
+  String id, {
+  ConversationEncryption encryption =
+      ConversationEncryption.CONVERSATION_ENCRYPTION_NONE,
+}) => pb.Conversation(id: id, encryption: encryption);
 
 const _postId = '1234567890123456789';
 const _url = 'https://dzeroth.com/post/$_postId';
@@ -553,50 +562,168 @@ void main() {
       });
     }
 
-    /// The share ended as "feature off": no call, no send, the rows "Not
-    /// sent" and the "isn't available" line.
-    void expectFeatureOff(SharePostCubit c) {
+    /// Fix round B: the check is off, so each row is routed on its own. A row
+    /// that is refused (encrypted, or unknowable) is "Not sent" with the
+    /// "isn't available" line, and no call is made: no check, no port send,
+    /// no plain send. The share itself is not ended.
+    void expectRowsFeatureOff(SharePostCubit c) {
       expect(asked, isEmpty);
       expect(port.sent, isEmpty);
       expect(repo.sendKeys, isEmpty);
       expect(
         c.state.recipients.map((r) => r.status),
-        everyElement(ShareRowStatus.skipped),
+        everyElement(ShareRowStatus.failed),
       );
-      expect(
-        c.state.endedBy,
-        isA<FeatureDisabledException>().having(
-          (e) => e.feature,
-          'feature',
-          kFeatureDmPostShare,
-        ),
-      );
-      expect(
-        sharePostErrorMessage(c.state.lastError!, problem: c.state.lastProblem),
-        shareOffText,
-      );
+      expect(c.state.endedBy, isNull);
+      for (final r in c.state.recipients) {
+        expect(
+          r.error,
+          isA<FeatureDisabledException>().having(
+            (e) => e.feature,
+            'feature',
+            kFeatureDmPostShare,
+          ),
+        );
+        expect(sharePostErrorMessage(r.error!), shareOffText);
+      }
       expect(unexpected, 0);
     }
 
-    test('the dm_share_check flag not in the enabled features: no call, no '
-        'send, the share ends like the feature being off', () async {
+    test('the dm_share_check flag off, recipients with no cached '
+        'conversation while e2ee_dm may start: unknowable, so refused per '
+        'row with no call', () async {
       checkOn = false;
       final c = make2()
         ..toggle(_peer(1))
         ..toggle(_peer(2));
       addTearDown(c.close);
       await c.send();
-      expectFeatureOff(c);
+      expectRowsFeatureOff(c);
     });
 
-    test('a port with no check function ends the share like the feature '
-        'being off', () async {
-      final c = make2(withCheck: false)
-        ..toggle(_peer(1))
-        ..toggle(_peer(2));
-      addTearDown(c.close);
-      await c.send();
-      expectFeatureOff(c);
+    test(
+      'a port with no check function is the same as the check off',
+      () async {
+        final c = make2(withCheck: false)
+          ..toggle(_peer(1))
+          ..toggle(_peer(2));
+        addTearDown(c.close);
+        await c.send();
+        expectRowsFeatureOff(c);
+      },
+    );
+
+    group('check off: each row routes from the cache and the known set', () {
+      SharePostCubit make3({required bool mayStart}) => SharePostCubit(
+        repository: repo,
+        postId: _postId,
+        url: _url,
+        ownUserId: 'u-me',
+        encrypted: port,
+        check: check,
+        checkEnabled: () => false,
+        mayStartEncryption: () => mayStart,
+        onUnexpectedError: (_, _) => unexpected++,
+      );
+
+      test('no cached conversation and nothing may start: today\'s plain '
+          'share, the id is the original\'s, no port call', () async {
+        final c = make3(mayStart: false)..toggle(_peer(1));
+        addTearDown(c.close);
+        await c.send();
+        expect(c.state.allSent, isTrue);
+        expect(repo.sendSharedPostIds, [_postId]);
+        expect(asked, isEmpty);
+        expect(port.calls, isEmpty);
+      });
+
+      test('a cached plain conversation: plain share; the port is asked '
+          'only whether the vault knows it', () async {
+        repo.cachedByPeer['u1'] = _conv('c1');
+        final c = make3(mayStart: true)..toggle(_peer(1));
+        addTearDown(c.close);
+        await c.send();
+        expect(c.state.allSent, isTrue);
+        expect(repo.sendRecipients, ['u1']);
+        expect(port.calls, ['hasLocal']);
+        expect(port.sent, isEmpty);
+      });
+
+      test(
+        'a cached conversation whose header says MLS: refused, no call',
+        () async {
+          repo.cachedByPeer['u1'] = _conv(
+            'c1',
+            encryption: ConversationEncryption.CONVERSATION_ENCRYPTION_MLS,
+          );
+          final c = make3(mayStart: false)..toggle(_peer(1));
+          addTearDown(c.close);
+          await c.send();
+          expectRowsFeatureOff(c);
+          expect(port.calls, isEmpty);
+        },
+      );
+
+      test('a cached conversation the vault knows: refused', () async {
+        repo.cachedByPeer['u1'] = _conv('c1');
+        port.local.add('c1');
+        final c = make3(mayStart: false)..toggle(_peer(1));
+        addTearDown(c.close);
+        await c.send();
+        expectRowsFeatureOff(c);
+      });
+
+      test(
+        'a cached conversation the cache ever saw encrypted: refused',
+        () async {
+          repo.cachedByPeer['u1'] = _conv('c1');
+          repo.everEncrypted.add('c1');
+          final c = make3(mayStart: false)..toggle(_peer(1));
+          addTearDown(c.close);
+          await c.send();
+          expectRowsFeatureOff(c);
+        },
+      );
+
+      test(
+        'an unreadable cache is not plain: refused, one fixed report',
+        () async {
+          repo.cachedConversationError = StateError('disk secret');
+          final reports = <Object>[];
+          final c = SharePostCubit(
+            repository: repo,
+            postId: _postId,
+            url: _url,
+            encrypted: port,
+            check: check,
+            checkEnabled: () => false,
+            mayStartEncryption: () => false,
+            onUnexpectedError: (e, _) => reports.add(e),
+          )..toggle(_peer(1));
+          addTearDown(c.close);
+          await c.send();
+          expect(repo.sendKeys, isEmpty);
+          expect(c.state.recipients.single.status, ShareRowStatus.failed);
+          expect(reports.single.toString(), 'Bad state: shareRoute');
+        },
+      );
+
+      test('one refused row does not stop the plain one', () async {
+        repo.cachedByPeer['u1'] = _conv(
+          'c1',
+          encryption: ConversationEncryption.CONVERSATION_ENCRYPTION_MLS,
+        );
+        final c = make3(mayStart: false)
+          ..toggle(_peer(1))
+          ..toggle(_peer(2));
+        addTearDown(c.close);
+        await c.send();
+        expect(c.state.recipients.map((r) => r.status), [
+          ShareRowStatus.failed,
+          ShareRowStatus.sent,
+        ]);
+        expect(repo.sendRecipients, ['u2']);
+      });
     });
 
     test('a passing check shares the post: one call, one send per person with '

@@ -29,7 +29,9 @@ void main() {
       testWidgets('banner and encrypted rows [${width.toInt()}dp x$scale]', (
         tester,
       ) async {
-        final rig = EncryptedInboxRig(vaultStatus: VaultStatus.keyLost);
+        // Previews follow the vault (fix round C): a banner AND previews need
+        // a ready vault, so the banner here is the history-lost one.
+        final rig = EncryptedInboxRig(historyLost: true);
         rig.port.setPreviews({
           'a': const ConversationPreview(
             kind: PreviewKind.text,
@@ -50,7 +52,6 @@ void main() {
         await rig.open(tester, size: Size(width, 900), textScale: scale);
 
         expect(find.byType(EncryptionStatusBanner), findsOneWidget);
-        expect(find.text(kStatusDetails), findsOneWidget);
         expect(find.byType(ConversationRow), findsNWidgets(3));
         expect(find.text(kCouldNotDecryptText), findsOneWidget);
         expect(find.text(kEncryptedPlaceholderText), findsOneWidget);
@@ -61,6 +62,36 @@ void main() {
         expect(banner.left, greaterThanOrEqualTo(row.left));
         expect(banner.right, lessThanOrEqualTo(row.right));
         expect(banner.bottom, lessThanOrEqualTo(row.top));
+      });
+    }
+  }
+
+  // The key-lost banner with its Details link, and rows WITHOUT previews
+  // (previews follow the vault: none unless it is ready).
+  for (final width in [390.0, 700.0, 1000.0, 1300.0]) {
+    for (final scale in [1.0, 2.0]) {
+      testWidgets('key lost: banner with Details, rows without previews '
+          '[${width.toInt()}dp x$scale]', (tester) async {
+        final rig = EncryptedInboxRig(vaultStatus: VaultStatus.keyLost);
+        rig.port.setPreviews({
+          'a': const ConversationPreview(
+            kind: PreviewKind.text,
+            text: 'a preview that must not show while the key is lost',
+          ),
+        });
+        rig.stub(
+          network: [
+            conv('a', snippet: '')..lastMessage.encrypted = true,
+            conv('b', snippet: '')..lastMessage.encrypted = true,
+          ],
+        );
+        await rig.open(tester, size: Size(width, 900), textScale: scale);
+
+        expect(find.byType(EncryptionStatusBanner), findsOneWidget);
+        expect(find.text(kStatusDetails), findsOneWidget);
+        expect(find.byType(ConversationRow), findsNWidgets(2));
+        expect(find.textContaining('must not show'), findsNothing);
+        expect(find.text(kEncryptedPlaceholderText), findsNWidgets(2));
       });
     }
   }
@@ -102,7 +133,7 @@ void main() {
   }
 
   testWidgets('right-to-left: the banner and the rows lay out', (tester) async {
-    final rig = EncryptedInboxRig(vaultStatus: VaultStatus.keyLost);
+    final rig = EncryptedInboxRig(historyLost: true);
     rig.port.setPreviews({
       'a': const ConversationPreview(kind: PreviewKind.text, text: 'مرحبا'),
     });

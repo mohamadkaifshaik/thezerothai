@@ -6,6 +6,8 @@ import 'package:uuid/uuid.dart';
 
 import '../../../../core/network/app_exception.dart';
 import '../../../../gen/dzeroth/common/v1/common.pb.dart' as common;
+import '../../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart'
+    show ConversationEncryption;
 import '../../data/messaging_repository.dart';
 import '../../domain/e2ee/encrypted_messaging.dart';
 import '../../domain/messaging_feature_flag.dart';
@@ -149,6 +151,9 @@ class SharePostState {
 
 const Object _keep = Object();
 
+/// How one row routes when the share is unchecked (see `_routeOf`).
+enum _Route { plain, encrypted, unknown }
+
 /// One answer of the share check: the id to share, or the refusal. A class,
 /// not a record: nothing here may print the post id.
 class _ShareCheck {
@@ -187,12 +192,16 @@ class SharePostCubit extends Cubit<SharePostState> {
     EncryptedMessaging? encrypted,
     SharePostCheck? check,
     bool Function()? checkEnabled,
+    bool Function()? mayStartEncryption,
+    bool Function()? vaultNotReady,
     this.onUnexpectedError,
     Uuid? uuid,
   }) : _repository = repository,
        _encrypted = encrypted,
        _check = check,
        _checkEnabled = checkEnabled ?? (() => false),
+       _mayStart = mayStartEncryption ?? (() => true),
+       _vaultNotReady = vaultNotReady ?? (() => false),
        _isEnabled = isEnabled ?? (() => true),
        _uuid = uuid ?? const Uuid(),
        super(const SharePostState());
@@ -206,9 +215,25 @@ class SharePostCubit extends Cubit<SharePostState> {
   /// server cannot see the post id inside the ciphertext); see [_checkShare].
   final SharePostCheck? _check;
 
-  /// Whether `dm_share_check` is in the user's enabled features. While it is
-  /// not, an encrypted share is refused (there is no fallback check).
+  /// Whether `dm_share_check` is in the user's enabled features (and only
+  /// that: `e2ee_dm` is not a term). While it is on, ONE `CheckPostShare`
+  /// runs, then every row goes through the port as before. While it is off
+  /// (see [_routeOf]) a row known to be plain is sent as today's plain share
+  /// (the server sees `sharedPostId` and runs its own check), and a row that
+  /// is encrypted, or whose route cannot be known without a lookup, is
+  /// refused with the flag-off line and makes no call.
   final bool Function() _checkEnabled;
+
+  /// Whether this device may START encryption now (`e2ee_dm` on). Decides a
+  /// recipient with no cached conversation while the check is off: nothing
+  /// can start with it off (plain), but with it on the port might start an
+  /// encrypted conversation, which an unchecked share must never reach.
+  /// Absent means "may start" (fails closed).
+  final bool Function() _mayStart;
+
+  /// A vault is known on this device but is not ready: nothing can be
+  /// classified, so no row is plain (its route is unknown).
+  final bool Function() _vaultNotReady;
   bool _checking = false;
   final bool Function() _isEnabled;
   final Uuid _uuid;
@@ -277,14 +302,12 @@ class SharePostCubit extends Cubit<SharePostState> {
     ];
     // With no port (or no post) the flag is read only in the loop, as before.
     final guarded = _encrypted != null && postId.isNotEmpty;
-    // With a port, an encrypted share needs the share flag AND the server's
-    // check (`dm_share_check` in the enabled features, and a check function);
-    // without either it is refused here, with no call, like the feature off.
-    final enabled =
-        !guarded || (_isEnabled() && _check != null && _checkEnabled());
-    if (guarded && !enabled) {
+    // With a port the share is CHECKED (one `CheckPostShare`, then the port
+    // sends) when `dm_share_check` is on and there is a check function. The
+    // flag being off for the whole share is decided here only when the share
+    // itself is off; otherwise the rows are routed one by one below.
+    if (guarded && !_isEnabled()) {
       emit(state.copyWith(started: true, endedBy: null));
-      // Decided once: never fall into the loop unchecked.
       _endShare(
         ids,
         const FeatureDisabledException(
@@ -294,10 +317,14 @@ class SharePostCubit extends Cubit<SharePostState> {
       );
       return;
     }
+    final checking = guarded && _check != null && _checkEnabled();
+    // Check off: no row reaches the port's `send` (an unchecked share must
+    // never reach an encrypted conversation); [_routeOf] decides per row.
+    final unchecked = guarded && !checking;
     // The post the port shares: the id the check returned (a REPOST's
     // original), else the post's own.
     var sharedId = postId;
-    if (guarded) {
+    if (checking) {
       // One emit, so an earlier failure is never shown again: the first row
       // goes to the existing sending state, the others are cleared to idle.
       emit(
@@ -354,10 +381,26 @@ class SharePostCubit extends Cubit<SharePostState> {
       try {
         final row = _row(id);
         final port = _encrypted;
+        if (unchecked) {
+          // Check off: a row known to be plain goes as today's plain share
+          // below; an encrypted row, or one whose route cannot be known
+          // without a lookup, is refused with no call.
+          if (await _routeOf(port!, row) != _Route.plain) {
+            _setRow(
+              id,
+              ShareRowStatus.failed,
+              error: const FeatureDisabledException(
+                'This feature is not available.',
+                feature: kFeatureDmPostShare,
+              ),
+            );
+            continue;
+          }
+        }
         // With a port the person is addressed only from the snapshot the
         // row was chosen from (R1). The port is tried first.
         SendOutcome? outcome;
-        if (port != null) {
+        if (port != null && !unchecked) {
           try {
             outcome = await port.send(
               to: ThreadRef.recipientOf(row.peer),
@@ -451,6 +494,39 @@ class SharePostCubit extends Cubit<SharePostState> {
         // A failing reporter must not leave the rows stuck in "sending".
       }
       return const _ShareCheck.refused(ProtectedAccountException());
+    }
+  }
+
+  /// How a row routes WITHOUT sending, from what exists already: the cached
+  /// conversation with the person, the cache's sticky encrypted marker, the
+  /// vault's known set (`hasLocal`) and the header. No RPC, no vault read
+  /// beyond `hasLocal`, nothing saved. A recipient with no cached conversation
+  /// is plain only while nothing may START encryption (`e2ee_dm` off);
+  /// otherwise its route is unknowable without the port's device lookup and
+  /// the share is refused. Anything unexpected is not plain (fails closed).
+  Future<_Route> _routeOf(EncryptedMessaging port, ShareRecipient row) async {
+    try {
+      if (_vaultNotReady()) return _Route.unknown;
+      final conversation = await _repository.cachedConversationWith(
+        row.peer.userId,
+      );
+      if (conversation == null || conversation.id.isEmpty) {
+        return _mayStart() ? _Route.unknown : _Route.plain;
+      }
+      if (conversation.encryption ==
+              ConversationEncryption.CONVERSATION_ENCRYPTION_MLS ||
+          port.hasLocal(conversation.id) ||
+          await _repository.cachedEverEncrypted(conversation.id)) {
+        return _Route.encrypted;
+      }
+      return _Route.plain;
+    } on Object catch (_, stack) {
+      try {
+        onUnexpectedError?.call(StateError('shareRoute'), stack);
+      } on Object {
+        // A failing reporter must not leave the row stuck in "sending".
+      }
+      return _Route.unknown;
     }
   }
 

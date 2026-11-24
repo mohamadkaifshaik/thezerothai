@@ -44,6 +44,7 @@ class ResetEncryptionCubit extends Cubit<ResetEncryptionPhase> {
       return;
     }
     emit(ResetEncryptionPhase.running);
+    final generation = _generation;
     var ok = false;
     try {
       ok = await _reset();
@@ -51,7 +52,119 @@ class ResetEncryptionCubit extends Cubit<ResetEncryptionPhase> {
       _onUnexpectedError?.call(StateError('resetByUser'), stack);
     }
     if (isClosed) return;
+    // The account changed while this run was in flight ([abandon]): its
+    // outcome belongs to the previous account and is dropped.
+    if (generation != _generation) return;
     emit(ok ? ResetEncryptionPhase.done : ResetEncryptionPhase.failed);
+  }
+
+  int _generation = 0;
+
+  /// An account switch: a run in flight is forgotten (its outcome is dropped
+  /// when it ends) and the state goes back to idle at once.
+  void abandon() {
+    _generation++;
+    if (!isClosed && state != ResetEncryptionPhase.idle) {
+      emit(ResetEncryptionPhase.idle);
+    }
+  }
+
+  /// Back to idle after an outcome was shown (a held cubit outlives screens,
+  /// so a later reset, for example after another key loss, can run). Never
+  /// while running.
+  void rearm() {
+    if (isClosed || state == ResetEncryptionPhase.running) return;
+    if (state != ResetEncryptionPhase.idle) emit(ResetEncryptionPhase.idle);
+  }
+}
+
+/// Holds the run of the vault reset above the route (Plan 5b Task 14,
+/// "hold the in-flight reset above the route"): `AppWidget` provides one, so
+/// leaving the screen while a reset runs neither loses its outcome nor shows
+/// a false failure on return. This file is the ONE place that references the
+/// session's destructive member (the vault guard names it); the widget tree
+/// only ever sees this holder, so `app_widget.dart` has no reference.
+///
+/// Decision: the outcome of a run that ends while no screen is attached is
+/// kept once ([attach] returns it), so the screen that comes back shows the
+/// snackbar and goes where an outcome would have sent it; why: the run's
+/// effect (a wiped vault) happened either way, and a silent return hides it.
+class ResetEncryptionHolder {
+  ResetEncryptionHolder({
+    required VaultSession session,
+    void Function(Object error, StackTrace stack)? onUnexpectedError,
+  }) : _session = session,
+       _onUnexpectedError = onUnexpectedError;
+
+  final VaultSession _session;
+  final void Function(Object error, StackTrace stack)? _onUnexpectedError;
+  ResetEncryptionCubit? _cubit;
+  StreamSubscription<ResetEncryptionPhase>? _sub;
+  int _attached = 0;
+  ResetEncryptionPhase? _unseen;
+
+  /// The run's cubit when one was made, without making it.
+  ResetEncryptionCubit? get cubitIfCreated => _cubit;
+
+  /// Created on the first read (nothing is called until `run`).
+  ResetEncryptionCubit get cubit {
+    final existing = _cubit;
+    if (existing != null) return existing;
+    final cubit = ResetEncryptionCubit(
+      reset: _session.resetByUser,
+      onUnexpectedError: _onUnexpectedError,
+    );
+    _cubit = cubit;
+    _sub = cubit.stream.listen((phase) {
+      final finished =
+          phase == ResetEncryptionPhase.done ||
+          phase == ResetEncryptionPhase.failed;
+      // Only a state that is still finished: a stale event of an outcome
+      // that attach already handed over (or reset forgot) is not kept.
+      if (finished && _attached == 0 && cubit.state == phase) _unseen = phase;
+    });
+    return cubit;
+  }
+
+  /// A screen starts showing the run. Returns an outcome that arrived while
+  /// no screen was attached (once), and re-arms a finished run.
+  ResetEncryptionPhase? attach() {
+    // The cubit's own state is read too: an outcome emitted but not yet
+    // delivered to the stream listener (it lands a microtask later) is still
+    // unseen. A screen that saw its outcome is detached with the state
+    // re-armed (see [detach]), so a state that is finished here was not seen.
+    var unseen = _unseen;
+    final current = _cubit?.state;
+    if (unseen == null && _attached == 0 && _isFinished(current)) {
+      unseen = current;
+    }
+    _attached++;
+    _unseen = null;
+    _cubit?.rearm();
+    return unseen;
+  }
+
+  static bool _isFinished(ResetEncryptionPhase? phase) =>
+      phase == ResetEncryptionPhase.done ||
+      phase == ResetEncryptionPhase.failed;
+
+  void detach() {
+    if (_attached > 0) _attached--;
+    // The last screen saw whatever the run ended with: back to idle, so a
+    // later attach does not hand it over a second time.
+    if (_attached == 0) _cubit?.rearm();
+  }
+
+  /// Per-account reset (fix round D): an outcome of the previous account's
+  /// run is not shown to the next one.
+  void reset() {
+    _unseen = null;
+    _cubit?.abandon();
+  }
+
+  void dispose() {
+    unawaited(_sub?.cancel());
+    unawaited(_cubit?.close());
   }
 }
 
@@ -75,24 +188,51 @@ class _ResetEncryptionScreenState extends State<ResetEncryptionScreen> {
   EncryptionStatusCubit? _status;
   bool _asking = false;
 
-  /// Created the first time a reset is offered (the only place the session is read) and kept after, so a status
-  /// change caused by the wipe itself cannot drop a running reset. It runs inside `build` on purpose: it only
-  /// reads providers, never emits or calls the session, and the cubit must exist for the very build that shows
-  /// the form.
+  /// The run held above the route (provided by `AppWidget`), or this screen's own holder (made the first time a
+  /// reset is offered, closed with the screen) when none is provided (screen tests).
+  ResetEncryptionHolder? _holder;
+  ResetEncryptionHolder? _ownHolder;
+
+  @override
+  void initState() {
+    super.initState();
+    final holder = context.read<ResetEncryptionHolder?>();
+    _holder = holder;
+    // An outcome that arrived while no screen was showing the run is shown now (once).
+    final unseen = holder?.attach();
+    if (unseen != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _onPhase(unseen);
+      });
+    }
+  }
+
+  ResetEncryptionCubit _bind(ResetEncryptionCubit cubit) {
+    if (identical(_cubit, cubit)) return cubit;
+    unawaited(_sub?.cancel());
+    _cubit = cubit;
+    _sub = cubit.stream.listen(_onPhase);
+    return cubit;
+  }
+
+  /// Takes the run's cubit the first time a reset is offered (the only place the session is read) and keeps it
+  /// after, so a status change caused by the wipe itself cannot drop a running reset. It runs inside `build` on
+  /// purpose: it only reads providers, never emits or calls the session, and the cubit must exist for the very
+  /// build that shows the form.
   ResetEncryptionCubit _ensureCubit(
     BuildContext context,
     EncryptionStatusCubit status,
   ) {
-    final existing = _cubit;
-    if (existing != null) return existing;
     _status = status;
-    final cubit = ResetEncryptionCubit(
-      reset: context.read<VaultSession>().resetByUser,
-      onUnexpectedError: context.read<UnexpectedErrorReporter?>(),
-    );
-    _cubit = cubit;
-    _sub = cubit.stream.listen(_onPhase);
-    return cubit;
+    var holder = _holder;
+    if (holder == null) {
+      holder = _ownHolder = _holder = ResetEncryptionHolder(
+        session: context.read<VaultSession>(),
+        onUnexpectedError: context.read<UnexpectedErrorReporter?>(),
+      );
+      holder.attach();
+    }
+    return _bind(holder.cubit);
   }
 
   void _onPhase(ResetEncryptionPhase phase) {
@@ -201,7 +341,9 @@ class _ResetEncryptionScreenState extends State<ResetEncryptionScreen> {
   @override
   void dispose() {
     unawaited(_sub?.cancel());
-    unawaited(_cubit?.close());
+    // A provided holder keeps its run (above the route); only an own one ends here.
+    _holder?.detach();
+    _ownHolder?.dispose();
     super.dispose();
   }
 
@@ -209,7 +351,9 @@ class _ResetEncryptionScreenState extends State<ResetEncryptionScreen> {
   Widget build(BuildContext context) {
     final status = context.watch<EncryptionStatusCubit?>();
     final state = status?.state;
-    final existing = _cubit;
+    // A run held above the route that is still going shows the form, whatever the status says now.
+    final held = _cubit ?? _holder?.cubitIfCreated;
+    final existing = held == null ? null : _bind(held);
     final running = existing?.state == ResetEncryptionPhase.running;
     final offered = state != null && state.offersReset;
     final showForm = status != null && (offered || running);

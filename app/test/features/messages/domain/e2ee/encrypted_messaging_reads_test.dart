@@ -505,6 +505,14 @@ void main() {
       expect(await port.search('hello', limit: 1), hasLength(1));
       expect(await port.search('hello', conversationId: _c2), isEmpty);
       expect(await port.search(''), isEmpty);
+      // Plan 5b Task 14 (carried item 6): the PORT trims the query (as
+      // `searchMessages` does for the cache); the cubit forwards it as typed,
+      // so a trailing space finds what the same query without it finds.
+      expect((await port.search('  hello  ')).map((x) => x.messageId), [
+        _mid(2),
+        _mid(1),
+      ]);
+      expect(await port.search('   '), isEmpty);
     });
 
     test('search returns the newest matches overall when there are more '
