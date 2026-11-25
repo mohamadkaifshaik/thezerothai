@@ -1,8 +1,12 @@
 package clientinfo_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"testing"
@@ -12,11 +16,13 @@ import (
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/clientinfo"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/mw"
 )
 
 // TestParse is the parse table of plan 6 section 3.1: lenient, never an error. A value that is not exactly
-// "<word>/<level>" after trimming (over 32 bytes, no slash, extra slashes), or whose lowercased word is empty or has a
-// byte outside [a-z], is an unknown platform at level 0; a known platform with a bad level keeps the platform at level 0;
+// "<word>/<level>" after trimming (over 32 bytes, no slash, extra slashes), or whose ASCII-lowercased word is empty or
+// has a byte outside [a-z], is an unknown platform at level 0; a known platform with a bad level keeps the platform at level 0;
 // an unknown [a-z] word (other, desktop, ...) keeps its level but is held to the highest floor
 // (TestFloors_UnknownPlatformUsesTheHighestFloor).
 func TestParse(t *testing.T) {
@@ -41,6 +47,21 @@ func TestParse(t *testing.T) {
 		{"mixed case", "Android/1", clientinfo.Client{Platform: clientinfo.PlatformAndroid, Level: 1}},
 		{"upper case", "WEB/2", clientinfo.Client{Platform: clientinfo.PlatformWeb, Level: 2}},
 		{"surrounding spaces", "  web/1\t", clientinfo.Client{Platform: clientinfo.PlatformWeb, Level: 1}},
+		// The case fold is ASCII only (A-Z to a-z): upper case known words are known, with spaces trimmed as above
+		// (strings.TrimSpace, so Unicode spaces around the value are trimmed too, as before the ASCII fold).
+		{"all upper web", "WEB/1", clientinfo.Client{Platform: clientinfo.PlatformWeb, Level: 1}},
+		{"upper ios", "IOS/0", clientinfo.Client{Platform: clientinfo.PlatformIOS, Level: 0}},
+		{"upper case with surrounding spaces", "\t WEB/1 \n", clientinfo.Client{Platform: clientinfo.PlatformWeb, Level: 1}},
+		{"mixed case with surrounding spaces", " Android/1 ", clientinfo.Client{Platform: clientinfo.PlatformAndroid, Level: 1}},
+		{"no-break space around is trimmed", " web/1 ", clientinfo.Client{Platform: clientinfo.PlatformWeb, Level: 1}},
+		// A non-ASCII lookalike never folds into a word. U+212A KELVIN SIGN lowercases to ASCII 'k' under Unicode
+		// folding (strings.ToLower), which would make "des<K>top/1" the word "desktop" with level 1.
+		{"kelvin sign lookalike", "desKtop/1", unknown0},
+		{"kelvin sign upper lookalike", "DESKTOP/1", unknown0},
+		{"cyrillic a lookalike", "аndroid/1", unknown0},
+		{"cyrillic capital lookalike", "WЕB/1", unknown0},
+		{"dotted capital i lookalike", "İOS/0", unknown0},
+		{"invalid utf-8 byte", "web\xff/1", unknown0},
 		// Bad levels: the platform is kept, the level is 0.
 		{"negative", "android/-1", clientinfo.Client{Platform: clientinfo.PlatformAndroid, Level: 0}},
 		{"plus sign", "android/+1", clientinfo.Client{Platform: clientinfo.PlatformAndroid, Level: 0}},
@@ -198,6 +219,98 @@ func TestInterceptor_StampsUnary(t *testing.T) {
 		if !ran || got != tc.want {
 			t.Errorf("header %q: stamped %+v (ran %v), want %+v", tc.header, got, ran, tc.want)
 		}
+	}
+}
+
+// TestInterceptor_LogsPlatformAndLevel: the request log line (mw.Logging, outermost) carries the parsed platform word
+// and level as client_platform and client_level. A missing, garbage or unknown-word header logs platform "unknown".
+// The raw header value never reaches the log.
+func TestInterceptor_LogsPlatformAndLevel(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		header       string
+		wantPlatform string
+		wantLevel    float64
+	}{
+		{"android", "android/1", "android", 1},
+		{"web upper case", "WEB/1", "web", 1},
+		{"ios", "ios/0", "ios", 0},
+		{"other", "other/0", "unknown", 0},
+		{"unknown word keeps its level", "desktop/7", "unknown", 7},
+		{"missing header", "", "unknown", 0},
+		{"garbage", "zz<script>secret-token-9f3a", "unknown", 0},
+		{"non-ascii lookalike", "desKtop/5", "unknown", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			log := slog.New(slog.NewJSONHandler(&buf, nil))
+			handler := connect.UnaryFunc(func(context.Context, connect.AnyRequest) (connect.AnyResponse, error) {
+				return connect.NewResponse(&commonv1.ErrorDetail{}), nil
+			})
+			chain := mw.Logging(log, "demo-project").WrapUnary(clientinfo.Interceptor().WrapUnary(handler))
+			req := connect.NewRequest(&commonv1.ErrorDetail{})
+			if tc.header != "" {
+				req.Header().Set(clientinfo.Header, tc.header)
+			}
+			if _, err := chain(context.Background(), req); err != nil {
+				t.Fatalf("chain error = %v", err)
+			}
+			var line map[string]any
+			if err := json.Unmarshal(bytes.TrimSpace(buf.Bytes()), &line); err != nil {
+				t.Fatalf("log output is not one JSON line: %v; got %s", err, buf.String())
+			}
+			if line["msg"] != "request" {
+				t.Fatalf("msg = %v, want the request line; got %s", line["msg"], buf.String())
+			}
+			if got := line["client_platform"]; got != tc.wantPlatform {
+				t.Errorf("client_platform = %v, want %q", got, tc.wantPlatform)
+			}
+			if got := line["client_level"]; got != tc.wantLevel {
+				t.Errorf("client_level = %v, want %v", got, tc.wantLevel)
+			}
+			if tc.header != "" && strings.Contains(buf.String(), tc.header) {
+				t.Errorf("the raw header value %q reached the log: %s", tc.header, buf.String())
+			}
+		})
+	}
+}
+
+// TestInterceptor_NoRequestInfoIsFine: without a request log above it (no logger.RequestInfo) the stamp still stamps.
+func TestInterceptor_NoRequestInfoIsFine(t *testing.T) {
+	var got clientinfo.Client
+	next := connect.UnaryFunc(func(ctx context.Context, _ connect.AnyRequest) (connect.AnyResponse, error) {
+		got = clientinfo.FromContext(ctx)
+		if _, ok := logger.RequestField(ctx, "client_platform"); ok {
+			t.Error("client_platform set without a RequestInfo")
+		}
+		return nil, nil
+	})
+	req := connect.NewRequest(&commonv1.ErrorDetail{})
+	req.Header().Set(clientinfo.Header, "web/1")
+	if _, err := clientinfo.Interceptor().WrapUnary(next)(context.Background(), req); err != nil {
+		t.Fatalf("WrapUnary error = %v", err)
+	}
+	if want := (clientinfo.Client{Platform: clientinfo.PlatformWeb, Level: 1}); got != want {
+		t.Errorf("stamped %+v, want %+v", got, want)
+	}
+}
+
+// TestInterceptor_StreamingSetsLogFields: a streaming handler records the same two fields on a RequestInfo above it.
+func TestInterceptor_StreamingSetsLogFields(t *testing.T) {
+	ctx, _ := logger.WithRequestInfo(context.Background())
+	var platform, level any
+	h := clientinfo.Interceptor().WrapStreamingHandler(func(ctx context.Context, _ connect.StreamingHandlerConn) error {
+		platform, _ = logger.RequestField(ctx, "client_platform")
+		level, _ = logger.RequestField(ctx, "client_level")
+		return nil
+	})
+	conn := &fakeStreamConn{header: http.Header{}}
+	conn.header.Set(clientinfo.Header, "garbage")
+	if err := h(ctx, conn); err != nil {
+		t.Fatalf("streaming handler error = %v", err)
+	}
+	if platform != "unknown" || fmt.Sprint(level) != "0" {
+		t.Errorf("fields = %v/%v, want unknown/0", platform, level)
 	}
 }
 

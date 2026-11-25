@@ -11,10 +11,14 @@
 //
 // Parsing is lenient and never fails a request: a missing header is an unknown platform at level 0; a value that is not
 // exactly "<word>/<level>" after trimming (over 32 bytes, no slash, extra slashes, a list) is an unknown platform at
-// level 0; so is a word that, lowercased, is empty or has a byte outside [a-z] ("/1", "web2/1", a control byte); a known
-// platform with a bad level (negative, signed, not decimal, above MaxLevel) keeps the platform at level 0; any other
-// [a-z] word ("other", "desktop") is an unknown platform with its level. An unknown platform is held to the highest of
-// the three floors (Floors.For).
+// level 0; so is a word that, ASCII-lowercased (A-Z only, no Unicode folding), is empty or has a byte outside [a-z]
+// ("/1", "web2/1", a control byte, any non-ASCII byte such as a lookalike letter); a known platform with a bad level
+// (negative, signed, not decimal, above MaxLevel) keeps the platform at level 0; any other [a-z] word ("other",
+// "desktop") is an unknown platform with its level. An unknown platform is held to the highest of the three floors
+// (Floors.For).
+//
+// The request log line (mw.Logging) gets client_platform (android, web, ios or "unknown") and client_level (the parsed
+// integer); the raw header value is never logged.
 //
 // Cost: the stamp reads one header and does no I/O, so it adds no Firestore read or write to any request.
 package clientinfo
@@ -69,8 +73,12 @@ func Parse(v string) Client {
 	if v == "" || len(v) > maxValueLen {
 		return Client{}
 	}
-	word, level, ok := strings.Cut(strings.ToLower(v), "/")
-	if !ok || strings.Contains(level, "/") || !isWord(word) {
+	word, level, ok := strings.Cut(v, "/")
+	if !ok || strings.Contains(level, "/") {
+		return Client{}
+	}
+	word, ok = asciiWord(word)
+	if !ok {
 		return Client{}
 	}
 	c := Client{Level: parseLevel(level)}
@@ -81,17 +89,48 @@ func Parse(v string) Client {
 	return c
 }
 
-// isWord reports whether w is a non-empty run of [a-z].
-func isWord(w string) bool {
+// asciiWord lowercases w byte by byte, ASCII only (A-Z to a-z), and reports whether the result is a non-empty run of
+// [a-z]. It deliberately does not use strings.ToLower: Unicode folding maps some non-ASCII letters onto ASCII ones
+// (U+0130 to 'i', U+212A KELVIN SIGN to 'k'), which would let "İOS/0" read as ios. Any byte outside [A-Za-z],
+// including every byte of a multi-byte character, makes the word garbage.
+func asciiWord(w string) (string, bool) {
 	if w == "" {
-		return false
+		return "", false
 	}
+	b := make([]byte, len(w))
 	for i := 0; i < len(w); i++ {
-		if w[i] < 'a' || w[i] > 'z' {
-			return false
+		switch c := w[i]; {
+		case c >= 'a' && c <= 'z':
+			b[i] = c
+		case c >= 'A' && c <= 'Z':
+			b[i] = c + ('a' - 'A')
+		default:
+			return "", false
 		}
 	}
-	return true
+	return string(b), true
+}
+
+// unknownLogName is the request-log word for PlatformUnknown (a missing header, garbage or a word other than the three).
+const unknownLogName = "unknown"
+
+// logName is the platform word written on the request log line: one of the three known words or "unknown". It is
+// never the raw header value.
+func (p Platform) logName() string {
+	if p == PlatformUnknown {
+		return unknownLogName
+	}
+	return string(p)
+}
+
+// stampCtx stamps the parsed header into ctx and records it on the request log line (mw.Logging) as client_platform
+// (the enum word, "unknown" for anything else) and client_level (the parsed integer). The raw header is never logged.
+// Without a logger.RequestInfo in ctx (no request log above) the log fields are a no-op.
+func stampCtx(ctx context.Context, header string) context.Context {
+	c := Parse(header)
+	logger.SetRequestField(ctx, "client_platform", c.Platform.logName())
+	logger.SetRequestField(ctx, "client_level", c.Level)
+	return WithClient(ctx, c)
 }
 
 // parseLevel is a plain decimal in 0..MaxLevel, else 0 (no sign, no spaces, no fraction).
@@ -133,7 +172,7 @@ type stamp struct{}
 func (stamp) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
 	return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
 		if !req.Spec().IsClient {
-			ctx = WithClient(ctx, Parse(req.Header().Get(Header)))
+			ctx = stampCtx(ctx, req.Header().Get(Header))
 		}
 		return next(ctx, req)
 	}
@@ -145,7 +184,7 @@ func (stamp) WrapStreamingClient(next connect.StreamingClientFunc) connect.Strea
 
 func (stamp) WrapStreamingHandler(next connect.StreamingHandlerFunc) connect.StreamingHandlerFunc {
 	return func(ctx context.Context, conn connect.StreamingHandlerConn) error {
-		return next(WithClient(ctx, Parse(conn.RequestHeader().Get(Header))), conn)
+		return next(stampCtx(ctx, conn.RequestHeader().Get(Header)), conn)
 	}
 }
 
