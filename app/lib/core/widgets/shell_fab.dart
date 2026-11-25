@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:go_router/go_router.dart';
 
+import '../icons/dz_icon_data.dart';
 import '../theme/app_theme.dart';
 
 /// The phone shell's floating button for one page: Home's New post, Plans'
@@ -12,15 +13,23 @@ class ShellFabAction {
     required this.tooltip,
     required this.icon,
     required this.onPressed,
+    this.dzIcon,
   });
 
   final String tooltip;
   final IconData icon;
+
+  /// The design's stroke glyph for the button; [icon] stays the Material
+  /// fallback (the docked button of the wide layouts).
+  final DzIconData? dzIcon;
   final VoidCallback onPressed;
 
   /// Same look; the callback is not compared (a new closure every build).
   bool looksLike(ShellFabAction? other) =>
-      other != null && other.tooltip == tooltip && other.icon == icon;
+      other != null &&
+      other.tooltip == tooltip &&
+      other.icon == icon &&
+      other.dzIcon == dzIcon;
 }
 
 /// The actions pages offer, by the location they belong to. Pages under the

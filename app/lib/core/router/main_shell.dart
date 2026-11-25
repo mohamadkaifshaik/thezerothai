@@ -2,6 +2,8 @@ import 'package:material_ui/material_ui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 
+import '../icons/dz_icons.dart';
+
 import '../../features/beacons/domain/beacons_feature_flag.dart';
 import '../../features/beacons/domain/plans_list_detail.dart';
 import '../../features/beacons/presentation/bloc/plans_session.dart';
@@ -125,6 +127,8 @@ class MainShell extends StatelessWidget {
         icon: Icons.home_outlined,
         selectedIcon: Icons.home,
         label: 'Home',
+        dzIcon: DzIcons.home,
+        dzFilledWhenSelected: true,
       ),
     );
     final exploreTab = explore
@@ -134,6 +138,7 @@ class MainShell extends StatelessWidget {
               icon: Icons.search,
               selectedIcon: Icons.manage_search,
               label: 'Explore',
+              dzIcon: DzIcons.search,
             ),
           )
         : null;
@@ -145,6 +150,7 @@ class MainShell extends StatelessWidget {
               icon: Icons.track_changes,
               selectedIcon: Icons.adjust,
               label: 'Plans',
+              dzIcon: DzIcons.plans,
             ),
           )
         : null;
@@ -155,6 +161,7 @@ class MainShell extends StatelessWidget {
               icon: Icons.notifications_none,
               selectedIcon: Icons.notifications,
               label: 'Notifications',
+              dzIcon: DzIcons.bell,
             ),
           )
         : null;
@@ -165,6 +172,7 @@ class MainShell extends StatelessWidget {
               icon: Icons.mail_outline,
               selectedIcon: Icons.mail,
               label: 'Messages',
+              dzIcon: DzIcons.mail,
             ),
           )
         : null;
@@ -322,6 +330,7 @@ class MainShell extends StatelessWidget {
           ? ShellFabAction(
               tooltip: 'New post',
               icon: Icons.edit_outlined,
+              dzIcon: DzIcons.compose,
               onPressed: openCompose,
             )
           : null;
@@ -333,6 +342,7 @@ class MainShell extends StatelessWidget {
     return ShellFabAction(
       tooltip: offered.tooltip,
       icon: offered.icon,
+      dzIcon: offered.dzIcon,
       onPressed: () => registry.actionAt(location)?.onPressed(),
     );
   }

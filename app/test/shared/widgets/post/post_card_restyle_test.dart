@@ -1,3 +1,5 @@
+import 'package:dzeroth/core/icons/dz_icon_data.dart';
+import 'package:dzeroth/core/icons/dz_icons.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
@@ -14,6 +16,7 @@ import 'package:fixnum/fixnum.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../../support/dz_finders.dart';
 import '../../../support/geometry.dart';
 import '../../../support/poll_fixtures.dart';
 import '../../../support/posts_fixtures.dart';
@@ -135,13 +138,23 @@ void main() {
         );
 
         expectNoOverflow(tester);
+        final handle = tester.ensureSemantics();
         for (final label in const ['Reply, 6', 'Repost', 'Like', 'Share']) {
+          // The accessibility node is the tap area (48 dp), not the drawn
+          // 44 dp box of the phone row.
+          final rect = tester.getSemantics(find.bySemanticsLabel(label)).rect;
           expect(
-            tester.getSize(find.bySemanticsLabel(label)).height,
-            greaterThanOrEqualTo(AppSpacing.minTapTarget),
+            rect.height,
+            greaterThanOrEqualTo(AppSpacing.minTapTarget - 1e-6),
+            reason: label,
+          );
+          expect(
+            rect.width,
+            greaterThanOrEqualTo(AppSpacing.minTapTarget - 1e-6),
             reason: label,
           );
         }
+        handle.dispose();
       });
     }
   });
@@ -159,14 +172,9 @@ void main() {
         ),
       );
 
-      final icons = [
-        Icons.chat_bubble_outline,
-        Icons.repeat,
-        Icons.favorite_border,
-        Icons.ios_share,
-        Icons.bookmark_border,
-      ];
-      final xs = [for (final i in icons) tester.getCenter(find.byIcon(i)).dx];
+      // The artboards' order: Reply, Repost, Like, then Save and Share.
+      const icons = dzActionIcons;
+      final xs = [for (final i in icons) tester.getCenter(findDz(i)).dx];
       for (var i = 1; i < xs.length; i++) {
         expect(xs[i], greaterThan(xs[i - 1]), reason: '${icons[i]}');
       }
@@ -190,24 +198,31 @@ void main() {
         );
 
         final bar = tester.getRect(find.byType(PostActionBar));
-        Rect box(IconData icon) => tester.getRect(
-          find.ancestor(
-            of: find.byIcon(icon),
-            matching: find.byType(InkResponse),
-          ),
+        Rect box(DzIconData icon) => tester.getRect(
+          find.ancestor(of: findDz(icon), matching: find.byType(InkResponse)),
         );
-        final icons = [
-          Icons.chat_bubble_outline,
-          Icons.repeat,
-          Icons.favorite_border,
-          Icons.ios_share,
-          Icons.bookmark_border,
-        ];
-        expect(box(icons.first).left, closeTo(bar.left, 1));
-        for (var i = 1; i < icons.length; i++) {
-          expect(box(icons[i]).left, closeTo(box(icons[i - 1]).right + 4, 1));
+        const icons = dzActionIcons;
+        if (width < AppBreakpoints.mobile) {
+          // Phone (DzHome): the row hangs 10 dp into the gutter on each
+          // side; Reply, Repost, Like touch; Save and Share touch at the end.
+          expect(box(icons.first).left, bar.left - 10);
+          for (final i in [1, 2, 4]) {
+            expect(box(icons[i]).left, box(icons[i - 1]).right);
+          }
+          expect(box(icons.last).right, bar.right + 10);
+        } else {
+          // Tablet and desktop keep the distributed row: 48 dp boxes, the
+          // first and last on the edges, equal gaps between them.
+          expect(box(icons.first).left, bar.left);
+          expect(box(icons.last).right, closeTo(bar.right, 0.01));
+          final gaps = [
+            for (var i = 1; i < icons.length; i++)
+              box(icons[i]).left - box(icons[i - 1]).right,
+          ];
+          for (final gap in gaps) {
+            expect(gap, closeTo(gaps.first, 0.5));
+          }
         }
-        expect(box(icons.last).right, closeTo(bar.right, 1));
       });
 
       testWidgets('at $width in RTL the row starts at the right', (
@@ -225,15 +240,20 @@ void main() {
         );
 
         final bar = tester.getRect(find.byType(PostActionBar));
-        final reply = tester.getRect(find.byIcon(Icons.chat_bubble_outline));
-        final share = tester.getRect(find.byIcon(Icons.ios_share));
-        expect(reply.right, lessThan(bar.right));
+        final reply = tester.getRect(findDz(DzIcons.reply));
+        final share = tester.getRect(findDz(DzIcons.share));
+        if (width < AppBreakpoints.mobile) {
+          // The row's -10 margin puts the reply glyph on the text edge.
+          expect(reply.right, closeTo(bar.right, 0.01));
+        } else {
+          expect(reply.right, lessThan(bar.right));
+        }
         expect(share.left, lessThan(reply.left));
         expect(bar.right - share.left, lessThanOrEqualTo(bar.width));
       });
     }
 
-    testWidgets('glyphs are 18 dp, counts 13 sp', (tester) async {
+    testWidgets('glyphs are 19 dp, counts 13 sp', (tester) async {
       await _pump(
         tester,
         PostCard(
@@ -243,10 +263,7 @@ void main() {
         ),
       );
 
-      expect(
-        tester.getSize(find.byIcon(Icons.chat_bubble_outline)),
-        const Size.square(18),
-      );
+      expect(tester.getSize(findDz(DzIcons.reply)), const Size.square(19));
       final count = tester.widget<Text>(find.text('6'));
       expect(count.style?.fontSize, 13);
       expect(count.style?.fontWeight, FontWeight.w600);

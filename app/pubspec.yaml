@@ -107,3 +107,8 @@ flutter:
         - asset: assets/fonts/Inter.ttf
         - asset: assets/fonts/Inter-Italic.ttf
           style: italic
+    - family: PlusJakartaSans
+      fonts:
+        - asset: assets/fonts/PlusJakartaSans.ttf
+        - asset: assets/fonts/PlusJakartaSans-Italic.ttf
+          style: italic

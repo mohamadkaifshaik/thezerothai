@@ -36,6 +36,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../support/bookmarks_fixtures.dart';
+import '../../../support/dz_finders.dart';
 import '../../../support/fake_transport.dart';
 import '../../../support/geometry.dart';
 import '../../../support/likes_fixtures.dart';
@@ -492,7 +493,7 @@ void main() {
         final gate = bookmarks.toggleGate = Completer<void>();
         await open(tester);
 
-        await tester.tap(find.byIcon(Icons.bookmark).first);
+        await tester.tap(byActionIcon(Icons.bookmark).first);
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 300));
         gate.complete();

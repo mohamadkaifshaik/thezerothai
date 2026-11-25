@@ -5,12 +5,31 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../shared/widgets/primitives/app_avatar.dart';
+import '../icons/dz_icon.dart';
+import '../icons/dz_icons.dart';
 import '../../shared/widgets/primitives/app_icon_button.dart';
 import '../../shared/widgets/primitives/app_tab_bar.dart' show PaneWideSliver;
 import '../feature_flags/feature_flags.dart';
 import '../feature_flags/ui_shell_feature_flag.dart';
 import '../theme/app_theme.dart';
 import 'app_shell_scope.dart';
+import 'app_tap_area.dart';
+
+/// The look of an [AppTopBar].
+///
+/// * [classic]: the bar every screen has today (the `ui_shell` flag decides
+///   between its redesigned and legacy forms).
+/// * [screen]: the Dz screen header (Plans, Messages, Explore...): the
+///   canvas's `height: 60px; padding: 8px` rendered content-box, so a 76 dp
+///   row ([AppSize.dzHeaderRow]) over a 1 dp hairline, the 40 dp account
+///   avatar at the start (it opens the drawer, as ever), a Jakarta 24/800
+///   title and [AppRoundAction]s at the end. Not flag-dependent.
+/// * [back]: the Dz back header (the pushed Z screens): a 44 dp back arrow
+///   (48 dp tap area), an Inter 22/800 title and the same actions.
+///   [AppTopBar.onBack] is its callback (without one the arrow pops the
+///   route). Settings passes [AppTextStyles.dzBackTitleSettings] as its
+///   `titleStyle`.
+enum AppTopBarStyle { classic, screen, back }
 
 /// The top bar of a main screen: a row with, on narrow layouts, the account
 /// **avatar button** (36dp avatar in a 48dp tap target) that opens the
@@ -54,6 +73,8 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
     this.wordmark = false,
     this.onBack,
     this.titleWidget,
+    this.style = AppTopBarStyle.classic,
+    this.titleStyle,
   }) : _height = null;
 
   const AppTopBar._({
@@ -66,8 +87,21 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
     this.wordmark = false,
     this.onBack,
     this.titleWidget,
+    this.style = AppTopBarStyle.classic,
+    this.titleStyle,
     required double height,
   }) : _height = height;
+
+  /// The look; see [AppTopBarStyle].
+  final AppTopBarStyle style;
+
+  /// The title's type role on the Dz styles, when the artboard differs from
+  /// the default ([AppTextStyles.dzScreenTitle] for [AppTopBarStyle.screen],
+  /// [AppTextStyles.dzTitle] for [AppTopBarStyle.back]): e.g.
+  /// [AppTextStyles.dzBackTitleSettings] on Settings,
+  /// [AppTextStyles.dzScreenTitleZ] on Notifications. Ignored by
+  /// [AppTopBarStyle.classic].
+  final TextStyle? titleStyle;
 
   /// The bar sized for the text scale of [context]: the row is [heightOf],
   /// so a large text scale grows the bar instead of shrinking the title.
@@ -85,6 +119,8 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
     VoidCallback? onBack,
     Widget? titleWidget,
     double? titleWidgetHeight,
+    AppTopBarStyle style = AppTopBarStyle.classic,
+    TextStyle? titleStyle,
   }) => AppTopBar._(
     key: key,
     title: title,
@@ -95,12 +131,16 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
     wordmark: wordmark,
     onBack: onBack,
     titleWidget: titleWidget,
+    style: style,
+    titleStyle: titleStyle,
     height: heightOf(
       context,
       title: title != null,
       subtitle: subtitle != null,
       wordmark: wordmark,
       titleWidgetHeight: titleWidget == null ? null : titleWidgetHeight,
+      style: style,
+      titleStyle: titleStyle,
     ),
   );
 
@@ -113,7 +153,23 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
     bool subtitle = false,
     bool wordmark = false,
     double? titleWidgetHeight,
+    AppTopBarStyle style = AppTopBarStyle.classic,
+    TextStyle? titleStyle,
   }) {
+    if (style != AppTopBarStyle.classic) {
+      // The Dz header as the canvas renders it (content-box): a 76 dp row
+      // (60 + 8 + 8) growing when the title's line outgrows its 60 dp
+      // content, plus the 1 dp hairline under the row.
+      final scaler = MediaQuery.textScalerOf(context);
+      final textStyle = _dzTitleStyle(Theme.of(context), style, titleStyle);
+      final line =
+          scaler.scale(textStyle.fontSize ?? 24) * (textStyle.height ?? 1.25);
+      final row = math.max(
+        AppSize.dzHeaderRow,
+        (line + _verticalPadding * 4 + _dzRowPadding * 2).ceilToDouble(),
+      );
+      return row + AppSize.dzHeaderBorder;
+    }
     if (!isFeatureEnabled(context, kFeatureUiShell)) {
       return math.max(
         AppSize.headerRow,
@@ -197,6 +253,8 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
     VoidCallback? onBack,
     Widget? titleWidget,
     double? titleWidgetHeight,
+    AppTopBarStyle style = AppTopBarStyle.classic,
+    TextStyle? titleStyle,
   }) => _SliverTopBar(
     key: key,
     title: title,
@@ -208,14 +266,37 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
     onBack: onBack,
     titleWidget: titleWidget,
     titleWidgetHeight: titleWidgetHeight,
+    style: style,
+    titleStyle: titleStyle,
   );
 
   @override
-  Size get preferredSize => Size.fromHeight(_height ?? AppSize.headerRow);
+  Size get preferredSize => Size.fromHeight(
+    _height ??
+        (style == AppTopBarStyle.classic
+            ? AppSize.headerRow
+            : AppSize.dzHeaderRow + AppSize.dzHeaderBorder),
+  );
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    if (style != AppTopBarStyle.classic) {
+      return PreferredSize(
+        preferredSize: preferredSize,
+        child: _DzBarFrame(
+          height: preferredSize.height,
+          child: _DzBarRow(
+            style: style,
+            title: title,
+            titleStyle: titleStyle,
+            actions: actions,
+            showAccountAvatar: showAccountAvatar,
+            onBack: onBack,
+          ),
+        ),
+      );
+    }
     if (!isFeatureEnabled(context, kFeatureUiShell)) {
       return PreferredSize(
         preferredSize: const Size.fromHeight(AppSize.headerRow),
@@ -281,6 +362,20 @@ const double _legacyAlpha = 0.92;
 /// Space kept above and below the title block when the bar grows.
 const double _verticalPadding = AppSpacing.xs;
 
+/// The Dz header's own top and bottom padding (`padding: 8px ...`).
+const double _dzRowPadding = 8;
+
+/// The title role of a Dz header: [override] or the style's default.
+TextStyle _dzTitleStyle(
+  ThemeData theme,
+  AppTopBarStyle style,
+  TextStyle? override,
+) =>
+    override ??
+    (style == AppTopBarStyle.screen
+        ? AppTextStyles.dzScreenTitle(theme)
+        : AppTextStyles.dzTitle(theme));
+
 /// The wordmark; a brand name, not translatable copy.
 const String _wordmark = 'DZEROTH';
 
@@ -296,8 +391,12 @@ class _SliverTopBar extends StatelessWidget implements PaneWideSliver {
     this.onBack,
     this.titleWidget,
     this.titleWidgetHeight,
+    this.style = AppTopBarStyle.classic,
+    this.titleStyle,
   });
 
+  final AppTopBarStyle style;
+  final TextStyle? titleStyle;
   final VoidCallback? onBack;
   final Widget? titleWidget;
   final double? titleWidgetHeight;
@@ -312,6 +411,43 @@ class _SliverTopBar extends StatelessWidget implements PaneWideSliver {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    if (style != AppTopBarStyle.classic) {
+      final height = AppTopBar.heightOf(
+        context,
+        style: style,
+        titleStyle: titleStyle,
+      );
+      return SliverAppBar(
+        floating: true,
+        snap: true,
+        automaticallyImplyLeading: false,
+        excludeHeaderSemantics: true,
+        toolbarHeight: height,
+        titleSpacing: 0,
+        backgroundColor: colors.surface,
+        surfaceTintColor: Colors.transparent,
+        scrolledUnderElevation: 0,
+        shape: Border(bottom: BorderSide(color: colors.outlineVariant)),
+        title: _AmbientTextScale(
+          textScaler: MediaQuery.textScalerOf(context),
+          // The row sits above the hairline the shape paints in the last dp.
+          child: SizedBox(
+            height: height,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: AppSize.dzHeaderBorder),
+              child: _DzBarRow(
+                style: style,
+                title: title,
+                titleStyle: titleStyle,
+                actions: actions,
+                showAccountAvatar: showAccountAvatar,
+                onBack: onBack,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
     if (isFeatureEnabled(context, kFeatureUiShell)) {
       return SliverAppBar(
         floating: true,
@@ -551,6 +687,153 @@ class _BarRow extends StatelessWidget {
   }
 }
 
+/// The surface of a Dz header: the page colour with the 1 dp hairline under
+/// the row (CSS content-box: the border adds to the row, it does not eat
+/// into it). [height] is the row plus the hairline.
+class _DzBarFrame extends StatelessWidget {
+  const _DzBarFrame({required this.height, required this.child});
+
+  final double height;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colors.surface,
+        border: Border(bottom: BorderSide(color: colors.outlineVariant)),
+      ),
+      child: SafeArea(
+        bottom: false,
+        child: SizedBox(
+          height: height,
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: AppSize.dzHeaderBorder),
+            child: child,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The row of the Dz header variants ([AppTopBarStyle.screen] and
+/// [AppTopBarStyle.back]): 8 dp from the start edge, 12 dp from the end, the
+/// title between the leading control and the actions.
+class _DzBarRow extends StatelessWidget {
+  const _DzBarRow({
+    required this.style,
+    this.title,
+    this.titleStyle,
+    this.actions,
+    this.showAccountAvatar = true,
+    this.onBack,
+  });
+
+  final AppTopBarStyle style;
+  final String? title;
+  final TextStyle? titleStyle;
+  final List<Widget>? actions;
+  final bool showAccountAvatar;
+  final VoidCallback? onBack;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final back = style == AppTopBarStyle.back;
+    final narrow = MediaQuery.sizeOf(context).width < AppBreakpoints.mobile;
+    final showAvatar =
+        !back &&
+        showAccountAvatar &&
+        narrow &&
+        AppShellScope.maybeOf(context) != null;
+    final Widget leading;
+    if (back) {
+      leading = _BackArrow(
+        onPressed: onBack ?? () => Navigator.maybePop(context),
+      );
+    } else if (showAvatar) {
+      leading = const AppAvatarButton(size: AppSize.dzHeaderAvatar);
+    } else {
+      leading = const SizedBox(width: AppSpacing.sm);
+    }
+    final textStyle = _dzTitleStyle(theme, style, titleStyle);
+    // The host spans the row's side padding, so the back arrow's and the
+    // round actions' 48 dp rings stay reachable where they reach past the
+    // Row's own bounds (2 dp into the 8 / 12 dp padding).
+    return AppTapAreaHost(
+      child: Padding(
+        padding: const EdgeInsetsDirectional.only(start: 8, end: 12),
+        child: Row(
+          children: [
+            leading,
+            SizedBox(width: back ? 6 : AppSpacing.smd - 4),
+            Expanded(
+              child: title == null
+                  ? const SizedBox.shrink()
+                  : Semantics(
+                      header: true,
+                      child: Text(
+                        title!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: textStyle,
+                      ),
+                    ),
+            ),
+            for (final action in actions ?? const <Widget>[])
+              Padding(
+                padding: const EdgeInsetsDirectional.only(start: AppSpacing.sm),
+                child: action,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The 44 dp back arrow of [AppTopBarStyle.back]: a 22 dp chevron, with a
+/// 48 dp tap area around it (the layout keeps 44).
+class _BackArrow extends StatelessWidget {
+  const _BackArrow({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return AppTapArea(child: _arrow(context));
+  }
+
+  Widget _arrow(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: 'Back',
+      onTap: onPressed,
+      excludeSemantics: true,
+      child: Tooltip(
+        message: 'Back',
+        excludeFromSemantics: true,
+        child: InkResponse(
+          onTap: onPressed,
+          radius: AppSize.dzHeaderAction / 2,
+          child: SizedBox.square(
+            dimension: AppSize.dzHeaderAction,
+            child: Center(
+              child: DzIcon(
+                DzIcons.back,
+                size: 22,
+                color: Theme.of(context).colorScheme.onSurface,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// The "DZEROTH" wordmark of the Home bar. [label] (the screen's name) is its
 /// accessible name and makes it the screen's header; without one the screen
 /// has a heading of its own and the wordmark is decoration.
@@ -618,10 +901,13 @@ class AppTopBarAction extends StatelessWidget {
 /// header rows (the Explore search row) can lead with it on narrow layouts;
 /// it needs an [AppShellScope] above it (so it exists with `ui_shell` only).
 class AppAvatarButton extends StatelessWidget {
-  const AppAvatarButton({super.key});
+  const AppAvatarButton({super.key, this.size = avatarSize});
 
-  /// Diameter of the avatar inside the 48dp target.
+  /// Diameter of the avatar inside the 48dp target (36; the Dz header uses
+  /// 40).
   static const double avatarSize = 36;
+
+  final double size;
 
   @override
   Widget build(BuildContext context) {
@@ -641,7 +927,7 @@ class AppAvatarButton extends StatelessWidget {
           width: AppSpacing.minTapTarget,
           height: AppSpacing.minTapTarget,
           child: Center(
-            child: AppAvatar(url: avatarUrl, radius: avatarSize / 2),
+            child: AppAvatar(url: avatarUrl, radius: size / 2),
           ),
         ),
       ),

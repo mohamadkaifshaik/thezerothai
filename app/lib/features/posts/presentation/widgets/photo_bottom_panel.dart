@@ -105,6 +105,7 @@ class PhotoBottomPanel extends StatelessWidget {
                     PostEngagementBar(
                       view: view,
                       style: PostActionBarStyle.photoViewer,
+                      layout: PostActionBarLayout.spread,
                       iconSize: AppPhotoPanel.actionIcon,
                     ),
                   if (replies) _ReplyBar(postId: post.postId),
@@ -127,8 +128,7 @@ class _AuthorRow extends StatelessWidget {
   final pb.Post post;
 
   void _openProfile(BuildContext context) {
-    if (post.author.userId.isEmpty ||
-        isUnavailableUserId(post.author.userId)) {
+    if (post.author.userId.isEmpty || isUnavailableUserId(post.author.userId)) {
       return;
     }
     context.push(AppRouter.profileByIdPath(post.author.userId));

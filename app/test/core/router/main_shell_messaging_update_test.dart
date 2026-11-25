@@ -19,6 +19,8 @@ import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../support/dz_finders.dart';
+
 class _MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
     implements OnboardingBloc {}
 
@@ -124,9 +126,9 @@ void main() {
         width: width,
         needingUpdate: const {'messaging'},
       );
-      expect(find.byIcon(Icons.mail_outline), findsOneWidget);
+      expect(byNavIcon(Icons.mail_outline), findsOneWidget);
 
-      await tester.tap(find.byIcon(Icons.mail_outline));
+      await tester.tap(byNavIcon(Icons.mail_outline));
       await tester.pumpAndSettle();
 
       expect(router.routeInformationProvider.value.uri.path, '/messages');
@@ -136,8 +138,8 @@ void main() {
       tester,
     ) async {
       await pump(tester, width: width);
-      expect(find.byIcon(Icons.mail_outline), findsNothing);
-      expect(find.byIcon(Icons.mail), findsNothing);
+      expect(byNavIcon(Icons.mail_outline), findsNothing);
+      expect(byNavIcon(Icons.mail), findsNothing);
     });
 
     testWidgets('${width.toInt()} dp: an update list with messaging on is '
@@ -148,7 +150,7 @@ void main() {
         needingUpdate: const {'messaging'},
         flags: const {'posts', 'notifications', 'messaging'},
       );
-      expect(find.byIcon(Icons.mail_outline), findsOneWidget);
+      expect(byNavIcon(Icons.mail_outline), findsOneWidget);
     });
   }
 }

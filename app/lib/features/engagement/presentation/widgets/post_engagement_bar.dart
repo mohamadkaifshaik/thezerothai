@@ -76,9 +76,17 @@ class PostEngagementBar extends StatelessWidget {
     this.bookmarkEnabled,
     this.onReply,
     this.focal = false,
-    this.iconSize = AppIconSize.action,
+    this.iconSize = AppIconSize.postAction,
     this.style = PostActionBarStyle.feed,
+    this.layout = PostActionBarLayout.compact,
+    this.showCounts = true,
   });
+
+  /// How the actions sit in the row (see [PostActionBarLayout]).
+  final PostActionBarLayout layout;
+
+  /// Draw the counts beside the glyphs (see [PostActionBar.showCounts]).
+  final bool showCounts;
 
   /// The look of the row (see [PostActionBarStyle]); the feed keeps its own.
   final PostActionBarStyle style;
@@ -159,6 +167,8 @@ class PostEngagementBar extends StatelessWidget {
         }) => PostActionBar(
           showDisabled: false,
           style: style,
+          layout: layout,
+          showCounts: showCounts,
           iconSize: iconSize,
           replyDisabledHint: replyBlocked ? replyNotAllowedHint(view) : null,
           replyCount: view.post.replyCount.toInt(),

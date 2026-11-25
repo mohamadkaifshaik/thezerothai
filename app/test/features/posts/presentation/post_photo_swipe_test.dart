@@ -20,6 +20,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../../support/dz_finders.dart';
 import '../../../support/posts_fixtures.dart';
 
 class _Posts extends Mock implements PostsRepository {}
@@ -120,7 +121,7 @@ void main() {
 
   Finder inBar(IconData icon) => find.descendant(
     of: find.byType(PostEngagementBar),
-    matching: find.byIcon(icon),
+    matching: byActionIcon(icon),
   );
 
   String location() =>

@@ -1,13 +1,17 @@
+import 'package:dzeroth/core/icons/dz_icon.dart';
+import 'package:dzeroth/core/icons/dz_icon_data.dart';
+import 'package:dzeroth/core/icons/dz_icons.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/shared/widgets/post/post_action_bar.dart';
 import 'package:dzeroth/shared/widgets/post/post_views_stat.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../../support/dz_finders.dart';
 import '../../../support/theme_harness.dart';
 
-/// The photo viewer's action row (X's phone app): order, even spacing and the
-/// pink / green / blue states, with the feed's row unchanged.
+/// The photo viewer's action row (ZPhotoViewer): order, even spacing and the
+/// pink / green / teal states, with the feed's row unchanged.
 PostActions _all() => PostActions(
   onReply: () {},
   onRepost: () {},
@@ -29,6 +33,9 @@ Future<void> _pump(
     padding: const EdgeInsets.all(16),
     child: PostActionBar(
       style: style,
+      layout: style == PostActionBarStyle.photoViewer
+          ? PostActionBarLayout.spread
+          : PostActionBarLayout.compact,
       iconSize: AppPhotoPanel.actionIcon,
       actions: _all(),
       replyCount: 3,
@@ -44,40 +51,34 @@ Future<void> _pump(
   brightness: brightness,
 );
 
-Icon _icon(WidgetTester tester, IconData data) =>
-    tester.widget<Icon>(find.byIcon(data));
+DzIcon _icon(WidgetTester tester, DzIconData data) => dzIconOf(tester, data);
 
 void main() {
-  testWidgets('Action order: reply, repost, like, share, bookmark, views', (
+  testWidgets('Action order: reply, repost, like, save, share, views', (
     tester,
   ) async {
     await _pump(tester);
-    double x(IconData i) => tester.getCenter(find.byIcon(i)).dx;
+    double x(Finder f) => tester.getCenter(f).dx;
     final xs = [
-      x(Icons.chat_bubble_outline),
-      x(Icons.repeat),
-      x(Icons.favorite_border),
-      x(Icons.ios_share),
-      x(Icons.bookmark_border),
-      x(kPostViewsIcon),
+      x(findDz(DzIcons.reply)),
+      x(findDz(DzIcons.repost)),
+      x(findDz(DzIcons.like)),
+      x(findDz(DzIcons.save)),
+      x(findDz(DzIcons.share)),
+      x(find.byIcon(kPostViewsIcon)),
     ];
     expect(xs, orderedEquals([...xs]..sort()));
     expect(xs.toSet().length, 6);
   });
 
-  testWidgets('idle glyphs are grey outlines, 18 dp, counts are 13 sp', (
+  testWidgets('idle glyphs are grey outlines, 22 dp, counts are 13 sp', (
     tester,
   ) async {
     await _pump(tester);
-    for (final i in [
-      Icons.chat_bubble_outline,
-      Icons.repeat,
-      Icons.favorite_border,
-      Icons.bookmark_border,
-      Icons.ios_share,
-    ]) {
+    for (final i in dzActionIcons) {
       expect(_icon(tester, i).color, AppPhotoPanel.muted);
-      expect(_icon(tester, i).size, 18);
+      expect(tester.getSize(findDz(i)), const Size.square(22));
+      expect(_icon(tester, i).fill, 0);
     }
     expect(AppPhotoPanel.muted, const Color(0xFF71767B));
     final count = tester.widget<Text>(find.text('3'));
@@ -85,14 +86,15 @@ void main() {
     expect(count.style?.fontSize, 13);
   });
 
-  testWidgets('liked pink, reposted green, bookmarked blue and filled', (
+  testWidgets('liked pink, reposted green, bookmarked teal and filled', (
     tester,
   ) async {
     await _pump(tester, liked: true, reposted: true, bookmarked: true);
-    expect(_icon(tester, Icons.favorite).color, const Color(0xFFF91880));
-    expect(_icon(tester, Icons.repeat).color, const Color(0xFF00BA7C));
-    expect(_icon(tester, Icons.bookmark).color, AppPalette.tealElectric);
-    expect(find.byIcon(Icons.bookmark_border), findsNothing);
+    expect(_icon(tester, DzIcons.like).color, const Color(0xFFF91880));
+    expect(_icon(tester, DzIcons.like).fill, 1);
+    expect(_icon(tester, DzIcons.repost).color, const Color(0xFF00BA7C));
+    expect(_icon(tester, DzIcons.save).color, AppPalette.tealElectric);
+    expect(findDz(DzIcons.save, filled: false), findsNothing);
   });
 
   for (final brightness in Brightness.values) {
@@ -100,7 +102,7 @@ void main() {
         '(${brightness.name})', (tester) async {
       await _pump(tester, bookmarked: true, brightness: brightness);
       // The photo viewer's dark panel: the dark theme's teal token.
-      expect(_icon(tester, Icons.bookmark).color, AppPhotoPanel.bookmarked);
+      expect(_icon(tester, DzIcons.save).color, AppPhotoPanel.bookmarked);
       expect(AppPhotoPanel.bookmarked, AppPalette.tealElectric);
       expect(AppPhotoPanel.bookmarked, isNot(const Color(0xFF1D9BF0)));
       // The feed's row: the theme's primary, the teal of links and actions.
@@ -113,7 +115,7 @@ void main() {
       final primary = Theme.of(tester.element(find.byType(PostActionBar)))
           .colorScheme
           .primary;
-      expect(_icon(tester, Icons.bookmark).color, primary);
+      expect(_icon(tester, DzIcons.save).color, primary);
       expect(
         primary,
         brightness == Brightness.light
@@ -125,9 +127,9 @@ void main() {
 
   testWidgets('the feed style keeps its own order and colours', (tester) async {
     await _pump(tester, style: PostActionBarStyle.feed, liked: true);
-    expect(_icon(tester, Icons.favorite).color, isNot(AppPhotoPanel.liked));
-    double x(IconData i) => tester.getCenter(find.byIcon(i)).dx;
-    // The feed puts Share before Bookmark.
-    expect(x(Icons.ios_share), lessThan(x(Icons.bookmark_border)));
+    expect(_icon(tester, DzIcons.like).color, isNot(AppPhotoPanel.liked));
+    double x(Finder f) => tester.getCenter(f).dx;
+    // The artboards put Save before Share at the trailing edge.
+    expect(x(findDz(DzIcons.save)), lessThan(x(findDz(DzIcons.share))));
   });
 }

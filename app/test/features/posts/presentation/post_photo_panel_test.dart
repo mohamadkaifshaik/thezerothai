@@ -20,6 +20,8 @@ import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pbenum.dart'
     show ReplyPermission;
+import 'package:dzeroth/core/icons/dz_icon.dart';
+import 'package:dzeroth/core/icons/dz_icons.dart';
 import 'package:dzeroth/shared/widgets/post/post_action_bar.dart';
 import 'package:dzeroth/shared/widgets/user/follow_button.dart';
 import 'package:material_ui/material_ui.dart';
@@ -28,6 +30,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../../support/dz_finders.dart';
 import '../../../support/posts_fixtures.dart';
 
 class _Posts extends Mock implements PostsRepository {}
@@ -302,7 +305,10 @@ void main() {
   testWidgets('View post has its own glyph, not the Reply one', (tester) async {
     await open(tester, view());
     expect(find.byIcon(Icons.open_in_new), findsOneWidget);
-    expect(find.byIcon(Icons.chat_bubble_outline), findsOneWidget);
+    // Reply in the row is the design's own icon, so the Material chat glyph
+    // is gone and View post's is the only chat-like one.
+    expect(find.byIcon(Icons.chat_bubble_outline), findsNothing);
+    expect(findDz(DzIcons.reply), findsOneWidget);
   });
 
   group('post text', () {
@@ -345,12 +351,12 @@ void main() {
     // The viewer has its own chat glyph (View post) beside the row's.
     Finder inRow(IconData icon) => find.descendant(
       of: find.byType(PostActionBar),
-      matching: find.byIcon(icon),
+      matching: byActionIcon(icon),
     );
     Color iconColor(WidgetTester tester, IconData icon) =>
-        tester.widget<Icon>(inRow(icon)).color!;
+        tester.widget<DzIcon>(inRow(icon)).color!;
 
-    testWidgets('idle: outline glyphs in grey, 18 dp', (tester) async {
+    testWidgets('idle: outline glyphs in grey, 22 dp', (tester) async {
       await open(tester, view());
       for (final icon in [
         Icons.chat_bubble_outline,
@@ -358,13 +364,13 @@ void main() {
         Icons.favorite_border,
       ]) {
         expect(iconColor(tester, icon), AppPhotoPanel.muted);
-        expect(tester.widget<Icon>(inRow(icon)).size, 18);
+        expect(tester.widget<DzIcon>(inRow(icon)).size, 22);
       }
     });
 
     testWidgets('liked is a pink filled heart', (tester) async {
       await open(tester, view(liked: true));
-      expect(find.byIcon(Icons.favorite_border), findsNothing);
+      expect(byActionIcon(Icons.favorite_border), findsNothing);
       expect(iconColor(tester, Icons.favorite), AppPhotoPanel.liked);
       expect(AppPhotoPanel.liked, const Color(0xFFF91880));
     });
@@ -391,7 +397,7 @@ void main() {
       tester,
     ) async {
       await open(tester, view(), features: const {'posts', 'replies'});
-      expect(find.byIcon(Icons.favorite_border), findsNothing);
+      expect(byActionIcon(Icons.favorite_border), findsNothing);
       expect(find.text('Post your reply'), findsOneWidget);
     });
   });

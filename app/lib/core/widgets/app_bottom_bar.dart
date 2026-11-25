@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../../shared/widgets/primitives/app_badge.dart';
+import '../icons/dz_icon.dart';
 import '../theme/app_theme.dart';
 import 'app_nav_destination.dart';
 
@@ -115,12 +116,13 @@ class _Cell extends StatelessWidget {
 }
 
 /// The floating bottom bar of the redesigned phone chrome (`ui_shell`,
-/// ADR-0034): a navy pill, [AppSize.floatingNavHeight] tall, inset
-/// [AppSize.floatingNavInset] from the sides and [AppSize.floatingNavBottom]
-/// above the bottom safe area, with [AppShadows.navBar]. Navy in both themes.
+/// ADR-0034), drawn as the Dz artboards do: a navy pill, 64 tall (radius 32),
+/// inset 16 from the sides and 14 above the bottom safe area, with
+/// [AppShadows.navBar]. Navy in both themes.
 ///
-/// Cells are equal width and at least 48dp. The selected one shows its filled
-/// glyph in `navBarSelected` on a 12 % teal disc (shape, not colour alone).
+/// Cells are equal width and five 50 dp round items sit in them. The selected
+/// one has the teal glyph on a tinted pill ([activePill]); a destination's
+/// `dzIcon` draws the design's stroke icon.
 /// The bar is icon-only: each cell carries a tooltip and is announced with
 /// the full label of its destination, as selected or not, and its badge
 /// ("Messages, 3 unread conversations").
@@ -139,8 +141,12 @@ class AppFloatingBottomBar extends StatelessWidget {
   final int? selectedIndex;
   final ValueChanged<int> onSelected;
 
-  /// Opacity of the teal disc behind the selected glyph.
-  static const double selectedDiscOpacity = 0.12;
+  /// The selected item's pill (artboards: #123B44; the drawer's dark teal
+  /// tile is the nearest token).
+  static const Color activePill = AppPalette.drawerTileTealDark;
+
+  /// The pill's and the filled glyph's change of state (reduce-motion: none).
+  static const Duration fadeTime = Duration(milliseconds: 160);
 
   /// Horizontal padding inside the pill, on each side of the cells.
   static const double pillPadding = AppSpacing.sm;
@@ -203,48 +209,76 @@ class _FloatingCell extends StatelessWidget {
   final bool selected;
   final VoidCallback onTap;
 
+  /// The unread dot's offset from the item's top and end edges (DzHome).
+  static const double _dotInset = 12;
+
+  /// Where the 24 dp glyph sits inside the 50 dp item.
+  static const double _glyphInset =
+      (AppSize.floatingNavItem - AppIconSize.lg) / 2;
+
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final color = selected ? colors.navBarSelected : colors.navBarUnselected;
-    final glyph = Icon(
-      selected ? destination.selectedIcon : destination.icon,
-      color: color,
-      size: AppIconSize.lg,
-    );
-    final disc = Container(
-      width: AppSpacing.minTapTarget,
-      height: AppSpacing.minTapTarget,
+    final reduce = MediaQuery.disableAnimationsOf(context);
+    final dz = destination.dzIcon;
+    final Widget glyph = dz == null
+        ? Icon(
+            selected ? destination.selectedIcon : destination.icon,
+            color: color,
+            size: AppIconSize.lg,
+          )
+        : DzIcon(
+            dz,
+            color: color,
+            fill: selected && destination.dzFilledWhenSelected ? 1 : 0,
+            fillDuration: reduce
+                ? Duration.zero
+                : AppFloatingBottomBar.fadeTime,
+            size: AppIconSize.lg,
+          );
+    final counted =
+        destination.badgeCount != null && destination.badgeCount! > 0;
+    final disc = AnimatedContainer(
+      duration: reduce ? Duration.zero : AppFloatingBottomBar.fadeTime,
+      width: AppSize.floatingNavItem,
+      height: AppSize.floatingNavItem,
       alignment: Alignment.center,
       decoration: ShapeDecoration(
-        shape: const StadiumBorder(),
-        color: selected
-            ? colors.navBarSelected.withValues(
-                alpha: AppFloatingBottomBar.selectedDiscOpacity,
-              )
-            : null,
+        shape: const CircleBorder(),
+        // The active pill is #123B44 in the artboards; the drawer's dark
+        // teal tile (#123A3C) is the nearest token.
+        color: selected ? AppFloatingBottomBar.activePill : null,
       ),
       child: destination.badgeLabel.isEmpty
           ? glyph
-          : Stack(
-              clipBehavior: Clip.none,
-              children: [
-                glyph,
-                PositionedDirectional(
-                  top: -AppSpacing.xs,
-                  start: AppIconSize.lg / 2 + AppSpacing.xs / 2,
-                  child: _FloatingBadge(destination: destination),
-                ),
-              ],
+          : SizedBox.square(
+              dimension: AppSize.floatingNavItem,
+              child: Stack(
+                alignment: Alignment.center,
+                clipBehavior: Clip.none,
+                children: [
+                  glyph,
+                  // The unread dot: `top: 12px; right: 12px` of the 50 dp
+                  // item (DzHome). A count badge rides the glyph's corner,
+                  // 4 dp outside it.
+                  PositionedDirectional(
+                    top: counted ? _glyphInset - AppSpacing.xs : _dotInset,
+                    end: counted ? _glyphInset - AppSpacing.xs : _dotInset,
+                    child: _FloatingBadge(destination: destination),
+                  ),
+                ],
+              ),
             ),
     );
+    // The 50 dp round item sits in a cell that is at least 48 dp wide.
     final Widget content = Center(child: disc);
     final overlay = colors.navBarSelected;
     final cell = InkResponse(
       onTap: onTap,
       containedInkWell: true,
       highlightShape: BoxShape.rectangle,
-      customBorder: const StadiumBorder(),
+      customBorder: const CircleBorder(),
       overlayColor: WidgetStateProperty.resolveWith(
         (states) => overlay.withValues(
           alpha: states.contains(WidgetState.focused) ? 0.24 : 0.12,
@@ -289,10 +323,7 @@ class _FloatingBadge extends StatelessWidget {
       data: Theme.of(context).copyWith(extensions: const [AppColors.dark]),
       child: count != null && count > 0
           ? AppCountBadge(count: count, semanticsLabel: spoken, onNavy: true)
-          : AppUnreadDot(
-              semanticsLabel: spoken,
-              ringColor: context.appColors.navBarSurface,
-            ),
+          : AppUnreadDot(semanticsLabel: spoken, showRing: false),
     );
   }
 }

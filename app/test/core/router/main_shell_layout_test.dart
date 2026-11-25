@@ -42,6 +42,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../support/contrast.dart';
+import '../../support/dz_finders.dart';
 import '../../support/fake_search_repository.dart';
 import '../../support/geometry.dart';
 import '../../support/search_field_rig.dart';
@@ -327,7 +328,7 @@ void main() {
       await pump(tester, newShell: false);
 
       expect(find.byType(AppBottomBar), findsOneWidget);
-      expect(find.byIcon(Icons.settings_outlined), findsOneWidget);
+      expect(byNavIcon(Icons.settings_outlined), findsOneWidget);
       expect(find.byType(AppDrawer), findsNothing);
       expect(find.byUiTooltip('New post'), findsOneWidget);
     });
@@ -376,7 +377,7 @@ void main() {
     testWidgets('tapping Settings goes to /settings', (tester) async {
       await pump(tester, newShell: false);
 
-      await tester.tap(find.byIcon(Icons.settings_outlined));
+      await tester.tap(byNavIcon(Icons.settings_outlined));
       await tester.pumpAndSettle();
 
       expect(find.byType(AppBottomBar), findsNothing);
@@ -390,7 +391,7 @@ void main() {
       expect(
         find.descendant(
           of: find.byType(NavigationRail),
-          matching: find.byIcon(Icons.settings_outlined),
+          matching: byNavIcon(Icons.settings_outlined),
         ),
         findsOneWidget,
       );
@@ -403,56 +404,56 @@ void main() {
       await pump(tester);
 
       expect(find.byType(AppBottomBar), findsOneWidget);
-      expect(find.byIcon(Icons.home), findsOneWidget);
-      expect(find.byIcon(Icons.track_changes), findsOneWidget);
-      expect(find.byIcon(Icons.notifications_none), findsOneWidget);
+      expect(byNavIcon(Icons.home), findsOneWidget);
+      expect(byNavIcon(Icons.track_changes), findsOneWidget);
+      expect(byNavIcon(Icons.notifications_none), findsOneWidget);
       // The only person glyph left is the avatar fallback in the top bar.
       expect(
         find.descendant(
           of: find.byType(AppBottomBar),
-          matching: find.byIcon(Icons.person_outline),
+          matching: byNavIcon(Icons.person_outline),
         ),
         findsNothing,
       );
-      expect(find.byIcon(Icons.settings_outlined), findsNothing);
-      expect(find.byIcon(Icons.settings), findsNothing);
+      expect(byNavIcon(Icons.settings_outlined), findsNothing);
+      expect(byNavIcon(Icons.settings), findsNothing);
     });
 
     testWidgets('Notifications is absent with its flag off', (tester) async {
       await pump(tester, flags: {'posts'});
 
-      expect(find.byIcon(Icons.notifications_none), findsNothing);
+      expect(byNavIcon(Icons.notifications_none), findsNothing);
     });
 
     testWidgets('the selected tab follows the location', (tester) async {
       await pump(tester, location: '/notifications');
-      expect(find.byIcon(Icons.notifications), findsOneWidget);
-      expect(find.byIcon(Icons.home), findsNothing);
+      expect(byNavIcon(Icons.notifications), findsOneWidget);
+      expect(byNavIcon(Icons.home), findsNothing);
 
       // Profile is not in the phone bar: no cell is selected on it.
       await pump(tester, location: '/profile/alice');
-      expect(find.byIcon(Icons.person), findsNothing);
-      expect(find.byIcon(Icons.home), findsNothing);
-      expect(find.byIcon(Icons.notifications), findsNothing);
+      expect(byNavIcon(Icons.person), findsNothing);
+      expect(byNavIcon(Icons.home), findsNothing);
+      expect(byNavIcon(Icons.notifications), findsNothing);
     });
 
     testWidgets('Settings uses the full phone viewport', (tester) async {
       await pump(tester, location: '/settings');
 
-      expect(find.byIcon(Icons.home), findsNothing);
-      expect(find.byIcon(Icons.notifications), findsNothing);
-      expect(find.byIcon(Icons.person), findsNothing);
+      expect(byNavIcon(Icons.home), findsNothing);
+      expect(byNavIcon(Icons.notifications), findsNothing);
+      expect(byNavIcon(Icons.person), findsNothing);
       expect(find.byType(AppBottomBar), findsNothing);
     });
 
     testWidgets('tapping the tabs navigates', (tester) async {
       await pump(tester);
 
-      await tester.tap(find.byIcon(Icons.notifications_none));
+      await tester.tap(byNavIcon(Icons.notifications_none));
       await tester.pumpAndSettle();
       expect(find.text('notifications body'), findsOneWidget);
 
-      await tester.tap(find.byIcon(Icons.home_outlined));
+      await tester.tap(byNavIcon(Icons.home_outlined));
       await tester.pumpAndSettle();
       expect(find.text('home body'), findsOneWidget);
     });
@@ -497,7 +498,7 @@ void main() {
       await tester.tap(
         find.descendant(
           of: find.byType(NavigationRail),
-          matching: find.byIcon(Icons.person_outline),
+          matching: byNavIcon(Icons.person_outline),
         ),
       );
       await tester.pumpAndSettle();
@@ -535,7 +536,7 @@ void main() {
           matching: find.byType(Material),
         ),
       );
-      expect(pill, const Rect.fromLTRB(20, 900 - 24 - 66, 340, 900 - 24));
+      expect(pill, const Rect.fromLTRB(16, 900 - 14 - 64, 344, 900 - 14));
       // Two cells (Home, Notifications), icons only.
       final bar = find.byType(AppBottomBar);
       expect(
@@ -1092,7 +1093,7 @@ void main() {
             .toList();
         expect(labels, ['Home', 'Plans', 'Lists', 'Profile']);
 
-        await tester.tap(find.byIcon(Icons.list_alt_outlined));
+        await tester.tap(byNavIcon(Icons.list_alt_outlined));
         await tester.pumpAndSettle();
         expect(find.text('lists body'), findsOneWidget);
         expect(tester.widget<NavigationRail>(rail).selectedIndex, 2);
@@ -1103,17 +1104,17 @@ void main() {
         'bottom bar', (tester) async {
       for (final width in [360.0, 600.0, 1300.0]) {
         await pump(tester, width: width, flags: const {'posts'});
-        expect(find.byIcon(Icons.list_alt_outlined), findsNothing);
+        expect(byNavIcon(Icons.list_alt_outlined), findsNothing);
         await pump(
           tester,
           width: width,
           flags: const {'lists'},
           newShell: false,
         );
-        expect(find.byIcon(Icons.list_alt_outlined), findsNothing);
+        expect(byNavIcon(Icons.list_alt_outlined), findsNothing);
       }
       await pump(tester, flags: const {'lists'});
-      expect(find.byIcon(Icons.list_alt_outlined), findsNothing);
+      expect(byNavIcon(Icons.list_alt_outlined), findsNothing);
     });
   });
 
@@ -1138,7 +1139,7 @@ void main() {
             .toList();
         expect(labels, ['Home', 'Plans', 'Communities', 'Profile']);
 
-        await tester.tap(find.byIcon(Icons.groups_outlined));
+        await tester.tap(byNavIcon(Icons.groups_outlined));
         await tester.pumpAndSettle();
         expect(find.text('communities body'), findsOneWidget);
         expect(tester.widget<NavigationRail>(rail).selectedIndex, 2);
@@ -1149,17 +1150,17 @@ void main() {
         'phone bottom bar', (tester) async {
       for (final width in [360.0, 600.0, 1300.0]) {
         await pump(tester, width: width, flags: const {'posts'});
-        expect(find.byIcon(Icons.groups_outlined), findsNothing);
+        expect(byNavIcon(Icons.groups_outlined), findsNothing);
         await pump(
           tester,
           width: width,
           flags: const {'communities'},
           newShell: false,
         );
-        expect(find.byIcon(Icons.groups_outlined), findsNothing);
+        expect(byNavIcon(Icons.groups_outlined), findsNothing);
       }
       await pump(tester, flags: const {'communities'});
-      expect(find.byIcon(Icons.groups_outlined), findsNothing);
+      expect(byNavIcon(Icons.groups_outlined), findsNothing);
     });
   });
 
@@ -1190,12 +1191,12 @@ void main() {
               .toList();
           expect(labels, ['Home', 'Plans', 'Communities', 'Profile']);
 
-          await tester.tap(find.byIcon(Icons.track_changes));
+          await tester.tap(byNavIcon(Icons.track_changes));
           await tester.pumpAndSettle();
           expect(find.text('plans body'), findsOneWidget);
           // The Plans page selects the Plans tab (its filled icon shows).
           expect(tester.widget<NavigationRail>(rail).selectedIndex, 1);
-          expect(find.byIcon(Icons.adjust), findsOneWidget);
+          expect(byNavIcon(Icons.adjust), findsOneWidget);
         });
       }
 
@@ -1206,7 +1207,7 @@ void main() {
         await tester.tap(
           find.descendant(
             of: find.byType(AppBottomBar),
-            matching: find.byIcon(Icons.track_changes),
+            matching: byNavIcon(Icons.track_changes),
           ),
         );
         await tester.pumpAndSettle();
@@ -1214,7 +1215,7 @@ void main() {
         expect(
           find.descendant(
             of: find.byType(AppBottomBar),
-            matching: find.byIcon(Icons.adjust),
+            matching: byNavIcon(Icons.adjust),
           ),
           findsOneWidget,
         );
@@ -1233,7 +1234,7 @@ void main() {
           expect(
             find.descendant(
               of: chrome(width),
-              matching: find.byIcon(Icons.track_changes),
+              matching: byNavIcon(Icons.track_changes),
             ),
             findsOneWidget,
             reason: '$flags at ${width}dp',
@@ -1257,7 +1258,7 @@ void main() {
             Icons.event,
           ]) {
             expect(
-              find.byIcon(icon),
+              byNavIcon(icon),
               findsNothing,
               reason: '$flags at ${width}dp',
             );
@@ -1277,8 +1278,8 @@ void main() {
       );
 
       expect(find.text('plans body'), findsOneWidget);
-      expect(find.byIcon(Icons.adjust), findsNothing);
-      expect(find.byIcon(Icons.track_changes), findsNothing);
+      expect(byNavIcon(Icons.adjust), findsNothing);
+      expect(byNavIcon(Icons.track_changes), findsNothing);
     });
   });
 
@@ -1292,10 +1293,7 @@ void main() {
 
         final rail = find.byType(NavigationRail);
         expect(
-          find.descendant(
-            of: rail,
-            matching: find.byIcon(Icons.bookmark_border),
-          ),
+          find.descendant(of: rail, matching: byNavIcon(Icons.bookmark_border)),
           findsOneWidget,
         );
         final labels = tester
@@ -1312,12 +1310,12 @@ void main() {
             .toList();
         expect(labels, ['Home', 'Plans', 'History', 'Profile', 'More']);
 
-        await tester.tap(find.byIcon(Icons.bookmark_border));
+        await tester.tap(byNavIcon(Icons.bookmark_border));
         await tester.pumpAndSettle();
         expect(find.text('bookmarks body'), findsOneWidget);
         // And it is the selected one there.
         expect(tester.widget<NavigationRail>(rail).selectedIndex, 2);
-        expect(find.byIcon(Icons.bookmark), findsOneWidget);
+        expect(byNavIcon(Icons.bookmark), findsOneWidget);
       });
     }
 
@@ -1343,7 +1341,7 @@ void main() {
         ]) {
           await pump(tester, width: width, flags: flags, newShell: newShell);
           expect(
-            find.byIcon(Icons.bookmark_border),
+            byNavIcon(Icons.bookmark_border),
             findsNothing,
             reason: '$flags shell=$newShell ${width}dp',
           );
@@ -1363,15 +1361,8 @@ void main() {
       ('messaging', Icons.mail_outline, 'Messages'),
     ];
 
-    List<IconData> barIcons(WidgetTester tester) => [
-      for (final icon in tester.widgetList<Icon>(
-        find.descendant(
-          of: find.byType(AppBottomBar),
-          matching: find.byType(Icon),
-        ),
-      ))
-        icon.icon!,
-    ];
+    List<IconData> barIcons(WidgetTester tester) =>
+        navGlyphsIn(tester, find.byType(AppBottomBar));
 
     NavigationRail rail(WidgetTester tester) =>
         tester.widget<NavigationRail>(find.byType(NavigationRail));
@@ -1601,11 +1592,11 @@ void main() {
 
         expect(rail(tester).selectedIndex, primaries.indexOf('Notifications'));
         expect(
-          tester.getSemantics(inRail(find.byIcon(Icons.notifications))),
+          tester.getSemantics(inRail(byNavIcon(Icons.notifications))),
           isSemantics(isSelected: true, hasSelectedState: true),
         );
         expect(
-          tester.getSemantics(inRail(find.byIcon(Icons.home_outlined))),
+          tester.getSemantics(inRail(byNavIcon(Icons.home_outlined))),
           isSemantics(isSelected: false, hasSelectedState: true),
         );
         handle.dispose();
@@ -1621,7 +1612,7 @@ void main() {
 
           final label = desktop
               ? painted(tester, find.widgetWithText(AppPillButton, 'Post'))
-              : painted(tester, inRail(find.byIcon(Icons.edit_outlined)));
+              : painted(tester, inRail(byNavIcon(Icons.edit_outlined)));
           expect(label, colors.primaryFillLabel);
           for (final stop in colors.primaryFillGradient.colors) {
             expect(contrast(label, stop), greaterThanOrEqualTo(4.5));
@@ -1645,7 +1636,7 @@ void main() {
             newShell: newShell,
           );
           // The item's glyph (the chip's "more" glyph comes after it).
-          final more = inRail(find.byIcon(Icons.more_horiz)).first;
+          final more = inRail(byNavIcon(Icons.more_horiz)).first;
           // The keyboard path: focus the item, activate it with Enter.
           final node = Focus.of(tester.element(more));
           node.requestFocus();
@@ -1919,7 +1910,7 @@ void main() {
         height: 1194,
         flags: const {'posts', kFeatureUiTablet},
       );
-      final more = inRail(find.byIcon(Icons.more_horiz));
+      final more = inRail(byNavIcon(Icons.more_horiz));
       final node = Focus.of(tester.element(more));
       node.requestFocus();
       await tester.pump();
@@ -1949,10 +1940,10 @@ void main() {
     testWidgets('a rail tap navigates and selects', (tester) async {
       await pump(tester, width: 834, height: 1194, flags: allFlags);
 
-      await tester.tap(inRail(find.byIcon(Icons.list_alt_outlined)));
+      await tester.tap(inRail(byNavIcon(Icons.list_alt_outlined)));
       await tester.pumpAndSettle();
       expect(find.text('lists body'), findsOneWidget);
-      expect(inRail(find.byIcon(Icons.list_alt)), findsOneWidget);
+      expect(inRail(byNavIcon(Icons.list_alt)), findsOneWidget);
     });
 
     group('R2 (1024 x 640): More absorbs the secondaries', () {
@@ -1968,7 +1959,7 @@ void main() {
           'Messages',
           'More',
         ]);
-        await tester.tap(inRail(find.byIcon(Icons.more_horiz)));
+        await tester.tap(inRail(byNavIcon(Icons.more_horiz)));
         await tester.pumpAndSettle();
         const order = [
           'Lists',
@@ -1999,7 +1990,7 @@ void main() {
           flags: allFlags,
         );
 
-        await tester.tap(inRail(find.byIcon(Icons.more_horiz)));
+        await tester.tap(inRail(byNavIcon(Icons.more_horiz)));
         await tester.pumpAndSettle();
         AppMenuItemRow row(String label) => tester.widget<AppMenuItemRow>(
           find.ancestor(
@@ -2024,7 +2015,7 @@ void main() {
         );
 
         expect(
-          tester.getSemantics(inRail(find.byIcon(Icons.more_horiz))),
+          tester.getSemantics(inRail(byNavIcon(Icons.more_horiz))),
           isSemantics(label: 'More, menu', isSelected: true),
         );
         handle.dispose();
@@ -2043,7 +2034,7 @@ void main() {
           location: '/plans',
         );
 
-        await tester.tap(inRail(find.byIcon(Icons.more_horiz)));
+        await tester.tap(inRail(byNavIcon(Icons.more_horiz)));
         await tester.pumpAndSettle();
         expect(menuItem('Profile'), findsOneWidget);
         expect(menuItem('Articles'), findsNothing);

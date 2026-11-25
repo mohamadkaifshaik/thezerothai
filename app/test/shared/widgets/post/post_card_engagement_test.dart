@@ -1,4 +1,5 @@
 import 'package:bloc_test/bloc_test.dart';
+import 'package:dzeroth/core/icons/dz_icons.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/engagement/data/engagement_repository.dart';
 import 'package:dzeroth/features/engagement/presentation/bloc/engagement_cubit.dart';
@@ -18,6 +19,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:protobuf/well_known_types/google/protobuf/timestamp.pb.dart';
 
+import '../../../support/dz_finders.dart';
 import '../../../support/posts_fixtures.dart';
 
 class MockGraphRepository extends Mock implements GraphRepository {}
@@ -156,8 +158,8 @@ void main() {
         ),
       );
 
-      expect(find.byIcon(Icons.favorite_border), findsNothing);
-      expect(find.byIcon(Icons.repeat), findsNothing);
+      expect(findDz(DzIcons.like), findsNothing);
+      expect(findDz(DzIcons.repost), findsNothing);
       expect(tester.takeException(), isNull);
     });
 
@@ -166,8 +168,8 @@ void main() {
         wrap(PostCard(view: _plain(), now: _now, engagementEnabled: true)),
       );
 
-      expect(find.byIcon(Icons.favorite_border), findsOneWidget);
-      expect(find.byIcon(Icons.repeat), findsOneWidget);
+      expect(findDz(DzIcons.like), findsOneWidget);
+      expect(findDz(DzIcons.repost), findsOneWidget);
     });
   });
 
@@ -209,7 +211,7 @@ void main() {
 
       expect(find.text('Bob B reposted'), findsOneWidget);
       expect(find.text('This post is unavailable'), findsOneWidget);
-      expect(find.byIcon(Icons.favorite_border), findsNothing);
+      expect(findDz(DzIcons.like), findsNothing);
     });
 
     testWidgets('a blocked or muted original author shows no snapshot', (

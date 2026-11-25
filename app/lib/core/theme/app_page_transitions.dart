@@ -1,4 +1,5 @@
-import 'package:cupertino_ui/cupertino_ui.dart' show CupertinoPageTransitionsBuilder;
+import 'package:cupertino_ui/cupertino_ui.dart'
+    show CupertinoPageTransitionsBuilder;
 import 'package:material_ui/material_ui.dart';
 
 import 'app_theme.dart';

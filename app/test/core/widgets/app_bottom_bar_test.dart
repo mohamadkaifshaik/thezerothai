@@ -2,7 +2,9 @@ import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/widgets/app_bottom_bar.dart';
 import 'package:dzeroth/core/widgets/app_nav_destination.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_badge.dart';
+
 import '../../support/ui_tooltip_finder.dart';
+
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -103,17 +105,17 @@ Rect _cell(WidgetTester tester, String label) =>
 
 void main() {
   group('geometry', () {
-    testWidgets('a 66dp pill, inset 20dp and 24dp above the bottom', (
+    testWidgets('a 64dp pill, inset 16dp and 14dp above the bottom', (
       tester,
     ) async {
       await _pump(tester);
 
       final pill = tester.getRect(_pill);
       expect(pill.height, AppSize.floatingNavHeight);
-      expect(pill.height, 66);
-      expect(pill.left, 20);
-      expect(pill.right, 360 - 20);
-      expect(pill.bottom, 800 - 24);
+      expect(pill.height, 64);
+      expect(pill.left, 16);
+      expect(pill.right, 360 - 16);
+      expect(pill.bottom, 800 - 14);
     });
 
     testWidgets('the bottom safe area lifts the pill; the side insets stay', (
@@ -122,9 +124,9 @@ void main() {
       await _pump(tester, safeArea: const EdgeInsets.only(bottom: 34));
 
       final pill = tester.getRect(_pill);
-      expect(pill.bottom, 800 - 34 - 24);
-      expect(pill.left, 20);
-      expect(pill.right, 340);
+      expect(pill.bottom, 800 - 34 - 14);
+      expect(pill.left, 16);
+      expect(pill.right, 344);
       expectSize(
         tester,
         find.byType(AppFloatingBottomBar),
@@ -199,7 +201,8 @@ void main() {
       );
       expect(
         (disc.decoration! as ShapeDecoration).color,
-        AppPalette.tealElectric.withValues(alpha: 0.12),
+        // The artboards' tinted pill (was a 12 % teal disc).
+        AppFloatingBottomBar.activePill,
       );
       expectSize(
         tester,
@@ -207,8 +210,8 @@ void main() {
           of: find.byIcon(Icons.event),
           matching: find.byType(Container),
         ),
-        width: 48,
-        height: 48,
+        width: AppSize.floatingNavItem,
+        height: AppSize.floatingNavItem,
         tolerance: 0,
       );
 
@@ -289,7 +292,7 @@ void main() {
           ),
         );
         // The pill keeps its height at every text scale.
-        expect(tester.getRect(_pill).height, 66);
+        expect(tester.getRect(_pill).height, 64);
         expectNoOverflow(tester);
         handle.dispose();
       });
@@ -343,7 +346,12 @@ void main() {
         expect(find.byType(AppUnreadDot), findsOneWidget);
         expect(find.text('7'), findsNothing);
         final dot = tester.widget<AppUnreadDot>(find.byType(AppUnreadDot));
-        expect(dot.ringColor, AppPalette.navy);
+        // DzHome: a plain 8 dp dot on the bar, no ring.
+        expect(dot.showRing, isFalse);
+        expect(
+          tester.getSize(find.byType(AppUnreadDot)),
+          const Size.square(AppUnreadDot.size),
+        );
         final core = tester.widget<Container>(
           find
               .descendant(
@@ -436,15 +444,9 @@ void main() {
           contrast(colors.navBarSelected, colors.navBarSurface),
           greaterThanOrEqualTo(4.5),
         );
-        // The selected glyph sits on the 12 % disc, not on bare navy.
-        final disc = Color.alphaBlend(
-          colors.navBarSelected.withValues(
-            alpha: AppFloatingBottomBar.selectedDiscOpacity,
-          ),
-          colors.navBarSurface,
-        );
+        // The selected glyph sits on the tinted pill, not on bare navy.
         expect(
-          contrast(colors.navBarSelected, disc),
+          contrast(colors.navBarSelected, AppFloatingBottomBar.activePill),
           greaterThanOrEqualTo(4.5),
         );
       });
@@ -463,8 +465,8 @@ void main() {
       // Left and right of the pill, in its row.
       await tester.tapAt(Offset(10, pill.center.dy));
       await tester.tapAt(Offset(350, pill.center.dy));
-      // The 24dp strip under it.
-      await tester.tapAt(Offset(180, pill.bottom + 12));
+      // The 14dp strip under it.
+      await tester.tapAt(Offset(180, pill.bottom + 7));
       expect(under, 3);
       expect(taps, isEmpty);
 
@@ -535,9 +537,11 @@ void main() {
 
   test('the legacy bar keeps its 56dp token', () {
     expect(AppSize.bottomNav, 56);
-    expect(AppSize.floatingNavHeight, 66);
-    expect(AppSize.floatingNavInset, 20);
-    expect(AppSize.floatingNavBottom, 24);
-    expect(AppFloatingBottomBar.reservedHeight, 90);
+    // The Dz artboards: 64 tall, 16 inset, 14 above the bottom (was 66 / 20 /
+    // 24, reserved 90).
+    expect(AppSize.floatingNavHeight, 64);
+    expect(AppSize.floatingNavInset, 16);
+    expect(AppSize.floatingNavBottom, 14);
+    expect(AppFloatingBottomBar.reservedHeight, 78);
   });
 }

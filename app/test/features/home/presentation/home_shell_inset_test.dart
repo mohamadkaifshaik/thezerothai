@@ -150,7 +150,7 @@ void main() {
   }
 
   /// The height at which the last of the three rows sits 40 dp above the
-  /// bottom edge: inside the 90 dp of the floating bar, on a feed whose
+  /// bottom edge: inside the 78 dp of the floating bar, on a feed whose
   /// content alone fits the screen.
   Future<double> shortHeight(WidgetTester tester) async {
     await open(tester, height: 2000);
@@ -176,7 +176,7 @@ void main() {
         matching: find.byType(Material),
       ),
     );
-    expect(pill.top, height - 90);
+    expect(pill.top, height - 78);
     final row = tester.getRect(lastRow());
     expect(row.bottom, lessThanOrEqualTo(pill.top));
     // A tap at the foot of the row hits the row, not the bar.

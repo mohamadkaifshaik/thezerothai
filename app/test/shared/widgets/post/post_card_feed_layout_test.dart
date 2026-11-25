@@ -1,3 +1,5 @@
+import 'package:dzeroth/core/icons/dz_icon_data.dart';
+import 'package:dzeroth/core/icons/dz_icons.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
@@ -10,6 +12,8 @@ import 'package:fixnum/fixnum.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../../support/app_fonts.dart';
+import '../../../support/dz_finders.dart';
 import '../../../support/posts_fixtures.dart';
 import '../../../support/theme_harness.dart';
 
@@ -65,6 +69,9 @@ PostCard _card(pb.PostView view, {bool indentBody = false}) => PostCard(
 );
 
 void main() {
+  // Real Inter metrics: the one-line checks are about the design's text.
+  setUpAll(loadAppFonts);
+
   testWidgets('the body starts under the avatar circle, not beside it', (
     tester,
   ) async {
@@ -116,85 +123,132 @@ void main() {
           textScale: scale,
         );
         expect(tester.takeException(), isNull);
-        // Every action keeps its tap box (48 tall, 40+ wide) and none overlaps
-        // another.
         final boxes = [
-          for (final icon in const [
-            Icons.chat_bubble_outline,
-            Icons.repeat,
-            Icons.favorite_border,
-            Icons.ios_share,
-            Icons.bookmark_border,
-          ])
-            tester.getRect(
-              find
-                  .ancestor(
-                    of: find.byIcon(icon),
-                    matching: find.byType(InkResponse),
-                  )
-                  .first,
-            ),
+          for (final icon in dzActionIcons) actionBoxOf(tester, icon),
         ];
-        for (final box in boxes) {
-          expect(box.height, greaterThanOrEqualTo(48));
-          expect(box.width, greaterThanOrEqualTo(39.9));
+        // Every action has a 48 dp tap area around its drawn box.
+        for (final icon in dzActionIcons) {
+          final area = tapAreaOf(tester, findDz(icon));
+          // (Fractional media rows above put the row at a non-integer y.)
+          expect(area.height, closeTo(AppSpacing.minTapTarget, 1e-6));
+          expect(
+            area.width,
+            greaterThanOrEqualTo(AppSpacing.minTapTarget - 1e-6),
+          );
         }
-        for (var i = 1; i < boxes.length; i++) {
-          expect(boxes[i].left, greaterThanOrEqualTo(boxes[i - 1].right - 0.5));
+        final phone = width < AppBreakpoints.mobile;
+        final bar = tester.getRect(find.byType(PostActionBar));
+        if (phone) {
+          // One line when the boxes fit, else wrapped only where they must
+          // (these are stress counts: 999, 1.23M, 12.3K). At 1.0x the 360
+          // and 400 dp phones hold them on one line; at 320 the five boxes
+          // (about 316 dp) outrun the 300 dp the row has, so it wraps.
+          final flat = expectCompactRowFlow(
+            bar,
+            boxes,
+            reason: '$width x$scale',
+          );
+          if (scale == 1.0) expect(flat, width >= 360, reason: '$width');
+        } else {
+          // Tablet and desktop: one distributed line, edge to edge.
+          expect(boxes.first.left, bar.left);
+          expect(boxes.last.right, closeTo(bar.right, 0.01));
+          for (var i = 1; i < boxes.length; i++) {
+            expect(boxes[i].top, boxes.first.top, reason: '$width box $i');
+            expect(boxes[i].left, greaterThan(boxes[i - 1].right));
+          }
+        }
+        for (final box in boxes) {
+          expect(
+            box.height,
+            closeTo(
+              phone ? AppIconSize.actionTarget : AppSpacing.minTapTarget,
+              1e-6,
+            ),
+          );
         }
       });
     }
   }
 
-  /// The 48 dp tap boxes of the given glyphs, in order.
-  List<Rect> boxesOf(WidgetTester tester, List<IconData> icons) => [
-    for (final icon in icons)
-      tester.getRect(
-        find
-            .ancestor(of: find.byIcon(icon), matching: find.byType(InkResponse))
-            .first,
-      ),
+  for (final width in const [360.0, 400.0]) {
+    testWidgets('feed-sized counts stay on one line at ${width}dp with text '
+        'x1.3', (tester) async {
+      final view = _view()
+        ..post.replyCount = Int64(12)
+        ..post.repostCount = Int64(3)
+        ..post.likeCount = Int64(1500);
+      await _pump(tester, _card(view), width: width, textScale: 1.3);
+      final boxes = [
+        for (final icon in dzActionIcons) actionBoxOf(tester, icon),
+      ];
+      final bar = tester.getRect(find.byType(PostActionBar));
+      expect(expectCompactRowFlow(bar, boxes), isTrue);
+      expect(bar.height, AppIconSize.actionTarget);
+    });
+  }
+
+  /// The drawn boxes of the given glyphs, in order.
+  List<Rect> boxesOf(WidgetTester tester, List<DzIconData> icons) => [
+    for (final icon in icons) actionBoxOf(tester, icon),
   ];
 
-  const fiveIcons = [
-    Icons.chat_bubble_outline,
-    Icons.repeat,
-    Icons.favorite_border,
-    Icons.ios_share,
-    Icons.bookmark_border,
-  ];
+  const fiveIcons = dzActionIcons;
 
-  testWidgets('the five actions are spaced across the row, in the owner '
-      'order: Reply, Repost, Like, Share, Bookmark', (tester) async {
-    for (final width in const [320.0, 360.0, 400.0, 700.0, 1100.0]) {
+  testWidgets('the five actions sit in the artboards\' order: Reply, Repost, '
+      'Like at the start, Save and Share at the end', (tester) async {
+    for (final width in const [360.0, 400.0, 700.0, 1100.0]) {
       await _pump(tester, _card(_view()), width: width);
       final icons = [
-        for (final icon in fiveIcons) tester.getRect(find.byIcon(icon)),
+        for (final icon in fiveIcons) tester.getRect(findDz(icon)),
       ];
       final boxes = boxesOf(tester, fiveIcons);
       final bar = tester.getRect(find.byType(PostActionBar));
-      expect(boxes.first.left, closeTo(bar.left, 0.5), reason: '$width');
+      final avatar = tester.getRect(find.byType(AppAvatar));
+      final phone = width < AppBreakpoints.mobile;
+      if (phone) {
+        // The compact row hangs 10 dp into the gutter on each side, so the
+        // reply glyph sits on the text edge (under the avatar circle).
+        expect(boxes.first.left, bar.left - 10, reason: '$width');
+        expect(icons.first.left, closeTo(avatar.left, 0.5), reason: '$width');
+        expect(boxes.last.right, bar.right + 10, reason: '$width');
+      } else {
+        // Tablet and desktop: distributed, edge-aligned.
+        expect(boxes.first.left, bar.left, reason: '$width');
+        expect(boxes.last.right, bar.right, reason: '$width');
+      }
       for (var i = 0; i < 5; i++) {
-        expect(boxes[i].width, greaterThanOrEqualTo(48), reason: '$width');
-        expect(boxes[i].height, greaterThanOrEqualTo(48), reason: '$width');
+        final area = tapAreaOf(tester, findDz(fiveIcons[i]));
+        expect(area.height, AppSpacing.minTapTarget, reason: '$width');
+        expect(
+          area.width,
+          greaterThanOrEqualTo(AppSpacing.minTapTarget),
+          reason: '$width',
+        );
         if (i > 0) {
-          expect(boxes[i].left, closeTo(boxes[i - 1].right + 4, 0.5));
+          // One line at these widths, in order.
+          expect(boxes[i].top, boxes.first.top, reason: '$width box $i');
+          expect(
+            boxes[i].left,
+            greaterThanOrEqualTo(boxes[i - 1].right - 0.01),
+            reason: '$width box $i',
+          );
           expect(icons[i].left, greaterThan(icons[i - 1].left));
         }
       }
-      expect(boxes.last.right, closeTo(bar.right, 1), reason: '$width');
       expect(tester.takeException(), isNull);
     }
   });
 
-  testWidgets('an item with a count is its glyph, 6 dp, the count, then a '
-      'gap to the next capsule', (tester) async {
+  testWidgets('an item with a count is its glyph, 5 dp, the count, then the '
+      'next 44 dp box', (tester) async {
     await _pump(tester, _card(_view()), width: 400);
-    final reply = tester.getRect(find.byIcon(Icons.chat_bubble_outline));
+    final reply = tester.getRect(findDz(DzIcons.reply));
     final count = tester.getRect(find.text('999'));
-    final repost = tester.getRect(find.byIcon(Icons.repeat));
-    expect(count.left - reply.right, closeTo(AppSpacing.actionGap, 0.5));
-    expect(repost.left - count.right, greaterThan(4));
+    final repost = tester.getRect(findDz(DzIcons.repost));
+    expect(count.left - reply.right, closeTo(5, 0.5));
+    // 10 dp of padding after the count and 10 before the next glyph.
+    expect(repost.left - count.right, closeTo(20, 1));
   });
 
   testWidgets('a list card has no Bookmark without a callback: four visible '
@@ -212,14 +266,15 @@ void main() {
         ),
       ),
     );
-    expect(find.byIcon(Icons.bookmark_border), findsNothing);
+    expect(findDz(DzIcons.save), findsNothing);
     final boxes = boxesOf(tester, const [
-      Icons.repeat,
-      Icons.favorite_border,
-      Icons.ios_share,
+      DzIcons.repost,
+      DzIcons.like,
+      DzIcons.share,
     ]);
-    expect(boxes[1].left, closeTo(boxes[0].right + 4, 0.5));
-    expect(boxes[2].left, closeTo(boxes[1].right + 4, 0.5));
+    // Repost and Like touch; Share is at the trailing edge.
+    expect(boxes[1].left, closeTo(boxes[0].right, 0.5));
+    expect(boxes[2].left, greaterThan(boxes[1].right));
   });
 
   testWidgets('with views re-enabled they are after the others, last', (
@@ -245,7 +300,7 @@ void main() {
       ),
       size: const Size(400, 400),
     );
-    final bookmark = tester.getRect(find.byIcon(Icons.bookmark_border));
+    final bookmark = tester.getRect(findDz(DzIcons.save));
     final views = tester.getRect(find.byIcon(kPostViewsIcon));
     expect(views.left, greaterThan(bookmark.right));
     expect(tester.takeException(), isNull);

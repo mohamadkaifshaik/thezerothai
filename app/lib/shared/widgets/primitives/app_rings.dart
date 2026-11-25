@@ -9,11 +9,15 @@ class AppRings extends StatelessWidget {
     required this.rings,
     required this.color,
     required this.centre,
+    this.strokeWidth = 1,
   });
 
   /// (diameter, alpha) pairs from the inside out.
   final List<(double, double)> rings;
   final Color color;
+
+  /// Stroke width of every ring (1 dp; the Dz hero band uses 1.5).
+  final double strokeWidth;
 
   /// Where the rings sit inside the painted box, from its size.
   final Offset Function(Size size) centre;
@@ -23,7 +27,12 @@ class AppRings extends StatelessWidget {
     child: ExcludeSemantics(
       child: CustomPaint(
         size: Size.infinite,
-        painter: _RingsPainter(rings: rings, color: color, centre: centre),
+        painter: _RingsPainter(
+          rings: rings,
+          color: color,
+          centre: centre,
+          strokeWidth: strokeWidth,
+        ),
       ),
     ),
   );
@@ -34,10 +43,12 @@ class _RingsPainter extends CustomPainter {
     required this.rings,
     required this.color,
     required this.centre,
+    required this.strokeWidth,
   });
 
   final List<(double, double)> rings;
   final Color color;
+  final double strokeWidth;
   final Offset Function(Size size) centre;
 
   @override
@@ -49,7 +60,7 @@ class _RingsPainter extends CustomPainter {
         diameter / 2,
         Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 1
+          ..strokeWidth = strokeWidth
           ..color = color.withValues(alpha: alpha),
       );
     }
@@ -57,5 +68,8 @@ class _RingsPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_RingsPainter old) =>
-      old.color != color || old.rings != rings || old.centre != centre;
+      old.color != color ||
+      old.rings != rings ||
+      old.centre != centre ||
+      old.strokeWidth != strokeWidth;
 }

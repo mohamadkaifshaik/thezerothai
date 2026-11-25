@@ -170,12 +170,21 @@ class AppCountBadge extends StatelessWidget {
 /// required ("Unread"); the dot is never the only carrier of the state, the
 /// row text or a count also says it.
 class AppUnreadDot extends StatelessWidget {
-  const AppUnreadDot({super.key, required this.semanticsLabel, this.ringColor});
+  const AppUnreadDot({
+    super.key,
+    required this.semanticsLabel,
+    this.ringColor,
+    this.showRing = true,
+  });
 
   final String semanticsLabel;
 
   /// The colour behind the dot; the theme surface when null.
   final Color? ringColor;
+
+  /// Draw the ring. The Dz bottom bar's dot sits on the bar, not on the
+  /// glyph, and has none (DzHome: a plain 8 dp dot).
+  final bool showRing;
 
   /// Diameter of the teal core (dp).
   static const double size = 8;
@@ -186,27 +195,30 @@ class AppUnreadDot extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final core = Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: context.appColors.accentText,
+        shape: BoxShape.circle,
+      ),
+    );
     return Semantics(
       label: semanticsLabel,
       container: true,
       child: ExcludeSemantics(
-        child: Container(
-          width: size + ring * 2,
-          height: size + ring * 2,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: ringColor ?? theme.colorScheme.surface,
-            shape: BoxShape.circle,
-          ),
-          child: Container(
-            width: size,
-            height: size,
-            decoration: BoxDecoration(
-              color: context.appColors.accentText,
-              shape: BoxShape.circle,
-            ),
-          ),
-        ),
+        child: !showRing
+            ? core
+            : Container(
+                width: size + ring * 2,
+                height: size + ring * 2,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: ringColor ?? theme.colorScheme.surface,
+                  shape: BoxShape.circle,
+                ),
+                child: core,
+              ),
       ),
     );
   }

@@ -496,9 +496,10 @@ void main() {
       expect(s(AppShadows.primaryGlow).offset, const Offset(0, 10));
       expect(s(AppShadows.primaryGlow).blurRadius, 26);
       expect(s(AppShadows.primaryGlow).color.a, closeTo(0.35, 0.005));
-      expect(s(AppShadows.navBar).offset, const Offset(0, 14));
-      expect(s(AppShadows.navBar).blurRadius, 30);
-      expect(s(AppShadows.navBar).color.a, closeTo(0.35, 0.005));
+      // The Dz artboards' bar shadow: 0 10 24 at 28 % (was 0 14 30 at 35 %).
+      expect(s(AppShadows.navBar).offset, const Offset(0, 10));
+      expect(s(AppShadows.navBar).blurRadius, 24);
+      expect(s(AppShadows.navBar).color.a, closeTo(0.28, 0.005));
     });
 
     test('radius and size', () {
@@ -515,9 +516,10 @@ void main() {
       );
       expect(AppSize.buttonHeight, 52);
       expect(AppSize.buttonHeightLarge, 56);
-      expect(AppSize.floatingNavHeight, 66);
-      expect(AppSize.floatingNavInset, 20);
-      expect(AppSize.floatingNavBottom, 24);
+      // The Dz artboards' floating bar: 64 tall, 16 inset, 14 above bottom.
+      expect(AppSize.floatingNavHeight, 64);
+      expect(AppSize.floatingNavInset, 16);
+      expect(AppSize.floatingNavBottom, 14);
       expect(AppSize.fabRedesign, 58);
       expect(AppSize.avatarRow, 44);
       expect(AppSize.avatarPost, 42);

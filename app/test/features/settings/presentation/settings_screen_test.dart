@@ -295,7 +295,7 @@ void main() {
         .first;
 
     /// The height at which Sign out, the last row, ends 40 dp above the
-    /// bottom edge: inside the 90 dp of the floating bar, on a list that
+    /// bottom edge: inside the 78 dp of the floating bar, on a list that
     /// fits the screen without the bar.
     Future<double> shortHeight(WidgetTester tester) async {
       _setView(tester, 2000);
@@ -322,7 +322,7 @@ void main() {
 
       expect(_barOpacity(tester), 1);
       final pill = _pillRect(tester);
-      expect(pill.top, height - 90);
+      expect(pill.top, height - 78);
       expect(tester.getRect(signOut()).bottom, lessThanOrEqualTo(pill.top));
       await tester.tap(find.text('Sign out'));
       await tester.pump();

@@ -47,6 +47,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../support/bookmarks_fixtures.dart';
+import '../../../support/dz_finders.dart';
 import '../../../support/fake_transport.dart';
 import '../../../support/geometry.dart';
 import '../../../support/likes_fixtures.dart';
@@ -232,7 +233,7 @@ void main() {
   Finder tabBar() => find.byType(AppTabBar);
   Finder tab(String label) =>
       find.descendant(of: tabBar(), matching: find.text(label));
-  Finder likedHearts() => find.byIcon(Icons.favorite);
+  Finder likedHearts() => byActionIcon(Icons.favorite);
 
   Future<void> selectLikes(WidgetTester tester) async {
     await tester.tap(tab('Likes'));
@@ -340,7 +341,7 @@ void main() {
       await open(tester);
       await selectLikes(tester);
 
-      await tester.tap(find.byIcon(Icons.bookmark));
+      await tester.tap(byActionIcon(Icons.bookmark));
       await tester.pumpAndSettle();
 
       expect(bookmarks.toggles.single, isA<eng.RemoveBookmarkRequest>());
@@ -433,7 +434,7 @@ void main() {
 
       expect(rows(), findsNWidgets(2));
       expect(likedHearts(), findsNothing);
-      expect(find.byIcon(Icons.favorite_border), findsNothing);
+      expect(byActionIcon(Icons.favorite_border), findsNothing);
     });
   });
 
