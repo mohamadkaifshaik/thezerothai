@@ -62,12 +62,15 @@ class MessagingUpdateRequired extends StatelessWidget {
           ),
         ),
         const SizedBox(height: AppSpacing.md),
-        Text(
-          messagingUpdateTitle(kind),
-          style: desktop
-              ? theme.textTheme.headlineSmall
-              : theme.textTheme.titleLarge,
-          textAlign: TextAlign.center,
+        Semantics(
+          header: true,
+          child: Text(
+            messagingUpdateTitle(kind),
+            style: desktop
+                ? theme.textTheme.headlineSmall
+                : theme.textTheme.titleLarge,
+            textAlign: TextAlign.center,
+          ),
         ),
         if (body != null) ...[
           const SizedBox(height: AppSpacing.sm),

@@ -12,6 +12,7 @@ const kUpdateAction = 'Update';
 
 /// Web: a tab opened before a deploy.
 const kReloadToMessageTitle = 'A new version is available';
+const kReloadToMessageBody = 'Reload to keep messaging.';
 const kReloadAction = 'Reload';
 
 /// iOS: no build can do it yet, so there is no action.
@@ -39,8 +40,17 @@ String messagingUpdateTitle(MessagingUpdateKind kind) => switch (kind) {
 
 /// The line under the headline, or null (iOS has none).
 String? messagingUpdateBody(MessagingUpdateKind kind) => switch (kind) {
+  MessagingUpdateKind.android => kUpdateToMessageBody,
+  MessagingUpdateKind.web => kReloadToMessageBody,
   MessagingUpdateKind.ios => null,
-  _ => kUpdateToMessageBody,
+};
+
+/// The one-line text for a snackbar or notice shown mid-session (a floor raised
+/// while the app is open): the web says "A new version is available. Reload to
+/// keep messaging."; Android and iOS give the headline alone.
+String messagingUpdateMessage(MessagingUpdateKind kind) => switch (kind) {
+  MessagingUpdateKind.web => '$kReloadToMessageTitle. $kReloadToMessageBody',
+  _ => messagingUpdateTitle(kind),
 };
 
 /// The button label, or null when the platform has no action.

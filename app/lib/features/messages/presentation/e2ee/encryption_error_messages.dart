@@ -2,6 +2,7 @@ import '../../../../core/network/app_exception.dart';
 import '../../../../core/widgets/app_error_view.dart';
 import '../../domain/e2ee/encrypted_messaging.dart';
 import '../messaging_error_messages.dart';
+import '../messaging_update_copy.dart';
 import '../widgets/outgoing_bubble.dart';
 import 'encryption_copy.dart';
 
@@ -18,6 +19,11 @@ String encryptionErrorMessage(AppException error) {
   return switch (error) {
     LimitReachedException(quota: 'key_devices') => kStatusDeviceLimitBody,
     final RateLimitedException e => rateLimitedMessage(e),
+    // Below the server's version floor (Plan 6 PR 6-4): say to update, not
+    // "not available". The text is the messaging update prompt's.
+    FeatureDisabledException(updateRequired: true) => messagingUpdateMessage(
+      messagingUpdateKindFor(),
+    ),
     FeatureDisabledException() => _featureDisabledText,
     DegradedModeException() => _degradedText,
     NetworkException() => _networkText,

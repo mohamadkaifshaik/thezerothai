@@ -22,7 +22,7 @@ String messagingErrorMessage(AppException error) {
       "You've hit today's limit for messaging. It resets tomorrow.",
     // A floor raised while the app is open: say what to do, not "not
     // available". Text per platform (update, reload, or not on iPhone yet).
-    FeatureDisabledException(updateRequired: true) => messagingUpdateTitle(
+    FeatureDisabledException(updateRequired: true) => messagingUpdateMessage(
       messagingUpdateKindFor(),
     ),
     FeatureDisabledException() => "Messages aren't available right now.",
@@ -58,7 +58,7 @@ String conversationsNoticeMessage(AppException error) {
     DegradedModeException() =>
       'dZeroth is in a limited mode right now. Showing saved messages.',
     NetworkException() => "You're offline. Showing saved messages.",
-    FeatureDisabledException(updateRequired: true) => messagingUpdateTitle(
+    FeatureDisabledException(updateRequired: true) => messagingUpdateMessage(
       messagingUpdateKindFor(),
     ),
     FeatureDisabledException() => "Messages aren't available right now.",

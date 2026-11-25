@@ -34,6 +34,13 @@ class ServiceFeatureGate extends ChangeNotifier {
   final DateTime Function() _now;
   DateTime? _lastRefreshRequest;
   bool _disabledByServer = false;
+  bool _updateRequired = false;
+
+  /// Whether the answer this gate remembers carried `update_required` (this
+  /// build is below the server's floor). The gate's own local refusals keep the
+  /// flag until [reset], so a caller never mistakes them for a lasting refusal.
+  @protected
+  bool get updateRequiredByServer => _updateRequired;
 
   /// Whether RPCs of this service may be sent at all.
   bool get enabled => _isEnabled() && !_disabledByServer;
@@ -47,6 +54,7 @@ class ServiceFeatureGate extends ChangeNotifier {
   /// sub-features). Fires the refresh callback only on a real change.
   @protected
   void recordDisabled(FeatureDisabledException exception) {
+    if (exception.updateRequired) _updateRequired = true;
     if (_disabledByServer) return;
     _disabledByServer = true;
     _requestRefresh();
@@ -55,6 +63,7 @@ class ServiceFeatureGate extends ChangeNotifier {
 
   /// Forgets a remembered FEATURE_DISABLED answer (after a fresh `GetMe`).
   void reset() {
+    _updateRequired = false;
     if (!_disabledByServer) return;
     _disabledByServer = false;
     notifyListeners();
@@ -65,7 +74,10 @@ class ServiceFeatureGate extends ChangeNotifier {
   /// [UnknownApiException] goes to `onUnexpectedError` (never the URL).
   Future<T> run<T>(Future<T> Function() call) async {
     if (!enabled) {
-      throw const FeatureDisabledException('This feature is not available.');
+      throw FeatureDisabledException(
+        'This feature is not available.',
+        updateRequired: _updateRequired,
+      );
     }
     try {
       return await guardApiCall(call);

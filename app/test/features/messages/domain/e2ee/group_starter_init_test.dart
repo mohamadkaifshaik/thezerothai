@@ -3982,6 +3982,38 @@ void main() {
       await expectUnchanged(row, 'update_required is not a lasting refusal');
     });
 
+    // The gate's own refusal after the first update_required answer (it
+    // sends nothing) carries the flag too: a second replay refused locally is
+    // not lasting either (security L2).
+    test('a second replay refused locally after an update_required answer: '
+        'still not lasting, held (Plan 6 PR 6-4, security L2)', () async {
+      final row = await unanswered(stored: true);
+      rig.clock.advance(kProvisionalExpiry + const Duration(minutes: 1));
+      rig.server.rewriteLive = (real) =>
+          pb.ListMessagesResponse(conversation: real.conversation);
+      rig.server.sendScript.addAll([
+        (
+          error: const FeatureDisabledException('off', updateRequired: true),
+          stored: false,
+        ),
+        (
+          error: const FeatureDisabledException(
+            'This feature is not available.',
+            updateRequired: true,
+          ),
+          stored: false,
+        ),
+      ]);
+
+      await starter.resumeProvisional();
+      await done();
+      await starter.resumeProvisional();
+      await done();
+
+      expect(await starter.discardInit(_c1), InitDiscard.held);
+      await expectUnchanged(row, 'a local refusal with update_required');
+    });
+
     // Fix round 3, ruling 2 (code review Minor 1): a STALE_EPOCH of the
     // replay is the evidence only when it names this conversation.
     for (final named in const <String?>[null, _c2]) {

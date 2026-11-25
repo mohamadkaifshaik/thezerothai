@@ -41,6 +41,7 @@ void main() {
       expect(kUpdateAction, 'Update');
       expect(kReloadToMessageTitle, 'A new version is available');
       expect(kReloadAction, 'Reload');
+      expect(kReloadToMessageBody, 'Reload to keep messaging.');
       expect(kIosNotYetTitle, "Messages aren't available on iPhone yet");
     });
 
@@ -89,6 +90,8 @@ void main() {
         ),
       );
       expect(find.text(kReloadToMessageTitle), findsOneWidget);
+      expect(find.text(kReloadToMessageBody), findsOneWidget);
+      expect(find.text(kUpdateToMessageBody), findsNothing);
       expect(find.text(kUpdateToMessageTitle), findsNothing);
       await tester.tap(find.text(kReloadAction));
       expect(reloads, 1);
@@ -127,6 +130,49 @@ void main() {
       });
     }
 
+    for (final width in [390.0, 700.0, 1300.0]) {
+      testWidgets('text scale 2.0 at ${width.toInt()} dp: no overflow', (
+        tester,
+      ) async {
+        tester.view.devicePixelRatio = 1;
+        tester.view.physicalSize = Size(width, 900);
+        addTearDown(tester.view.reset);
+        for (final kind in MessagingUpdateKind.values) {
+          await tester.pumpWidget(
+            MaterialApp(
+              builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(context)
+                    .copyWith(textScaler: const TextScaler.linear(2)),
+                child: child!,
+              ),
+              home: Scaffold(
+                body: MessagingUpdateRequired(
+                  kind: kind,
+                  onUpdate: () {},
+                  onReload: () {},
+                ),
+              ),
+            ),
+          );
+          expect(tester.takeException(), isNull, reason: '$kind');
+          expect(find.text(messagingUpdateTitle(kind)), findsOneWidget);
+        }
+      });
+    }
+
+    testWidgets('the title is a semantics header', (tester) async {
+      final handle = tester.ensureSemantics();
+      await _pump(
+        tester,
+        const MessagingUpdateRequired(kind: MessagingUpdateKind.web),
+      );
+      expect(
+        tester.getSemantics(find.text(kReloadToMessageTitle)),
+        matchesSemantics(isHeader: true, label: kReloadToMessageTitle),
+      );
+      handle.dispose();
+    });
+
     testWidgets('with no kind it follows the running platform', (tester) async {
       debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
       addTearDown(() => debugDefaultTargetPlatformOverride = null);
@@ -161,6 +207,18 @@ void main() {
         messagingErrorMessage(_mapped({'feature': 'messaging'})),
         "Messages aren't available right now.",
       );
+    });
+
+    test('the mid-session text per platform', () {
+      expect(
+        messagingUpdateMessage(MessagingUpdateKind.web),
+        'A new version is available. Reload to keep messaging.',
+      );
+      expect(
+        messagingUpdateMessage(MessagingUpdateKind.android),
+        kUpdateToMessageTitle,
+      );
+      expect(messagingUpdateMessage(MessagingUpdateKind.ios), kIosNotYetTitle);
     });
   });
 }

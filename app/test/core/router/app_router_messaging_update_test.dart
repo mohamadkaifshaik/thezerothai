@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/app/session_wiring.dart';
 import 'package:dzeroth/core/feature_flags/feature_flags.dart';
@@ -5,12 +7,14 @@ import 'package:dzeroth/core/feature_flags/ui_shell_feature_flag.dart';
 import 'package:dzeroth/core/network/rate_limit_hold.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/theme/theme_mode_cubit.dart';
+import 'package:dzeroth/core/widgets/app_top_bar.dart';
 import 'package:dzeroth/features/auth/domain/app_user.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/features/messages/data/message_outbox.dart';
+import 'package:dzeroth/features/messages/data/messaging_store.dart';
 import 'package:dzeroth/features/messages/data/messaging_repository.dart';
 import 'package:dzeroth/features/messages/presentation/conversations_screen.dart';
 import 'package:dzeroth/features/messages/presentation/messaging_update_copy.dart';
@@ -25,8 +29,10 @@ import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../support/messaging_fixtures.dart';
 import '../../support/messaging_shell_rig.dart';
 import '../../support/thread_test_support.dart';
 
@@ -75,8 +81,11 @@ void main() {
     Set<String> needingUpdate = const {},
     String location = AppRouter.messagesPath,
     double width = 390,
+    StreamController<OnboardingState>? states,
+    void Function(_MockMessagingRepository repo)? stub,
   }) async {
     final repo = _MockMessagingRepository();
+    stub?.call(repo);
     when(() => repo.rateLimitedFor()).thenReturn(null);
     when(() => repo.conversationsChanged)
         .thenAnswer((_) => const Stream<void>.empty());
@@ -95,7 +104,7 @@ void main() {
     );
     whenListen(
       onboarding,
-      const Stream<OnboardingState>.empty(),
+      states?.stream ?? const Stream<OnboardingState>.empty(),
       initialState: OnboardingState(
         status: OnboardingStatus.ready,
         profile: identity.Profile(userId: 'uid-1', handle: 'me'),
@@ -153,6 +162,9 @@ void main() {
       expect(find.byType(ConversationsScreen), findsOneWidget);
       expect(find.byType(MessagingUpdateRequired), findsOneWidget);
       expect(find.text(kUpdateToMessageTitle), findsOneWidget);
+      // The inbox's own header, not a plain AppBar.
+      expect(find.byType(AppTopBar), findsOneWidget);
+      expect(find.byType(AppBar), findsNothing);
       // The destination is still there (selected on its own page).
       expect(find.byIcon(Icons.mail), findsOneWidget);
       verifyNever(() => repo.cachedConversations(any()));
@@ -211,6 +223,60 @@ void main() {
     expect(find.byType(MessagingUpdateRequired), findsNothing);
     expect(find.byIcon(Icons.mail_outline), findsNothing);
     expect(find.byIcon(Icons.mail), findsNothing);
+  });
+
+  testWidgets('the floor arriving mid-session: a thread open with messaging on '
+      'goes to the prompt, with no more thread or inbox reads', (tester) async {
+    final states = StreamController<OnboardingState>.broadcast();
+    addTearDown(states.close);
+    final header = threadConv();
+    final (_, repo) = await openAt(
+      tester,
+      flags: const {kFeatureUiShell, 'messaging'},
+      location: AppRouter.messagePath(kThreadId),
+      states: states,
+      stub: (repo) {
+        when(() => repo.cachedConversations(any())).thenAnswer(
+          (_) async => const ConversationsSnapshot(conversations: []),
+        );
+        when(() => repo.refreshConversations(any())).thenAnswer(
+          (_) async => ConversationsResult(
+            const ConversationsSnapshot(conversations: []),
+            requestCount: 0,
+          ),
+        );
+        when(() => repo.cachedThread(any())).thenAnswer(
+          (_) async =>
+              ThreadSnapshot(messages: msgs(1, 2), conversation: header),
+        );
+        when(() => repo.refreshThread(any())).thenAnswer(
+          (_) async =>
+              ThreadSnapshot(messages: msgs(1, 2), conversation: header),
+        );
+        when(() => repo.cachedConversationWith(any()))
+            .thenAnswer((_) async => null);
+      },
+    );
+    expect(find.byType(MessagingUpdateRequired), findsNothing);
+
+    clearInteractions(repo);
+    states.add(
+      OnboardingState(
+        status: OnboardingStatus.ready,
+        profile: identity.Profile(userId: 'uid-1', handle: 'me'),
+        enabledFeatures: const {kFeatureUiShell},
+        featuresNeedingUpdate: const {'messaging'},
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final router = GoRouter.of(
+      tester.element(find.byType(MessagingUpdateRequired)),
+    );
+    expect(router.routeInformationProvider.value.uri.path, '/messages');
+    expect(find.byType(MessagingUpdateRequired), findsOneWidget);
+    verifyNever(() => repo.refreshThread(any()));
+    verifyNever(() => repo.refreshConversations(any()));
   });
 
   test(
