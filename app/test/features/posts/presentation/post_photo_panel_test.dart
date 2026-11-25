@@ -305,8 +305,9 @@ void main() {
   testWidgets('View post has its own glyph, not the Reply one', (tester) async {
     await open(tester, view());
     expect(find.byIcon(Icons.open_in_new), findsOneWidget);
-    // The Material chat glyph is View post's; Reply is the design's own icon.
-    expect(find.byIcon(Icons.chat_bubble_outline), findsOneWidget);
+    // Reply in the row is the design's own icon, so the Material chat glyph
+    // is gone and View post's is the only chat-like one.
+    expect(find.byIcon(Icons.chat_bubble_outline), findsNothing);
     expect(findDz(DzIcons.reply), findsOneWidget);
   });
 

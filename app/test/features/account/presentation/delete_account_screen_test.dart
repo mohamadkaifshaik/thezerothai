@@ -1007,7 +1007,7 @@ void main() {
         find.widgetWithText(AppPillButton, 'Delete my account');
 
     /// The height at which the final action ends 40 dp above the bottom
-    /// edge: inside the 90 dp of the floating bar, on a page that fits the
+    /// edge: inside the 78 dp of the floating bar, on a page that fits the
     /// screen without the bar.
     Future<double> shortHeight(WidgetTester tester) async {
       await pump(tester, size: const Size(360, 2000), floatingBar: false);
@@ -1023,7 +1023,7 @@ void main() {
 
       expect(_barOpacity(tester), 1);
       final pill = _pillRect(tester);
-      expect(pill.top, height - 90);
+      expect(pill.top, height - 78);
       expect(
         tester.getRect(deleteButton()).bottom,
         lessThanOrEqualTo(pill.top),

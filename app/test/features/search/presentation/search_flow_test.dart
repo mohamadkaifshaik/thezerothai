@@ -33,6 +33,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../../support/dz_finders.dart';
 import '../../../support/fake_search_repository.dart';
 import '../../../support/posts_fixtures.dart';
 import '../../../support/search_field_rig.dart';
@@ -400,7 +401,7 @@ void main() {
       final bar = find.byType(AppBottomBar);
       expect(bar, findsOneWidget);
       expect(
-        find.descendant(of: bar, matching: find.byIcon(Icons.search)),
+        find.descendant(of: bar, matching: byNavIcon(Icons.search)),
         findsOneWidget,
       );
     });

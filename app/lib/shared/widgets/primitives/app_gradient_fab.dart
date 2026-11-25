@@ -71,12 +71,19 @@ class _AppGradientFabState extends State<AppGradientFab> {
                     ),
                   ),
             ),
-            child: FloatingActionButton(
-              tooltip: widget.tooltip,
-              onPressed: widget.onPressed,
-              child: dz != null
-                  ? DzIcon(dz, size: AppIconSize.lg, color: ink)
-                  : Icon(widget.icon, size: AppIconSize.lg, color: ink),
+            child: Semantics(
+              button: true,
+              enabled: widget.onPressed != null,
+              label: widget.tooltip,
+              onTap: widget.onPressed,
+              excludeSemantics: true,
+              child: FloatingActionButton(
+                tooltip: widget.tooltip,
+                onPressed: widget.onPressed,
+                child: dz != null
+                    ? DzIcon(dz, size: AppIconSize.lg, color: ink)
+                    : Icon(widget.icon, size: AppIconSize.lg, color: ink),
+              ),
             ),
           ),
         ),

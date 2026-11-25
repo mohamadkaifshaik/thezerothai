@@ -241,7 +241,7 @@ class _FloatingCell extends StatelessWidget {
         shape: const CircleBorder(),
         // The active pill is #123B44 in the artboards; the drawer's dark
         // teal tile (#123A3C) is the nearest token.
-        color: selected ? AppFloatingBottomBar.activePill : Colors.transparent,
+        color: selected ? AppFloatingBottomBar.activePill : null,
       ),
       child: destination.badgeLabel.isEmpty
           ? glyph

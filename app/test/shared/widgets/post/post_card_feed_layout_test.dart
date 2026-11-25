@@ -171,8 +171,12 @@ void main() {
         expect(boxes[i].width, greaterThanOrEqualTo(44), reason: '$width');
         expect(boxes[i].height, greaterThanOrEqualTo(44), reason: '$width');
         if (i > 0) {
-          expect(boxes[i].left, greaterThanOrEqualTo(boxes[i - 1].right - 0.5));
-          expect(icons[i].left, greaterThan(icons[i - 1].left));
+          // Beside the previous box, or on the next line where the width
+          // leaves no room for it.
+          final beside = boxes[i].left >= boxes[i - 1].right - 0.5;
+          final below = boxes[i].top >= boxes[i - 1].bottom - 0.5;
+          expect(beside || below, isTrue, reason: '$width box $i');
+          if (beside) expect(icons[i].left, greaterThan(icons[i - 1].left));
         }
       }
       expect(boxes.last.right, closeTo(bar.right, 1), reason: '$width');

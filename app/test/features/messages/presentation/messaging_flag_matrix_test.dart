@@ -25,6 +25,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../../../support/dz_finders.dart';
 import '../../../support/fake_encrypted_messaging.dart';
 import '../../../support/fake_encryption_device.dart';
 import '../../../support/messaging_flow_rig.dart';
@@ -110,7 +111,7 @@ void main() {
       expect(find.text('hello from sam'), findsOneWidget);
       // The Messages destination: selected (filled) in the new shell only.
       expect(
-        find.byIcon(Icons.mail),
+        byNavIcon(Icons.mail),
         uiShell ? findsOneWidget : findsNothing,
         reason: 'Messages destination needs messaging + ui_shell',
       );

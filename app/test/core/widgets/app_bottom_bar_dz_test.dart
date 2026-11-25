@@ -142,7 +142,7 @@ void main() {
               as ShapeDecoration;
       expect(
         decoration.color,
-        i == 2 ? AppFloatingBottomBar.activePill : Colors.transparent,
+        i == 2 ? AppFloatingBottomBar.activePill : isNull,
         reason: 'item $i',
       );
     }
@@ -177,7 +177,7 @@ void main() {
       final decoration =
           tester.widget<AnimatedContainer>(items.at(i)).decoration!
               as ShapeDecoration;
-      expect(decoration.color, Colors.transparent);
+      expect(decoration.color, isNull);
     }
   });
 
@@ -200,7 +200,7 @@ void main() {
             .getSemantics(find.bySemanticsLabel('Home'))
             .flagsCollection
             .isSelected,
-        isFalse,
+        Tristate.isFalse,
       );
       handle.dispose();
     },

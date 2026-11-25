@@ -247,8 +247,9 @@ class PostActionBar extends StatelessWidget {
             );
           }
           if (spread) {
-            // A box and, with counts, room for a few digits.
-            final need = items.length * (target + (showCounts ? 24 : 0));
+            // A box each and, with counts, room for a few digits on the
+            // four counted actions.
+            final need = items.length * target + (showCounts ? 4 * 14 : 0);
             if (constraints.maxWidth < need) {
               return Wrap(
                 alignment: WrapAlignment.spaceBetween,

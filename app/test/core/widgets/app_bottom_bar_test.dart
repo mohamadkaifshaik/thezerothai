@@ -210,8 +210,8 @@ void main() {
           of: find.byIcon(Icons.event),
           matching: find.byType(Container),
         ),
-        width: 48,
-        height: 48,
+        width: AppSize.floatingNavItem,
+        height: AppSize.floatingNavItem,
         tolerance: 0,
       );
 

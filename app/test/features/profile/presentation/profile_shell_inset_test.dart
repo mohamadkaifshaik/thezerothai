@@ -81,7 +81,7 @@ void main() {
         matching: find.byType(Material),
       ),
     );
-    expect(pill.top, 800 - 90);
+    expect(pill.top, 800 - 78);
     final last = tester.getRect(find.byType(FeedPostRow).last);
     expect(last.bottom, lessThanOrEqualTo(pill.top));
   });

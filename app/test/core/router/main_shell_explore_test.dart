@@ -443,7 +443,7 @@ void main() {
       testWidgets('ui_shell on: a page that does not scroll with the bar '
           'still brings its last row above the pill', (tester) async {
         final rowBottom = await lastRowBottomUnscrolled(tester);
-        // The last row sits 40 dp above the bottom edge: inside the 90 dp the
+        // The last row sits 40 dp above the bottom edge: inside the 78 dp the
         // floating bar takes, on a page whose content alone fits.
         final height = (rowBottom + 40).roundToDouble();
         await pump(
@@ -456,7 +456,7 @@ void main() {
 
         expect(barOpacity(tester), 1);
         final pillTop = tester.getRect(pill()).top;
-        expect(pillTop, height - 90);
+        expect(pillTop, height - 78);
         expect(
           tester.getRect(find.text('#tag3')).bottom,
           lessThanOrEqualTo(pillTop),

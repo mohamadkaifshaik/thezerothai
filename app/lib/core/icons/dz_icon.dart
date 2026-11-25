@@ -1,5 +1,6 @@
 import 'package:material_ui/material_ui.dart';
 
+import '../theme/app_theme.dart';
 import 'dz_icon_data.dart';
 
 /// Paints a [DzIconData] like `Icon`: [size] and [color] default to the
@@ -46,7 +47,7 @@ class DzIcon extends StatelessWidget {
   Widget build(BuildContext context) {
     final iconTheme = IconTheme.of(context);
     final dimension = size ?? iconTheme.size ?? 24;
-    var resolved = color ?? iconTheme.color ?? Colors.black;
+    var resolved = color ?? iconTheme.color ?? AppPalette.navy;
     final opacity = iconTheme.opacity;
     if (opacity != null && opacity != 1) {
       resolved = resolved.withValues(alpha: resolved.a * opacity);

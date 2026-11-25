@@ -342,9 +342,18 @@ void main() {
         reason: 'layout size is stable',
       );
       expect(
-        tester.getRect(find.byType(DzIcon)).width,
-        lessThan(24),
-        reason: 'painted smaller while pressed',
+        tester
+            .widget<AnimatedScale>(
+              find
+                  .descendant(
+                    of: find.byType(AppGradientFab),
+                    matching: find.byType(AnimatedScale),
+                  )
+                  .first,
+            )
+            .scale,
+        lessThan(1),
+        reason: 'scaled down while pressed',
       );
       await gesture.up();
       await tester.pumpAndSettle();
@@ -428,10 +437,13 @@ void main() {
       final handle = tester.ensureSemantics();
       await pumpThemed(
         tester,
-        const SizedBox(
-          width: 200,
-          height: 100,
-          child: AppMediaPlaceholder(icon: null, semanticLabel: 'Photo'),
+        const Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(
+            width: 200,
+            height: 100,
+            child: AppMediaPlaceholder(icon: null, semanticLabel: 'Photo'),
+          ),
         ),
         useScaffold: false,
       );
