@@ -1400,6 +1400,11 @@ abstract final class AppFonts {
 
   /// Body, UI labels, buttons, inputs and post text.
   static const String body = 'Inter';
+
+  /// The Dz redesign's headings (`pubspec.yaml`: `PlusJakartaSans.ttf`, a
+  /// variable TTF with a `wght` 200-800 axis, plus its italic). Only the
+  /// `AppTextStyles` Dz roles use it; it has no `opsz` axis.
+  static const String heading = 'PlusJakartaSans';
 }
 
 TextStyle _type(
@@ -1412,15 +1417,17 @@ TextStyle _type(
   fontFamily: family,
   fontSize: size,
   fontWeight: weight,
-  fontVariations: [
-    // Inter Display (opsz 32) for headings, Inter (opsz 14) for text.
-    FontVariation(
-      'opsz',
-      size >= AppTypeTokens.displayOpszFrom
-          ? AppTypeTokens.opszDisplay
-          : AppTypeTokens.opszText,
-    ),
-  ],
+  fontVariations: family == AppFonts.heading
+      ? null
+      : [
+          // Inter Display (opsz 32) for headings, Inter (opsz 14) for text.
+          FontVariation(
+            'opsz',
+            size >= AppTypeTokens.displayOpszFrom
+                ? AppTypeTokens.opszDisplay
+                : AppTypeTokens.opszText,
+          ),
+        ],
   height: height,
   // Tracking is relative to size (em), never an absolute value.
   letterSpacing: tracking * size,
@@ -1544,6 +1551,158 @@ abstract final class AppTextStyles {
     AppTypeTokens.weightBody,
     height: AppTypeTokens.focalPostLineHeight / AppTypeTokens.focalPostSize,
   ).copyWith(color: theme.colorScheme.onSurface);
+
+  // ---- Dz redesign roles (design canvas, G0). Sizes, weights, spacing and
+  // line heights are the artboards' px values (1 px = 1 dp). Headings are
+  // Plus Jakarta Sans 700/800, everything else Inter. Colour is onSurface
+  // unless the role is a muted one (onSurfaceVariant); callers may copyWith.
+
+  static TextStyle _dz(
+    ThemeData theme,
+    String family,
+    double size,
+    FontWeight weight, {
+    double? line,
+    double spacing = 0,
+    bool italic = false,
+    bool tabular = false,
+    bool muted = false,
+  }) =>
+      _type(
+        family,
+        size,
+        weight,
+        height: line == null ? 1.25 : line / size,
+        tracking: spacing / size,
+      ).copyWith(
+        color: muted
+            ? theme.colorScheme.onSurfaceVariant
+            : theme.colorScheme.onSurface,
+        fontStyle: italic ? FontStyle.italic : FontStyle.normal,
+        fontFeatures: tabular ? const [FontFeature.tabularFigures()] : null,
+      );
+
+  static const _h = AppFonts.heading;
+  static const _b = AppFonts.body;
+
+  /// Headline of a welcome or onboarding page: Jakarta 38/800, -1.2, 42.
+  static TextStyle dzHeadlineXl(ThemeData t) =>
+      _dz(t, _h, 38, FontWeight.w800, line: 42, spacing: -1.2);
+
+  /// The 32/800 headline: -1 spacing, 37 line.
+  static TextStyle dzHeadline(ThemeData t) =>
+      _dz(t, _h, 32, FontWeight.w800, line: 37, spacing: -1);
+
+  /// 30/800, -0.8, 36 (page headline).
+  static TextStyle dzHeadlineL(ThemeData t) =>
+      _dz(t, _h, 30, FontWeight.w800, line: 36, spacing: -0.8);
+
+  /// 28/800, -0.7, 34 (page headline).
+  static TextStyle dzHeadlineM(ThemeData t) =>
+      _dz(t, _h, 28, FontWeight.w800, line: 34, spacing: -0.7);
+
+  /// Hero name on a navy band: 26/800, -0.5, 31.
+  static TextStyle dzHeroName(ThemeData t) =>
+      _dz(t, _h, 26, FontWeight.w800, line: 31, spacing: -0.5);
+
+  /// Screen title in the header: 24/800.
+  static TextStyle dzScreenTitle(ThemeData t) =>
+      _dz(t, _h, 24, FontWeight.w800, line: 30);
+
+  /// Sub-screen title next to a back arrow: 22/800, -0.4.
+  static TextStyle dzTitle(ThemeData t) =>
+      _dz(t, _h, 22, FontWeight.w800, line: 28, spacing: -0.4);
+
+  /// Compact back-header title ("Post"): 20/800, 24 line.
+  static TextStyle dzBackTitle(ThemeData t) =>
+      _dz(t, _h, 20, FontWeight.w800, line: 24);
+
+  /// Card and section heading: 18/800.
+  static TextStyle dzHeading(ThemeData t) =>
+      _dz(t, _h, 18, FontWeight.w800, line: 24);
+
+  /// The wordmark in the Home bar: 17/800 with 5 px spacing.
+  static TextStyle dzWordmark(ThemeData t) =>
+      _dz(t, _h, 17, FontWeight.w800, line: 22, spacing: 5);
+
+  /// The smaller wordmark (welcome, sign-in): 15/800 with 5 px spacing.
+  static TextStyle dzWordmarkSmall(ThemeData t) =>
+      _dz(t, _h, 15, FontWeight.w800, line: 20, spacing: 5);
+
+  /// The italic "D0" monogram inside an avatar: 14/800 italic (12 for a 36 dp
+  /// avatar, 22-26 for hero avatars via [size]).
+  static TextStyle dzMonogram(ThemeData t, {double size = 14}) =>
+      _dz(t, _h, size, FontWeight.w800, italic: true, line: size * 1.2);
+
+  /// Section caps: Inter 12/700 with 2.5 px spacing (uppercase at the call
+  /// site).
+  static TextStyle dzSectionCaps(ThemeData t) =>
+      _dz(t, _b, 12, FontWeight.w700, line: 16, spacing: 2.5, muted: true);
+
+  /// Small caps label: Inter 12/700, 1 px spacing.
+  static TextStyle dzCaps(ThemeData t) =>
+      _dz(t, _b, 12, FontWeight.w700, line: 16, spacing: 1, muted: true);
+
+  /// Row title: Inter 16/700.
+  static TextStyle dzRowTitle(ThemeData t) =>
+      _dz(t, _b, 16, FontWeight.w700, line: 22);
+
+  /// Compact row title and author name: Inter 15/700.
+  static TextStyle dzRowTitleS(ThemeData t) =>
+      _dz(t, _b, 15, FontWeight.w700, line: 21);
+
+  /// Body text: Inter 15 on a 22 line.
+  static TextStyle dzBody(ThemeData t) =>
+      _dz(t, _b, 15, FontWeight.w400, line: 22);
+
+  /// Reply text: Inter 15 on a 21 line.
+  static TextStyle dzBodyReply(ThemeData t) =>
+      _dz(t, _b, 15, FontWeight.w400, line: 21);
+
+  /// Opened post text: Inter 19 on a 27 line.
+  static TextStyle dzBodyDetail(ThemeData t) =>
+      _dz(t, _b, 19, FontWeight.w400, line: 27);
+
+  /// Handle and secondary line: Inter 14, muted.
+  static TextStyle dzSubtitle(ThemeData t) =>
+      _dz(t, _b, 14, FontWeight.w400, line: 20, muted: true);
+
+  /// Meta line: Inter 13, muted.
+  static TextStyle dzMeta(ThemeData t) =>
+      _dz(t, _b, 13, FontWeight.w400, line: 19, muted: true);
+
+  /// Footnote: Inter 12, muted.
+  static TextStyle dzFootnote(ThemeData t) =>
+      _dz(t, _b, 12, FontWeight.w400, line: 16, muted: true);
+
+  /// Action counts: Inter 13/600 with tabular figures (no jump when a count
+  /// changes).
+  static TextStyle dzCount(ThemeData t) =>
+      _dz(t, _b, 13, FontWeight.w600, line: 18, tabular: true);
+
+  /// Feed tab label: Inter 15/600 (selected tabs use 700).
+  static TextStyle dzTab(ThemeData t, {bool selected = false}) =>
+      _dz(t, _b, 15, selected ? FontWeight.w700 : FontWeight.w600, line: 20);
+
+  /// Chip label: Inter 15/600.
+  static TextStyle dzChip(ThemeData t) =>
+      _dz(t, _b, 15, FontWeight.w600, line: 20);
+
+  /// Button label: Inter 15/700.
+  static TextStyle dzButton(ThemeData t) =>
+      _dz(t, _b, 15, FontWeight.w700, line: 20);
+
+  /// Small pill button label (Follow): Inter 14/700.
+  static TextStyle dzButtonS(ThemeData t) =>
+      _dz(t, _b, 14, FontWeight.w700, line: 20);
+
+  /// Badge ("Author", counts): Inter 11/700.
+  static TextStyle dzBadge(ThemeData t) =>
+      _dz(t, _b, 11, FontWeight.w700, line: 14);
+
+  /// Badge, larger: Inter 12/700.
+  static TextStyle dzBadgeL(ThemeData t) =>
+      _dz(t, _b, 12, FontWeight.w700, line: 16);
 
   /// The accented part of a display headline, in the accent text colour
   /// (tealText on light, tealElectric on dark; AA at any size). [size] is one

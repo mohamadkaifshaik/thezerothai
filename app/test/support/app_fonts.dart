@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 /// Paths resolve from `app/`, the working directory of `flutter test`.
 Future<void> loadAppFonts() async {
   await _load('Inter', 'assets/fonts/Inter.ttf');
+  await _load('PlusJakartaSans', 'assets/fonts/PlusJakartaSans.ttf');
 }
 
 Future<void> _load(String family, String path) async {
