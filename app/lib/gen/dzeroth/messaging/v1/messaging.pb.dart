@@ -3797,9 +3797,13 @@ class MessagingServiceApi {
   /// - Into a NONE conversation, or opening a new one, without mls_init => VALIDATION "ciphertext".
   /// - A plaintext request (none of those fields) into an MLS conversation, by conversation_id or by recipient_user_id
   ///   => FAILED_PRECONDITION + ENCRYPTION_REQUIRED, storing nothing (entries and unread counts untouched).
+  /// - A plaintext request into a NONE conversation or opening a new one, while "e2ee_required" is effective for the
+  ///   caller or the recipient (file comment, "Encryption policy") => FAILED_PRECONDITION + ENCRYPTION_REQUIRED, storing
+  ///   nothing; for a new conversation it answers before the recipient status re-read and "dm_new_daily".
   /// - STALE_EPOCH and ENCRYPTION_REQUIRED for a request that addressed recipient_user_id also carry
-  ///   metadata["conversation_id"] (the caller is then a participant of that existing conversation), so the client can
-  ///   continue by conversation id.
+  ///   metadata["conversation_id"] (for STALE_EPOCH and the encrypted-conversation case the caller is then a participant
+  ///   of that existing conversation; under "Encryption policy" it is the pair's derived id, which may not exist yet), so
+  ///   the client can continue by conversation id.
   /// - mls_init starts encryption: it creates the conversation as MLS (no conversation yet) or converts a NONE one (the
   ///   caller must be a participant; else the one NOT_FOUND). Flag e2ee_dm on for the caller (FEATURE_DISABLED
   ///   "e2ee_dm", before any lookup) and the recipient (CANNOT_MESSAGE). All existing send rules (blocks, DM policy,

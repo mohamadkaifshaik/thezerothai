@@ -193,13 +193,15 @@ class ErrorReason extends $pb.ProtobufEnum {
   static const ErrorReason ERROR_REASON_STALE_EPOCH =
       ErrorReason._(23, _omitEnumNames ? '' : 'ERROR_REASON_STALE_EPOCH');
 
-  /// FAILED_PRECONDITION: a plaintext SendMessage (no ciphertext) into a conversation that is end-to-end encrypted.
-  /// Encryption is one-way: the conversation never accepts plaintext again and there is no fallback. Nothing was
-  /// stored. metadata["conversation_id"] is set when the SendMessage addressed recipient_user_id. A current client
-  /// never sends plaintext there; on this reason show "Update the app to keep messaging". A
-  /// client built before this value decodes it as UNSPECIFIED (no metadata["reason"] is set) and falls back to the
-  /// FAILED_PRECONDITION code mapping, so its messaging screens show their generic failure text, not an update prompt:
-  /// telling such an app to update is the app version floor's job, not this error's.
+  /// FAILED_PRECONDITION: a plaintext SendMessage (no ciphertext) that the server refuses because the message must be
+  /// end-to-end encrypted. Two causes, one answer: (1) the conversation is already encrypted (encryption is one-way,
+  /// there is no fallback); (2) encryption is required for the sender or the recipient (FEATURE_E2EE_REQUIRED,
+  /// messaging.v1 header "Encryption policy"), even for a conversation that is not encrypted yet. Nothing was stored.
+  /// metadata["conversation_id"] is set when the SendMessage addressed recipient_user_id. A current client never sends
+  /// plaintext in either case; on this reason show "Update the app to keep messaging". A client built before this value
+  /// decodes it as UNSPECIFIED (no metadata["reason"] is set) and falls back to the FAILED_PRECONDITION mapping, so its
+  /// messaging screens show their generic failure text, not an update prompt: telling such an app to update is the job
+  /// of the app version floor (not yet part of this contract), not this error's.
   static const ErrorReason ERROR_REASON_ENCRYPTION_REQUIRED = ErrorReason._(
       24, _omitEnumNames ? '' : 'ERROR_REASON_ENCRYPTION_REQUIRED');
 

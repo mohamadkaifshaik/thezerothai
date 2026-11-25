@@ -63,7 +63,8 @@ type Spec struct {
 
 // NewRetired builds a Spec for a flag that always reports enabled, regardless of env vars (retirement rule).
 // Use this in place of LoadSpec once a flag has been fully rolled out and its env vars
-// have been removed from Terraform.
+// have been removed from Terraform. A parent gate still applies to a retired child: a retired flag coupled with
+// Registry.Require is effective only while its parents are (its own mode reads on).
 func NewRetired(wireName string) Spec {
 	return Spec{Name: wireName, Mode: On, retired: true}
 }
@@ -130,6 +131,13 @@ func LoadSpec(envName, wireName string, defaultMode Mode) (Spec, error) {
 // resolved from the Spec values captured at process start).
 type Registry struct {
 	specs map[string]Spec
+	// The Require coupling (require.go): requires holds the accepted direct edges, ancestors their closure (every flag a
+	// name needs, directly or through a chain; recomputed at each Require, so a read is linear and never recursive),
+	// broken the names a rejected cycle or self-parent turned permanently off, and rejected those rejections.
+	requires  map[string][]string
+	ancestors map[string][]string
+	broken    map[string]bool
+	rejected  []CouplingWarning
 }
 
 // NewRegistry builds a Registry from a fixed set of specs (one per LoadSpec/NewRetired call in main.go).
@@ -138,20 +146,37 @@ func NewRegistry(specs ...Spec) *Registry {
 	for _, s := range specs {
 		m[s.Name] = s
 	}
-	return &Registry{specs: m}
+	return &Registry{specs: m, requires: map[string][]string{}, ancestors: map[string][]string{}, broken: map[string]bool{}}
 }
 
 // Enabled reports whether the named flag is on for uid. An unknown name is always off (never panics) so a
 // module can check a flag defensively without the registry having to know about every module in advance.
+// It is the effective value: a flag coupled with Require is also off while a flag it requires is off for uid.
 func (r *Registry) Enabled(uid, name string) bool {
 	if r == nil {
 		return false
 	}
-	s, ok := r.specs[name]
-	if !ok {
+	return r.enabled(uid, name)
+}
+
+// enabled is the effective value: name's own spec, and the own spec of every flag it requires (the precomputed closure),
+// on for uid; a name a rejected requirement broke is off.
+func (r *Registry) enabled(uid, name string) bool {
+	if !r.rawOn(uid, name) {
 		return false
 	}
-	return s.enabledFor(uid)
+	for _, a := range r.ancestors[name] {
+		if !r.rawOn(uid, a) {
+			return false
+		}
+	}
+	return true
+}
+
+// rawOn is name's own spec for uid: off when unknown or broken.
+func (r *Registry) rawOn(uid, name string) bool {
+	s, ok := r.specs[name]
+	return ok && !r.broken[name] && s.enabledFor(uid)
 }
 
 // GloballyOff reports whether the named flag is the kill switch: switched off for every caller, so Enabled(uid, name)
@@ -171,15 +196,15 @@ func (r *Registry) GloballyOff(name string) bool {
 	return !s.retired && (s.Mode == Off || !s.Mode.valid())
 }
 
-// EnabledFeatures returns the sorted list of flag names enabled for uid, for GetMeResponse.enabled_features
-// Implements identity.FeatureFlags.
+// EnabledFeatures returns the sorted list of flag names enabled for uid (the effective values, as Enabled), for
+// GetMeResponse.enabled_features. Implements identity.FeatureFlags.
 func (r *Registry) EnabledFeatures(uid string) []string {
 	if r == nil {
 		return nil
 	}
 	var out []string
-	for name, s := range r.specs {
-		if s.enabledFor(uid) {
+	for name := range r.specs {
+		if r.enabled(uid, name) {
 			out = append(out, name)
 		}
 	}

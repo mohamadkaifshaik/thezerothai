@@ -218,6 +218,20 @@ func encGate(conv *ConvDoc, enc *encSend) error {
 	return nil
 }
 
+// requiredGate is the FEATURE_E2EE_REQUIRED rule of a send (P6 §1.1), applied by the send transaction right after encGate
+// on an existing conversation (so an encrypted conversation keeps answering through encGate) and, for a new one, at the
+// same point: after every CANNOT_MESSAGE refusal (the recipient's block and DM policy, a gone peer) and the request cap,
+// and before the new conversation's recipient and quota reads and any write. A plaintext request (enc nil) while the
+// policy applies (required: effective for the sender or the recipient, decided by the service from flags in memory) is
+// errRequiredPolicy, into a plaintext conversation, a new one (a first message or a request) and for a post share alike.
+// An encrypted request, mls_init included, is never refused here. It reads nothing.
+func requiredGate(required bool, enc *encSend) error {
+	if required && enc == nil {
+		return errRequiredPolicy
+	}
+	return nil
+}
+
 // wirePair is a stored generation or epoch as the uint64 the wire carries (stored values are >= 1; anything else is 0).
 func wirePair(v int64) uint64 {
 	if v < 1 {
