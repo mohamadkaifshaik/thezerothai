@@ -8,6 +8,8 @@ import 'package:dzeroth/features/messages/domain/e2ee/e2ee_pipeline.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging_impl.dart';
 import 'package:dzeroth/features/messages/domain/e2ee/message_content_codec.dart';
+import 'package:dzeroth/features/messages/presentation/bloc/message_composer_cubit.dart';
+import 'package:dzeroth/features/messages/presentation/bloc/share_post_cubit.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/keys/v1/keys.pb.dart' as kpb;
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
@@ -16,6 +18,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../../../support/e2ee_pipeline_harness.dart';
 import '../../../../support/e2ee_pipeline_rig.dart';
+import '../../../../support/fake_send_repository.dart';
 import '../../../../support/fake_vault_world.dart';
 
 // Plan 5a Task 13b, step 13b-i: EncryptedMessagingImpl's send path, its
@@ -101,6 +104,7 @@ void main() {
       keys: h.rig.keys,
       ownUserId: () => 'user-a',
       currentUid: () => 'user-a',
+      encryptionRequired: () => h.encryptionRequired,
       now: h.rig.clock.now,
       onUnexpectedError: (e, _) => h.reported.add(e),
     );
@@ -504,6 +508,233 @@ void main() {
         isNull,
       );
     });
+  });
+
+  // Plan 6 Task 1.B: `e2ee_required` in the enabled features. The routing
+  // never answers notEncrypted, and no composer or share makes a plaintext
+  // SendMessage. The server's effective flag is `e2ee_required && messaging`,
+  // NOT gated by `e2ee_dm` (ruling of 2026-11-25), so the last group runs
+  // with `e2ee_dm` off.
+  group('under e2ee_required (Plan 6 Task 1.B)', () {
+    void cachePlainRow(String id, String peer) {
+      h.rig.server.rows[id] = pb.Conversation(
+        id: id,
+        peer: common.AuthorSnapshot(userId: peer),
+        folder: Folder.FOLDER_INBOX,
+        canReply: true,
+        state: ConversationState.CONVERSATION_STATE_ACCEPTED,
+      );
+    }
+
+    test('under required an empty peer list is refused, never '
+        'notEncrypted', () async {
+      h.encryptionRequired = true;
+      h.rig.keys.peers['ref-carol'] = [];
+      cachePlainRow(_c2, 'ref-carol');
+      await h.ready();
+      for (final to in [_to('ref-carol'), const ThreadRef.conversation(_c2)]) {
+        final out = await port.send(to: to, localId: 'local-1', text: 'hi');
+        expect(
+          (out.kind, out.problem, out.error),
+          (SendOutcomeKind.refused, SendProblem.peerHasNoDevice, null),
+        );
+      }
+      expect(await outboxCount(), 0);
+      expect(h.rig.server.sends, isEmpty);
+      expect(h.rig.keys.claimCalls, isEmpty);
+
+      // The same person with required off: today's answer.
+      h.encryptionRequired = false;
+      final out = await port.send(
+        to: _to('ref-carol'),
+        localId: 'local-2',
+        text: 'hi',
+      );
+      expect(out.kind, SendOutcomeKind.notEncrypted);
+    });
+
+    test(
+      'under required no plaintext SendMessage is made from a share',
+      () async {
+        h.encryptionRequired = true;
+        h.rig.keys.peers['ref-carol'] = [];
+        await h.ready();
+        final repo = FakeSendRepository()
+          ..checkAnswer = 'post-1'
+          ..cachedByPeer['ref-dave'] = pb.Conversation(
+            id: _c2,
+            peer: common.AuthorSnapshot(userId: 'ref-dave'),
+            encryption: ConversationEncryption.CONVERSATION_ENCRYPTION_NONE,
+          );
+        final carol = common.AuthorSnapshot(userId: 'ref-carol');
+        final dave = common.AuthorSnapshot(userId: 'ref-dave');
+
+        // Checked share through the port: carol has no device.
+        final checked = SharePostCubit(
+          repository: repo,
+          postId: 'post-1',
+          url: 'https://dzeroth.test/p/1',
+          encrypted: port,
+          check: repo.checkPostShare,
+          checkEnabled: () => true,
+          encryptionRequired: () => h.encryptionRequired,
+        );
+        addTearDown(checked.close);
+        checked.toggle(carol);
+        await checked.send();
+        expect(checked.state.recipients.single.status, ShareRowStatus.failed);
+        expect(
+          checked.state.recipients.single.problem,
+          SendProblem.peerHasNoDevice,
+        );
+
+        // Unchecked share (dm_share_check off): dave's cached row is plain,
+        // which today goes out as a plain share.
+        final unchecked = SharePostCubit(
+          repository: repo,
+          postId: 'post-1',
+          url: 'https://dzeroth.test/p/1',
+          encrypted: port,
+          check: repo.checkPostShare,
+          checkEnabled: () => false,
+          mayStartEncryption: () => true,
+          encryptionRequired: () => h.encryptionRequired,
+        );
+        addTearDown(unchecked.close);
+        unchecked.toggle(dave);
+        await unchecked.send();
+        expect(unchecked.state.recipients.single.status, ShareRowStatus.failed);
+
+        // No port at all (a platform with no vault).
+        final portless = SharePostCubit(
+          repository: repo,
+          postId: 'post-1',
+          url: 'https://dzeroth.test/p/1',
+          encryptionRequired: () => h.encryptionRequired,
+        );
+        addTearDown(portless.close);
+        portless.toggle(carol);
+        await portless.send();
+        expect(portless.state.recipients.single.status, ShareRowStatus.failed);
+        expect(
+          portless.state.recipients.single.problem,
+          SendProblem.requiredUnavailable,
+        );
+
+        expect(repo.sendKeys, isEmpty, reason: 'no plaintext SendMessage');
+        expect(h.rig.server.sends, isEmpty);
+        expect(await outboxCount(), 0);
+      },
+    );
+
+    test('under required the composer makes no plaintext SendMessage, with '
+        'or without a port, and keeps the text', () async {
+      h.encryptionRequired = true;
+      h.rig.keys.peers['ref-carol'] = [];
+      cachePlainRow(_c2, 'ref-carol');
+      await h.ready();
+      final repo = FakeSendRepository();
+      for (final encrypted in <EncryptedMessaging?>[port, null]) {
+        final cubit = MessageComposerCubit(
+          repository: repo,
+          conversationId: _c2,
+          outbox: repo.outbox,
+          encrypted: encrypted,
+          encryptionRequired: () => h.encryptionRequired,
+        );
+        addTearDown(cubit.close);
+        cubit.textChanged('hello');
+        await cubit.send();
+        expect(
+          cubit.state.refusedProblem,
+          encrypted == null
+              ? SendProblem.requiredUnavailable
+              : SendProblem.peerHasNoDevice,
+        );
+        expect(cubit.state.draft.text, 'hello');
+        expect(cubit.state.outgoing, isEmpty);
+      }
+      expect(repo.sendKeys, isEmpty);
+      expect(h.rig.server.sends, isEmpty);
+    });
+
+    group(
+      'required without e2ee_dm (the server does not gate it by e2ee_dm)',
+      () {
+        test('a conversation that is not encrypted yet gets no send at all: '
+            'neither plaintext nor encrypted', () async {
+          h.encryptionRequired = true;
+          await startable('ref-carol', _c2);
+          h.rig.keys.peers['ref-dave'] = [];
+          await h.ready();
+          await h.rig.device.session.onFlagChanged(E2eeFlag.off, uid: 'user-a');
+          for (final to in [
+            _to('ref-carol'),
+            _to('ref-dave'),
+            const ThreadRef.conversation(_c2),
+          ]) {
+            final out = await port.send(to: to, localId: 'local-1', text: 'hi');
+            expect(
+              (out.kind, out.problem),
+              (SendOutcomeKind.refused, SendProblem.requiredUnavailable),
+            );
+          }
+          expect(h.rig.keys.claimCalls, isEmpty);
+          expect(h.rig.server.sends, isEmpty);
+          expect(await outboxCount(), 0);
+
+          // With no vault on this device either.
+          for (final flag in [E2eeFlag.off, E2eeFlag.unknown]) {
+            final p = (await over(await noVault(flag))).port;
+            for (final to in [
+              const ThreadRef.conversation(_c2),
+              _to('ref-dave'),
+            ]) {
+              final out = await p.send(to: to, localId: 'local-1', text: 'hi');
+              expect(
+                (out.kind, out.problem),
+                (SendOutcomeKind.refused, SendProblem.requiredUnavailable),
+                reason: '$flag',
+              );
+            }
+          }
+          expect(h.rig.server.sends, isEmpty);
+
+          // The composer over that port: the refusal, the text kept, no RPC.
+          final repo = FakeSendRepository();
+          final cubit = MessageComposerCubit(
+            repository: repo,
+            recipientUserId: 'ref-dave',
+            recipient: common.AuthorSnapshot(userId: 'ref-dave'),
+            outbox: repo.outbox,
+            encrypted: port,
+            encryptionRequired: () => h.encryptionRequired,
+          );
+          addTearDown(cubit.close);
+          cubit.textChanged('hello');
+          await cubit.send();
+          expect(cubit.state.refusedProblem, SendProblem.requiredUnavailable);
+          expect(cubit.state.draft.text, 'hello');
+          expect(repo.sendKeys, isEmpty);
+        });
+
+        test('a conversation already encrypted still sends', () async {
+          h.encryptionRequired = true;
+          await h.offer(_c1, bob);
+          await h.ready();
+          await h.rig.device.session.onFlagChanged(E2eeFlag.off, uid: 'user-a');
+          final out = await port.send(
+            to: const ThreadRef.conversation(_c1),
+            localId: 'local-1',
+            text: 'hi',
+          );
+          expect(out.kind, SendOutcomeKind.queued);
+          await h.pipeline.sender.settled(_c1);
+          await h.settle();
+          expect(h.rig.server.sends, hasLength(1));
+        });
+      },
+    );
   });
 
   test('the wiring builds the port over a pipeline (Task 13b ruling 1)', () {

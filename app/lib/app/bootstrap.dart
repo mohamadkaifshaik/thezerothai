@@ -27,7 +27,7 @@ import '../core/vault/vault_owner.dart';
 import '../core/vault/vault_session.dart';
 import '../core/vault/vault_status.dart' show E2eeFlag;
 import '../features/messages/domain/messaging_feature_flag.dart'
-    show kFeatureE2eeDm;
+    show kFeatureE2eeDm, kFeatureE2eeRequired;
 import '../core/network/auth_token_provider.dart';
 import '../core/network/firebase_app_check_token_provider.dart';
 import '../core/network/service_paused_cubit.dart';
@@ -661,6 +661,10 @@ Future<void> bootstrap() async {
           ownUserId: () => onboardingBloc.state.myUserId,
           currentUid: () => authBloc.state.user?.uid,
           publicIdsOff: () => publicIdsKnownOff(onboardingBloc.state),
+          // Plan 6 Task 1.B: the port never answers notEncrypted while
+          // `e2ee_required` is listed (a cached flag set counts).
+          encryptionRequired: () => onboardingBloc.state.enabledFeatures
+              .contains(kFeatureE2eeRequired),
           onUnexpectedError: reportUnexpectedError,
         )
       : null;

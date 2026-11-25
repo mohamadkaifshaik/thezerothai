@@ -375,7 +375,15 @@ void main() {
       // The widget draws sharePostErrorMessage(lastError, problem: lastProblem).
       for (final (problem, text) in [
         (SendProblem.tryTomorrow, kOutgoingTryTomorrowText),
-        (SendProblem.peerHasNoDevice, kStatePeerNoDeviceText),
+        // Plan 6 Task 1.B: the new title and body as one line.
+        (
+          SendProblem.peerHasNoDevice,
+          '$kPeerCannotReceiveYetTitle. $kPeerCannotReceiveYetBody',
+        ),
+        (
+          SendProblem.requiredUnavailable,
+          '$kRequiredUnavailableTitle. $kRequiredUnavailableBody',
+        ),
       ]) {
         port.nextSendOutcome = SendOutcome(
           SendOutcomeKind.refused,

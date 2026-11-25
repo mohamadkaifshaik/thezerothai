@@ -314,9 +314,22 @@ class _RefusalLine extends StatelessWidget {
   final bool vaultBlocked;
 
   @override
-  Widget build(BuildContext context) => _ErrorLine(
-    text: composerRefusalText(problem, null, vaultBlocked: vaultBlocked),
-  );
+  Widget build(BuildContext context) {
+    final line = _ErrorLine(
+      text: composerRefusalText(problem, null, vaultBlocked: vaultBlocked),
+    );
+    // Plan 6 Task 1.B: a refusal with a body (the peer cannot receive yet,
+    // sending paused under `e2ee_required`) shows it under the title.
+    final detail = composerRefusalDetail(problem);
+    if (detail == null) return line;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        line,
+        _ErrorLine(text: detail),
+      ],
+    );
+  }
 }
 
 /// The field's white pill (dzeroth-mobile Chat): a hairline border, no

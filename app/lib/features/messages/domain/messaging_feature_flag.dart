@@ -22,6 +22,18 @@ const kFeatureDmShareCheck = 'dm_share_check';
 /// flag says (`VaultSession`).
 const kFeatureE2eeDm = 'e2ee_dm';
 
+/// Server feature flag (Plan 6 §1.1, Task 1.B): every NEW send must be
+/// end-to-end encrypted. The server lists the effective value, `e2ee_required
+/// && messaging`, which is NOT gated by [kFeatureE2eeDm] (PR 6-1 security
+/// review M2: it fails closed), so the client may see it without `e2ee_dm`.
+/// While it is in the caller's enabled features the app never makes a
+/// plaintext `SendMessage`: an empty peer device list is refused
+/// (`peerHasNoDevice`), and with `e2ee_dm` off a conversation that is not
+/// encrypted yet offers no send at all (`requiredUnavailable`). Conversations
+/// already encrypted keep sending. Read live at each send; a cached flag set
+/// counts (fails closed).
+const kFeatureE2eeRequired = 'e2ee_required';
+
 /// The most people one share action may be sent to (design Q7).
 const kSharePostMaxRecipients = 5;
 

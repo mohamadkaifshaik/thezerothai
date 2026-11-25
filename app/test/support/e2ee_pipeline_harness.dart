@@ -171,6 +171,10 @@ class PipelineHarness {
   /// vault is 'user-a''s).
   String? uid = 'user-a';
 
+  /// What the pipeline's `encryptionRequired` answers (`e2ee_required` in
+  /// the enabled features; Plan 6 Task 1.B). Read live.
+  bool encryptionRequired = false;
+
   /// How many times the pipeline asked for the engine.
   int engineAsked = 0;
 
@@ -218,6 +222,7 @@ class PipelineHarness {
     keys: rig.keys,
     ownUserId: () => ownUser,
     currentUid: () => uid,
+    encryptionRequired: () => encryptionRequired,
     now: rig.clock.now,
     // The rig clock stands still: no call may wait for a real minute.
     budgetScale: budgetScale,

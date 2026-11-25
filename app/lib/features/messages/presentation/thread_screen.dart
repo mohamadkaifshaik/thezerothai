@@ -43,6 +43,7 @@ import '../../profile/presentation/widgets/block_confirmation_dialog.dart';
 import '../data/messaging_repository.dart';
 import '../data/timer_thread_poller.dart';
 import '../domain/message_search.dart';
+import '../domain/messaging_feature_flag.dart' show kFeatureE2eeRequired;
 import '../domain/messaging_feature_gate.dart';
 import '../domain/thread_poller.dart';
 import '../domain/thread_push_coverage.dart';
@@ -235,8 +236,13 @@ class ThreadScreen extends StatelessWidget {
             create: (context) {
               final thread = context.read<ThreadCubit>();
               final status = context.read<EncryptionStatusCubit?>();
+              final onboarding = context.read<OnboardingBloc>();
               return MessageComposerCubit(
                 vaultNotOpen: () => status?.state.vaultNotOpen ?? false,
+                // Plan 6 Task 1.B: read live at each send (a cached flag
+                // set counts: fails closed).
+                encryptionRequired: () => onboarding.state.enabledFeatures
+                    .contains(kFeatureE2eeRequired),
                 repository: context.read<MessagingRepository>(),
                 conversationId: conversationId,
                 outbox: context.read<MessagingRepository>().outbox,
@@ -892,6 +898,10 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
   /// there) for the header builder below.
   bool _searchEnabled = false;
 
+  /// `e2ee_required` (Plan 6 Task 1.B), read in [build] like the flag above:
+  /// a thread that is not encrypted yet then says `kRequiredNoteText`.
+  bool _encryptionRequired = false;
+
   bool _searchFlag(BuildContext context) {
     try {
       return isFeatureEnabled(context, kFeatureMessageSearch);
@@ -951,6 +961,7 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
     final graphEnabled = isFeatureEnabled(context, kFeatureGraph);
     final reportsEnabled = isFeatureEnabled(context, kFeatureReports);
     _searchEnabled = _searchFlag(context);
+    _encryptionRequired = isFeatureEnabled(context, kFeatureE2eeRequired);
     // The tablet layout (600-1199dp, `ui_shell` + `ui_tablet`) has the chat
     // info side sheet in place of the menu (tablet plan section 4.2).
     final infoSheet =
@@ -1702,18 +1713,24 @@ class _ThreadViewState extends State<_ThreadView> with WidgetsBindingObserver {
     }
     // Above the composer, in this order: the not-encrypted statement of a
     // thread known to be plaintext (access full only, security read H1), then
-    // the state notice.
+    // the state notice. Under `e2ee_required` (Plan 6 Task 1.B) no new
+    // message there is plaintext: the statement is `kRequiredNoteText`.
     final above = <Widget>[
       if (encryption == EncryptionAccess.full &&
           state.knownPlain &&
           !state.mls &&
           !received)
-        const Padding(
-          padding: EdgeInsets.symmetric(
+        Padding(
+          padding: const EdgeInsets.symmetric(
             horizontal: AppSpacing.md,
             vertical: AppSpacing.xs,
           ),
-          child: Center(child: NotEncryptedNote(textAlign: TextAlign.center)),
+          child: Center(
+            child: NotEncryptedNote(
+              textAlign: TextAlign.center,
+              encryptionRequired: _encryptionRequired,
+            ),
+          ),
         ),
       if (kind == ThreadBottom.ordinaryWithNotice) notice(replaces: false),
     ];

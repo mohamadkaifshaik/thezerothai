@@ -194,9 +194,11 @@ class SharePostCubit extends Cubit<SharePostState> {
     bool Function()? checkEnabled,
     bool Function()? mayStartEncryption,
     bool Function()? vaultNotReady,
+    bool Function()? encryptionRequired,
     this.onUnexpectedError,
     Uuid? uuid,
   }) : _repository = repository,
+       _encryptionRequired = encryptionRequired ?? (() => false),
        _encrypted = encrypted,
        _check = check,
        _checkEnabled = checkEnabled ?? (() => false),
@@ -234,6 +236,12 @@ class SharePostCubit extends Cubit<SharePostState> {
   /// A vault is known on this device but is not ready: nothing can be
   /// classified, so no row is plain (its route is unknown).
   final bool Function() _vaultNotReady;
+
+  /// Plan 6 Task 1.B: whether `e2ee_required` is in the caller's enabled
+  /// features, read live before each row. While it is, no row is sent in
+  /// plaintext, whatever routed it there (no port, an unchecked plain row, a
+  /// `notEncrypted` answer).
+  final bool Function() _encryptionRequired;
   bool _checking = false;
   final bool Function() _isEnabled;
   final Uuid _uuid;
@@ -426,7 +434,9 @@ class SharePostCubit extends Cubit<SharePostState> {
           case SendOutcomeKind.refused:
             final error =
                 outcome!.error ??
-                UnknownApiException(composerRefusalText(outcome.problem, null));
+                UnknownApiException(
+                  composerRefusalParagraph(outcome.problem, null),
+                );
             _setRow(
               id,
               ShareRowStatus.failed,
@@ -443,6 +453,10 @@ class SharePostCubit extends Cubit<SharePostState> {
           case SendOutcomeKind.notEncrypted || null:
             break;
         }
+        // Plan 6 Task 1.B: every route to the plaintext call (no port, an
+        // unchecked plain row, a notEncrypted answer) stops here under
+        // `e2ee_required` (the plaintext-send guard pins this check).
+        if (_plaintextRefused(id)) continue;
         await _repository.sendMessage(
           idempotencyKey: row.key,
           text: body,
@@ -528,6 +542,23 @@ class SharePostCubit extends Cubit<SharePostState> {
       }
       return _Route.unknown;
     }
+  }
+
+  /// Plan 6 Task 1.B: whether `e2ee_required` refuses the plaintext send to
+  /// [userId] now. When it does the row fails with
+  /// [SendProblem.requiredUnavailable] (nothing is sent, neither plaintext
+  /// nor encrypted) and the share goes on to the next person.
+  bool _plaintextRefused(String userId) {
+    if (!_encryptionRequired()) return false;
+    _setRow(
+      userId,
+      ShareRowStatus.failed,
+      error: UnknownApiException(
+        composerRefusalParagraph(SendProblem.requiredUnavailable, null),
+      ),
+      problem: SendProblem.requiredUnavailable,
+    );
+    return true;
   }
 
   ShareRecipient _row(String userId) =>
