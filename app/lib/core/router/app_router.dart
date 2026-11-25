@@ -29,6 +29,7 @@ import '../../features/posts/domain/composer_draft.dart' show kFeatureDrafts;
 import '../../features/posts/domain/posts_feature_flag.dart';
 import '../../features/profile/domain/profile_edit_feature_flag.dart';
 import 'shell_entries.dart';
+import '../feature_flags/feature_flags.dart' show needsUpdateFor;
 import '../feature_flags/shells_feature_flag.dart';
 import '../../features/settings/data/own_privacy_store.dart';
 import '../../features/settings/domain/message_privacy.dart';
@@ -564,6 +565,12 @@ class AppRouter {
     }
     if (_onboardingBloc.state.enabledFeatures.contains(kFeatureMessaging)) {
       return null;
+    }
+    // This build is below the server's floor for messaging: `/messages` opens
+    // the update prompt; every other messages link (a deep link, a thread, a
+    // new message) lands on it too instead of Home.
+    if (needsUpdateFor(_onboardingBloc.state, kFeatureMessaging)) {
+      return loc == messagesPath ? null : messagesPath;
     }
     // Messaging is off for this caller only (read-only access). The inbox, the
     // requests and a thread open; starting a message does not.

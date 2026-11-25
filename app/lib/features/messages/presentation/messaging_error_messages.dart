@@ -1,6 +1,7 @@
 import '../../../core/network/app_exception.dart';
 import '../../../core/widgets/app_error_view.dart';
 import '../domain/messaging_feature_gate.dart';
+import 'messaging_update_copy.dart';
 
 /// Friendly, typed text for a failed messaging call, for a
 /// snackbar or an inline notice. Branches on the exception type and the
@@ -19,6 +20,11 @@ String messagingErrorMessage(AppException error) {
     final RateLimitedException e => rateLimitedMessage(e),
     QuotaExceededException() =>
       "You've hit today's limit for messaging. It resets tomorrow.",
+    // A floor raised while the app is open: say what to do, not "not
+    // available". Text per platform (update, reload, or not on iPhone yet).
+    FeatureDisabledException(updateRequired: true) => messagingUpdateTitle(
+      messagingUpdateKindFor(),
+    ),
     FeatureDisabledException() => "Messages aren't available right now.",
     DegradedModeException() =>
       'dZeroth is in a limited mode right now. You can read your messages, '
@@ -52,6 +58,9 @@ String conversationsNoticeMessage(AppException error) {
     DegradedModeException() =>
       'dZeroth is in a limited mode right now. Showing saved messages.',
     NetworkException() => "You're offline. Showing saved messages.",
+    FeatureDisabledException(updateRequired: true) => messagingUpdateTitle(
+      messagingUpdateKindFor(),
+    ),
     FeatureDisabledException() => "Messages aren't available right now.",
     _ => "Couldn't refresh. Showing saved messages.",
   };
