@@ -75,8 +75,10 @@ func uidScanAllFlagsOn(c *config.Config) {
 	spec := reflect.TypeOf(flags.Spec{})
 	for i := range v.NumField() {
 		f := v.Field(i)
-		// export_zip stays at its default: exportOf reads the JSON object.
-		if name := v.Type().Field(i).Name; f.Type() != spec || name == "FeaturePublicIDs" || name == "FeatureExportZip" || !f.CanSet() {
+		// export_zip stays at its default: exportOf reads the JSON object. e2ee_required stays off: it refuses the
+		// plaintext DMs the seeding sends, and the scan needs those rows (the encrypted paths have their own seeds).
+		if name := v.Type().Field(i).Name; f.Type() != spec || name == "FeaturePublicIDs" || name == "FeatureExportZip" ||
+			name == "FeatureE2EERequired" || !f.CanSet() {
 			continue
 		}
 		s := f.Interface().(flags.Spec)

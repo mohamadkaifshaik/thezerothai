@@ -147,6 +147,10 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// --- feature flags ---
 	featureFlags := featureRegistry(cfg)
 	log.Info("feature_flags", "flags", featureFlags.StartupLogValues())
+	for _, w := range featureCouplingWarnings(featureFlags) {
+		log.Log(ctx, couplingLevel(w), "feature_flag_coupling", "flag", w.Flag, "parent", w.Parent, "flag_mode", string(w.FlagMode),
+			"parent_mode", string(w.ParentMode), "reason", w.Reason, "uncovered", w.Uncovered)
+	}
 	// The app version floor for messaging (client_floor_wiring.go): GetMe, MessagingService and KeyService. Numbers only.
 	floors := clientFloors(cfg)
 	log.Info("client_floors", "android", floors.Android, "web", floors.Web, "ios", floors.IOS)

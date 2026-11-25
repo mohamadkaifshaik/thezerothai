@@ -298,6 +298,16 @@ func (r *FirestoreRepo) sendTx(ctx context.Context, tx *firestore.Transaction, p
 			return r.replayOrRefuse(ctx, tx, p, res, gerr)
 		}
 	}
+	// FEATURE_E2EE_REQUIRED (requiredGate): a plaintext send while the policy applies, at the same point, before the new
+	// conversation's reads. A refused send into an existing conversation may be the replay of a plaintext message stored
+	// under this key before the flag was switched on: answered as a replay through the same lookup. No conversation means
+	// no stored message to replay.
+	if gerr := requiredGate(p.EncryptionRequired, p.Enc); gerr != nil {
+		if conv != nil {
+			return r.replayOrRefuse(ctx, tx, p, res, gerr)
+		}
+		return res, gerr
+	}
 
 	var qrec quota.Record
 	if dec.CreateConv {

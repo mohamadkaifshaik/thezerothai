@@ -214,7 +214,12 @@ type SendParams struct {
 	// encRequestHash. The transaction applies encGate to the conversation it reads; with Enc.Init (mls_init) it also starts
 	// encryption: the conversation's encryption fields, the (1, 0) commit record and the welcomes (putInit).
 	Enc *encSend
-	Now time.Time
+	// EncryptionRequired: FEATURE_E2EE_REQUIRED is effective for the sender or the recipient (the service read both flags
+	// in memory). A plaintext request (Enc nil) is then refused with errRequiredPolicy (ENCRYPTION_REQUIRED) by the
+	// transaction, after every CANNOT_MESSAGE refusal and the request cap and before any further read or write
+	// (requiredGate).
+	EncryptionRequired bool
+	Now                time.Time
 	// CallerFollowsPeer: the caller follows the recipient (from the caller.s cached graph, 60 s). Mutual = this AND the
 	// recipient.s FRESH Following[caller] read in the transaction; it only decides the state of a conversation this send
 	// creates.

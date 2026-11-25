@@ -339,7 +339,8 @@ func (f *fakeRepo) GetConversation(_ context.Context, id string) (ConvDoc, bool,
 
 // Send runs the refusals of sendTx in its order: the participant / gone check of an existing conversation (before the
 // graph read), the recipient's block and DM policy, decideSend (the request cap answered through replayOrRefuse), the
-// encryption rule of an existing conversation (encGate, through replayOrRefuse), then for a new conversation the
+// encryption rule of an existing conversation (encGate, through replayOrRefuse), the FEATURE_E2EE_REQUIRED rule
+// (requiredGate, through replayOrRefuse for an existing conversation), then for a new conversation the
 // recipient's users doc (and, for an mls_init, the dm_new_daily counter) before encGate(nil), and finally the
 // commit-time AlreadyExists replay of a message already stored under this id (f.msgs). An mls_init is applied for real
 // (sendInit: the conversation, commit, welcomes and message are stored); every other success still answers from the
@@ -385,6 +386,13 @@ func (f *fakeRepo) Send(ctx context.Context, p SendParams) (SendResult, error) {
 		if gerr := encGate(conv, p.Enc); gerr != nil {
 			return f.replayOrRefuse(p, *conv, gerr)
 		}
+	}
+	// FEATURE_E2EE_REQUIRED at the same point as sendTx: before the new conversation's recipient read.
+	if gerr := requiredGate(p.EncryptionRequired, p.Enc); gerr != nil {
+		if conv != nil {
+			return f.replayOrRefuse(p, *conv, gerr)
+		}
+		return SendResult{}, gerr
 	}
 	if p.Enc != nil && p.Enc.Init != nil {
 		return f.sendInit(ctx, p, conv, dec, theirs)

@@ -28,6 +28,13 @@ import (
 // string in GetMe.enabled_features.
 const FlagName = "messaging"
 
+// E2EERequiredFlag is the wire name of FEATURE_E2EE_REQUIRED (P6 §1.1): effective for the sender or the recipient, every
+// plaintext SendMessage is refused with ENCRYPTION_REQUIRED, into a conversation that is not encrypted yet included
+// (service_send.go). The composition root couples it to messaging only, never to e2ee_dm, so it fails closed: with
+// e2ee_dm off for a required user nothing can be exchanged, and plaintext never reopens (apiserver.coupleE2EE). It is
+// read through FlagChecker.Enabled: no new method on the seam.
+const E2EERequiredFlag = "e2ee_required"
+
 // FlagChecker is the seam to pkg/platform/flags.Registry (*flags.Registry satisfies it): Enabled answers "is the flag on
 // for this caller", GloballyOff "is it the kill switch" (off for everyone; a rollout the caller is outside of is not).
 type FlagChecker interface {

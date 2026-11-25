@@ -32,6 +32,12 @@ var (
 	ErrOrderIndex = errors.New("messaging: the epoch order index is not ready")
 )
 
+// errRequiredPolicy is ErrEncryptionRequired for a plaintext send that FEATURE_E2EE_REQUIRED refuses (the flag is
+// effective for the sender or the recipient), into a conversation that is not encrypted yet or that does not exist. It
+// only tells the request line and the message text apart from the encrypted-conversation rule: the code, the reason and
+// the metadata are the same (common.proto ERROR_REASON_ENCRYPTION_REQUIRED, "two causes, one answer").
+var errRequiredPolicy = fmt.Errorf("%w: required for a participant", ErrEncryptionRequired)
+
 // errNeedsInit is an encrypted send without mls_init into a plaintext conversation or one that does not exist yet: the
 // wire answer is VALIDATION ciphertext (needsInit).
 var errNeedsInit = errors.New("messaging: encrypted message into a conversation that is not encrypted")
@@ -97,7 +103,18 @@ func notFound() *apierr.Error {
 // encryptionRequired is FAILED_PRECONDITION + ENCRYPTION_REQUIRED. convID is set (metadata["conversation_id"]) only for a
 // send that addressed recipient_user_id, whose caller the transaction found to be a participant; "" adds nothing.
 func encryptionRequired(convID string) *apierr.Error {
-	e := apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_ENCRYPTION_REQUIRED, "this conversation is end-to-end encrypted: update the app to send to it")
+	return encryptionRequiredText(convID, "this conversation is end-to-end encrypted: update the app to send to it")
+}
+
+// encryptionRequiredByPolicy is the FEATURE_E2EE_REQUIRED answer (errRequiredPolicy): the same code, reason and metadata
+// as encryptionRequired, with a text that is true for a conversation that is not encrypted yet. The text names neither
+// participant, so it does not say whose cohort refused.
+func encryptionRequiredByPolicy(convID string) *apierr.Error {
+	return encryptionRequiredText(convID, "messages here must be end-to-end encrypted: update the app to send them")
+}
+
+func encryptionRequiredText(convID, text string) *apierr.Error {
+	e := apierr.New(connect.CodeFailedPrecondition, commonv1.ErrorReason_ERROR_REASON_ENCRYPTION_REQUIRED, text)
 	if convID != "" {
 		e = e.WithMeta("conversation_id", convID)
 	}
