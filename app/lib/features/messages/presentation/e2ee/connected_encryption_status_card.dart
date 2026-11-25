@@ -10,8 +10,12 @@ import '../../../../core/router/app_router.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/tablet_modal.dart';
 import '../../../../shared/widgets/primitives/app_dialog.dart';
+import '../../../../core/feature_flags/feature_flags.dart' show needsUpdateFor;
 import '../../../auth/presentation/request_sign_out.dart';
+import '../../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../../domain/e2ee/encrypted_messaging.dart';
+import '../../domain/messaging_feature_flag.dart' show kFeatureMessaging;
+import '../messaging_update_copy.dart';
 import 'encryption_copy.dart';
 import 'encryption_error_messages.dart';
 import 'encryption_status.dart';
@@ -98,14 +102,23 @@ class _ConnectedEncryptionStatusCardState
       } catch (e, stack) {
         report?.call(StateError('setUpDeviceAgain'), stack);
         if (mounted) {
+          // Below the server's version floor (Plan 6 PR 6-4) the answer is
+          // to update, whatever the error was (the local "not on" refusal
+          // included).
+          final onboarding = context.read<OnboardingBloc?>();
+          final needsUpdate =
+              onboarding != null &&
+              needsUpdateFor(onboarding.state, kFeatureMessaging);
           ScaffoldMessenger.of(context)
             ..hideCurrentSnackBar()
             ..showSnackBar(
               SnackBar(
                 content: Text(
-                  encryptionErrorMessage(
-                    e is AppException ? e : const UnknownApiException(''),
-                  ),
+                  needsUpdate
+                      ? messagingUpdateMessage(messagingUpdateKindFor())
+                      : encryptionErrorMessage(
+                          e is AppException ? e : const UnknownApiException(''),
+                        ),
                 ),
               ),
             );

@@ -168,6 +168,17 @@ type MeResult struct {
 	// (list deleted or made private) are kept: GetMe adds no read, the client learns it from GetListTimeline. From the profile
 	// GetMe already read: 0 extra reads.
 	HomeTabs []HomeTab
+	// FeaturesNeedingUpdate is GetMeResponse.features_needing_update: ["messaging"] when the caller's app build is below
+	// the ClientFloor and messaging would otherwise be on for the caller (the messaging family is then also missing from
+	// EnabledFeatures); nil otherwise, and always nil without a ClientFloor.
+	FeaturesNeedingUpdate []string
+}
+
+// ClientFloor is the consumer-side seam to the app version floor (plan 6 section 3.1): BelowFloor reports whether the
+// request's app build (the x-dz-client header the apiserver stamped into ctx) is older than its platform's floor.
+// Implemented by pkg/platform/clientinfo.Floors; 0 reads. Not a security control: it only decides what GetMe offers.
+type ClientFloor interface {
+	BelowFloor(ctx context.Context) bool
 }
 
 // UpdateProfileParams carries only the fields the caller wants to change (nil = unchanged), matching the

@@ -156,8 +156,17 @@ final class TargetBlockedException extends AppException {
 /// names the sub-feature (`replies`, `quotes`, `media`) and the client hides
 /// only that; when null the whole service is off.
 final class FeatureDisabledException extends AppException {
-  const FeatureDisabledException(super.message, {this.feature});
+  const FeatureDisabledException(
+    super.message, {
+    this.feature,
+    this.updateRequired = false,
+  });
   final String? feature;
+
+  /// True when the server refused only because this app build is below its
+  /// version floor (`metadata["update_required"] == "true"`): ask the user to
+  /// update (or reload on the web) instead of just hiding the feature.
+  final bool updateRequired;
 }
 
 /// The caller's sign-in is too old for this sensitive call (e.g.

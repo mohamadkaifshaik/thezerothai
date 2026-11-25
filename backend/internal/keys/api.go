@@ -71,6 +71,13 @@ type FlagChecker interface {
 	GloballyOff(name string) bool
 }
 
+// ClientFloor is the consumer-side seam to the app version floor (plan 6 section 3.1): BelowFloor reports whether the
+// request's app build (the x-dz-client header the apiserver stamped into ctx) is older than its platform's floor.
+// Implemented by pkg/platform/clientinfo.Floors; 0 reads. Not a security control (a client can send any header).
+type ClientFloor interface {
+	BelowFloor(ctx context.Context) bool
+}
+
 // Guard is the on-for-the-caller gate (RegisterKeyDevice, UploadKeyPackages, ClaimKeyPackages): before any Firestore
 // access. Disabled is FAILED_PRECONDITION + FEATURE_DISABLED with metadata feature=e2ee_dm. A nil checker is off
 // for everyone.

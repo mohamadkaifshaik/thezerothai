@@ -793,6 +793,7 @@ class GetMeResponse extends $pb.GeneratedMessage {
     $fixnum.Int64? pendingFollowRequestCount,
     $fixnum.Int64? unreadConversationCount,
     $core.Iterable<$1.HomeTab>? homeTabs,
+    $core.Iterable<$core.String>? featuresNeedingUpdate,
   }) {
     final result = GetMeResponse._();
     if (profile != null) result.profile = profile;
@@ -806,6 +807,8 @@ class GetMeResponse extends $pb.GeneratedMessage {
     if (unreadConversationCount != null)
       result.unreadConversationCount = unreadConversationCount;
     if (homeTabs != null) result.homeTabs.addAll(homeTabs);
+    if (featuresNeedingUpdate != null)
+      result.featuresNeedingUpdate.addAll(featuresNeedingUpdate);
     return result;
   }
 
@@ -834,6 +837,7 @@ class GetMeResponse extends $pb.GeneratedMessage {
     ..aInt64(7, _omitFieldNames ? '' : 'unreadConversationCount')
     ..pPM<$1.HomeTab>(8, _omitFieldNames ? '' : 'homeTabs',
         subBuilder: $1.HomeTab.$_createMessage)
+    ..pPS(9, _omitFieldNames ? '' : 'featuresNeedingUpdate')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -936,6 +940,16 @@ class GetMeResponse extends $pb.GeneratedMessage {
   /// TimelineService.SetHomeTabs; up to 60 s stale on another instance (the profile cache).
   @$pb.TagNumber(8)
   $pb.PbList<$1.HomeTab> get homeTabs => $_getList(7);
+
+  /// Features this app build may not use because it is older than the server's floor for its platform (the request's
+  /// x-dz-client header: "<android|web|ios>/<level>"; no header = level 0, and a missing or unknown platform is held to
+  /// the highest floor). Each name here is also missing from enabled_features. Today only "messaging" (direct messages
+  /// and the key directory), and only for a caller who would otherwise have messaging on. Show an update prompt in that
+  /// feature's place: on Android "Update the app to keep messaging", on the web a reload, on iOS "Messages aren't
+  /// available on iPhone yet". Empty when the build meets every floor (every floor is 0 unless an operator raised one).
+  /// Builds before this field ignore it and simply see the feature off. The header is not a security control.
+  @$pb.TagNumber(9)
+  $pb.PbList<$core.String> get featuresNeedingUpdate => $_getList(8);
 }
 
 enum GetProfileRequest_Target { userId, handle, publicId, notSet }

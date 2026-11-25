@@ -303,6 +303,13 @@ const GetMeResponse$json = {
       '6': '.dzeroth.common.v1.HomeTab',
       '10': 'homeTabs'
     },
+    {
+      '1': 'features_needing_update',
+      '3': 9,
+      '4': 3,
+      '5': 9,
+      '10': 'featuresNeedingUpdate'
+    },
   ],
 };
 
@@ -316,7 +323,8 @@ final $typed_data.Uint8List getMeResponseDescriptor = $convert.base64Decode(
     'BlbmRpbmdfZm9sbG93X3JlcXVlc3RfY291bnQYBiABKANSGXBlbmRpbmdGb2xsb3dSZXF1ZXN0'
     'Q291bnQSOgoZdW5yZWFkX2NvbnZlcnNhdGlvbl9jb3VudBgHIAEoA1IXdW5yZWFkQ29udmVyc2'
     'F0aW9uQ291bnQSNwoJaG9tZV90YWJzGAggAygLMhouZHplcm90aC5jb21tb24udjEuSG9tZVRh'
-    'YlIIaG9tZVRhYnM=');
+    'YlIIaG9tZVRhYnMSNgoXZmVhdHVyZXNfbmVlZGluZ191cGRhdGUYCSADKAlSFWZlYXR1cmVzTm'
+    'VlZGluZ1VwZGF0ZQ==');
 
 @$core.Deprecated('Use getProfileRequestDescriptor instead')
 const GetProfileRequest$json = {

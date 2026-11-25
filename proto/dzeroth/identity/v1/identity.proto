@@ -314,6 +314,14 @@ message GetMeResponse {
   // GetCommunityTimeline's NOT_FOUND, shows the tab as unavailable and offers Unpin. Written by
   // TimelineService.SetHomeTabs; up to 60 s stale on another instance (the profile cache).
   repeated dzeroth.common.v1.HomeTab home_tabs = 8;
+  // Features this app build may not use because it is older than the server's floor for its platform (the request's
+  // x-dz-client header: "<android|web|ios>/<level>"; no header = level 0, and a missing or unknown platform is held to
+  // the highest floor). Each name here is also missing from enabled_features. Today only "messaging" (direct messages
+  // and the key directory), and only for a caller who would otherwise have messaging on. Show an update prompt in that
+  // feature's place: on Android "Update the app to keep messaging", on the web a reload, on iOS "Messages aren't
+  // available on iPhone yet". Empty when the build meets every floor (every floor is 0 unless an operator raised one).
+  // Builds before this field ignore it and simply see the feature off. The header is not a security control.
+  repeated string features_needing_update = 9;
 }
 
 message GetProfileRequest {

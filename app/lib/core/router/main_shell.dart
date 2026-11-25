@@ -360,9 +360,14 @@ class MainShell extends StatelessWidget {
     // Messages: the new shell with `messaging` on for the caller. The
     // legacy chrome has an entry in Settings instead. The badge cubit is read
     // only when the tab exists.
-    final messagesEnabled =
+    final messagingOn =
         newShell && isFeatureEnabled(context, kFeatureMessaging);
-    final unreadMessages = messagesEnabled
+    // A build below the server's floor keeps the destination: it opens the
+    // update prompt (no badge: nothing is fetched).
+    final messagesEnabled =
+        messagingOn ||
+        (newShell && featureNeedsUpdate(context, kFeatureMessaging));
+    final unreadMessages = messagingOn
         ? context.select((MessagesBadgeCubit cubit) => cubit.state)
         : 0;
     // Bookmarks entry points (rail here, drawer row): the new shell only,
@@ -481,7 +486,9 @@ class MainShell extends StatelessWidget {
     // Plans) beside the route's placeholder, and in the split page beside the
     // thread.
     final messagesBandB =
-        plansBandB && context.read<ConversationsSession?>() != null;
+        plansBandB &&
+        context.read<ConversationsSession?>() != null &&
+        !featureNeedsUpdate(context, kFeatureMessaging);
     final messagesMaster = !messagesBandB
         ? null
         : split

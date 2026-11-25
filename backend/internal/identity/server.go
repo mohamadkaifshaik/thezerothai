@@ -174,6 +174,7 @@ func (s *Server) GetMe(ctx context.Context, _ *connect.Request[identityv1.GetMeR
 		PendingFollowRequestCount: result.PendingFollowRequestCount,
 		UnreadConversationCount:   result.UnreadConversationCount,
 		HomeTabs:                  toProtoHomeTabs(result.HomeTabs),
+		FeaturesNeedingUpdate:     result.FeaturesNeedingUpdate,
 	}), nil
 }
 
