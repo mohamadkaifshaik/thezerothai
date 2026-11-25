@@ -291,6 +291,7 @@ class MessagingFlowRig {
     addTearDown(() async {
       await unreadBadge.close();
       await _authStates.close();
+      await _onboardingStates.close();
       await database.close();
     });
   }
@@ -358,6 +359,30 @@ class MessagingFlowRig {
   final StreamController<AuthState> _authStates =
       StreamController<AuthState>.broadcast();
   late _MockAuthBloc _auth;
+
+  /// The mocked onboarding bloc of the last [pump] (a mocktail mock: a test
+  /// may stub `uidOf` / `currentUid` on it).
+  late OnboardingBloc onboarding;
+
+  /// The onboarding states after the first ([setFlags]).
+  final StreamController<OnboardingState> _onboardingStates =
+      StreamController<OnboardingState>.broadcast();
+
+  static OnboardingState _readyWith(Set<String> flags) => OnboardingState(
+    status: OnboardingStatus.ready,
+    profile: identity.Profile(userId: 'uid-1', handle: 'me'),
+    enabledFeatures: flags,
+  );
+
+  /// A fresh GetMe answered with [next] as the flag set (a new set instance,
+  /// as the real bloc emits): screens that select on a flag rebuild.
+  Future<void> setFlags(WidgetTester tester, Set<String> next) async {
+    flags
+      ..clear()
+      ..addAll(next);
+    _onboardingStates.add(_readyWith(Set.of(next)));
+    await tester.pumpAndSettle();
+  }
 
   static const _signedIn = AuthState(
     status: AuthStatus.authenticated,
@@ -429,6 +454,7 @@ class MessagingFlowRig {
   }) async {
     final auth = _auth = _MockAuthBloc();
     final onboarding = _MockOnboardingBloc();
+    this.onboarding = onboarding;
     whenListen(
       auth,
       _authStates.stream,
@@ -436,12 +462,8 @@ class MessagingFlowRig {
     );
     whenListen(
       onboarding,
-      const Stream<OnboardingState>.empty(),
-      initialState: OnboardingState(
-        status: OnboardingStatus.ready,
-        profile: identity.Profile(userId: 'uid-1', handle: 'me'),
-        enabledFeatures: flags,
-      ),
+      _onboardingStates.stream,
+      initialState: _readyWith(flags),
     );
     appRouter = AppRouter(
       authBloc: auth,

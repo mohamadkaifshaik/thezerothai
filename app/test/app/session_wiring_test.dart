@@ -28,6 +28,8 @@ void main() {
       states.stream,
       initialState: OnboardingState(enabledFeatures: {'posts'}),
     );
+    var generation = 0;
+    when(() => bloc.flagsGeneration).thenAnswer((_) => generation);
 
     final gate = buildPostsGate(bloc);
     expect(gate.postsEnabled, isTrue);
@@ -45,7 +47,18 @@ void main() {
     final event = verify(() => bloc.add(captureAny())).captured.single;
     expect(event, isA<OnboardingRefreshRequested>());
 
-    // GetMe succeeds with an equal flag set: a new instance still resets.
+    // A state change that is not a GetMe answer (security L-new-1): the
+    // gate keeps what the server said. The freezed getter wraps the set on
+    // every read, so identity could never tell the two apart.
+    states.add(
+      OnboardingState(enabledFeatures: {'posts'}, pendingFollowRequestCount: 1),
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(gate.postsEnabled, isFalse, reason: 'not a GetMe answer');
+
+    // GetMe succeeds with an equal flag set: the generation moved, so the
+    // gate resets.
+    generation++;
     states.add(OnboardingState(enabledFeatures: {'posts'}));
     await Future<void>.delayed(Duration.zero);
     expect(gate.postsEnabled, isTrue);
@@ -59,6 +72,7 @@ void main() {
       const Stream<OnboardingState>.empty(),
       initialState: OnboardingState(enabledFeatures: {'posts'}),
     );
+    when(() => bloc.flagsGeneration).thenReturn(0);
     final gate = buildPostsGate(bloc);
     await expectLater(
       gate.run<void>(

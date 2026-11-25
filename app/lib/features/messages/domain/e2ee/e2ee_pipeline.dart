@@ -127,6 +127,7 @@ class E2eePipeline {
     required String? Function() ownUserId,
     required String? Function() currentUid,
     bool Function() publicIdsOff = _never,
+    required bool Function() encryptionRequired,
     DateTime Function() now = DateTime.now,
     SyncSchedule? schedule,
     @visibleForTesting int budgetScale = 1,
@@ -141,6 +142,7 @@ class E2eePipeline {
        _ownUserId = ownUserId,
        _currentUid = currentUid,
        _publicIdsOff = publicIdsOff,
+       _encryptionRequired = encryptionRequired,
        _now = now,
        _schedule = schedule ?? _timer,
        _onUnexpectedError = onUnexpectedError {
@@ -170,6 +172,14 @@ class E2eePipeline {
   /// change form (uid / public id) for the same account.
   final String? Function() _currentUid;
   final bool Function() _publicIdsOff;
+  final bool Function() _encryptionRequired;
+
+  /// Plan 6 Task 1.B: whether a plaintext send must be refused under
+  /// `e2ee_required`, read live (production: `e2eeRequiredOf`, which fails
+  /// closed while the flag set is not known). The port
+  /// (`EncryptedMessagingImpl`) reads it before answering `notEncrypted`; the
+  /// pipeline itself does not.
+  bool get encryptionRequired => _encryptionRequired();
   final DateTime Function() _now;
   final SyncSchedule _schedule;
   final void Function(Object error, StackTrace stack)? _onUnexpectedError;

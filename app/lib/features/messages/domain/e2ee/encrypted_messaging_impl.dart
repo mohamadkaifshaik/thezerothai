@@ -450,6 +450,34 @@ class EncryptedMessagingImpl implements EncryptedMessaging {
         nowStatus != VaultStatus.unsupported) {
       return _refused(SendProblem.retryable);
     }
+    // Plan 6 Task 1.B: no vault here, so nothing can be encrypted on this
+    // device. Under required: a platform that cannot hold a vault says so
+    // whatever the flag (security L5: never "being upgraded", never the
+    // generic blocked line); with the flag on the vault is still to come
+    // (blocked, as for a vault that is not ready); otherwise this device may
+    // not start encryption at all (requiredUnavailable).
+    return _notEncryptedUnlessRequired(
+      conversationId,
+      whenRequired: nowStatus == VaultStatus.unsupported
+          ? SendProblem.requiredNotOnThisDevice
+          : session.mayStart
+          ? SendProblem.blocked
+          : SendProblem.requiredUnavailable,
+    );
+  }
+
+  /// Plan 6 Task 1.B: the ONE place the port answers `notEncrypted`. With
+  /// `e2ee_required` in the caller's enabled features (read now, after every
+  /// await of the send) it answers `refused(whenRequired)` instead: the
+  /// caller then makes no plaintext `SendMessage`. Why here and not in each
+  /// caller: every composer and share asks the port first, so one answer
+  /// covers them all; the callers check the flag again before their own
+  /// plaintext call (the plaintext-send guard pins that).
+  SendOutcome _notEncryptedUnlessRequired(
+    String? conversationId, {
+    required SendProblem whenRequired,
+  }) {
+    if (_pipeline.encryptionRequired) return _refused(whenRequired);
     return SendOutcome(
       SendOutcomeKind.notEncrypted,
       conversationId: conversationId,
@@ -567,9 +595,16 @@ class EncryptedMessagingImpl implements EncryptedMessaging {
             known.ids.any((id) => known.peerOf(id) == peer)) {
           return _refused(SendProblem.blocked);
         }
-        return SendOutcome(
-          SendOutcomeKind.notEncrypted,
-          conversationId: conversationId,
+        // Plan 6 Task 1.B: the starter answers `plaintext` for two reasons.
+        // With the flag on it read the peer's list and found it empty: under
+        // required that is "they can't receive encrypted messages yet". With
+        // the flag off or unknown it never looked: under required this device
+        // may not start encryption, so nothing is sent at all.
+        return _notEncryptedUnlessRequired(
+          conversationId,
+          whenRequired: _session.mayStart
+              ? SendProblem.peerHasNoDevice
+              : SendProblem.requiredUnavailable,
         );
       case StartResult.peerHasNoDevice:
         return _refused(SendProblem.peerHasNoDevice);

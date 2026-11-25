@@ -87,6 +87,15 @@ enum SendProblem {
   peerHasNoDevice, // "They can't receive encrypted messages yet" (only where the state of that name is reported)
   tryTomorrow, // R6 step 4: the per-target claim cap ("Try again tomorrow")
   refused, // a definitive server refusal; [DecryptedMessage.error] carries the typed reason
+  // Plan 6 Task 1.B: `e2ee_required` is on and this device may not start
+  // encryption (`e2ee_dm` off or unknown): a conversation that is not
+  // encrypted yet gets no send at all, neither plaintext nor encrypted. Only
+  // as a `refused` outcome of `send`; never on a stored row.
+  requiredUnavailable,
+  // Plan 6 Task 1.B (security review L5): `e2ee_required` is on and this
+  // device cannot hold a vault (no port, or the vault is `unsupported`):
+  // nothing can be encrypted here, so nothing is sent. Same rules as above.
+  requiredNotOnThisDevice,
 }
 
 enum SystemLineKind {
@@ -196,8 +205,15 @@ final class SendOutcome {
   // NEVER for a conversation (or a recipient) this device has ever known as encrypted
   // (the vault's known set or the cached row's sticky encrypted marker), and NEVER
   // while a vault exists on this device and is not ready (security read C1).
-  // refused: nothing was saved; show [problem] / [error]. Returned ONLY from the start
-  // path of an encryption (peerHasNoDevice with a non-empty list, tryTomorrow, blocked,
+  // NEVER while `e2ee_required` is in the caller's enabled features (Plan 6
+  // Task 1.B): an empty peer list is then refused(peerHasNoDevice), and with
+  // the flag off refused(requiredUnavailable); no vault with the flag on is
+  // refused(blocked), and a vault this platform cannot hold is
+  // refused(requiredNotOnThisDevice).
+  // refused: nothing was saved; show [problem] / [error]. Returned ONLY from
+  // the start path of an encryption, or in place of notEncrypted under
+  // `e2ee_required` (see above): peerHasNoDevice with a non-empty list,
+  // tryTomorrow, blocked,
   // retryable when the device lookup could not be read (H1), a first-attempt server
   // refusal of the init), and `blocked` while a vault on this device is not ready
   // (C1: no conversation can be classified then). In an existing encrypted conversation

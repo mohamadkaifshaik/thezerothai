@@ -48,13 +48,16 @@ String conversationResetErrorMessage(Object error) {
 /// The text of a refused send shown above the field (Task 6). [vaultBlocked] is true ONLY when, at the time of the
 /// refusal, the status says the vault on this device is not open (`EncryptionStatus.vaultNotOpen`); every other
 /// `blocked` refusal says [kStateBlockedTitle]. `retryable` reuses the existing stale-epoch text (no new string).
+/// A refusal with a second line ([composerRefusalDetail]) shows it under this one.
 String composerRefusalText(
   SendProblem problem,
   AppException? error, {
   bool vaultBlocked = false,
 }) {
   return switch (problem) {
-    SendProblem.peerHasNoDevice => kStatePeerNoDeviceText,
+    SendProblem.peerHasNoDevice => kPeerCannotReceiveYetTitle,
+    SendProblem.requiredUnavailable => kRequiredUnavailableTitle,
+    SendProblem.requiredNotOnThisDevice => kNotOnThisDeviceText,
     SendProblem.tryTomorrow => kOutgoingTryTomorrowText,
     SendProblem.blocked =>
       vaultBlocked ? kSendWaitsForVaultText : kStateBlockedTitle,
@@ -68,6 +71,30 @@ String composerRefusalText(
           : messagingErrorMessage(error),
     SendProblem.none => '',
   };
+}
+
+/// Plan 6 Task 1.B: the second line of a refused send, under
+/// [composerRefusalText]; null when the refusal has one line only. Nothing was
+/// sent in either case, and the body says so.
+String? composerRefusalDetail(SendProblem problem) => switch (problem) {
+  SendProblem.peerHasNoDevice => kPeerCannotReceiveYetBody,
+  SendProblem.requiredUnavailable => kRequiredUnavailableBody,
+  SendProblem.requiredNotOnThisDevice => kRequiredNotOnThisDeviceBody,
+  SendProblem.none ||
+  SendProblem.retryable ||
+  SendProblem.blocked ||
+  SendProblem.tryTomorrow ||
+  SendProblem.refused => null,
+};
+
+/// [composerRefusalText] and [composerRefusalDetail] as one paragraph, for a
+/// place with room for one line of text only (a share's error line). A title
+/// that ends its own sentence gets no second full stop.
+String composerRefusalParagraph(SendProblem problem, AppException? error) {
+  final title = composerRefusalText(problem, error);
+  final detail = composerRefusalDetail(problem);
+  if (detail == null) return title;
+  return title.endsWith('.') ? '$title $detail' : '$title. $detail';
 }
 
 /// The status line of an own row that is not delivered (Task 4). A delivered row has no status line (empty).
@@ -88,6 +115,9 @@ String sendStatusText(
       SendProblem.blocked => kOutgoingNotSentBlockedText,
       SendProblem.peerHasNoDevice => kStatePeerNoDeviceText,
       SendProblem.tryTomorrow => kOutgoingTryTomorrowText,
+      // Never on a stored row (only a `send` refusal); named for exhaustiveness.
+      SendProblem.requiredUnavailable => kRequiredUnavailableTitle,
+      SendProblem.requiredNotOnThisDevice => kNotOnThisDeviceText,
       // A refusal is definitive: with no typed reason the row says "Not sent" and promises no retry.
       SendProblem.refused =>
         error == null

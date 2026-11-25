@@ -10,6 +10,7 @@ import '../../../support/thread_test_support.dart';
 
 MessageComposerCubit _cubit(FakeSendRepository repo) => MessageComposerCubit(
   repository: repo,
+  encryptionRequired: () => false,
   conversationId: kThreadId,
   outbox: repo.outbox,
 );
@@ -164,6 +165,7 @@ void main() {
     final scope = MessageOutbox.draftScope('u-peer');
     MessageComposerCubit draft() => MessageComposerCubit(
       repository: repo,
+      encryptionRequired: () => false,
       outbox: repo.outbox,
       recipientUserId: 'u-peer',
     );
@@ -185,6 +187,7 @@ void main() {
     await first.close();
     final other = MessageComposerCubit(
       repository: repo,
+      encryptionRequired: () => false,
       conversationId: 'other',
       outbox: repo.outbox,
     );

@@ -105,6 +105,20 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
   /// this bloc's current user, after a switch.
   String? uidOf(OnboardingState state) => _stateUids[state];
 
+  /// The user this bloc serves now (null: signed out). A state whose
+  /// [uidOf] differs from it is another user's (Plan 6 Task 1.B,
+  /// `e2eeRequiredOf` fails closed then).
+  String? get currentUid => _uid;
+
+  /// How many `GetMe` answers this bloc has applied (bumped right before the
+  /// state that carries one is emitted). Listeners that must react to a fresh
+  /// flag set, and only to that, compare it: the state's `enabledFeatures`
+  /// cannot tell (the freezed getter wraps the set on every read, so it is
+  /// never identical twice), and an equal set from a new GetMe still counts.
+  /// A plain bloc getter, not a state field. Plan 6 Task 1.B, security L-new-1.
+  int get flagsGeneration => _flagsGeneration;
+  int _flagsGeneration = 0;
+
   @override
   void onChange(Change<OnboardingState> change) {
     super.onChange(change);
@@ -251,6 +265,7 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
     // the Retry after it): the optional photo step, when media is on.
     final afterCreate = _profileCreated && !_flagsLoaded;
     _flagsLoaded = true;
+    _flagsGeneration++;
     emit(
       state.copyWith(
         status: OnboardingStatus.ready,

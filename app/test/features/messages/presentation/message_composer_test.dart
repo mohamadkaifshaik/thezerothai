@@ -41,6 +41,7 @@ MessageComposerCubit cubitFor(
   Future<void> Function()? onSent,
 }) => MessageComposerCubit(
   repository: repo,
+  encryptionRequired: () => false,
   outbox: repo.outbox,
   conversationId: kThreadId,
   onCannotMessage: onCannotMessage,
@@ -253,7 +254,12 @@ void main() {
       whenListen(
         onboarding,
         const Stream<OnboardingState>.empty(),
-        initialState: OnboardingState(enabledFeatures: features),
+        // A known flag set (GetMe answered): an unknown one fails closed
+        // under e2ee_required (Plan 6 Task 1.B, `e2eeRequiredOf`).
+        initialState: OnboardingState(
+          status: OnboardingStatus.ready,
+          enabledFeatures: features,
+        ),
       );
       final router = GoRouter(
         routes: [
@@ -548,6 +554,7 @@ void main() {
       );
       final cubit = MessageComposerCubit(
         repository: repo,
+        encryptionRequired: () => false,
         outbox: repo.outbox,
         conversationId: kThreadId,
       );

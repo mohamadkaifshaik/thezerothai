@@ -1065,6 +1065,7 @@ void main() {
         "user's text back", () async {
       final cubit = MessageComposerCubit(
         repository: repo,
+        encryptionRequired: () => false,
         outbox: repo.outbox,
         conversationId: 'c1',
       )..textChanged('first');
@@ -1077,6 +1078,7 @@ void main() {
       expect(repo.outbox.isEmpty, isTrue);
       final next = MessageComposerCubit(
         repository: repo,
+        encryptionRequired: () => false,
         outbox: repo.outbox,
         conversationId: 'c1',
       );
