@@ -11,6 +11,7 @@ import (
 	keysv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/keys/v1"
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/keys/v1/keysv1connect"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/clientinfo"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 )
 
@@ -38,14 +39,30 @@ type Server struct {
 	keysv1connect.UnimplementedKeyServiceHandler
 	flags FlagChecker
 	svc   Service
+	floor ClientFloor
 }
 
+// ServerOption configures NewServer.
+type ServerOption func(*Server)
+
+// WithClientFloor wires the app version floor (plan 6 section 3.1): a build below it gets FEATURE_DISABLED
+// feature=messaging update_required=true from every RPC, before the flag class and any lookup. Nil, or floors of 0,
+// change nothing.
+func WithClientFloor(f ClientFloor) ServerOption { return func(s *Server) { s.floor = f } }
+
 // NewServer builds the handler. Use with keysv1connect.NewKeyServiceHandler.
-func NewServer(fc FlagChecker, svc Service) *Server { return &Server{flags: fc, svc: svc} }
+func NewServer(fc FlagChecker, svc Service, opts ...ServerOption) *Server {
+	s := &Server{flags: fc, svc: svc}
+	for _, o := range opts {
+		o(s)
+	}
+	return s
+}
 
 var _ keysv1connect.KeyServiceHandler = (*Server)(nil)
 
-// entry is the shared front of every handler, in this order: the caller (UNAUTHENTICATED), the flag class
+// entry is the shared front of every handler, in this order: the caller (UNAUTHENTICATED), the app version floor
+// (FEATURE_DISABLED feature=messaging update_required=true for a build below it), the flag class
 // (FEATURE_DISABLED feature=e2ee_dm, before any lookup), the wiring (UNIMPLEMENTED), the idempotency_key format of a
 // mutating RPC (key non-nil; VALIDATION idempotency_key; the key is not stored: Register, Remove and Upload are naturally
 // idempotent and Claim is not replayable), then the RPC deadline. A read RPC passes a nil key.
@@ -53,6 +70,9 @@ func (s *Server) entry(ctx context.Context, rpc string, class gateClass, key *st
 	uid, ok := authn.UIDFromContext(ctx)
 	if !ok || uid == "" {
 		return nil, nil, "", connect.NewError(connect.CodeUnauthenticated, nil)
+	}
+	if s.floor != nil && s.floor.BelowFloor(ctx) {
+		return nil, nil, "", clientinfo.UpdateRequired(ctx, clientinfo.FeatureMessaging)
 	}
 	var err error
 	switch class {

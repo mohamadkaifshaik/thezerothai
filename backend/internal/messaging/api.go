@@ -35,6 +35,14 @@ type FlagChecker interface {
 	GloballyOff(name string) bool
 }
 
+// ClientFloor is the consumer-side seam to the app version floor (plan 6 section 3.1): BelowFloor reports whether the
+// request's app build (the x-dz-client header the apiserver stamped into ctx) is older than its platform's floor.
+// Implemented by pkg/platform/clientinfo.Floors; 0 reads. Not a security control (a client can send any header): it
+// only spares honest old builds an RPC they cannot use.
+type ClientFloor interface {
+	BelowFloor(ctx context.Context) bool
+}
+
 // Service is the Connect handler's dependency. Each method takes the caller's uid from the token (never
 // from the request), checks the flag before any Firestore access (FEATURE_DISABLED feature=messaging, nothing read) and then
 // applies the rules. The request and response are the wire messages: there is no domain model before then needs one.

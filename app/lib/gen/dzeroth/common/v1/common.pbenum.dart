@@ -117,6 +117,9 @@ class ErrorReason extends $pb.ProtobufEnum {
   /// feature and refresh GetMe.enabled_features; do not retry.
   /// metadata["feature"], when set, names a sub-feature (e.g. "replies", "quotes", "media"): hide only that one.
   /// When absent, the whole feature behind the called service is off.
+  /// metadata["update_required"] = "true" when the feature is refused only because this app build is below the
+  /// server's floor (identity.v1 GetMeResponse.features_needing_update): ask the user to update, do not just hide.
+  /// Every MessagingService and KeyService RPC answers so (feature "messaging") for a build below the floor.
   static const ErrorReason ERROR_REASON_FEATURE_DISABLED =
       ErrorReason._(14, _omitEnumNames ? '' : 'ERROR_REASON_FEATURE_DISABLED');
 
