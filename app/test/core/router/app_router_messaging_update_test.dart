@@ -32,6 +32,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../support/dz_finders.dart';
 import '../../support/messaging_fixtures.dart';
 import '../../support/messaging_shell_rig.dart';
 import '../../support/thread_test_support.dart';
@@ -166,7 +167,7 @@ void main() {
       expect(find.byType(AppTopBar), findsOneWidget);
       expect(find.byType(AppBar), findsNothing);
       // The destination is still there (selected on its own page).
-      expect(find.byIcon(Icons.mail), findsOneWidget);
+      expect(byNavIcon(Icons.mail), findsOneWidget);
       verifyNever(() => repo.cachedConversations(any()));
       verifyNever(() => repo.refreshConversations(any()));
     },
@@ -206,7 +207,7 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(find.text(kUpdateToMessageTitle), findsOneWidget);
-      expect(find.byIcon(Icons.mail), findsOneWidget);
+      expect(byNavIcon(Icons.mail), findsOneWidget);
     });
   }
 
@@ -221,8 +222,8 @@ void main() {
 
     expect(path, AppRouter.homePath);
     expect(find.byType(MessagingUpdateRequired), findsNothing);
-    expect(find.byIcon(Icons.mail_outline), findsNothing);
-    expect(find.byIcon(Icons.mail), findsNothing);
+    expect(byNavIcon(Icons.mail_outline), findsNothing);
+    expect(byNavIcon(Icons.mail), findsNothing);
   });
 
   testWidgets('the floor arriving mid-session: a thread open with messaging on '
