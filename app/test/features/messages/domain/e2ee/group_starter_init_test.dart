@@ -3954,6 +3954,34 @@ void main() {
       });
     }
 
+    // Plan 6 PR 6-4 ruling: a FEATURE_DISABLED that carries update_required
+    // (this build is below the server's floor) is temporary: the user
+    // updates and the conversation continues. It is not the lasting evidence
+    // a discard needs, so the group stays and the row stays pending.
+    test('a replay refused with FEATURE_DISABLED + update_required after '
+        '24 h: not a lasting refusal, the discard is held and deletes '
+        'nothing (Plan 6 PR 6-4)', () async {
+      final row = await unanswered(stored: true);
+      rig.clock.advance(kProvisionalExpiry + const Duration(minutes: 1));
+      rig.server.rewriteLive = (real) =>
+          pb.ListMessagesResponse(conversation: real.conversation);
+      rig.server.sendScript.add((
+        error: const FeatureDisabledException('off', updateRequired: true),
+        stored: false,
+      ));
+      final sends = rig.server.sends.length;
+
+      await starter.resumeProvisional();
+      await done();
+
+      // The replay went out once and was refused; nothing else was sent.
+      expect(rig.server.sends, hasLength(sends + 1));
+      await expectUnchanged(row, 'a refused replay deletes nothing');
+
+      expect(await starter.discardInit(_c1), InitDiscard.held);
+      await expectUnchanged(row, 'update_required is not a lasting refusal');
+    });
+
     // Fix round 3, ruling 2 (code review Minor 1): a STALE_EPOCH of the
     // replay is the evidence only when it names this conversation.
     for (final named in const <String?>[null, _c2]) {
