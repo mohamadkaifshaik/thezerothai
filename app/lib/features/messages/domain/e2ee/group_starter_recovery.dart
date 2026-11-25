@@ -827,10 +827,15 @@ OutboxItem _withAttempt(OutboxItem r, int attempts, {String? lastError}) =>
 /// reactivation, an allowlist change), so a discard on them may delete a
 /// group the server still holds as ours. Only a STALE_EPOCH naming this
 /// conversation (read in [_sendLocked]) comes after the lookup.
+///
+/// Plan 6 PR 6-4 ruling: a FEATURE_DISABLED that carries `updateRequired`
+/// (this build is below the server's version floor) does NOT last: the user
+/// updates the app and the conversation continues. It is an unknown outcome
+/// like a rate limit, so it is never the evidence for a discard.
 bool _lastingRefusal(AppException e) =>
     _refusalRetryAfter(e) == null &&
     (e is CannotMessageException ||
-        e is FeatureDisabledException ||
+        (e is FeatureDisabledException && !e.updateRequired) ||
         e is NotFoundException);
 
 /// The retry time a refusal [e] names (a rate limit, a quota, degraded

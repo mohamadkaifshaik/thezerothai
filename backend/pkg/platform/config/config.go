@@ -55,6 +55,9 @@ type Config struct {
 	// Messaging holds the MESSAGES_* and CACHE_MESSAGING_* values of direct messages that are neither a rate limit nor a daily
 	// quota. The send and read buckets and the daily send cap live in RateLimit; the new-conversation quota in Quota.
 	Messaging MessagingConfig
+	// ClientFloors holds CLIENT_FLOOR_ANDROID, CLIENT_FLOOR_WEB and CLIENT_FLOOR_IOS (0..1000, default 0 = no floor): the
+	// app version floor for messaging (client_floor.go).
+	ClientFloors ClientFloorsConfig
 	// Lists holds LISTS_MAX_PER_USER, LIST_MAX_MEMBERS, HOME_TABS_MAX_PINNED and CACHE_LISTS_ENTRIES. The list buckets
 	// live in RateLimit.
 	Lists ListsConfig
@@ -894,6 +897,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	clientFloors, err := loadClientFloors()
+	if err != nil {
+		return Config{}, err
+	}
 	communities, err := loadCommunities()
 	if err != nil {
 		return Config{}, err
@@ -1331,6 +1338,7 @@ func Load() (Config, error) {
 		Suggestions:                  suggestions,
 		Privacy:                      privacy,
 		Messaging:                    messaging,
+		ClientFloors:                 clientFloors,
 		Lists:                        lists,
 		Communities:                  communities,
 		Beacons:                      beacons,

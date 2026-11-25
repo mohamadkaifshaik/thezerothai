@@ -97,6 +97,7 @@ AppException mapConnectError(Object error) {
         return FeatureDisabledException(
           message,
           feature: (feature == null || feature.isEmpty) ? null : feature,
+          updateRequired: detail.metadata['update_required'] == 'true',
         );
       // Account-deletion plan Q5: the sign-in is too old for a sensitive
       // call. The caller re-authenticates once and retries with the same key.

@@ -16,6 +16,10 @@ import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging.dart';
 import 'package:dzeroth/features/messages/presentation/e2ee/connected_encryption_status_card.dart';
 import 'package:dzeroth/features/messages/presentation/e2ee/encryption_copy.dart';
 import 'package:dzeroth/features/messages/presentation/e2ee/encryption_status.dart';
+import 'package:dzeroth/features/messages/presentation/messaging_update_copy.dart';
+import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
+import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
+import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_dialog.dart';
 import 'package:dzeroth/shared/widgets/primitives/app_pill_button.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -29,6 +33,9 @@ import '../../../../support/fake_encryption_device.dart';
 
 class _MockAuthBloc extends MockBloc<AuthEvent, AuthState>
     implements AuthBloc {}
+
+class _MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
+    implements OnboardingBloc {}
 
 /// A port whose three device calls wait for the test.
 class _SlowMessaging extends FakeEncryptedMessaging {
@@ -76,6 +83,7 @@ void main() {
     bool showManageDevices = true,
     bool showReset = true,
     bool withCubit = true,
+    OnboardingBloc? onboarding,
   }) async {
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = const Size(900, 1600);
@@ -115,6 +123,8 @@ void main() {
       MultiRepositoryProvider(
         providers: [
           BlocProvider<AuthBloc>.value(value: auth),
+          if (onboarding != null)
+            BlocProvider<OnboardingBloc>.value(value: onboarding),
           if (withCubit)
             BlocProvider<EncryptionStatusCubit>.value(value: cubit),
           if (withPort)
@@ -375,6 +385,73 @@ void main() {
     await tester.pump();
     expect(
       find.text(encryptionErrorMessage(const UnknownApiException(''))),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('a Set up again refused with update_required shows the update '
+      'text (Plan 6 PR 6-4)', (tester) async {
+    messaging.removedElsewhere.value = true;
+    await pump(tester);
+    messaging.failNextOn(
+      'setUpDeviceAgain',
+      const FeatureDisabledException('x', updateRequired: true),
+    );
+    await tap(tester, kSetUpAgainAction);
+    await tester.pumpAndSettle();
+    await confirmSetUp(tester);
+    await tester.pump();
+    expect(
+      find.text(messagingUpdateMessage(messagingUpdateKindFor())),
+      findsOneWidget,
+    );
+    expect(
+      find.text("Encrypted messages aren't available right now."),
+      findsNothing,
+    );
+  });
+
+  testWidgets('a Set up again refused while the app needs an update shows the '
+      'update text, whatever the error (Plan 6 PR 6-4)', (tester) async {
+    final onboarding = _MockOnboardingBloc();
+    whenListen(
+      onboarding,
+      const Stream<OnboardingState>.empty(),
+      initialState: const OnboardingState(
+        status: OnboardingStatus.ready,
+        featuresNeedingUpdate: {'messaging'},
+      ),
+    );
+    messaging.removedElsewhere.value = true;
+    await pump(tester, onboarding: onboarding);
+    messaging.failNextOn(
+      'setUpDeviceAgain',
+      const FeatureDisabledException('Encrypted messages are not on.'),
+    );
+    await tap(tester, kSetUpAgainAction);
+    await tester.pumpAndSettle();
+    await confirmSetUp(tester);
+    await tester.pump();
+    expect(
+      find.text(messagingUpdateMessage(messagingUpdateKindFor())),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('a Set up again refused with a plain FEATURE_DISABLED keeps the '
+      'encryption text', (tester) async {
+    messaging.removedElsewhere.value = true;
+    await pump(tester);
+    messaging.failNextOn(
+      'setUpDeviceAgain',
+      const FeatureDisabledException('x'),
+    );
+    await tap(tester, kSetUpAgainAction);
+    await tester.pumpAndSettle();
+    await confirmSetUp(tester);
+    await tester.pump();
+    expect(
+      find.text("Encrypted messages aren't available right now."),
       findsOneWidget,
     );
   });

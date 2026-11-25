@@ -428,6 +428,54 @@ void main() {
     );
 
     blocTest<OnboardingBloc, OnboardingState>(
+      'holds GetMe.features_needing_update beside enabledFeatures, empty when '
+      'the server sends none (floors at 0)',
+      setUp: () {
+        final profile = identity.Profile(userId: 'uid-1', handle: 'kaif');
+        when(() => identityRepository.getMe()).thenAnswer(
+          (_) async => identity.GetMeResponse(
+            profile: profile,
+            enabledFeatures: ['graph'],
+            featuresNeedingUpdate: ['messaging'],
+          ),
+        );
+      },
+      build: () => OnboardingBloc(identityRepository: identityRepository),
+      act: (bloc) => bloc.add(const OnboardingUserAuthenticated(user)),
+      expect: () => [
+        const OnboardingState(status: OnboardingStatus.loading),
+        isA<OnboardingState>()
+            .having((s) => s.enabledFeatures, 'enabledFeatures', {'graph'})
+            .having((s) => s.featuresNeedingUpdate, 'needing update', {
+              'messaging',
+            }),
+      ],
+    );
+
+    blocTest<OnboardingBloc, OnboardingState>(
+      'features_needing_update is empty when GetMe sends none',
+      setUp: () {
+        final profile = identity.Profile(userId: 'uid-1', handle: 'kaif');
+        when(() => identityRepository.getMe()).thenAnswer(
+          (_) async => identity.GetMeResponse(
+            profile: profile,
+            enabledFeatures: ['messaging'],
+          ),
+        );
+      },
+      build: () => OnboardingBloc(identityRepository: identityRepository),
+      act: (bloc) => bloc.add(const OnboardingUserAuthenticated(user)),
+      expect: () => [
+        const OnboardingState(status: OnboardingStatus.loading),
+        isA<OnboardingState>().having(
+          (s) => s.featuresNeedingUpdate,
+          'needing update',
+          isEmpty,
+        ),
+      ],
+    );
+
+    blocTest<OnboardingBloc, OnboardingState>(
       'renders the cached profile instantly, then reconciles with GetMe',
       setUp: () {
         final cachedProfile = CachedProfile(

@@ -73,6 +73,7 @@ import '../features/messages/data/messaging_repository.dart';
 import '../features/messages/domain/e2ee/encrypted_messaging.dart';
 import '../features/messages/domain/e2ee/encryption_access.dart';
 import '../features/messages/domain/e2ee/encryption_device.dart';
+import '../core/feature_flags/feature_flags.dart' show needsUpdateFor;
 import '../features/messages/domain/messaging_feature_flag.dart';
 import '../features/messages/presentation/bloc/conversations_session.dart';
 import '../features/messages/presentation/e2ee/encryption_status.dart';
@@ -851,7 +852,11 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
     }
     if (flagsChanged || apiUserId != _probedUid) {
       _probedUid = apiUserId;
-      unawaited(widget.messagingRepository.probeAccess());
+      // Below the version floor Messages shows the update prompt and no
+      // conversation list may be read: no probe (0 RPCs).
+      if (!needsUpdateFor(state, kFeatureMessaging)) {
+        unawaited(widget.messagingRepository.probeAccess());
+      }
     }
     final unreadChanged = _lastUnread != state.unreadNotificationCount;
     final conversationsChanged =

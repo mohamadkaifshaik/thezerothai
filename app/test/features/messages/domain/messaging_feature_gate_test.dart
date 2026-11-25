@@ -56,6 +56,34 @@ void main() {
     });
   }
 
+  test('update_required: the local refusals of run and runRead keep the flag '
+      'until reset (Plan 6 PR 6-4)', () async {
+    Future<int> updateRequired() async => throw withDetail(
+      connect.Code.failedPrecondition,
+      common.ErrorReason.ERROR_REASON_FEATURE_DISABLED,
+      metadata: {'feature': 'messaging', 'update_required': 'true'},
+    );
+    Matcher refused(bool flag) => throwsA(
+      isA<FeatureDisabledException>().having(
+        (e) => e.updateRequired,
+        'updateRequired',
+        flag,
+      ),
+    );
+
+    await expectLater(gate.runRead(updateRequired), refused(true));
+    flagOn = false;
+    await expectLater(gate.run(ok), refused(true));
+    await expectLater(gate.runRead(ok), refused(true));
+    expect(calls, 0, reason: 'both refused locally');
+
+    gate.reset();
+    flagOn = true;
+    await gate.runRead(ok);
+    await expectLater(gate.runRead(disabled), refused(false));
+    await expectLater(gate.runRead(ok), refused(false));
+  });
+
   test('flag on for the caller: sends and reads both run', () async {
     expect(gate.canSend, isTrue);
     expect(gate.canRead, isTrue);
