@@ -49,8 +49,6 @@ void main() {
     test('android and web carry kClientLevel', () {
       expect(clientHeaderValue('android'), 'android/$kClientLevel');
       expect(clientHeaderValue('web'), 'web/$kClientLevel');
-      expect(clientHeaderValue('android'), 'android/1');
-      expect(clientHeaderValue('web'), 'web/1');
     });
 
     test('level is 0 wherever createCryptoEngine is unsupported', () {

@@ -10,6 +10,9 @@
 // line does not count. They prove presence in code, not runtime order.
 import 'dart:io';
 
+import 'package:dzeroth/core/app_build.dart';
+import 'package:dzeroth/core/crypto/crypto_engine_factory_io.dart';
+import 'package:flutter/foundation.dart' show TargetPlatform;
 import 'package:flutter_test/flutter_test.dart';
 
 const _apiClient = 'lib/core/network/api_client.dart';
@@ -56,6 +59,28 @@ Map<String, int> headerLiterals(Map<String, String> sources) => {
       e.key: _headerLiteral.allMatches(_code(e.value)).length,
 };
 
+/// A construction of a Connect transport (`Transport(` not preceded by a word
+/// character, so `withTransport(` does not match).
+final _transportConstruction = RegExp(r'(?<![\w])Transport\(');
+
+/// Files (by path) that construct a transport, with the count.
+Map<String, int> transportConstructions(Map<String, String> sources) => {
+  for (final e in sources.entries)
+    if (_transportConstruction.allMatches(_code(e.value)).isNotEmpty)
+      e.key: _transportConstruction.allMatches(_code(e.value)).length,
+};
+
+/// Whether the io engine factory builds an engine for [platform] (it throws
+/// UnsupportedError when it has none).
+bool _ioEngineExists(TargetPlatform platform) {
+  try {
+    createIoCryptoEngine(isAndroid: platform == TargetPlatform.android);
+    return true;
+  } on UnsupportedError {
+    return false;
+  }
+}
+
 Map<String, String> _libSources() => {
   for (final f in Directory('lib').listSync(recursive: true))
     if (f is File &&
@@ -82,6 +107,34 @@ void main() {
 
   test('the header name is spelled once, in app_build.dart', () {
     expect(headerLiterals(_libSources()), {_appBuild: 1});
+  });
+
+  test('a Connect Transport is constructed only in api_client.dart', () {
+    // A second transport would bypass the interceptors, and with them the
+    // capability header. `connect.Transport transport)` (a type, in
+    // ApiClient.withTransport) is not a construction.
+    expect(transportConstructions(_libSources()), {_apiClient: 1});
+  });
+
+  test('kClientLevel is 0 wherever createCryptoEngine is unsupported', () {
+    // The binding to real engine support lives here, not in lib: when an
+    // engine lands for a platform (crypto_engine_factory_io.dart or _web.dart)
+    // and clientLevelFor is not updated, or the reverse, this fails.
+    for (final isWeb in [true, false]) {
+      for (final platform in TargetPlatform.values) {
+        final word = clientPlatformName(isWeb: isWeb, platform: platform);
+        final level = clientLevelFor(word);
+        final hasEngine = isWeb || _ioEngineExists(platform);
+        expect(
+          level > 0,
+          hasEngine,
+          reason:
+              'isWeb=$isWeb platform=$platform sends "$word/$level" but '
+              'the engine is ${hasEngine ? 'supported' : 'unsupported'}',
+        );
+        if (hasEngine) expect(level, kClientLevel);
+      }
+    }
   });
 
   group('the scan itself', () {
@@ -126,6 +179,28 @@ void main() {
         'lib/other.dart': 'h.set("x-dz-client", ["9"]);',
       };
       expect(headerLiterals(sources), {_appBuild: 1, 'lib/other.dart': 1});
+    });
+
+    test('reports a second transport construction', () {
+      final sources = {
+        _apiClient: 'x = protocol_connect.Transport(baseUrl: b);',
+        'lib/other.dart': 'final t = Transport(baseUrl: b);',
+      };
+      expect(transportConstructions(sources), {
+        _apiClient: 1,
+        'lib/other.dart': 1,
+      });
+    });
+
+    test('a type use, withTransport( and a comment are not constructions', () {
+      expect(
+        transportConstructions({
+          'lib/a.dart':
+              'ApiClient.withTransport(connect.Transport transport);\n'
+              '// Transport(x)',
+        }),
+        isEmpty,
+      );
     });
 
     test('a commented definition does not count', () {

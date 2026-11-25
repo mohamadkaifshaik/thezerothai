@@ -39,6 +39,7 @@ String clientPlatformName({bool? isWeb, TargetPlatform? platform}) {
 /// engine exists (web, Android), 0 everywhere else (iOS cannot do E2EE yet,
 /// so its builds must not be counted as capable). When the iOS binding ships,
 /// add `ios` here in that PR.
+/// Bound to real engine support by test/guards/client_capability_guard_test.dart.
 int clientLevelFor(String platform) =>
     (platform == 'web' || platform == 'android') ? kClientLevel : 0;
 

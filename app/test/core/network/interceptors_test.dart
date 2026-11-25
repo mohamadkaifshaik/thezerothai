@@ -55,20 +55,23 @@ void main() {
       return captured!;
     }
 
-    test('every request carries x-dz-client with the platform and level, '
-        'with no session and no auth interceptor in the chain', () async {
-      final sent = await send(
-        const RequestMetadataInterceptor(platform: _android),
-      );
-      expect(sent.headers['x-dz-client'], 'android/$kClientLevel');
-      expect(sent.headers['x-dz-client'], 'android/1');
-    });
+    // No session and no auth interceptor in this chain: the header does not
+    // depend on sign-in.
+    test(
+      'every request carries x-dz-client with the platform and level',
+      () async {
+        final sent = await send(
+          const RequestMetadataInterceptor(platform: _android),
+        );
+        expect(sent.headers['x-dz-client'], 'android/$kClientLevel');
+      },
+    );
 
     test('the platform word is web, android or ios with its level', () async {
       expect(
         (await send(const RequestMetadataInterceptor(platform: _web)))
             .headers['x-dz-client'],
-        'web/1',
+        'web/$kClientLevel',
       );
       expect(
         (await send(const RequestMetadataInterceptor(platform: _ios)))
@@ -118,7 +121,7 @@ void main() {
 
       await chain(request);
 
-      expect(seen, ['android/1', 'android/1', 'android/1']);
+      expect(seen, List.filled(3, 'android/$kClientLevel'));
     });
   });
 
