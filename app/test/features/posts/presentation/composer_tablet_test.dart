@@ -11,6 +11,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../../../support/composer_tablet_rig.dart';
+import '../../../support/dz_finders.dart';
 import '../../../support/posts_fixtures.dart';
 import '../../../support/theme_harness.dart';
 
@@ -865,7 +866,7 @@ void main() {
       testWidgets('${width.toInt()}: Reply on a post', (tester) async {
         final rig = ComposerTabletRig();
         await rig.pump(tester, width: width, height: 900);
-        await tester.tap(find.byIcon(Icons.chat_bubble_outline));
+        await tester.tap(byActionIcon(Icons.chat_bubble_outline));
         await tester.pumpAndSettle();
         expect(
           rig.uri.path,
@@ -888,7 +889,7 @@ void main() {
       ) async {
         final rig = ComposerTabletRig();
         await rig.pump(tester, width: width, height: 900);
-        await tester.tap(find.byIcon(Icons.repeat));
+        await tester.tap(byActionIcon(Icons.repeat));
         await tester.pumpAndSettle();
         await tester.tap(find.text('Quote'));
         await tester.pumpAndSettle();

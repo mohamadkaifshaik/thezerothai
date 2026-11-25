@@ -7,9 +7,10 @@ import 'dz_icon_data.dart';
 /// stroke, as an SVG is.
 ///
 /// [fill] (0 to 1) fills the shapes with [fillColor] (default [color]) at that
-/// strength: 0 is the outline, 1 the "liked" / "saved" / active look; animate
-/// it for a toggle. Shapes marked `filled` in the data (dots) are always
-/// filled.
+/// strength: 0 is the outline, 1 the "liked" / "saved" / active look. It is
+/// the *target*: with a [fillDuration] the painted fill eases to it when it
+/// changes (a toggle), and a first build shows it at once. Shapes marked
+/// `filled` in the data (dots) are always filled.
 ///
 /// A [semanticLabel] makes the icon an image with that label; without one it
 /// is hidden from assistive technology (the usual case: its button carries
@@ -21,6 +22,7 @@ class DzIcon extends StatelessWidget {
     this.size,
     this.color,
     this.fill = 0,
+    this.fillDuration = Duration.zero,
     this.fillColor,
     this.strokeWidth,
     this.semanticLabel,
@@ -30,6 +32,10 @@ class DzIcon extends StatelessWidget {
   final double? size;
   final Color? color;
   final double fill;
+
+  /// How long the painted fill takes to reach [fill] when it changes; zero is
+  /// instant (pass zero under reduce-motion).
+  final Duration fillDuration;
   final Color? fillColor;
 
   /// Overrides the icon's own stroke width (on the 24 grid).
@@ -45,17 +51,24 @@ class DzIcon extends StatelessWidget {
     if (opacity != null && opacity != 1) {
       resolved = resolved.withValues(alpha: resolved.a * opacity);
     }
+    Widget paint(double shown) => CustomPaint(
+      painter: _DzIconPainter(
+        data,
+        color: resolved,
+        fillColor: fillColor ?? resolved,
+        fill: shown,
+        strokeWidth: strokeWidth ?? data.strokeWidth,
+      ),
+    );
     final painted = SizedBox.square(
       dimension: dimension,
-      child: CustomPaint(
-        painter: _DzIconPainter(
-          data,
-          color: resolved,
-          fillColor: fillColor ?? resolved,
-          fill: fill,
-          strokeWidth: strokeWidth ?? data.strokeWidth,
-        ),
-      ),
+      child: fillDuration == Duration.zero
+          ? paint(fill)
+          : TweenAnimationBuilder<double>(
+              tween: Tween(end: fill),
+              duration: fillDuration,
+              builder: (context, shown, _) => paint(shown),
+            ),
     );
     if (semanticLabel == null) return ExcludeSemantics(child: painted);
     return Semantics(label: semanticLabel, image: true, child: painted);

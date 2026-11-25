@@ -27,6 +27,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../../../support/dz_finders.dart';
 import '../../../../support/posts_fixtures.dart';
 
 class MockEngagementRepository extends Mock implements EngagementRepository {}
@@ -221,8 +222,8 @@ void main() {
     expect(find.text('1.2K'), findsOneWidget);
     expect(find.text('2'), findsOneWidget);
     expect(find.text('1'), findsOneWidget);
-    expect(find.byIcon(Icons.favorite), findsOneWidget);
-    expect(find.byIcon(Icons.ios_share), findsNothing);
+    expect(byActionIcon(Icons.favorite), findsOneWidget);
+    expect(byActionIcon(Icons.ios_share), findsNothing);
   });
 
   testWidgets('semantics: labelled buttons with the state and count', (
@@ -245,10 +246,10 @@ void main() {
     stubLike(() => completer.future);
     await pump(tester, _view());
 
-    await tester.tap(find.byIcon(Icons.favorite_border));
+    await tester.tap(byActionIcon(Icons.favorite_border));
     await tester.pump();
 
-    expect(find.byIcon(Icons.favorite), findsOneWidget);
+    expect(byActionIcon(Icons.favorite), findsOneWidget);
     expect(find.text('5'), findsOneWidget);
     verify(
       () => repo.like(
@@ -268,10 +269,10 @@ void main() {
     stubLike(() async => throw const QuotaExceededException('x'));
     await pump(tester, _view());
 
-    await tester.tap(find.byIcon(Icons.favorite_border));
+    await tester.tap(byActionIcon(Icons.favorite_border));
     await tester.pumpAndSettle();
 
-    expect(find.byIcon(Icons.favorite_border), findsOneWidget);
+    expect(byActionIcon(Icons.favorite_border), findsOneWidget);
     expect(find.text('4'), findsOneWidget);
     expect(
       find.text("You've reached today's limit for likes. It resets tomorrow."),
@@ -286,7 +287,7 @@ void main() {
 
     // Counts are unknown on a REPOST row: nothing is shown until an answer.
     expect(find.text('0'), findsNothing);
-    await tester.tap(find.byIcon(Icons.favorite_border));
+    await tester.tap(byActionIcon(Icons.favorite_border));
     await tester.pumpAndSettle();
 
     verify(
@@ -301,7 +302,7 @@ void main() {
   testWidgets('a refreshed row beats an older cubit entry', (tester) async {
     stubLike(() async => _answer(liked: true, likes: 5));
     await pump(tester, _view());
-    await tester.tap(find.byIcon(Icons.favorite_border));
+    await tester.tap(byActionIcon(Icons.favorite_border));
     await tester.pumpAndSettle();
     expect(find.text('5'), findsOneWidget);
 
@@ -321,7 +322,7 @@ void main() {
       ).thenAnswer((_) async => _answer(reposted: true, reposts: 3));
       await pump(tester, _view());
 
-      await tester.tap(find.byIcon(Icons.repeat));
+      await tester.tap(byActionIcon(Icons.repeat));
       await tester.pumpAndSettle();
       expect(find.text('Repost'), findsOneWidget);
       expect(find.text('Quote'), findsOneWidget);
@@ -346,7 +347,7 @@ void main() {
       ).thenAnswer((_) async => _answer(reposts: 1));
       await pump(tester, _view(reposted: true));
 
-      await tester.tap(find.byIcon(Icons.repeat));
+      await tester.tap(byActionIcon(Icons.repeat));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Undo repost'));
       await tester.pumpAndSettle();
@@ -364,7 +365,7 @@ void main() {
     ) async {
       await pump(tester, _view());
 
-      await tester.tap(find.byIcon(Icons.repeat));
+      await tester.tap(byActionIcon(Icons.repeat));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Quote'));
       await tester.pumpAndSettle();
@@ -381,7 +382,7 @@ void main() {
     });
 
     Future<void> expectQuoteAbsent(WidgetTester tester) async {
-      await tester.tap(find.byIcon(Icons.repeat));
+      await tester.tap(byActionIcon(Icons.repeat));
       await tester.pumpAndSettle();
 
       expect(find.text('Repost'), findsOneWidget);
@@ -412,7 +413,7 @@ void main() {
     testWidgets('dismissing the sheet sends nothing', (tester) async {
       await pump(tester, _view());
 
-      await tester.tap(find.byIcon(Icons.repeat));
+      await tester.tap(byActionIcon(Icons.repeat));
       await tester.pumpAndSettle();
       await tester.tapAt(const Offset(10, 10));
       await tester.pumpAndSettle();
@@ -427,7 +428,7 @@ void main() {
     ) async {
       await pump(tester, _view());
 
-      await tester.tap(find.byIcon(Icons.chat_bubble_outline));
+      await tester.tap(byActionIcon(Icons.chat_bubble_outline));
       await tester.pumpAndSettle();
 
       expect(pushedLocation, '/compose/reply/${postId(1)}');
@@ -437,10 +438,10 @@ void main() {
       tester,
     ) async {
       await pump(tester, _view(), features: const {'engagement'});
-      expect(find.byIcon(Icons.chat_bubble_outline), findsNothing);
+      expect(byActionIcon(Icons.chat_bubble_outline), findsNothing);
 
       await pump(tester, _view(), showReply: false);
-      expect(find.byIcon(Icons.chat_bubble_outline), findsNothing);
+      expect(byActionIcon(Icons.chat_bubble_outline), findsNothing);
     });
   });
 
@@ -460,7 +461,7 @@ void main() {
         withPermission(ReplyPermission.REPLY_PERMISSION_NOT_ALLOWED),
       );
 
-      expect(find.byIcon(Icons.chat_bubble_outline), findsOneWidget);
+      expect(byActionIcon(Icons.chat_bubble_outline), findsOneWidget);
       final node = tester.getSemantics(find.bySemanticsLabel('Reply, 1'));
       expect(node.flagsCollection.isButton, isTrue);
       expect(node.flagsCollection.isEnabled, Tristate.isFalse);
@@ -469,10 +470,10 @@ void main() {
       expect(node.rect.size.shortestSide, greaterThanOrEqualTo(48));
 
       // Tapping does nothing; long press shows the tooltip.
-      await tester.tap(find.byIcon(Icons.chat_bubble_outline));
+      await tester.tap(byActionIcon(Icons.chat_bubble_outline));
       await tester.pumpAndSettle();
       expect(pushedLocation, isNull);
-      await tester.longPress(find.byIcon(Icons.chat_bubble_outline));
+      await tester.longPress(byActionIcon(Icons.chat_bubble_outline));
       await tester.pumpAndSettle();
       expect(find.text("You can't reply to this post"), findsOneWidget);
       handle.dispose();
@@ -486,14 +487,14 @@ void main() {
           withPermission(ReplyPermission.REPLY_PERMISSION_NOT_ALLOWED),
           features: const {'engagement'},
         );
-        expect(find.byIcon(Icons.chat_bubble_outline), findsNothing);
+        expect(byActionIcon(Icons.chat_bubble_outline), findsNothing);
 
         await pump(
           tester,
           withPermission(ReplyPermission.REPLY_PERMISSION_NOT_ALLOWED),
           showReply: false,
         );
-        expect(find.byIcon(Icons.chat_bubble_outline), findsNothing);
+        expect(byActionIcon(Icons.chat_bubble_outline), findsNothing);
       },
     );
 
@@ -509,7 +510,7 @@ void main() {
         final node = tester.getSemantics(find.bySemanticsLabel('Reply, 1'));
         expect(node.getSemanticsData().hasAction(SemanticsAction.tap), isTrue);
         expect(node.hint, isNot("You can't reply to this post"));
-        await tester.tap(find.byIcon(Icons.chat_bubble_outline));
+        await tester.tap(byActionIcon(Icons.chat_bubble_outline));
         await tester.pumpAndSettle();
         expect(pushedLocation, '/compose/reply/${postId(1)}');
         handle.dispose();
@@ -539,7 +540,7 @@ void main() {
     );
     await pump(tester, view);
 
-    expect(find.byIcon(Icons.favorite_border), findsNothing);
+    expect(byActionIcon(Icons.favorite_border), findsNothing);
   });
 
   testWidgets('large text on a narrow phone does not overflow', (tester) async {
@@ -578,7 +579,7 @@ void main() {
                 theme: dark ? appDarkTheme : appLightTheme,
               );
 
-              await tester.tap(find.byIcon(Icons.repeat));
+              await tester.tap(byActionIcon(Icons.repeat));
               await tester.pumpAndSettle();
 
               expect(tester.takeException(), isNull);
@@ -603,7 +604,7 @@ void main() {
       'original as the preview', (tester) async {
     await pump(tester, _repostView());
 
-    await tester.tap(find.byIcon(Icons.repeat));
+    await tester.tap(byActionIcon(Icons.repeat));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Quote'));
     await tester.pumpAndSettle();
@@ -641,7 +642,7 @@ void main() {
       final handle = tester.ensureSemantics();
       await pump(tester, _view(), shareLinks: links);
 
-      final share = find.byIcon(Icons.ios_share);
+      final share = byActionIcon(Icons.ios_share);
       expect(share, findsOneWidget);
       expect(find.bySemanticsLabel('Share'), findsOneWidget);
       final bar = tester.getRect(find.byType(PostActionBar));
@@ -652,20 +653,20 @@ void main() {
         Icons.ios_share,
       ];
       expect(
-        tester.getTopLeft(find.byIcon(order.first)).dx,
+        tester.getTopLeft(byActionIcon(order.first)).dx,
         greaterThan(bar.left),
       );
       for (var i = 1; i < order.length; i++) {
         final previous = tester.getRect(
           find
               .ancestor(
-                of: find.byIcon(order[i - 1]),
+                of: byActionIcon(order[i - 1]),
                 matching: find.byType(InkResponse),
               )
               .first,
         );
         expect(
-          tester.getTopLeft(find.byIcon(order[i])).dx,
+          tester.getTopLeft(byActionIcon(order[i])).dx,
           greaterThan(previous.right),
           reason: 'item $i',
         );
@@ -675,7 +676,7 @@ void main() {
 
     testWidgets('a plain row copies its own link', (tester) async {
       await pump(tester, _view(), shareLinks: links);
-      await tester.tap(find.byIcon(Icons.ios_share));
+      await tester.tap(byActionIcon(Icons.ios_share));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Copy link'));
       await tester.pumpAndSettle();
@@ -691,8 +692,8 @@ void main() {
       tester.view.physicalSize = const Size(1200, 800);
       addTearDown(tester.view.reset);
       await pump(tester, _repostView(), width: 500, shareLinks: links);
-      final shareCenter = tester.getCenter(find.byIcon(Icons.ios_share));
-      await tester.tap(find.byIcon(Icons.ios_share));
+      final shareCenter = tester.getCenter(byActionIcon(Icons.ios_share));
+      await tester.tap(byActionIcon(Icons.ios_share));
       await tester.pumpAndSettle();
       expect(find.byType(BottomSheet), findsNothing);
       await tester.tap(find.text('Share via...'));
@@ -708,7 +709,7 @@ void main() {
       tester,
     ) async {
       await pump(tester, _view(), shareLinks: links);
-      await tester.tap(find.byIcon(Icons.ios_share));
+      await tester.tap(byActionIcon(Icons.ios_share));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Copy link'));
       await tester.pumpAndSettle();

@@ -534,7 +534,10 @@ class PostCard extends StatelessWidget {
                 ? (wideFocal
                       ? AppFocalPost.actionIcon
                       : AppFocalPost.actionIconPhone)
-                : AppIconSize.action,
+                : AppIconSize.postAction,
+            layout: asFocal
+                ? PostActionBarLayout.spread
+                : PostActionBarLayout.compact,
           )
         : engagementEnabled
         ? PostEngagementBar(
@@ -547,7 +550,10 @@ class PostCard extends StatelessWidget {
                 ? (wideFocal
                       ? AppFocalPost.actionIcon
                       : AppFocalPost.actionIconPhone)
-                : AppIconSize.action,
+                : AppIconSize.postAction,
+            layout: asFocal
+                ? PostActionBarLayout.spread
+                : PostActionBarLayout.compact,
           )
         : null;
 

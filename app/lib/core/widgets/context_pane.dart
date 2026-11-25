@@ -57,10 +57,7 @@ class ContextPaneCard extends StatelessWidget {
   }
 
   Widget _titleRow(ThemeData theme) {
-    final text = Text(
-      title,
-      style: AppTextStyles.cardTitle(theme),
-    );
+    final text = Text(title, style: AppTextStyles.cardTitle(theme));
     final trailing = titleTrailing;
     if (trailing == null) return text;
     return Wrap(

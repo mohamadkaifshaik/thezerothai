@@ -47,9 +47,24 @@ abstract final class AppIconSize {
   static const double lg = 24;
   static const double xl = 40;
 
-  /// The post action row glyph (dz.css `.acts`, 18 px; the 48dp tap target
-  /// around it is kept).
+  /// Small action glyphs outside the post row (dz.css `.acts`, 18 px).
   static const double action = 18;
+
+  /// The post action row glyph in a feed row (DzHome: 19 px icons in 44 dp
+  /// boxes). Was [action] (18) before the Dz redesign.
+  static const double postAction = 19;
+
+  /// The five-icon row of the opened post (DzPost: 21 px in 48 dp boxes).
+  static const double actionDetail = 21;
+
+  /// The photo viewer's action row (ZPhotoViewer: 22 px in 48 dp boxes).
+  static const double actionViewer = 22;
+
+  /// Tap box of a post action in a feed row (DzHome: 44 px high, 10 dp of
+  /// side padding), and of the spread rows (DzPost, ZPhotoViewer: 48 px).
+  static const double actionTarget = 44;
+  static const double actionTargetSpread = 48;
+  static const double actionSidePadding = 10;
 }
 
 /// The opened post on its post page: text 17dp on a 24dp line on phones (the
@@ -61,11 +76,12 @@ abstract final class AppFocalPost {
   static const double bodyLineHeight = 24;
   static const double bodySizeWide = 21;
   static const double bodyLineHeightWide = 29.4;
-  static const double actionIcon = 20;
+  static const double actionIcon = AppIconSize.actionDetail;
 
-  /// Below 600dp the actions keep the list glyph size and the avatar is 46dp
-  /// (the mobile PostDetail design).
-  static const double actionIconPhone = 18;
+  /// Below 600dp the actions use the same 21 px glyph as the DzPost artboard
+  /// (it was the list size, 18, before the Dz redesign) and the avatar is
+  /// 46dp.
+  static const double actionIconPhone = AppIconSize.actionDetail;
   static const double phoneAvatar = 46;
 }
 
@@ -232,6 +248,11 @@ abstract final class AppSize {
   /// One row of a header: the top bar row, and the tab row below it.
   static const double headerRow = 53;
 
+  /// The Dz header variants' row (artboards: 60; 40 dp avatar, 44 dp action).
+  static const double dzHeaderRow = 60;
+  static const double dzHeaderAvatar = 40;
+  static const double dzHeaderAction = 44;
+
   /// Thickness of the active-tab bar (it is as wide as the label).
   static const double tabIndicator = 4;
 
@@ -290,9 +311,14 @@ abstract final class AppSize {
   // Redesign tokens (ADR-0033). `bottomNav` and `fab` switch in phase 3.
   static const double buttonHeight = 52;
   static const double buttonHeightLarge = 56;
-  static const double floatingNavHeight = 66;
-  static const double floatingNavInset = 20;
-  static const double floatingNavBottom = 24;
+
+  /// The floating bar as the Dz artboards draw it: 64 tall (radius 32), 16
+  /// from the sides, 14 above the bottom, five 50 round items (was 66 / 20 /
+  /// 24 before the Dz redesign).
+  static const double floatingNavHeight = 64;
+  static const double floatingNavInset = 16;
+  static const double floatingNavBottom = 14;
+  static const double floatingNavItem = 50;
   static const double fabRedesign = 58;
   static const double avatarRow = 44;
   static const double avatarPost = 42;
@@ -1298,8 +1324,21 @@ abstract final class AppShadows {
 
   /// The teal of [primaryGlow] (the profile hero's avatar and pill glows).
   static const Color primaryGlowColor = Color(0x5919D3BE);
+
+  /// The floating bar's shadow (Dz artboards: 0 10px 24px rgba(15,23,42,.28)).
   static const List<BoxShadow> navBar = [
-    BoxShadow(color: Color(0x590D1528), offset: Offset(0, 14), blurRadius: 30),
+    BoxShadow(color: Color(0x470F172A), offset: Offset(0, 10), blurRadius: 24),
+  ];
+
+  /// The round header action and similar soft raised circles (Dz artboards:
+  /// 0 1px 4px rgba(15,23,42,.08)).
+  static const List<BoxShadow> softRaised = [
+    BoxShadow(color: Color(0x140F172A), offset: Offset(0, 1), blurRadius: 4),
+  ];
+
+  /// The teal FAB's glow (Dz artboards: 0 8px 20px rgba(20,184,166,.35)).
+  static const List<BoxShadow> fab = [
+    BoxShadow(color: Color(0x5914B8A6), offset: Offset(0, 8), blurRadius: 20),
   ];
 
   /// The raised search pill of the phone results header (dzeroth-mobile
@@ -1766,7 +1805,7 @@ abstract final class AppPhotoPanel {
   static const double authorAvatar = 40;
   static const double replyAvatar = 32;
   static const double replyFieldHeight = 40;
-  static const double actionIcon = 18;
+  static const double actionIcon = AppIconSize.actionViewer;
 }
 
 /// Sizes of the post screens' redesign (PostPhoto, Composer, Drafts).

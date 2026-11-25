@@ -1,5 +1,8 @@
 import 'dart:ui' as ui;
 
+import 'package:dzeroth/core/icons/dz_icon.dart';
+import 'package:dzeroth/core/icons/dz_icon_data.dart';
+import 'package:dzeroth/core/icons/dz_icons.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/shared/widgets/post/post_action_bar.dart';
@@ -8,6 +11,7 @@ import 'package:dzeroth/shared/widgets/post/post_media.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../../support/dz_finders.dart';
 import '../../../support/media_pager.dart';
 
 Widget _host(Widget child, {double width = 360}) => MaterialApp(
@@ -47,17 +51,20 @@ void main() {
         );
 
         expect(tester.takeException(), isNull);
-        expect(find.byIcon(Icons.ios_share), findsOneWidget);
+        expect(findDz(DzIcons.share), findsOneWidget);
         if (scale == 1.0) expect(find.text('272'), findsOneWidget);
       });
     }
 
-    testWidgets('open post: every action evenly spaced, in order '
-        '(Share, then Bookmark last), larger glyphs', (tester) async {
+    testWidgets('open post (spread layout): every action in a 48 dp box, '
+        'spread evenly, in order (Save, then Share last), larger glyphs', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         _host(
           PostActionBar(
             iconSize: AppFocalPost.actionIcon,
+            layout: PostActionBarLayout.spread,
             actions: PostActions(
               onReply: () {},
               onRepost: () {},
@@ -69,36 +76,32 @@ void main() {
         ),
       );
 
-      // The owner's order (2026-11-15): Share, then Bookmark last.
-      final icons = [
-        Icons.chat_bubble_outline,
-        Icons.repeat,
-        Icons.favorite_border,
-        Icons.ios_share,
-        Icons.bookmark_border,
-      ];
-      final xs = [for (final i in icons) tester.getCenter(find.byIcon(i)).dx];
+      // The artboards' order (DzPost): reply, repost, like, save, share.
+      final icons = dzActionIcons;
+      final xs = [for (final i in icons) tester.getCenter(findDz(i)).dx];
       for (var i = 1; i < xs.length; i++) {
         expect(xs[i], greaterThan(xs[i - 1]));
       }
       final bar = tester.getRect(find.byType(PostActionBar));
-      Rect box(IconData icon) => tester.getRect(
-        find.ancestor(
-          of: find.byIcon(icon),
-          matching: find.byType(InkResponse),
-        ),
+      Rect box(DzIconData icon) => tester.getRect(
+        find.ancestor(of: findDz(icon), matching: find.byType(InkResponse)),
       );
-      expect(box(icons.first).left, closeTo(bar.left, 0.5));
+      final gaps = [
+        for (var i = 1; i < icons.length; i++)
+          box(icons[i]).left - box(icons[i - 1]).right,
+      ];
       for (var i = 0; i < icons.length; i++) {
-        expect(box(icons[i]).width, greaterThanOrEqualTo(48));
-        expect(box(icons[i]).height, greaterThanOrEqualTo(48));
-        if (i > 0) {
-          expect(box(icons[i]).left, closeTo(box(icons[i - 1]).right + 4, 0.5));
-        }
+        expect(box(icons[i]).width, 48);
+        expect(box(icons[i]).height, 48);
       }
-      expect(box(Icons.bookmark_border).right, closeTo(bar.right, 1));
+      for (final gap in gaps) {
+        expect(gap, closeTo(gaps.first, 0.5));
+      }
+      // space-around: half a gap in from each edge.
+      expect(box(icons.first).left - bar.left, closeTo(gaps.first / 2, 0.5));
+      expect(bar.right - box(icons.last).right, closeTo(gaps.first / 2, 0.5));
       expect(
-        tester.getSize(find.byIcon(Icons.repeat)).width,
+        tester.getSize(findDz(DzIcons.repost)).width,
         AppFocalPost.actionIcon,
       );
     });
@@ -115,14 +118,14 @@ void main() {
         ),
       );
 
-      expect(find.byIcon(Icons.favorite_border), findsOneWidget);
-      expect(find.byIcon(Icons.repeat), findsOneWidget);
-      expect(find.byIcon(Icons.chat_bubble_outline), findsNothing);
-      expect(find.byIcon(Icons.ios_share), findsNothing);
+      expect(findDz(DzIcons.like), findsOneWidget);
+      expect(findDz(DzIcons.repost), findsOneWidget);
+      expect(findDz(DzIcons.reply), findsNothing);
+      expect(findDz(DzIcons.share), findsNothing);
     });
 
-    testWidgets('shows compact counts; the four actions are distributed, in '
-        'order Reply, Repost, Like, Share', (tester) async {
+    testWidgets('shows compact counts; Reply, Repost, Like lead in order, '
+        'Share trails (compact layout)', (tester) async {
       await tester.pumpWidget(
         _host(
           PostActionBar(
@@ -138,43 +141,42 @@ void main() {
       expect(find.text('1.2K'), findsOneWidget);
       expect(find.text('2.5M'), findsOneWidget);
       expect(find.byType(InkResponse), findsNWidgets(4));
+      const icons = [
+        DzIcons.reply,
+        DzIcons.repost,
+        DzIcons.like,
+        DzIcons.share,
+      ];
       final lefts = [
-        Icons.chat_bubble_outline,
-        Icons.repeat,
-        Icons.favorite_border,
-        Icons.ios_share,
-      ].map((icon) => tester.getTopLeft(find.byIcon(icon)).dx).toList();
+        for (final icon in icons) tester.getTopLeft(findDz(icon)).dx,
+      ];
       final bar = tester.getRect(find.byType(PostActionBar));
       final boxes = [
-        for (final icon in const [
-          Icons.chat_bubble_outline,
-          Icons.repeat,
-          Icons.favorite_border,
-          Icons.ios_share,
-        ])
+        for (final icon in icons)
           tester.getRect(
             find
-                .ancestor(
-                  of: find.byIcon(icon),
-                  matching: find.byType(InkResponse),
-                )
+                .ancestor(of: findDz(icon), matching: find.byType(InkResponse))
                 .first,
           ),
       ];
       expect(boxes.first.left, closeTo(bar.left, 1));
-      for (var i = 1; i < 4; i++) {
-        expect(boxes[i].left, closeTo(boxes[i - 1].right + 4, 1));
-        expect(lefts[i], greaterThan(lefts[i - 1]));
-        expect(boxes[i].width, greaterThanOrEqualTo(48));
+      // The three counted actions sit edge to edge; Share is at the end.
+      for (var i = 1; i < 3; i++) {
+        expect(boxes[i].left, closeTo(boxes[i - 1].right, 1));
       }
+      for (var i = 1; i < 4; i++) {
+        expect(lefts[i], greaterThan(lefts[i - 1]));
+        expect(boxes[i].width, greaterThanOrEqualTo(44));
+      }
+      expect(boxes.last.right, closeTo(bar.right, 1));
       expect(
         boxes[0].width,
-        greaterThan(AppIconSize.action + AppSpacing.actionItemGap),
+        greaterThan(AppIconSize.postAction + AppSpacing.actionItemGap),
       );
-      // 18 dp glyphs (dz.css `.acts`, R1 restyle; was 16).
+      // 19 dp glyphs (DzHome; was 18).
       expect(
-        tester.getSize(find.byIcon(Icons.ios_share)).width,
-        AppIconSize.action,
+        tester.getSize(findDz(DzIcons.share)).width,
+        AppIconSize.postAction,
       );
     });
 
@@ -201,15 +203,15 @@ void main() {
       }
     });
 
-    testWidgets('Bookmark appears only with a callback; comes after '
-        'the other actions, outline then filled accent, labelled and '
+    testWidgets('Bookmark appears only with a callback; trails the counted '
+        'actions, outline then filled accent, labelled and '
         'selected', (tester) async {
       final handle = tester.ensureSemantics();
       var taps = 0;
       await tester.pumpWidget(
         _host(PostActionBar(actions: PostActions(onLike: () {}))),
       );
-      expect(find.byIcon(Icons.bookmark_border), findsNothing);
+      expect(findDz(DzIcons.save), findsNothing);
 
       await tester.pumpWidget(
         _host(
@@ -220,15 +222,14 @@ void main() {
         ),
       );
       final bar = tester.getRect(find.byType(PostActionBar));
-      final icon = tester.getRect(find.byIcon(Icons.bookmark_border));
-      expect(icon.center.dx, closeTo(bar.left + bar.width * .75 + 1, 1));
-      expect(icon.width, AppIconSize.action);
+      final icon = tester.getRect(findDz(DzIcons.save));
+      // Last in the row: its 44 dp box ends at the bar's trailing edge.
+      expect(icon.center.dx, closeTo(bar.right - 22, 1));
+      expect(icon.width, AppIconSize.postAction);
+      expect(dzIconOf(tester, DzIcons.save).fill, 0);
       final off = tester.getSemantics(find.bySemanticsLabel('Bookmark'));
-      expect(
-        off.rect.size.shortestSide,
-        greaterThanOrEqualTo(AppSpacing.minTapTarget),
-      );
-      await tester.tap(find.byIcon(Icons.bookmark_border));
+      expect(off.rect.size.shortestSide, greaterThanOrEqualTo(44));
+      await tester.tap(findDz(DzIcons.save));
       expect(taps, 1);
 
       await tester.pumpWidget(
@@ -240,16 +241,16 @@ void main() {
           ),
         ),
       );
-      expect(find.byIcon(Icons.bookmark_border), findsNothing);
+      expect(findDz(DzIcons.save, filled: false), findsNothing);
       expect(
-        tester.widget<Icon>(find.byIcon(Icons.bookmark)).color,
-        appDarkTheme.colorScheme.primary,
+        dzIconOf(tester, DzIcons.save, filled: true).color,
+        AppColors.dark.accentText,
       );
       expect(find.bySemanticsLabel('Bookmarked'), findsOneWidget);
       handle.dispose();
     });
 
-    testWidgets('Share sits before Bookmark, last, '
+    testWidgets('Bookmark sits before Share, which is last, '
         'after the counted actions', (tester) async {
       await tester.pumpWidget(
         _host(
@@ -263,23 +264,21 @@ void main() {
           ),
         ),
       );
-      final bookmark = tester.getRect(find.byIcon(Icons.bookmark_border));
-      final share = tester.getRect(find.byIcon(Icons.ios_share));
-      final like = tester.getRect(find.byIcon(Icons.favorite_border));
-      // The owner's order (2026-11-15): Like, Share, Bookmark.
-      expect(like.right, lessThan(share.left));
-      expect(share.right, lessThan(bookmark.left));
+      final bookmark = tester.getRect(findDz(DzIcons.save));
+      final share = tester.getRect(findDz(DzIcons.share));
+      final like = tester.getRect(findDz(DzIcons.like));
+      // The artboards' order (DzHome): Like, then Bookmark and Share at the
+      // trailing edge (this supersedes the 2026-11-15 order Share, Bookmark).
+      expect(like.right, lessThan(bookmark.left));
+      expect(bookmark.right, lessThan(share.left));
       final bar = tester.getRect(find.byType(PostActionBar));
-      expect(share.center.dx, closeTo(bar.center.dx, 1));
-      expect(
-        share.center.dx - like.center.dx,
-        closeTo(bookmark.center.dx - share.center.dx, 1),
-      );
+      expect(share.center.dx, closeTo(bar.right - 22, 1));
+      expect(bookmark.center.dx, closeTo(share.center.dx - 44, 1));
     });
 
     for (final width in const [320.0, 360.0, 400.0]) {
       testWidgets('five items at $width dp with text x1.3: every box is '
-          'at least 40 wide and 48 tall, none overlaps', (tester) async {
+          'at least 40 wide and 44 tall, none overlaps', (tester) async {
         await tester.pumpWidget(
           MediaQuery(
             data: const MediaQueryData(textScaler: TextScaler.linear(1.3)),
@@ -303,22 +302,16 @@ void main() {
         );
         expect(tester.takeException(), isNull);
         final boxes = [
-          for (final icon in const [
-            Icons.chat_bubble_outline,
-            Icons.repeat,
-            Icons.favorite_border,
-            Icons.ios_share,
-            Icons.bookmark_border,
-          ])
+          for (final icon in dzActionIcons)
             tester.getRect(
               find.ancestor(
-                of: find.byIcon(icon),
+                of: findDz(icon),
                 matching: find.byType(InkResponse),
               ),
             ),
         ];
         for (var i = 0; i < boxes.length; i++) {
-          expect(boxes[i].height, greaterThanOrEqualTo(48));
+          expect(boxes[i].height, greaterThanOrEqualTo(44));
           expect(boxes[i].width, greaterThanOrEqualTo(40));
           if (i > 0) {
             expect(
@@ -344,7 +337,7 @@ void main() {
         ),
       );
 
-      final icons = tester.widgetList<Icon>(find.byType(Icon)).toList();
+      final icons = tester.widgetList<DzIcon>(find.byType(DzIcon)).toList();
       expect(icons.map((i) => i.color), contains(AppColors.dark.like));
       expect(icons.map((i) => i.color), contains(AppColors.dark.repost));
       final like = tester.getSemantics(find.bySemanticsLabel('Unlike, 1'));
@@ -352,7 +345,9 @@ void main() {
       handle.dispose();
     });
 
-    testWidgets('two visible actions share available width', (tester) async {
+    testWidgets('two visible actions sit edge to edge at the leading side', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         _host(
           PostActionBar(
@@ -362,15 +357,16 @@ void main() {
         ),
       );
 
-      final repost = tester.getTopLeft(find.byIcon(Icons.repeat)).dx;
-      final like = tester.getTopLeft(find.byIcon(Icons.favorite_border)).dx;
+      final repost = tester.getTopLeft(findDz(DzIcons.repost)).dx;
+      final like = tester.getTopLeft(findDz(DzIcons.like)).dx;
       final bar = tester.getRect(find.byType(PostActionBar));
-      expect(repost, lessThan(bar.center.dx));
-      expect(like - repost, closeTo((bar.width + 4) / 2, 1));
-      expect(like, greaterThan(bar.center.dx));
+      // Repost is a bare 44 dp box (10 + 19 + 10 and a spare 5), like follows.
+      expect(repost, closeTo(bar.left + 10, 1));
+      expect(like - repost, closeTo(44, 1));
+      expect(like, lessThan(bar.center.dx));
     });
 
-    testWidgets('dispatches callbacks, has 48dp targets and semantics', (
+    testWidgets('dispatches callbacks, has 44dp targets and semantics', (
       tester,
     ) async {
       final handle = tester.ensureSemantics();
@@ -396,8 +392,8 @@ void main() {
         find.byType(InkResponse),
       )) {
         final size = tester.getSize(find.byWidget(target));
-        expect(size.height, greaterThanOrEqualTo(AppSpacing.minTapTarget));
-        expect(size.width, greaterThanOrEqualTo(AppSpacing.minTapTarget));
+        expect(size.height, greaterThanOrEqualTo(AppIconSize.actionTarget));
+        expect(size.width, greaterThanOrEqualTo(AppIconSize.actionTarget));
       }
       handle.dispose();
     });

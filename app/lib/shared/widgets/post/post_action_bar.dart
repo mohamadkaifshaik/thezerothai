@@ -1,8 +1,9 @@
-import 'dart:math' as math;
-
-import 'package:material_ui/material_ui.dart';
 import 'package:intl/intl.dart';
+import 'package:material_ui/material_ui.dart';
 
+import '../../../core/icons/dz_icon.dart';
+import '../../../core/icons/dz_icon_data.dart';
+import '../../../core/icons/dz_icons.dart';
 import '../../../core/theme/app_theme.dart';
 import 'post_share_menu.dart';
 import 'post_views_stat.dart';
@@ -40,8 +41,24 @@ class PostActions {
 /// Selects the action colours used on cards and on the dark media panel.
 enum PostActionBarStyle { feed, photoViewer }
 
-/// Responsive post actions. Pills size to their contents and share the
-/// available space between them. Large text can flow onto another line.
+/// How the actions sit in the row.
+///
+/// * [compact]: DzHome and DzThread. Reply, repost and like (with counts) at
+///   the leading edge in 44 dp boxes with 10 dp of side padding, then the
+///   free space, then save and share at the trailing edge.
+/// * [spread]: DzPost and ZPhotoViewer. Every action in a 48 dp box, spread
+///   evenly across the width.
+enum PostActionBarLayout { compact, spread }
+
+/// The post actions as the Dz artboards draw them: stroke icons (reply,
+/// repost, like, save, share; `DzIcons`), 13/600 tabular counts, 44 dp boxes
+/// (48 dp [PostActionBarLayout.spread]), a press shrink and a short pop when
+/// like, repost or save switch on (none under the platform's reduce-motion
+/// setting). Large text or a narrow width flows onto another line.
+///
+/// One widget for the feed card, the opened post, a thread row and the photo
+/// viewer's bottom bar: pick the look with [layout], [style], [iconSize] and
+/// [showCounts].
 class PostActionBar extends StatelessWidget {
   const PostActionBar({
     super.key,
@@ -57,12 +74,21 @@ class PostActionBar extends StatelessWidget {
     this.bookmarked = false,
     this.showDisabled = true,
     this.replyDisabledHint,
-    this.iconSize = AppIconSize.action,
+    this.iconSize = AppIconSize.postAction,
     this.style = PostActionBarStyle.feed,
+    this.layout = PostActionBarLayout.compact,
+    this.showCounts = true,
   });
 
   /// The look; see [PostActionBarStyle].
   final PostActionBarStyle style;
+
+  /// Where the actions sit; see [PostActionBarLayout].
+  final PostActionBarLayout layout;
+
+  /// Draw the reply, repost, like and share counts. The opened post turns
+  /// this off when the screen shows its own "4 Replies 0 Reposts" line.
+  final bool showCounts;
 
   final PostActions actions;
   final int replyCount;
@@ -96,7 +122,7 @@ class PostActionBar extends StatelessWidget {
   /// this post). It is advisory: it never says why.
   final String? replyDisabledHint;
 
-  /// Glyph size; the 48dp tap box stays.
+  /// Glyph size; the tap box stays.
   final double iconSize;
 
   bool _shows(VoidCallback? callback) => showDisabled || callback != null;
@@ -105,28 +131,39 @@ class PostActionBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final viewer = style == PostActionBarStyle.photoViewer;
-    final idle = viewer ? AppPhotoPanel.muted : null;
+    final idle = viewer ? AppPhotoPanel.muted : colors.text2;
+    final spread = layout == PostActionBarLayout.spread;
+    final target = spread
+        ? AppIconSize.actionTargetSpread
+        : AppIconSize.actionTarget;
+    final weight = viewer ? FontWeight.w400 : FontWeight.w600;
+    int? shown(int count) => showCounts ? count : null;
+
     final counted = <Widget>[
       if (_shows(actions.onReply) || replyDisabledHint != null)
         _ActionButton(
-          icon: Icons.chat_bubble_outline,
+          icon: DzIcons.reply,
           iconSize: iconSize,
+          target: target,
           idleColor: idle,
-          countWeight: viewer ? FontWeight.w400 : FontWeight.w600,
+          countWeight: weight,
           label: 'Reply',
-          count: replyCount,
+          count: shown(replyCount),
           onPressed: actions.onReply,
           disabledHint: actions.onReply == null ? replyDisabledHint : null,
         ),
       if (_shows(actions.onRepost) || actions.onRepostFrom != null)
         Builder(
           builder: (buttonContext) => _ActionButton(
-            icon: Icons.repeat,
+            icon: DzIcons.repost,
+            // The design draws the reposted arrows heavier (2.2).
+            strokeWidth: reposted ? 2.2 : null,
             iconSize: iconSize,
+            target: target,
             idleColor: idle,
-            countWeight: viewer ? FontWeight.w400 : FontWeight.w600,
+            countWeight: weight,
             label: reposted ? 'Undo repost' : 'Repost',
-            count: repostCount,
+            count: shown(repostCount),
             active: reposted,
             activeColor: viewer ? AppPhotoPanel.reposted : colors.repost,
             onPressed: actions.onRepostFrom != null
@@ -136,155 +173,135 @@ class PostActionBar extends StatelessWidget {
         ),
       if (_shows(actions.onLike))
         _ActionButton(
-          icon: liked ? Icons.favorite : Icons.favorite_border,
+          icon: DzIcons.like,
           iconSize: iconSize,
+          target: target,
           idleColor: idle,
-          countWeight: viewer ? FontWeight.w400 : FontWeight.w600,
+          countWeight: weight,
           label: liked ? 'Unlike' : 'Like',
-          count: likeCount,
+          count: shown(likeCount),
           active: liked,
+          fillsWhenActive: true,
           activeColor: viewer ? AppPhotoPanel.liked : colors.like,
           onPressed: actions.onLike,
         ),
     ];
+    // Offered only with a callback (never as a disabled placeholder).
+    final saved = actions.onBookmark == null
+        ? null
+        : _ActionButton(
+            icon: DzIcons.save,
+            iconSize: iconSize,
+            target: target,
+            idleColor: idle,
+            countWeight: weight,
+            label: bookmarked ? 'Bookmarked' : 'Bookmark',
+            active: bookmarked,
+            fillsWhenActive: true,
+            activeColor: viewer ? AppPhotoPanel.bookmarked : null,
+            onPressed: actions.onBookmark,
+          );
     final shareShown =
         showDisabled || actions.onShare != null || actions.onShareAt != null;
     final share = !shareShown
         ? null
         : Builder(
             builder: (buttonContext) => _ActionButton(
-              icon: Icons.ios_share,
+              icon: DzIcons.share,
               iconSize: iconSize,
+              target: target,
               idleColor: idle,
-              countWeight: viewer ? FontWeight.w400 : FontWeight.w600,
+              countWeight: weight,
               label: 'Share',
-              count: shareCount,
+              count: shown(shareCount),
               onPressed: actions.onShareAt != null
                   ? () => actions.onShareAt!(targetRectOf(buttonContext))
                   : actions.onShare,
             ),
           );
-    // Offered only with a callback (never as a disabled placeholder).
-    final saved = actions.onBookmark == null
+    final views = viewCount == null
         ? null
-        : _ActionButton(
-            icon: bookmarked ? Icons.bookmark : Icons.bookmark_border,
-            iconSize: iconSize,
-            idleColor: idle,
-            countWeight: viewer ? FontWeight.w400 : FontWeight.w600,
-            label: bookmarked ? 'Bookmarked' : 'Bookmark',
-            active: bookmarked,
-            activeColor: viewer ? AppPhotoPanel.bookmarked : null,
-            onPressed: actions.onBookmark,
-          );
-    final items = <Widget>[
-      ...counted,
-      ?share,
-      ?saved,
-      if (viewCount != null)
-        Center(
-          child: PostViewsStat(
-            count: viewCount!,
-            iconSize: iconSize,
-            icon: viewsIcon,
-            color: idle,
-          ),
-        ),
-    ];
-    if (items.isEmpty) return const SizedBox.shrink();
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        const gap = 4.0;
-        final largeText = MediaQuery.textScalerOf(context).scale(13) > 18;
-        if (!constraints.hasBoundedWidth ||
-            largeText ||
-            constraints.maxWidth < items.length * (48 + gap) - gap) {
-          return Wrap(
-            alignment: WrapAlignment.spaceBetween,
-            spacing: gap,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: items,
-          );
-        }
-        // Intrinsic widths reserve space for each formatted count. The table
-        // shares spare width evenly and keeps the gutters constant.
-        return Table(
-          defaultColumnWidth: const _ActionColumnWidth(),
-          defaultVerticalAlignment: TableCellVerticalAlignment.middle,
-          columnWidths: {
-            if (counted.isNotEmpty &&
-                (likeCount > 0 || replyCount > 0 || repostCount > 0)) ...{
-              if (share != null && shareCount <= 0)
-                2 * items.indexOf(share): const FixedColumnWidth(
-                  AppSpacing.minTapTarget,
-                ),
-              if (saved != null)
-                2 * items.indexOf(saved): const FixedColumnWidth(
-                  AppSpacing.minTapTarget,
-                ),
-            },
-            for (int i = 1; i < items.length; i++)
-              2 * i - 1: const FixedColumnWidth(gap),
-          },
-          children: [
-            TableRow(
-              children: [
-                for (var i = 0; i < items.length; i++) ...[
-                  if (i > 0) const SizedBox.shrink(),
-                  items[i],
-                ],
-              ],
+        : Center(
+            child: PostViewsStat(
+              count: viewCount!,
+              iconSize: iconSize,
+              icon: viewsIcon,
+              color: viewer ? idle : null,
             ),
-          ],
-        );
-      },
+          );
+    final leading = <Widget>[...counted];
+    // Views stay a read-only stat after the actions.
+    final trailing = <Widget>[?saved, ?share, ?views];
+    final items = [...leading, ...trailing];
+    if (items.isEmpty) return const SizedBox.shrink();
+
+    // A painted icon sits in a scrolling list: give the row its own layer so
+    // a like animation repaints this row only.
+    return RepaintBoundary(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final largeText = MediaQuery.textScalerOf(context).scale(13) > 18;
+          final cramped =
+              !constraints.hasBoundedWidth ||
+              largeText ||
+              constraints.maxWidth < items.length * target;
+          if (cramped) {
+            return Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: items,
+            );
+          }
+          if (spread) {
+            return Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: items,
+            );
+          }
+          return Row(children: [...leading, const Spacer(), ...trailing]);
+        },
+      ),
     );
   }
 }
 
-/// Let a crowded row shrink a counted capsule down to its tap target.
-class _ActionColumnWidth extends IntrinsicColumnWidth {
-  const _ActionColumnWidth() : super(flex: 1);
-
-  @override
-  double maxIntrinsicWidth(Iterable<RenderBox> cells, double containerWidth) =>
-      math.max(
-        AppSpacing.minTapTarget,
-        super.maxIntrinsicWidth(cells, containerWidth),
-      );
-
-  @override
-  double minIntrinsicWidth(Iterable<RenderBox> cells, double containerWidth) =>
-      AppSpacing.minTapTarget;
-}
-
-class _ActionButton extends StatelessWidget {
+class _ActionButton extends StatefulWidget {
   const _ActionButton({
     required this.icon,
     required this.iconSize,
+    required this.target,
     required this.label,
     required this.onPressed,
     this.count,
     this.active = false,
+    this.fillsWhenActive = false,
+    this.strokeWidth,
     this.activeColor,
     this.disabledHint,
     this.idleColor,
     this.countWeight = FontWeight.w600,
   });
 
-  /// The count's weight: 600 in the feed (dz.css `.acts span`), 400 in the
-  /// photo viewer.
+  /// The count's weight: 600 in the feed (`13/600`), 400 in the photo viewer.
   final FontWeight countWeight;
 
-  /// The colour when not active (the photo viewer's grey); null is the
-  /// theme's muted text colour.
+  /// The colour when not active (text2, or the photo viewer's grey).
   final Color? idleColor;
 
-  final IconData icon;
+  final DzIconData icon;
   final double iconSize;
+
+  /// Tap box height and least width (44, or 48 in the spread row).
+  final double target;
   final String label;
   final int? count;
   final bool active;
+
+  /// Like and save fill their glyph when on; repost only recolours.
+  final bool fillsWhenActive;
+
+  /// Overrides the icon's stroke width (on the 24 grid).
+  final double? strokeWidth;
   final Color? activeColor;
   final VoidCallback? onPressed;
 
@@ -293,56 +310,120 @@ class _ActionButton extends StatelessWidget {
   final String? disabledHint;
 
   @override
+  State<_ActionButton> createState() => _ActionButtonState();
+}
+
+class _ActionButtonState extends State<_ActionButton>
+    with SingleTickerProviderStateMixin {
+  /// Fill and pop length (design: about 150-200 ms).
+  static const _duration = Duration(milliseconds: 180);
+  static const _pressedScale = 0.88;
+
+  late final AnimationController _pop = AnimationController(
+    vsync: this,
+    duration: _duration,
+  );
+  late final Animation<double> _popScale = TweenSequence<double>([
+    TweenSequenceItem(
+      tween: Tween(
+        begin: 1.0,
+        end: 1.25,
+      ).chain(CurveTween(curve: Curves.easeOut)),
+      weight: 40,
+    ),
+    TweenSequenceItem(
+      tween: Tween(
+        begin: 1.25,
+        end: 1.0,
+      ).chain(CurveTween(curve: Curves.easeIn)),
+      weight: 60,
+    ),
+  ]).animate(_pop);
+  bool _pressed = false;
+
+  @override
+  void didUpdateWidget(_ActionButton old) {
+    super.didUpdateWidget(old);
+    if (widget.active &&
+        !old.active &&
+        !MediaQuery.disableAnimationsOf(context)) {
+      _pop.forward(from: 0);
+    }
+  }
+
+  @override
+  void dispose() {
+    _pop.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final color = disabledHint != null
+    final reduce = MediaQuery.disableAnimationsOf(context);
+    final active = widget.active;
+    final color = widget.disabledHint != null
         ? theme.disabledColor
         : active
-        ? activeColor ?? theme.colorScheme.primary
-        : idleColor ?? theme.colorScheme.onSurfaceVariant;
-    final shown = count ?? 0;
+        ? widget.activeColor ?? theme.colorScheme.primary
+        : widget.idleColor ?? context.appColors.text2;
+    final shown = widget.count ?? 0;
     final button = Semantics(
       button: true,
       selected: active,
-      enabled: onPressed != null,
-      hint: disabledHint,
-      label: shown > 0 ? '$label, $shown' : label,
+      enabled: widget.onPressed != null,
+      hint: widget.disabledHint,
+      label: shown > 0 ? '${widget.label}, $shown' : widget.label,
       excludeSemantics: true,
-      onTap: onPressed,
+      onTap: widget.onPressed,
       child: InkResponse(
-        onTap: onPressed,
+        onTap: widget.onPressed,
+        onHighlightChanged: (down) {
+          if (down != _pressed) setState(() => _pressed = down);
+        },
         radius: AppSpacing.lg,
-        // No press ripple or pressed circle behind the icon (owner,
-        // 2026-11-13): the button's own state (a filled heart, a count) is
-        // the feedback. A faint hover stays for pointers, and the focus
-        // highlight stays for the keyboard.
+        // No ripple or pressed circle behind the glyph (owner, 2026-11-13).
+        // The press shrinks the glyph a little, and the toggle's pop and
+        // fill are the state feedback. A faint hover stays for pointers and
+        // the focus highlight for the keyboard.
         splashColor: Colors.transparent,
         highlightColor: Colors.transparent,
         child: ConstrainedBox(
           constraints: BoxConstraints(
-            // The hit area extends beyond the visible capsule.
-            minWidth: AppSpacing.minTapTarget,
-            minHeight: AppSpacing.minTapTarget,
+            minWidth: widget.target,
+            minHeight: widget.target,
           ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 5),
-            child: DecoratedBox(
-              decoration: ShapeDecoration(
-                color: active
-                    ? color.withValues(alpha: .14)
-                    : theme.colorScheme.onSurface.withValues(alpha: .09),
-                shape: const StadiumBorder(),
+          child: Center(
+            widthFactor: 1,
+            heightFactor: 1,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppIconSize.actionSidePadding,
               ),
-              child: Container(
-                constraints: const BoxConstraints(minWidth: 38, minHeight: 36),
-                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 5),
+              child: AnimatedScale(
+                scale: _pressed && widget.onPressed != null ? _pressedScale : 1,
+                duration: reduce
+                    ? Duration.zero
+                    : const Duration(milliseconds: 80),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(icon, size: iconSize, color: color),
+                    AnimatedBuilder(
+                      animation: _popScale,
+                      builder: (context, child) =>
+                          Transform.scale(scale: _popScale.value, child: child),
+                      child: DzIcon(
+                        widget.icon,
+                        size: widget.iconSize,
+                        color: color,
+                        fill: active && widget.fillsWhenActive ? 1 : 0,
+                        fillDuration: reduce ? Duration.zero : _duration,
+                        strokeWidth: widget.strokeWidth,
+                      ),
+                    ),
                     if (shown > 0) ...[
-                      const SizedBox(width: AppSpacing.actionGap),
+                      const SizedBox(width: AppSpacing.actionGap - 1),
                       Flexible(
                         child: FittedBox(
                           fit: BoxFit.scaleDown,
@@ -351,10 +432,10 @@ class _ActionButton extends StatelessWidget {
                             maxLines: 1,
                             overflow: TextOverflow.fade,
                             softWrap: false,
-                            // dz.css `.acts span`: 13 sp, w600.
-                            style: theme.textTheme.bodySmall?.copyWith(
+                            // 13/600 with tabular figures.
+                            style: AppTextStyles.dzCount(theme).copyWith(
                               color: color,
-                              fontWeight: countWeight,
+                              fontWeight: widget.countWeight,
                             ),
                           ),
                         ),
@@ -368,7 +449,7 @@ class _ActionButton extends StatelessWidget {
         ),
       ),
     );
-    final hint = disabledHint;
+    final hint = widget.disabledHint;
     return hint == null
         ? button
         : Tooltip(message: hint, excludeFromSemantics: true, child: button);

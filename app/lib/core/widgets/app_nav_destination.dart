@@ -1,5 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
+import '../icons/dz_icon_data.dart';
+
 /// Where a destination lives (ADR-0034): [primary] ones are the phone bottom
 /// bar and the first rail items; [secondary] ones are rail-only on >= 600dp
 /// and live in the drawer on phones.
@@ -24,7 +26,18 @@ class AppNavDestination {
     this.tooltip,
     this.onActivate,
     this.semanticsLabel,
+    this.dzIcon,
+    this.dzFilledWhenSelected = false,
   });
+
+  /// The design's stroke icon for the floating phone bar (see `DzIcons`);
+  /// null draws [icon] / [selectedIcon] instead. The rail always uses the
+  /// Material pair.
+  final DzIconData? dzIcon;
+
+  /// Fill [dzIcon] when selected (the Home house is solid when active; the
+  /// other bar icons only turn teal).
+  final bool dzFilledWhenSelected;
 
   /// Primary (bar and rail) or secondary (rail only, the drawer on phones).
   final AppNavGroup group;

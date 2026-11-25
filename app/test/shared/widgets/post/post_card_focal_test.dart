@@ -1,3 +1,4 @@
+import 'package:dzeroth/core/icons/dz_icons.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
@@ -13,6 +14,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:protobuf/well_known_types/google/protobuf/timestamp.pb.dart'
     as ts;
 
+import '../../../support/dz_finders.dart';
 import '../../../support/geometry.dart';
 import '../../../support/posts_fixtures.dart';
 import '../../../support/theme_harness.dart';
@@ -127,38 +129,36 @@ void main() {
     );
 
     final bar = tester.widget<PostActionBar>(find.byType(PostActionBar));
-    // 18 dp below 600 (the mobile design), 20 dp from 600 up.
+    // 21 dp (the DzPost artboard) on every width; it was 18 below 600 and 20
+    // from 600 up before the Dz redesign.
     expect(bar.iconSize, AppFocalPost.actionIconPhone);
+    expect(bar.layout, PostActionBarLayout.spread);
     final shareBox = tester.getRect(
       find.ancestor(
-        of: find.byIcon(Icons.ios_share),
+        of: findDz(DzIcons.share),
         matching: find.byType(InkResponse),
       ),
     );
-    // The phone gutter is 20 dp since the R1 restyle (was 16).
+    final replyBox = tester.getRect(
+      find.ancestor(
+        of: findDz(DzIcons.reply),
+        matching: find.byType(InkResponse),
+      ),
+    );
+    // The phone gutter is 20 dp since the R1 restyle (was 16). The opened
+    // post spreads its 48 dp boxes (space-around), so the outer boxes sit
+    // half a gap inside the gutters, the same on both sides.
+    final gutter = postCardGutter(phone.size.width);
+    expect(replyBox.left, greaterThan(gutter));
     expect(
-      tester
-          .getRect(
-            find.ancestor(
-              of: find.byIcon(Icons.chat_bubble_outline),
-              matching: find.byType(InkResponse),
-            ),
-          )
-          .left,
-      closeTo(postCardGutter(phone.size.width), 1),
+      replyBox.left - gutter,
+      closeTo(phone.size.width - gutter - shareBox.right, 1),
     );
     expect(
-      shareBox.right,
-      closeTo(phone.size.width - postCardGutter(phone.size.width), 1),
-    );
-    expect(
-      tester.getTopLeft(find.byIcon(Icons.ios_share)).dx,
+      tester.getTopLeft(findDz(DzIcons.share)).dx,
       greaterThan(shareBox.left),
     );
-    expect(
-      tester.getRect(find.byIcon(Icons.favorite_border)).right,
-      lessThan(shareBox.left),
-    );
+    expect(tester.getRect(findDz(DzIcons.like)).right, lessThan(shareBox.left));
   });
 
   pb.PostView withEmbedded(PostKind kind, {String text = 'my take'}) =>
@@ -267,7 +267,7 @@ void main() {
     expect(find.text(formatPostTimestamp(_created)), findsNothing);
     expect(
       tester.widget<PostActionBar>(find.byType(PostActionBar)).iconSize,
-      AppIconSize.action,
+      AppIconSize.postAction,
     );
     final text = tester.widget<PostRichText>(find.byType(PostRichText));
     expect(text.style?.fontSize, isNot(AppFocalPost.bodySize));

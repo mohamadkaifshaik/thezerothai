@@ -515,9 +515,10 @@ void main() {
       );
       expect(AppSize.buttonHeight, 52);
       expect(AppSize.buttonHeightLarge, 56);
-      expect(AppSize.floatingNavHeight, 66);
-      expect(AppSize.floatingNavInset, 20);
-      expect(AppSize.floatingNavBottom, 24);
+      // The Dz artboards' floating bar: 64 tall, 16 inset, 14 above bottom.
+      expect(AppSize.floatingNavHeight, 64);
+      expect(AppSize.floatingNavInset, 16);
+      expect(AppSize.floatingNavBottom, 14);
       expect(AppSize.fabRedesign, 58);
       expect(AppSize.avatarRow, 44);
       expect(AppSize.avatarPost, 42);

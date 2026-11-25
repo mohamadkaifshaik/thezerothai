@@ -26,6 +26,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../../../support/dz_finders.dart';
 import '../../../../support/fake_send_repository.dart';
 import '../../../../support/messaging_fixtures.dart';
 import '../../../../support/posts_fixtures.dart';
@@ -144,7 +145,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.byIcon(Icons.ios_share));
+    await tester.tap(byActionIcon(Icons.ios_share));
     await tester.pumpAndSettle();
   }
 

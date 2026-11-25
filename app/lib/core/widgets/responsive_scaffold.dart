@@ -474,6 +474,7 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
               child: AppGradientFab(
                 tooltip: widget.fab!.tooltip,
                 icon: widget.fab!.icon,
+                dzIcon: widget.fab!.dzIcon,
                 onPressed: widget.fab!.onPressed,
               ),
             ),

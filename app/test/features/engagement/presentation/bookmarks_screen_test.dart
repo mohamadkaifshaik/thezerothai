@@ -34,6 +34,7 @@ import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
 import '../../../support/bookmarks_fixtures.dart';
+import '../../../support/dz_finders.dart';
 import '../../../support/fake_transport.dart';
 import '../../../support/posts_fixtures.dart';
 
@@ -189,7 +190,7 @@ void main() {
     }
   }
 
-  Finder filledBookmark() => find.byIcon(Icons.bookmark);
+  Finder filledBookmark() => byActionIcon(Icons.bookmark);
   Finder rows() => find.byType(PostCard);
   Finder removedSnack() => find.text('Removed from Bookmarks');
 
@@ -666,7 +667,7 @@ void main() {
 
       expect(rows(), findsNWidgets(2));
       expect(filledBookmark(), findsNothing);
-      expect(find.byIcon(Icons.favorite_border), findsNothing);
+      expect(byActionIcon(Icons.favorite_border), findsNothing);
     });
   });
 

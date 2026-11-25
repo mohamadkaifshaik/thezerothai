@@ -6,6 +6,7 @@ import 'package:connectrpc/connect.dart' as connect;
 import 'package:dzeroth/core/feature_flags/service_feature_gate.dart';
 import 'package:dzeroth/core/network/api_client.dart';
 import 'package:dzeroth/core/storage/session_epoch.dart';
+import 'package:dzeroth/core/icons/dz_icon.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/engagement/data/bookmarks_repository.dart';
 import 'package:dzeroth/features/engagement/data/engagement_repository.dart';
@@ -30,6 +31,7 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:dzeroth/shared/widgets/post/post_card.dart';
 
+import '../../../../support/dz_finders.dart';
 import '../../../../support/fake_transport.dart';
 import '../../../../support/posts_fixtures.dart';
 
@@ -215,8 +217,8 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  Finder outline() => find.byIcon(Icons.bookmark_border);
-  Finder filled() => find.byIcon(Icons.bookmark);
+  Finder outline() => byActionIcon(Icons.bookmark_border);
+  Finder filled() => byActionIcon(Icons.bookmark);
 
   testWidgets('flag off: no bookmark icon and the cubit is never read', (
     tester,
@@ -224,27 +226,30 @@ void main() {
     await pump(tester, _view(), features: const {'engagement', 'replies'});
     expect(outline(), findsNothing);
     expect(filled(), findsNothing);
-    expect(find.byIcon(Icons.favorite_border), findsOneWidget);
+    expect(byActionIcon(Icons.favorite_border), findsOneWidget);
     expect(calls, isEmpty);
   });
 
   testWidgets('flag on: an outline icon after Like, no Share', (tester) async {
     await pump(tester, _view());
     expect(outline(), findsOneWidget);
-    expect(find.byIcon(Icons.ios_share), findsNothing);
+    expect(byActionIcon(Icons.ios_share), findsNothing);
 
     final likeBox = tester.getRect(
       find
           .ancestor(
-            of: find.byIcon(Icons.favorite_border),
+            of: byActionIcon(Icons.favorite_border),
             matching: find.byType(InkResponse),
           )
           .first,
     );
     final bookmark = tester.getTopLeft(outline()).dx;
     expect(bookmark, greaterThan(likeBox.right));
-    // dz.css `.acts` glyph (R1 restyle; was 16).
-    expect(tester.getSize(outline()), const Size.square(AppIconSize.action));
+    // The DzHome 19 dp glyph (was dz.css `.acts` 18, R1 restyle 16).
+    expect(
+      tester.getSize(outline()),
+      const Size.square(AppIconSize.postAction),
+    );
   });
 
   testWidgets(
@@ -264,7 +269,7 @@ void main() {
         greaterThanOrEqualTo(AppSpacing.minTapTarget),
       );
       expect(
-        tester.widget<Icon>(outline()).color,
+        tester.widget<DzIcon>(outline()).color,
         isNot(appDarkTheme.colorScheme.primary),
       );
 
@@ -276,7 +281,7 @@ void main() {
         on.rect.size.shortestSide,
         greaterThanOrEqualTo(AppSpacing.minTapTarget),
       );
-      expect(tester.widget<Icon>(filled()).color, AppPalette.tealElectric);
+      expect(tester.widget<DzIcon>(filled()).color, AppPalette.tealElectric);
       handle.dispose();
     },
   );
@@ -541,7 +546,7 @@ void main() {
 
   testWidgets('light theme: the filled icon is the accent', (tester) async {
     await pump(tester, _view(), serverState: true, theme: appLightTheme);
-    expect(tester.widget<Icon>(filled()).color, AppPalette.tealText);
+    expect(tester.widget<DzIcon>(filled()).color, AppPalette.tealText);
   });
 
   // ---------------------------------------------------------------------
@@ -578,8 +583,8 @@ void main() {
                 Icons.favorite_border,
                 Icons.bookmark,
               ]) {
-                expect(find.byIcon(icon), findsOneWidget, reason: '$icon');
-                final r = tester.getRect(find.byIcon(icon));
+                expect(byActionIcon(icon), findsOneWidget, reason: '$icon');
+                final r = tester.getRect(byActionIcon(icon));
                 expect(
                   row.inflate(0.5).contains(r.topLeft) &&
                       row.inflate(0.5).contains(r.bottomRight),
@@ -595,7 +600,7 @@ void main() {
                 greaterThanOrEqualTo(AppSpacing.minTapTarget),
               );
               expect(
-                tester.widget<Icon>(filled()).color,
+                tester.widget<DzIcon>(filled()).color,
                 dark ? AppPalette.tealElectric : AppPalette.tealText,
               );
               handle.dispose();

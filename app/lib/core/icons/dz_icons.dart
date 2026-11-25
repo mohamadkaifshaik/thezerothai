@@ -22,18 +22,6 @@ abstract final class DzIcons {
     cap: StrokeCap.round,
   );
 
-  /// The same arrows at the heavier 2.2 stroke the design uses for the
-  /// reposted state.
-  static const repostActive = DzIconData(
-    [
-      DzPathShape(
-        'M17 2l4 4-4 4M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4M21 13v2a3 3 0 0 1-3 3H3',
-      ),
-    ],
-    strokeWidth: 2.2,
-    cap: StrokeCap.round,
-  );
-
   static const like = DzIconData([
     DzPathShape(
       'M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z',
@@ -300,7 +288,6 @@ abstract final class DzIcons {
   static const Map<String, DzIconData> all = {
     'reply': reply,
     'repost': repost,
-    'repostActive': repostActive,
     'like': like,
     'save': save,
     'share': share,
