@@ -9,8 +9,8 @@ logic is testable with no credentials.
 | `validate-revision.sh <revision.json> <ceiling> <env>` | `gcloud run revisions describe --format=json` | unknown `FEATURE_*` name, `FEATURE_*` from `valueFrom`, duplicate var, bad mode/percent, effective mode above the ceiling, allowlist or percent above the ceiling, minScale differs, maxScale is not an integer in 1..ceiling (0 means unlimited) |
 | `check-traffic.sh <service.json> <ceiling> <env> serving` | `gcloud run services describe --format=json` | not exactly one named revision at 100%, `latestRevision` routing, any other revision with a percent, tag outside the allow-list |
 | `check-traffic.sh ... staged <candidate> <serving>` | same | serving revision differs from the expected one, or the candidate lacks the 0% `candidate` tag |
-| `resolve-rollback.sh <service> <last-good-rev.json> <images.json> <ceiling> <env>` | + `gcloud artifacts docker images list --format=json` | no `last-good` tag, wrong revision JSON, image not pinned by digest, digest gone from Artifact Registry, a `rollback_floors` flag (see below) not `off` on the target, or whose floor is `sticky` in any mode, with an image that has no 40-hex commit tag or is not at or after the floor commit, a malformed floor entry, or the target fails `validate-revision.sh` |
-| `check-flag-registry.sh <config.go> <ceiling> [main.tf...]` | repo files | ceiling flag set differs from `flags.LoadSpec` names, a code default differs from `unset_default`, Terraform mentions an unknown `FEATURE_*` name, a `rollback_floors` entry is malformed (not an object, unregistered flag name, `commit` not 40-hex, `sticky` not a JSON boolean) |
+| `resolve-rollback.sh <service> <last-good-rev.json> <images.json> <ceiling> <env>` | + `gcloud artifacts docker images list --format=json` | no `last-good` tag, wrong revision JSON, image not pinned by digest, digest gone from Artifact Registry, a `rollback_floors` flag (see below) not `off` on the target, or whose floor is `sticky` in any mode, with an image that has no 40-hex commit tag or any commit tag not at or after the floor commit (the floor is inclusive: an image built from the floor commit itself passes; a tag missing from the repo refuses), `rollback_floors` present but not an object, an underscore key other than a string `_comment`, a malformed floor entry, or the target fails `validate-revision.sh` |
+| `check-flag-registry.sh <config.go> <ceiling> [main.tf...]` | repo files | ceiling flag set differs from `flags.LoadSpec` names, a code default differs from `unset_default`, Terraform mentions an unknown `FEATURE_*` name, `rollback_floors` is present but not an object (`false` and `null` included; only a missing key means no floors), an underscore key other than a string `_comment`, a `rollback_floors` entry is malformed (not an object, unregistered flag name, `commit` not 40-hex, `sticky` not a JSON boolean) |
 
 `flag-ceiling.json` holds names, modes and **counts** only. Allowlist uids are never stored, printed or logged: the
 scripts print flag names and entry counts, and `test/run.sh` fails if any fixture uid appears in stdout/stderr.
@@ -43,6 +43,10 @@ scripts print flag names and entry counts, and `test/run.sh` fails if any fixtur
   tag at or after the floor even where the flag is `off`, so mark a floor sticky only once `last-good` is at or after it
   in every env that runs `resolve-rollback.sh`; (2) turning the flag off no longer makes a rollback pass, the way out is a
   roll-forward fix. `sticky` is accepted on any floor; which floors carry it is a reviewed change to `flag-ceiling.json`.
+  **This change adds the mechanism only: no committed floor is sticky yet.** Marking the `E2EE_DM`, `DEVICE_SIGN_OUT`,
+  `E2EE_REQUIRED` and `MESSAGING` floors sticky in `flag-ceiling.json` is a follow-up owner PR (a code-owned gate file).
+  The `E2EE_REQUIRED` floor is Plan 6 PR 6-1's merge commit, so that PR comes after 6-1 merges, and only once `last-good`
+  is at or after each floor in every env.
   Tests: `test/rollback-floors-test.sh` (run by `test/run.sh`); `test/run.sh` and `test/promote-test.sh` use the committed
   ceiling without its `rollback_floors`, because their fixture images carry no commit tag and a sticky floor would refuse them.
 - jq output is passed through `tr -d '\r'` (the Windows jq build can emit CRLF); `.gitattributes` forces LF here.

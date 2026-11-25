@@ -87,6 +87,8 @@ img img-before "$c_before"
 img img-floor "$c_floor"
 img img-after "$c_after"
 img img-side "$c_side"
+img img-unknown "$(printf '%040d' 7)"
+img img-straddle "$c_before" "$c_after"
 cp "$fx/images-ok.json" "$tmp/img-notag"
 
 # --- part 1: a plain (non-sticky) floor is unchanged in every mode
@@ -98,7 +100,7 @@ for m in allowlist percent on; do
   expect_msg "plain floor, flag $m: an older image is refused" 1 "older than, or not provably after, the PRIVATE_ACCOUNTS rollback floor ${c_floor:0:8} (flag is $m); roll forward" "$R" "$svc" "$tmp/lg-$m" "$tmp/img-before" "$tmp/ceil-plain" dev
   expect_msg "plain floor, flag $m: an image with no commit tag is refused" 1 "refusing (flag is $m)" "$R" "$svc" "$tmp/lg-$m" "$tmp/img-notag" "$tmp/ceil-plain" dev
 done
-expect "plain floor, flag allowlist: the image exactly at the floor passes" 0 "$R" "$svc" "$tmp/lg-allowlist" "$tmp/img-floor" "$tmp/ceil-plain" dev
+expect "plain floor, flag allowlist: the image exactly at the floor passes (the floor is inclusive)" 0 "$R" "$svc" "$tmp/lg-allowlist" "$tmp/img-floor" "$tmp/ceil-plain" dev
 expect "plain floor, flag on: one commit after the floor passes" 0 "$R" "$svc" "$tmp/lg-on" "$tmp/img-after" "$tmp/ceil-plain" dev
 expect "plain floor, flag percent: one commit after the floor passes" 0 "$R" "$svc" "$tmp/lg-percent" "$tmp/img-after" "$tmp/ceil-plain" dev
 
@@ -116,19 +118,21 @@ expect_msg "a sticky floor still refuses with the flag in allowlist mode" 1 "(fl
 expect_msg "a sticky floor still refuses with the flag in percent mode" 1 "(flag is percent, sticky floor)" "$R" "$svc" "$tmp/lg-percent" "$tmp/img-before" "$tmp/ceil-sticky" dev
 expect_msg "sticky floor, flag off: an image with no commit tag is refused" 1 "no commit tag" "$R" "$svc" "$tmp/lg-off" "$tmp/img-notag" "$tmp/ceil-sticky" dev
 expect_msg "sticky floor, flag off: a commit on another branch is refused" 1 "older than, or not provably after" "$R" "$svc" "$tmp/lg-off" "$tmp/img-side" "$tmp/ceil-sticky" dev
-expect_msg "sticky floor, flag off: the image exactly at the floor passes" 0 "its rollback floor is sticky" "$R" "$svc" "$tmp/lg-off" "$tmp/img-floor" "$tmp/ceil-sticky" dev
+expect_msg "sticky floor, flag off: an image whose commit tag is not in the repo is refused" 1 "older than, or not provably after" "$R" "$svc" "$tmp/lg-off" "$tmp/img-unknown" "$tmp/ceil-sticky" dev
+expect_msg "sticky floor, flag off: an image tagged with one commit before and one after the floor is refused" 1 "older than, or not provably after" "$R" "$svc" "$tmp/lg-off" "$tmp/img-straddle" "$tmp/ceil-sticky" dev
+expect_msg "sticky floor, flag off: the image exactly at the floor passes (the floor is inclusive)" 0 "its rollback floor is sticky" "$R" "$svc" "$tmp/lg-off" "$tmp/img-floor" "$tmp/ceil-sticky" dev
 expect "sticky floor, flag off: one commit after the floor passes" 0 "$R" "$svc" "$tmp/lg-off" "$tmp/img-after" "$tmp/ceil-sticky" dev
 expect "sticky floor, flag unset: one commit after the floor passes" 0 "$R" "$svc" "$tmp/lg-unset" "$tmp/img-after" "$tmp/ceil-sticky" dev
 expect "sticky floor, flag allowlist: the image exactly at the floor passes" 0 "$R" "$svc" "$tmp/lg-allowlist" "$tmp/img-floor" "$tmp/ceil-sticky" dev
 expect "sticky floor, flag on: one commit after the floor passes" 0 "$R" "$svc" "$tmp/lg-on" "$tmp/img-after" "$tmp/ceil-sticky" dev
-jq '.rollback_floors.PRIVATE_ACCOUNTS.commit = "abc123"' "$tmp/ceil-sticky" >"$tmp/ceil-sticky-badcommit"
+jq '.rollback_floors.PRIVATE_ACCOUNTS.commit = "abc123"' "$tmp/ceil-sticky" | tr -d '\r' >"$tmp/ceil-sticky-badcommit"
 expect_msg "sticky floor, flag off: a malformed floor commit is refused" 1 "not a 40-hex commit" "$R" "$svc" "$tmp/lg-off" "$tmp/img-after" "$tmp/ceil-sticky-badcommit" dev
-jq 'del(.rollback_floors.PRIVATE_ACCOUNTS.commit)' "$tmp/ceil-sticky" >"$tmp/ceil-sticky-nocommit"
+jq 'del(.rollback_floors.PRIVATE_ACCOUNTS.commit)' "$tmp/ceil-sticky" | tr -d '\r' >"$tmp/ceil-sticky-nocommit"
 expect_msg "sticky floor, flag off: a floor with no commit is refused" 1 "not a 40-hex commit" "$R" "$svc" "$tmp/lg-off" "$tmp/img-after" "$tmp/ceil-sticky-nocommit" dev
-jq --arg c "$(printf '%040d' 9)" '.rollback_floors.PRIVATE_ACCOUNTS.commit = $c' "$tmp/ceil-sticky" >"$tmp/ceil-sticky-missing"
+jq --arg c "$(printf '%040d' 9)" '.rollback_floors.PRIVATE_ACCOUNTS.commit = $c' "$tmp/ceil-sticky" | tr -d '\r' >"$tmp/ceil-sticky-missing"
 expect_msg "sticky floor, flag off: a floor commit missing from the checkout is refused" 1 "not in the checkout" "$R" "$svc" "$tmp/lg-off" "$tmp/img-after" "$tmp/ceil-sticky-missing" dev
 # sticky is accepted on any floor, not on particular flag names: a second, sticky floor on another flag that is off
-jq --arg c "$c_floor" '.rollback_floors.LOCATION = {"commit": $c, "pr": 2, "reason": "test", "sticky": true}' "$tmp/ceil-plain" >"$tmp/ceil-two"
+jq --arg c "$c_floor" '.rollback_floors.LOCATION = {"commit": $c, "pr": 2, "reason": "test", "sticky": true}' "$tmp/ceil-plain" | tr -d '\r' >"$tmp/ceil-two"
 expect_msg "two floors: the sticky one refuses although both flags are off" 1 "the LOCATION rollback floor" "$R" "$svc" "$tmp/lg-off" "$tmp/img-before" "$tmp/ceil-two" dev
 expect "two floors: an image at the floor passes both" 0 "$R" "$svc" "$tmp/lg-allowlist" "$tmp/img-floor" "$tmp/ceil-two" dev
 
@@ -142,9 +146,23 @@ for bad in '"true"' '"false"' '1' '0' 'null' '[true]' '{"value": true}'; do
 done
 for bad in '"0123456789012345678901234567890123456789"' 'true' 'null' '[]'; do
   n=$((n + 1))
-  jq --argjson v "$bad" '.rollback_floors.PRIVATE_ACCOUNTS = $v' "$tmp/ceil-plain" >"$tmp/ceil-bad-$n"
+  jq --argjson v "$bad" '.rollback_floors.PRIVATE_ACCOUNTS = $v' "$tmp/ceil-plain" | tr -d '\r' >"$tmp/ceil-bad-$n"
   expect_msg "a floor entry that is not an object fails closed: $bad, flag off" 1 "rollback floor for PRIVATE_ACCOUNTS is malformed" "$R" "$svc" "$tmp/lg-off" "$tmp/img-after" "$tmp/ceil-bad-$n" dev
 done
+# rollback_floors itself not an object: only a missing key means "no floors"; anything else refuses, older image or not
+for bad in '"oops"' '[{"commit": "0123456789012345678901234567890123456789", "sticky": true}]' '42' 'false' 'null'; do
+  n=$((n + 1))
+  jq --argjson v "$bad" '.rollback_floors = $v' "$tmp/ceil-plain" | tr -d '\r' >"$tmp/ceil-bad-$n"
+  expect_msg "rollback_floors that is not an object fails closed: $bad, flag on, older image" 1 "rollback_floors must be an object" "$R" "$svc" "$tmp/lg-on" "$tmp/img-before" "$tmp/ceil-bad-$n" dev
+  expect_msg "rollback_floors that is not an object fails closed: $bad, flag off, image after" 1 "rollback_floors must be an object" "$R" "$svc" "$tmp/lg-off" "$tmp/img-after" "$tmp/ceil-bad-$n" dev
+done
+# an underscore key other than "_comment", or an object under any underscore key, is a hidden floor: refuse it
+for bad in '._PRIVATE_ACCOUNTS = .PRIVATE_ACCOUNTS' '._note = "x"' '._comment = {"commit": "0123456789012345678901234567890123456789"}'; do
+  n=$((n + 1))
+  jq ".rollback_floors |= ($bad)" "$tmp/ceil-plain" | tr -d '\r' >"$tmp/ceil-bad-$n"
+  expect_msg "an underscore floor key fails closed: $bad" 1 "rollback floor key" "$R" "$svc" "$tmp/lg-on" "$tmp/img-after" "$tmp/ceil-bad-$n" dev
+done
+expect "the plain-string _comment key is still accepted" 0 "$R" "$svc" "$tmp/lg-on" "$tmp/img-after" "$tmp/ceil-plain" dev
 unset ROLLBACK_REPO
 
 # --- part 5: check-flag-registry.sh (CI gate) refuses a malformed floor before it can reach a rollback
@@ -165,8 +183,16 @@ reg '.rollback_floors.E2EE_DM = "011e8d833a2d594cfb1018ca0be099e45356f136"'
 expect_msg "registry: a floor that is not an object is refused" 1 "rollback floor E2EE_DM must be an object" "$G" "$cfg" "$tmp/reg"
 reg '.rollback_floors.NOT_A_FLAG = .rollback_floors.E2EE_DM'
 expect_msg "registry: a floor for an unregistered flag is refused" 1 "rollback floor NOT_A_FLAG names no registered flag" "$G" "$cfg" "$tmp/reg"
-reg '.rollback_floors = []'
-expect_msg "registry: rollback_floors that is not an object is refused" 1 "rollback_floors must be an object" "$G" "$cfg" "$tmp/reg"
+for bad in '[]' 'false' 'null' '"oops"' '42'; do
+  reg ".rollback_floors = $bad"
+  expect_msg "registry: rollback_floors $bad (not an object) is refused" 1 "rollback_floors must be an object" "$G" "$cfg" "$tmp/reg"
+done
+reg '.rollback_floors._E2EE_DM = .rollback_floors.E2EE_DM'
+expect_msg "registry: an underscore key other than _comment is refused" 1 "rollback floor key _E2EE_DM" "$G" "$cfg" "$tmp/reg"
+reg '.rollback_floors._note = "x"'
+expect_msg "registry: an underscore note key other than _comment is refused" 1 "rollback floor key _note" "$G" "$cfg" "$tmp/reg"
+reg '.rollback_floors._comment = .rollback_floors.E2EE_DM'
+expect_msg "registry: an object under _comment is refused" 1 "rollback floor key _comment" "$G" "$cfg" "$tmp/reg"
 
 echo "rollback floor tests: $pass passed, $failed failed"
 [ "$failed" -eq 0 ]
