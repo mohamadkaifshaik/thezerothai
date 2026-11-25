@@ -46,7 +46,7 @@ class DzIcon extends StatelessWidget {
   Widget build(BuildContext context) {
     final iconTheme = IconTheme.of(context);
     final dimension = size ?? iconTheme.size ?? 24;
-    var resolved = color ?? iconTheme.color ?? const Color(0xFF000000);
+    var resolved = color ?? iconTheme.color ?? Colors.black;
     final opacity = iconTheme.opacity;
     if (opacity != null && opacity != 1) {
       resolved = resolved.withValues(alpha: resolved.a * opacity);

@@ -22,6 +22,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../support/dz_finders.dart';
 import '../../support/theme_harness.dart';
 
 class _MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
@@ -166,10 +167,10 @@ void main() {
       testWidgets('$name: ${shown ? 'shown' : 'hidden'}', (tester) async {
         await pump(tester, flags: flags, newShell: newShell);
         expect(
-          find.byIcon(Icons.mail_outline),
+          byNavIcon(Icons.mail_outline),
           shown ? findsOneWidget : findsNothing,
         );
-        expect(find.byIcon(Icons.mail), findsNothing);
+        expect(byNavIcon(Icons.mail), findsNothing);
       });
     }
   });
@@ -181,12 +182,12 @@ void main() {
 
     final bar = find.byType(AppBottomBar);
     double x(IconData icon) => tester
-        .getCenter(find.descendant(of: bar, matching: find.byIcon(icon)))
+        .getCenter(find.descendant(of: bar, matching: byNavIcon(icon)))
         .dx;
     expect(x(Icons.home), lessThan(x(Icons.notifications_none)));
     expect(x(Icons.notifications_none), lessThan(x(Icons.mail_outline)));
     expect(
-      find.descendant(of: bar, matching: find.byIcon(Icons.person_outline)),
+      find.descendant(of: bar, matching: byNavIcon(Icons.person_outline)),
       findsNothing,
     );
   });
@@ -196,7 +197,7 @@ void main() {
 
     final bar = find.byType(AppBottomBar);
     double x(IconData icon) => tester
-        .getCenter(find.descendant(of: bar, matching: find.byIcon(icon)))
+        .getCenter(find.descendant(of: bar, matching: byNavIcon(icon)))
         .dx;
     expect(x(Icons.home), lessThan(x(Icons.mail_outline)));
   });
@@ -209,11 +210,11 @@ void main() {
           expect(find.byType(AppBottomBar), findsNothing);
           return;
         }
-        expect(find.byIcon(Icons.mail), findsOneWidget);
-        expect(find.byIcon(Icons.mail_outline), findsNothing);
-        expect(find.byIcon(Icons.home), findsNothing);
+        expect(byNavIcon(Icons.mail), findsOneWidget);
+        expect(byNavIcon(Icons.mail_outline), findsNothing);
+        expect(byNavIcon(Icons.home), findsNothing);
         final cell = find.ancestor(
-          of: find.byIcon(Icons.mail),
+          of: byNavIcon(Icons.mail),
           matching: find.bySemanticsLabel('Messages'),
         );
         expect(cell, findsWidgets);
@@ -223,18 +224,18 @@ void main() {
     testWidgets('Home does not select Messages', (tester) async {
       await pump(tester);
 
-      expect(find.byIcon(Icons.mail_outline), findsOneWidget);
-      expect(find.byIcon(Icons.home), findsOneWidget);
+      expect(byNavIcon(Icons.mail_outline), findsOneWidget);
+      expect(byNavIcon(Icons.home), findsOneWidget);
     });
 
     testWidgets('tapping it goes to /messages', (tester) async {
       final router = await pump(tester);
 
-      await tester.tap(find.byIcon(Icons.mail_outline));
+      await tester.tap(byNavIcon(Icons.mail_outline));
       await tester.pumpAndSettle();
 
       expect(router.routeInformationProvider.value.uri.path, '/messages');
-      expect(find.byIcon(Icons.mail), findsOneWidget);
+      expect(byNavIcon(Icons.mail), findsOneWidget);
     });
 
     testWidgets('the rail item goes to /messages too', (tester) async {
@@ -243,7 +244,7 @@ void main() {
       await tester.tap(
         find.descendant(
           of: find.byType(NavigationRail),
-          matching: find.byIcon(Icons.mail_outline),
+          matching: byNavIcon(Icons.mail_outline),
         ),
       );
       await tester.pumpAndSettle();
@@ -256,9 +257,9 @@ void main() {
     ) async {
       await pump(tester, location: '/messages', newShell: false);
 
-      expect(find.byIcon(Icons.mail), findsNothing);
-      expect(find.byIcon(Icons.mail_outline), findsNothing);
-      expect(find.byIcon(Icons.home), findsNothing);
+      expect(byNavIcon(Icons.mail), findsNothing);
+      expect(byNavIcon(Icons.mail_outline), findsNothing);
+      expect(byNavIcon(Icons.home), findsNothing);
       expect(tester.takeException(), isNull);
     });
   });
@@ -452,14 +453,14 @@ void main() {
       );
 
       expect(tester.takeException(), isNull);
-      expect(find.byIcon(Icons.mail_outline), findsOneWidget);
+      expect(byNavIcon(Icons.mail_outline), findsOneWidget);
       expect(find.text('99+'), findsOneWidget);
 
       // On the Messages page too (filled glyph).
       router.go('/messages');
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
-      expect(find.byIcon(Icons.mail), findsOneWidget);
+      expect(byNavIcon(Icons.mail), findsOneWidget);
     }, textScales: kMatrixTextScalesLarge);
   });
 
@@ -523,7 +524,7 @@ void main() {
           expect(size.width, greaterThanOrEqualTo(48));
           expect(size.height, greaterThanOrEqualTo(48));
         }
-        expect(find.byIcon(Icons.mail), findsOneWidget);
+        expect(byNavIcon(Icons.mail), findsOneWidget);
         expect(find.text('99+'), findsOneWidget);
       });
     }

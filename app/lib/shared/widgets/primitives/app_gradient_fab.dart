@@ -36,47 +36,47 @@ class _AppGradientFabState extends State<AppGradientFab> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final reduce = MediaQuery.disableAnimationsOf(context);
     const ink = AppPalette.navy;
     final dz = widget.dzIcon;
-    return AnimatedScale(
-      scale: _pressed && widget.onPressed != null ? 0.94 : 1,
-      duration: reduce ? Duration.zero : const Duration(milliseconds: 80),
-      child: DecoratedBox(
-        decoration: const ShapeDecoration(
-          shape: CircleBorder(),
-          color: AppPalette.tealElectric,
-          shadows: AppShadows.fab,
-        ),
-        child: Semantics(
-          button: true,
-          enabled: widget.onPressed != null,
-          label: widget.tooltip,
-          onTap: widget.onPressed,
-          excludeSemantics: true,
-          child: Tooltip(
-            message: widget.tooltip,
-            excludeFromSemantics: true,
-            child: Material(
-              type: MaterialType.transparency,
-              shape: const CircleBorder(),
-              clipBehavior: Clip.antiAlias,
-              child: InkResponse(
-                onTap: widget.onPressed,
-                onHighlightChanged: (down) {
-                  if (down != _pressed) setState(() => _pressed = down);
-                },
-                containedInkWell: true,
-                highlightShape: BoxShape.circle,
-                child: SizedBox.square(
-                  dimension: AppSize.fabRedesign,
-                  child: Center(
-                    child: dz != null
-                        ? DzIcon(dz, size: AppIconSize.lg, color: ink)
-                        : Icon(widget.icon, size: AppIconSize.lg, color: ink),
+    // A Listener, not a gesture: it sees the press without taking the tap
+    // from the button.
+    return Listener(
+      onPointerDown: (_) => setState(() => _pressed = true),
+      onPointerUp: (_) => setState(() => _pressed = false),
+      onPointerCancel: (_) => setState(() => _pressed = false),
+      child: AnimatedScale(
+        scale: _pressed && widget.onPressed != null ? 0.94 : 1,
+        duration: reduce ? Duration.zero : const Duration(milliseconds: 80),
+        child: DecoratedBox(
+          decoration: const ShapeDecoration(
+            shape: CircleBorder(),
+            color: AppPalette.tealElectric,
+            shadows: AppShadows.fab,
+          ),
+          child: Theme(
+            data: theme.copyWith(
+              floatingActionButtonTheme: theme.floatingActionButtonTheme
+                  .copyWith(
+                    backgroundColor: Colors.transparent,
+                    foregroundColor: ink,
+                    elevation: 0,
+                    focusElevation: 0,
+                    hoverElevation: 0,
+                    highlightElevation: 0,
+                    sizeConstraints: const BoxConstraints.tightFor(
+                      width: AppSize.fabRedesign,
+                      height: AppSize.fabRedesign,
+                    ),
                   ),
-                ),
-              ),
+            ),
+            child: FloatingActionButton(
+              tooltip: widget.tooltip,
+              onPressed: widget.onPressed,
+              child: dz != null
+                  ? DzIcon(dz, size: AppIconSize.lg, color: ink)
+                  : Icon(widget.icon, size: AppIconSize.lg, color: ink),
             ),
           ),
         ),

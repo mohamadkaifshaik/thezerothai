@@ -201,7 +201,8 @@ void main() {
       );
       expect(
         (disc.decoration! as ShapeDecoration).color,
-        AppPalette.tealElectric.withValues(alpha: 0.12),
+        // The artboards' tinted pill (was a 12 % teal disc).
+        AppFloatingBottomBar.activePill,
       );
       expectSize(
         tester,
@@ -291,7 +292,7 @@ void main() {
           ),
         );
         // The pill keeps its height at every text scale.
-        expect(tester.getRect(_pill).height, 66);
+        expect(tester.getRect(_pill).height, 64);
         expectNoOverflow(tester);
         handle.dispose();
       });

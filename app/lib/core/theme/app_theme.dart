@@ -62,7 +62,9 @@ abstract final class AppIconSize {
 
   /// Tap box of a post action in a feed row (DzHome: 44 px high, 10 dp of
   /// side padding), and of the spread rows (DzPost, ZPhotoViewer: 48 px).
-  static const double actionTarget = 44;
+  // The design draws 44 dp boxes; the app's minimum tap target (48) wins so
+  // every action stays reachable (AppSpacing.minTapTarget).
+  static const double actionTarget = 48;
   static const double actionTargetSpread = 48;
   static const double actionSidePadding = 10;
 }

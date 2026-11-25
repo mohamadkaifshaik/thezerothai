@@ -776,7 +776,7 @@ void main() {
       );
       expect(
         tester.getRect(pillFinder),
-        const Rect.fromLTRB(20, 800 - 24 - 66, 340, 800 - 24),
+        const Rect.fromLTRB(16, 800 - 14 - 64, 344, 800 - 14),
       );
     });
 
@@ -812,7 +812,7 @@ void main() {
     });
 
     for (final safeBottom in [0.0, 34.0]) {
-      testWidgets('the body gets 66 + 24 + $safeBottom of bottom padding and '
+      testWidgets('the body gets 64 + 14 + $safeBottom of bottom padding and '
           'view padding', (tester) async {
         late MediaQueryData media;
         await pumpFloating(
@@ -826,8 +826,8 @@ void main() {
           ),
         );
 
-        expect(media.padding.bottom, 66 + 24 + safeBottom);
-        expect(media.viewPadding.bottom, 66 + 24 + safeBottom);
+        expect(media.padding.bottom, 64 + 14 + safeBottom);
+        expect(media.viewPadding.bottom, 64 + 14 + safeBottom);
         expect(media.padding.bottom, 800 - tester.getRect(pillFinder).top);
       });
     }
@@ -848,7 +848,7 @@ void main() {
         find.byKey(const ValueKey('row-${rows - 1}')),
       );
       expect(last.bottom, lessThanOrEqualTo(pill.top));
-      expect(last.bottom, 800 - 90);
+      expect(last.bottom, 800 - 78);
     });
 
     testWidgets('a SafeArea in the page ends above the bar', (tester) async {
@@ -865,8 +865,8 @@ void main() {
     });
 
     for (final brightness in Brightness.values) {
-      testWidgets('the compose button is the 58dp gradient primary, above the '
-          'bar, in ${brightness.name}', (tester) async {
+      testWidgets('the compose button is the 58dp electric teal disc, above '
+          'the bar, in ${brightness.name}', (tester) async {
         var composed = 0;
         await pumpFloating(
           tester,
@@ -893,8 +893,11 @@ void main() {
                     )
                     .decoration
                 as ShapeDecoration;
-        expect(decoration.gradient, AppGradients.primaryButton);
-        expect(decoration.shadows, AppShadows.primaryGlow);
+        // Solid electric teal with the artboards' glow (was the primary
+        // gradient with primaryGlow before the Dz redesign).
+        expect(decoration.color, AppPalette.tealElectric);
+        expect(decoration.gradient, isNull);
+        expect(decoration.shadows, AppShadows.fab);
         expect(decoration.shape, const CircleBorder());
         final icon = tester.widget<Icon>(find.byIcon(Icons.edit_outlined));
         final iconColor = IconTheme.of(tester.element(find.byWidget(icon)))
@@ -981,7 +984,7 @@ void main() {
       expect(tester.getRect(pillFinder).top, greaterThanOrEqualTo(800));
       await tester.tapAt(shown.center);
       expect(picked, isEmpty);
-      expect(padding.bottom, 90);
+      expect(padding.bottom, 78);
 
       await tester.drag(find.byType(ListView), const Offset(0, 100));
       await tester.pumpAndSettle();
@@ -1096,14 +1099,15 @@ void main() {
       testWidgets('a TabBarView tab: without the helper its last row stays '
           'under the pill; with it, the row scrolls above the pill while the '
           'bar stays up', (tester) async {
-        // 12 rows end at 720, inside the 90 dp of the bar (its top: 710).
-        await pumpFloating(tester, body: tabbedPage(inset: false));
+        // 13 rows end at 780, inside the 78 dp of the bar (its top: 722; it
+        // was 12 rows and 90 dp before the Dz bar).
+        await pumpFloating(tester, body: tabbedPage(inset: false, rows: 13));
         await tester.drag(find.text('a 3'), const Offset(0, -300));
         await tester.pumpAndSettle();
-        expect(tester.getRect(find.byKey(const ValueKey('a-11'))).bottom, 720);
-        expect(tester.getRect(pillFinder).top, 710);
+        expect(tester.getRect(find.byKey(const ValueKey('a-12'))).bottom, 780);
+        expect(tester.getRect(pillFinder).top, 722);
 
-        await pumpFloating(tester, body: tabbedPage(inset: true));
+        await pumpFloating(tester, body: tabbedPage(inset: true, rows: 13));
         await tester.drag(find.text('a 3'), const Offset(0, -300));
         await tester.pumpAndSettle();
 
@@ -1112,9 +1116,9 @@ void main() {
           1,
         );
         final pill = tester.getRect(pillFinder);
-        final last = tester.getRect(find.byKey(const ValueKey('a-11')));
+        final last = tester.getRect(find.byKey(const ValueKey('a-12')));
         expect(last.bottom, lessThanOrEqualTo(pill.top));
-        expect(insetHeight(tester), 90);
+        expect(insetHeight(tester), 78);
       });
 
       testWidgets('ui_shell off: zero tall, the tab is unchanged', (
@@ -1144,7 +1148,7 @@ void main() {
             body: tabbedPage(inset: true),
           );
 
-          expect(insetHeight(tester), 90 + safeBottom);
+          expect(insetHeight(tester), 78 + safeBottom);
         });
       }
 

@@ -27,6 +27,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 
+import '../../support/dz_finders.dart';
 import '../../support/fake_search_repository.dart';
 import '../../support/search_field_rig.dart';
 
@@ -173,7 +174,7 @@ void main() {
         expect(
           find.descendant(
             of: find.byType(AppBottomBar),
-            matching: find.byIcon(Icons.search),
+            matching: byNavIcon(Icons.search),
           ),
           shown ? findsOneWidget : findsNothing,
         );
@@ -208,13 +209,13 @@ void main() {
 
     final bar = find.byType(AppBottomBar);
     double x(IconData icon) => tester
-        .getCenter(find.descendant(of: bar, matching: find.byIcon(icon)))
+        .getCenter(find.descendant(of: bar, matching: byNavIcon(icon)))
         .dx;
     expect(x(Icons.home), lessThan(x(Icons.search)));
     expect(x(Icons.search), lessThan(x(Icons.notifications_none)));
     // Profile is not a phone bar cell any more (ADR-0034).
     expect(
-      find.descendant(of: bar, matching: find.byIcon(Icons.person_outline)),
+      find.descendant(of: bar, matching: byNavIcon(Icons.person_outline)),
       findsNothing,
     );
   });
@@ -222,9 +223,9 @@ void main() {
   testWidgets('/explore selects it with the selected glyph', (tester) async {
     await pump(tester);
 
-    expect(find.byIcon(Icons.manage_search), findsOneWidget);
-    expect(find.byIcon(Icons.home_outlined), findsOneWidget);
-    expect(find.byIcon(Icons.home), findsNothing);
+    expect(byNavIcon(Icons.manage_search), findsOneWidget);
+    expect(byNavIcon(Icons.home_outlined), findsOneWidget);
+    expect(byNavIcon(Icons.home), findsNothing);
   });
 
   testWidgets('tapping it goes to /explore (a root: no back button)', (
@@ -235,7 +236,7 @@ void main() {
     await tester.tap(
       find.descendant(
         of: find.byType(AppBottomBar),
-        matching: find.byIcon(Icons.search),
+        matching: byNavIcon(Icons.search),
       ),
     );
     await tester.pumpAndSettle();
@@ -255,7 +256,7 @@ void main() {
     await tester.tap(
       find.descendant(
         of: find.byType(NavigationRail),
-        matching: find.byIcon(Icons.search),
+        matching: byNavIcon(Icons.search),
       ),
     );
     await tester.pumpAndSettle();

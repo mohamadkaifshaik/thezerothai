@@ -107,7 +107,7 @@ final _pieces = <_Piece>[
         liked: true,
       ),
     ),
-    minTargets: [() => find.byType(InkResponse)],
+    minTargets: [() => find.byWidgetPredicate((w) => w is InkResponse)],
     contrastPairs: (t) => [
       (t.extension<AppColors>()!.text2, t.colorScheme.surface),
       (t.extension<AppColors>()!.like, t.colorScheme.surface),
@@ -122,7 +122,7 @@ final _pieces = <_Piece>[
         showCounts: false,
       ),
     ),
-    minTargets: [() => find.byType(InkResponse)],
+    minTargets: [() => find.byWidgetPredicate((w) => w is InkResponse)],
   ),
   _Piece(
     'AppFloatingBottomBar',
@@ -134,7 +134,7 @@ final _pieces = <_Piece>[
         onSelected: (_) {},
       ),
     ),
-    minTargets: [() => find.byType(InkResponse)],
+    minTargets: [() => find.byWidgetPredicate((w) => w is InkResponse)],
     contrastPairs: (t) => [
       (AppColors.light.navBarUnselected, AppColors.light.navBarSurface),
       (AppColors.light.navBarSelected, AppFloatingBottomBar.activePill),
@@ -151,7 +151,7 @@ final _pieces = <_Piece>[
         ],
       ),
     ),
-    minTargets: [() => find.byType(InkWell)],
+    minTargets: [() => find.byWidgetPredicate((w) => w is InkResponse)],
   ),
   _Piece(
     'AppHeroBand',
@@ -190,7 +190,7 @@ final _pieces = <_Piece>[
       onTap: () {},
       divider: true,
     ),
-    minTargets: [() => find.byType(InkWell)],
+    minTargets: [() => find.byWidgetPredicate((w) => w is InkResponse)],
   ),
   _Piece(
     'AppTileIcon.dz',
@@ -209,7 +209,7 @@ final _pieces = <_Piece>[
         ),
       ),
     ),
-    minTargets: [() => find.byType(InkResponse)],
+    minTargets: [() => find.byWidgetPredicate((w) => w is InkResponse)],
     contrastPairs: (_) => [(AppPalette.navy, AppPalette.tealElectric)],
   ),
   _Piece(
@@ -217,7 +217,7 @@ final _pieces = <_Piece>[
     () => _page(
       AppRoundAction(icon: DzIcons.gear, tooltip: 'Settings', onPressed: () {}),
     ),
-    minTargets: [() => find.byType(InkResponse)],
+    minTargets: [() => find.byWidgetPredicate((w) => w is InkResponse)],
   ),
   _Piece(
     'AppMediaPlaceholder',

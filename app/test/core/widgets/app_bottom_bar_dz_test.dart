@@ -1,3 +1,5 @@
+import 'dart:ui' show Tristate;
+
 import 'package:dzeroth/core/icons/dz_icons.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/widgets/app_bottom_bar.dart';
@@ -192,7 +194,7 @@ void main() {
         findsOneWidget,
       );
       final selected = tester.getSemantics(find.bySemanticsLabel('Explore'));
-      expect(selected.flagsCollection.isSelected, isTrue);
+      expect(selected.flagsCollection.isSelected, Tristate.isTrue);
       expect(
         tester
             .getSemantics(find.bySemanticsLabel('Home'))

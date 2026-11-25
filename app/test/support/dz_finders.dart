@@ -1,6 +1,7 @@
 import 'package:dzeroth/core/icons/dz_icon.dart';
 import 'package:dzeroth/core/icons/dz_icon_data.dart';
 import 'package:dzeroth/core/icons/dz_icons.dart';
+import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -29,6 +30,61 @@ Finder byActionIcon(IconData icon) {
   if (icon == Icons.bookmark_border) return findDz(DzIcons.save, filled: false);
   if (icon == Icons.bookmark) return findDz(DzIcons.save, filled: true);
   return find.byIcon(icon);
+}
+
+/// `find.byIcon` for shell tests: the main destinations are Material icons on
+/// the rail and the design's [DzIcons] on the floating phone bar, where the
+/// selected item is the one in `navBarSelected` (the others are
+/// `navBarUnselected`). This finds the Material icon *or* the bar's twin, so a
+/// test is the same on a phone and wide. Other icons are found as
+/// `find.byIcon` finds them.
+Finder byNavIcon(IconData icon) {
+  const pairs = <(IconData, IconData, DzIconData)>[
+    (Icons.home_outlined, Icons.home, DzIcons.home),
+    (Icons.search, Icons.manage_search, DzIcons.search),
+    (Icons.track_changes, Icons.adjust, DzIcons.plans),
+    (Icons.notifications_none, Icons.notifications, DzIcons.bell),
+    (Icons.mail_outline, Icons.mail, DzIcons.mail),
+  ];
+  for (final (idle, selected, dz) in pairs) {
+    if (icon != idle && icon != selected) continue;
+    final wantSelected = icon == selected;
+    return find.byWidgetPredicate(
+      (widget) =>
+          (widget is Icon && widget.icon == icon) ||
+          (widget is DzIcon &&
+              identical(widget.data, dz) &&
+              (widget.color == AppColors.light.navBarSelected) == wantSelected),
+      description: 'Icon($icon) or its bar twin',
+    );
+  }
+  return find.byIcon(icon);
+}
+
+/// The glyphs inside [of], in tree order, as the Material icons the main
+/// destinations used before the Dz bar: a [DzIcon] of a nav destination is
+/// reported as its Material pair (selected when painted in `navBarSelected`),
+/// a Material [Icon] as itself.
+List<IconData> navGlyphsIn(WidgetTester tester, Finder of) {
+  final dzToMaterial = <DzIconData, (IconData, IconData)>{
+    DzIcons.home: (Icons.home_outlined, Icons.home),
+    DzIcons.search: (Icons.search, Icons.manage_search),
+    DzIcons.plans: (Icons.track_changes, Icons.adjust),
+    DzIcons.bell: (Icons.notifications_none, Icons.notifications),
+    DzIcons.mail: (Icons.mail_outline, Icons.mail),
+  };
+  final glyphs = find.descendant(
+    of: of,
+    matching: find.byWidgetPredicate((w) => w is Icon || w is DzIcon),
+  );
+  return [
+    for (final w in tester.widgetList(glyphs))
+      if (w is Icon)
+        w.icon!
+      else if (w is DzIcon)
+        if (dzToMaterial[w.data] case final pair?)
+          w.color == AppColors.light.navBarSelected ? pair.$2 : pair.$1,
+  ];
 }
 
 /// The widget behind [findDz] (for its colour, size or fill).

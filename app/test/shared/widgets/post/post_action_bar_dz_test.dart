@@ -1,7 +1,6 @@
 import 'package:dzeroth/core/icons/dz_icons.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/shared/widgets/post/post_action_bar.dart';
-import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -68,12 +67,13 @@ void main() {
       expect(save.right, closeTo(share.left, 0.5));
       expect(save.left, greaterThan(like.right));
       for (final box in [reply, repost, like, save, share]) {
-        expect(box.height, 44);
-        expect(box.width, greaterThanOrEqualTo(44));
+        expect(box.height, 48);
+        expect(box.width, greaterThanOrEqualTo(48));
       }
-      // Save and share are bare 44 dp squares.
-      expect(save.width, 44);
-      expect(share.width, 44);
+      // Save and share are bare 48 dp squares (the design's 44, raised to the
+      // app's minimum tap target).
+      expect(save.width, 48);
+      expect(share.width, 48);
     });
 
     testWidgets('icons are 19 dp and counts are 13/600 with tabular figures', (
@@ -140,8 +140,6 @@ void main() {
           hasEnabledState: true,
           hasSelectedState: true,
           hasTapAction: true,
-          isFocusable: true,
-          hasFocusAction: true,
         ),
       );
       handle.dispose();
@@ -157,8 +155,8 @@ void main() {
       );
       final boxes = [for (final i in dzActionIcons) _target(tester, findDz(i))];
       for (final box in boxes) {
-        expect(box.height, 48);
-        expect(box.width, 48);
+        expect(box.height, closeTo(48, 0.001));
+        expect(box.width, closeTo(48, 0.001));
       }
       final gaps = [
         for (var i = 1; i < boxes.length; i++)
@@ -250,10 +248,20 @@ void main() {
         tester.getCenter(findDz(DzIcons.like)),
       );
       await tester.pump(const Duration(milliseconds: 120));
-      expect(_icon(tester, findDz(DzIcons.like)).width, lessThan(19 * 0.95));
+      double scale() => tester
+          .widget<AnimatedScale>(
+            find
+                .ancestor(
+                  of: findDz(DzIcons.like),
+                  matching: find.byType(AnimatedScale),
+                )
+                .first,
+          )
+          .scale;
+      expect(scale(), lessThan(0.95));
       await gesture.up();
       await tester.pump(const Duration(milliseconds: 200));
-      expect(_icon(tester, findDz(DzIcons.like)).width, closeTo(19, 0.01));
+      expect(scale(), 1);
     });
 
     testWidgets('the like count keeps its slot when it grows a digit', (

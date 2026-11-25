@@ -1,6 +1,5 @@
 import 'package:dzeroth/core/icons/dz_icon_data.dart';
 import 'package:dzeroth/core/icons/dz_icons.dart';
-import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import 'package:dzeroth/shared/widgets/post/post_action_bar.dart';
@@ -137,7 +136,10 @@ void main() {
           expect(box.width, greaterThanOrEqualTo(39.9));
         }
         for (var i = 1; i < boxes.length; i++) {
-          expect(boxes[i].left, greaterThanOrEqualTo(boxes[i - 1].right - 0.5));
+          // Beside the previous box, or on the next line when it flowed.
+          final beside = boxes[i].left >= boxes[i - 1].right - 0.5;
+          final below = boxes[i].top >= boxes[i - 1].bottom - 0.5;
+          expect(beside || below, isTrue, reason: 'box $i overlaps');
         }
       });
     }

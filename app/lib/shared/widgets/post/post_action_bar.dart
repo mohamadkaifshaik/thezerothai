@@ -240,25 +240,44 @@ class PostActionBar extends StatelessWidget {
     return RepaintBoundary(
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final largeText = MediaQuery.textScalerOf(context).scale(13) > 18;
-          final cramped =
-              !constraints.hasBoundedWidth ||
-              largeText ||
-              constraints.maxWidth < items.length * target;
-          if (cramped) {
+          if (!constraints.hasBoundedWidth) {
             return Wrap(
-              alignment: WrapAlignment.spaceBetween,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: items,
             );
           }
           if (spread) {
+            // A box and, with counts, room for a few digits.
+            final need = items.length * (target + (showCounts ? 24 : 0));
+            if (constraints.maxWidth < need) {
+              return Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: items,
+              );
+            }
             return Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: items,
             );
           }
-          return Row(children: [...leading, const Spacer(), ...trailing]);
+          // Compact: the leading actions take what the trailing ones leave
+          // and flow onto another line when the width or the text is short.
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: leading,
+                ),
+              ),
+              Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: trailing,
+              ),
+            ],
+          );
         },
       ),
     );

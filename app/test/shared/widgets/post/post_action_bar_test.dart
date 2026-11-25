@@ -223,8 +223,8 @@ void main() {
       );
       final bar = tester.getRect(find.byType(PostActionBar));
       final icon = tester.getRect(findDz(DzIcons.save));
-      // Last in the row: its 44 dp box ends at the bar's trailing edge.
-      expect(icon.center.dx, closeTo(bar.right - 22, 1));
+      // Last in the row: its 48 dp box ends at the bar's trailing edge.
+      expect(icon.center.dx, closeTo(bar.right - 24, 1));
       expect(icon.width, AppIconSize.postAction);
       expect(dzIconOf(tester, DzIcons.save).fill, 0);
       final off = tester.getSemantics(find.bySemanticsLabel('Bookmark'));
@@ -272,8 +272,8 @@ void main() {
       expect(like.right, lessThan(bookmark.left));
       expect(bookmark.right, lessThan(share.left));
       final bar = tester.getRect(find.byType(PostActionBar));
-      expect(share.center.dx, closeTo(bar.right - 22, 1));
-      expect(bookmark.center.dx, closeTo(share.center.dx - 44, 1));
+      expect(share.center.dx, closeTo(bar.right - 24, 1));
+      expect(bookmark.center.dx, closeTo(share.center.dx - 48, 1));
     });
 
     for (final width in const [320.0, 360.0, 400.0]) {
@@ -314,10 +314,10 @@ void main() {
           expect(boxes[i].height, greaterThanOrEqualTo(44));
           expect(boxes[i].width, greaterThanOrEqualTo(40));
           if (i > 0) {
-            expect(
-              boxes[i].left,
-              greaterThanOrEqualTo(boxes[i - 1].right - 0.5),
-            );
+            // Beside the previous box, or on the next line when it flowed.
+            final beside = boxes[i].left >= boxes[i - 1].right - 0.5;
+            final below = boxes[i].top >= boxes[i - 1].bottom - 0.5;
+            expect(beside || below, isTrue, reason: 'box $i overlaps');
           }
         }
       });
@@ -360,9 +360,9 @@ void main() {
       final repost = tester.getTopLeft(findDz(DzIcons.repost)).dx;
       final like = tester.getTopLeft(findDz(DzIcons.like)).dx;
       final bar = tester.getRect(find.byType(PostActionBar));
-      // Repost is a bare 44 dp box (10 + 19 + 10 and a spare 5), like follows.
-      expect(repost, closeTo(bar.left + 10, 1));
-      expect(like - repost, closeTo(44, 1));
+      // Repost is a bare 48 dp box (its 19 dp glyph centred), like follows.
+      expect(repost, closeTo(bar.left + 14.5, 1));
+      expect(like - repost, closeTo(48, 1));
       expect(like, lessThan(bar.center.dx));
     });
 
