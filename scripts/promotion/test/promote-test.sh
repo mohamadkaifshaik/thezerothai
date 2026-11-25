@@ -18,6 +18,11 @@ failed=0
 IMG_NEW='example-docker.pkg.dev/fake-proj/api/api@sha256:3333333333333333333333333333333333333333333333333333333333333333'
 export PROJECT=fake-proj REGION=fake-region SERVICE=api REPO=example-docker.pkg.dev/fake-proj/api/api
 export PROMOTE_MARKER=$tmp/marker
+# The committed ceiling without its rollback_floors: the fake images carry no 40-hex commit tag, and a sticky floor
+# (enforced whatever the flag's mode) would refuse every rollback preflight here. Floors: test/rollback-floors-test.sh.
+jq 'del(.rollback_floors)' "$p/flag-ceiling.json" | tr -d '\r' >"$tmp/ceiling.json"
+[ -s "$tmp/ceiling.json" ] || { echo "FAIL: cannot build the test ceiling" >&2; exit 2; }
+export CEILING=$tmp/ceiling.json
 export SOAK_SECONDS=30 SOAK_INTERVAL=15 CHECK_INDEXES=true
 # The authenticated smoke runs in every test below (promote mode fails closed without secrets). Made-up values, easy to grep for.
 SMOKE_EMAIL_V='smoke.dev@example.invalid'

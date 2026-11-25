@@ -4,6 +4,7 @@
 # which can be a Terraform-made, never-smoke-tested revision). Fails if the tag is missing, the revision JSON is for a
 # different revision, the image digest is gone from Artifact Registry, the image is older than a `rollback_floors` commit in
 # <flag-ceiling.json> while that flag is not `off` (or has no commit tag), or the revision fails validate-revision.sh.
+# A floor marked `"sticky": true` is enforced in every mode of its flag, `off` included.
 # <images.json> is `gcloud artifacts docker images list <repo>/<image> --format=json`. Prints the revision name.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
@@ -32,14 +33,29 @@ pkg=${image%@*}
   || { echo "FAIL: image digest of '$target' is no longer in Artifact Registry" >&2; exit 1; }
 
 # Rollback floors (M-1(b)): a flag with a floor in <flag-ceiling.json> may only be rolled back to an image built
-# from the floor commit or later, unless the flag is `off` on the rollback target. The revision pins only @sha256:, so the image's
+# from the floor commit or later, unless the flag is `off` on the rollback target and the floor is not sticky. The revision pins only @sha256:, so the image's
 # commit is its 40-hex Artifact Registry tag (the github.sha IMAGE_TAG). Everything unreadable or unproven REFUSES.
 # ROLLBACK_REPO (default: the repo holding this script) is where `git merge-base --is-ancestor` runs; it needs full history.
 repo=${ROLLBACK_REPO:-$(cd "$here/../.." && pwd)}
+# A floor may carry `"sticky": true` (E2EE Plan 6 Task 7.A, fact F15): it then applies whatever the flag's mode is on the
+# target, `off` and unset included, because the flag's data outlives the flag (an encrypted conversation or a removed
+# device mark already exists, and an older image would mishandle it even with the flag off). No `sticky`, or
+# `"sticky": false`, is a plain floor. Any other value, or a floor entry that is not an object, REFUSES in every mode:
+# a typo such as "true" must never turn a sticky floor into a plain one.
 for flag in $(jqr '.rollback_floors // {} | keys[] | select(startswith("_") | not)' "$ceil"); do
+  sticky=$(jqr --arg f "$flag" '.rollback_floors[$f] | if type != "object" then "malformed" elif (has("sticky") | not) then "false" elif (.sticky | type) == "boolean" then (.sticky | tostring) else "malformed" end' "$ceil")
+  case $sticky in
+    true | false) ;;
+    *) echo "FAIL: rollback floor for $flag is malformed (it must be an object, and \"sticky\", when present, the JSON boolean true or false); refusing" >&2; exit 1 ;;
+  esac
   mode=$(jqr --arg f "FEATURE_$flag" '[.spec.containers[0].env // [] | .[] | select(.name == $f)] | first | .value // empty' "$rev")
   mode=${mode:-$(jqr --arg e "$env" --arg f "$flag" '.unset_default[$e][$f] // "off"' "$ceil")}
-  [ "$mode" != "off" ] || { echo "ok: $flag is off on '$target'; its rollback floor is not enforced" >&2; continue; }
+  if [ "$sticky" = "true" ]; then
+    [ "$mode" != "off" ] || echo "ok: $flag is off on '$target', but its rollback floor is sticky and applies in every mode" >&2
+    mode="$mode, sticky floor" # only used in the refusal messages below
+  else
+    [ "$mode" != "off" ] || { echo "ok: $flag is off on '$target'; its rollback floor is not enforced" >&2; continue; }
+  fi
   floor=$(jqr --arg f "$flag" '.rollback_floors[$f].commit // empty' "$ceil")
   [[ $floor =~ ^[0-9a-f]{40}$ ]] || { echo "FAIL: rollback floor for $flag is not a 40-hex commit; refusing" >&2; exit 1; }
   git -C "$repo" cat-file -e "$floor^{commit}" 2>/dev/null \
