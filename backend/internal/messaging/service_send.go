@@ -45,6 +45,15 @@ const (
 	stateLabelNew     = "new"
 )
 
+// The request-line fields of a plaintext send the encryption policy refused (FEATURE_E2EE_REQUIRED): fixed values, no uid
+// and no conversation id.
+const (
+	fieldOutcome              = "outcome"
+	fieldPolicy               = "policy"
+	outcomeEncryptionRequired = "rejected:encryption_required"
+	policyRequired            = "required"
+)
+
 // refused_reason is a fixed enum that stays in the log: the wire answer is one CANNOT_MESSAGE for all of them.
 const (
 	refusedBlocked          = "blocked"
@@ -59,7 +68,8 @@ const (
 //
 // Flag: per caller (FEATURE_DISABLED before any read) and per recipient (CANNOT_MESSAGE, the same bytes as a block).
 // Validation (key, target, text) and the self check run before any read. The per-minute bucket and the MESSAGES_SENDS_PER_DAY
-// cap run in the rate-limit interceptor; the new-account tier of that cap runs here.
+// cap run in the rate-limit interceptor; the new-account tier of that cap runs here. FEATURE_E2EE_REQUIRED for the
+// caller or the recipient (encryptionRequired) makes the transaction refuse a plaintext request with ENCRYPTION_REQUIRED.
 func (s *service) Send(ctx context.Context, uid string, req *messagingv1.SendMessageRequest) (*messagingv1.SendMessageResponse, error) {
 	if err := s.guard(ctx, uid, perCaller); err != nil {
 		return nil, err
@@ -271,7 +281,8 @@ func (s *service) send(ctx context.Context, uid string, in sendInput) (*messagin
 	}
 	res, err := s.d.Repo.Send(ctx, SendParams{
 		UID: uid, PeerUID: in.peer, ConvID: in.convID, MsgID: MessageID(uid, in.key), Enc: in.enc,
-		Text: in.text, RequestHash: reqHash, Now: now, SharedPostID: in.shared.ID,
+		EncryptionRequired: s.encryptionRequired(uid, in.peer),
+		Text:               in.text, RequestHash: reqHash, Now: now, SharedPostID: in.shared.ID,
 		CallerFollowsPeer: mine.Following[in.peer], CallerSilent: mine.Muted[in.peer],
 		RecipientFollowingOnly: s.recipientFollowingOnly(in.peer, peer),
 		Caller:                 peerDocOf(caller), Peer: peerDocOf(peer),
@@ -408,6 +419,10 @@ func (s *service) mapErr(ctx context.Context, uid string, in sendInput, err erro
 		return limitReached(limitDMNewDaily)
 	case errors.Is(err, ErrKeyReused):
 		return keyReused()
+	case errors.Is(err, errRequiredPolicy):
+		logger.SetRequestField(ctx, fieldOutcome, outcomeEncryptionRequired)
+		logger.SetRequestField(ctx, fieldPolicy, policyRequired)
+		return encryptionRequiredByPolicy(in.addressedConv())
 	case errors.Is(err, ErrEncryptionRequired):
 		return encryptionRequired(in.addressedConv())
 	case errors.Is(err, errNeedsInit):
@@ -565,6 +580,21 @@ func (s *service) recipientRefusal(mine graph.Snapshot, peer string, active bool
 		return refusedRecipientFlagOff
 	}
 	return ""
+}
+
+// encryptionRequired reports whether FEATURE_E2EE_REQUIRED applies to a send between uid and peer (P6 §1.1): effective for
+// the sender OR the recipient, because the claim covers a person's messages in both directions (a user in the required
+// cohort never receives a readable message from someone outside it). Effective for a uid is e2ee_required && e2ee_dm: the
+// composition root's registry already couples them (and e2ee_dm to messaging); asking e2ee_dm here as well keeps the rule
+// safe behind any other FlagChecker, so a uid who cannot encrypt is never made unable to send at all. Both answers come
+// from flags in memory: no read. The send transaction applies the verdict (requiredGate) after every CANNOT_MESSAGE
+// refusal, so only someone allowed to message a user can learn that user's cohort.
+func (s *service) encryptionRequired(uid, peer string) bool {
+	return s.requiredFor(uid) || s.requiredFor(peer)
+}
+
+func (s *service) requiredFor(uid string) bool {
+	return s.flags != nil && s.flags.Enabled(uid, E2EERequiredFlag) && s.flags.Enabled(uid, keys.FlagName)
 }
 
 // recipientFollowingOnly is the one F9 predicate shared by Send (SendParams.RecipientFollowingOnly), ListMessageSuggestions

@@ -52,7 +52,8 @@
 //   see "End-to-end encryption").
 // - FAILED_PRECONDITION + ERROR_REASON_STALE_EPOCH, metadata["generation"] and metadata["epoch"] = the current pair:
 //   an encrypted send or a commit built on a pair that is no longer current (see "Ordering"). Nothing was stored.
-// - FAILED_PRECONDITION + ERROR_REASON_ENCRYPTION_REQUIRED: a plaintext SendMessage into an encrypted conversation.
+// - FAILED_PRECONDITION + ERROR_REASON_ENCRYPTION_REQUIRED: a plaintext SendMessage into an encrypted conversation, or
+//   any plaintext SendMessage while encryption is required for the sender or the recipient ("Encryption policy").
 //   Both are answered after every existing refusal; a SendMessage that addressed recipient_user_id gets
 //   metadata["conversation_id"] with either (SendMessage comment).
 // - NOT_FOUND: one message for every cause (above). SendMessage with shared_post_id and CheckPostShare may also answer
@@ -105,6 +106,22 @@
 // - Encryption is ONE-WAY: a conversation's encryption goes from NONE to MLS once, by a SendMessage carrying
 //   mls_init, and never back, whatever any flag says. A plaintext send into an MLS conversation is refused with
 //   FAILED_PRECONDITION + ENCRYPTION_REQUIRED; there is no plaintext fallback.
+// - Encryption policy. Flag FEATURE_E2EE_REQUIRED (wire name "e2ee_required", default off) decides whether a
+//   conversation that is not encrypted may still RECEIVE NEW plaintext; it never changes a stored message or a
+//   conversation's encryption. It is effective for a user only while "e2ee_dm" is effective for them, which is only
+//   while "messaging" is on for them; GetMe enabled_features lists these effective values. When it is effective for the
+//   sender OR the recipient, every plaintext SendMessage (no ciphertext) is refused with FAILED_PRECONDITION +
+//   ENCRYPTION_REQUIRED, storing nothing: into a NONE conversation, for a first message or a message request (no
+//   conversation yet), and for a post share (shared_post_id without ciphertext). Encrypted sends, mls_init included, are
+//   unaffected. The refusal is decided in the send transaction after every NOT_FOUND refusal, every CANNOT_MESSAGE
+//   refusal for a block in either direction, the DM policy, a recipient with messaging off or a gone peer, and
+//   LIMIT_REACHED "request_unanswered" (so only someone allowed to message a user can learn that user's setting), and
+//   before a new conversation's recipient status re-read and "dm_new_daily" quota, and before any write. Deciding it
+//   reads nothing; on an existing conversation a refusal costs the 1-read replay check of the message id, as the other
+//   encryption refusals do. A replay of a plaintext message stored under the same idempotency_key before the flag
+//   applied still returns that message. A
+//   client with "e2ee_required" in enabled_features never offers a plaintext send. Switching the flag off makes plaintext
+//   sends into NONE conversations work again.
 // - Flag FEATURE_E2EE_DM (wire name "e2ee_dm", default off) gates only STARTING encryption, the mls_init of a
 //   SendMessage: it must be on for the caller (else FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] =
 //   "e2ee_dm", before any lookup) AND for the recipient (else the byte-identical CANNOT_MESSAGE). Every other operation

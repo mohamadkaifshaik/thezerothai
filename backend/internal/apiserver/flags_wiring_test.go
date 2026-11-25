@@ -7,6 +7,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/beacons"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/keys"
+	"github.com/dzeroth/dzeroth/backend/internal/messaging"
 	"github.com/dzeroth/dzeroth/backend/internal/search"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 )
@@ -197,8 +198,10 @@ func TestFeatureRegistry_IncludesShareFlags(t *testing.T) {
 }
 
 // TestFeatureRegistry_IncludesE2EEDM: the registry built from config reports `e2ee_dm` in EnabledFeatures for an
-// allowlisted uid only, and not at all when unset (a spec left out of featureRegistry would be silently off).
+// allowlisted uid only, and not at all when unset (a spec left out of featureRegistry would be silently off). Messaging is
+// on here: the effective e2ee_dm also needs it (TestFeatureRegistry_E2EECoupling).
 func TestFeatureRegistry_IncludesE2EEDM(t *testing.T) {
+	t.Setenv("FEATURE_MESSAGING", "on")
 	t.Setenv("FEATURE_E2EE_DM", "")
 	t.Setenv("FEATURE_E2EE_DM_ALLOWLIST", "")
 	t.Setenv("FEATURE_E2EE_DM_PERCENT", "")
@@ -221,6 +224,72 @@ func TestFeatureRegistry_IncludesE2EEDM(t *testing.T) {
 	}
 	if slices.Contains(reg.EnabledFeatures("uid-z"), "e2ee_dm") {
 		t.Error("e2ee_dm must not be reported for uid-z")
+	}
+}
+
+// TestFeatureRegistry_E2EECoupling (P6 §1.3): the effective e2ee_dm is e2ee_dm && messaging and the effective
+// e2ee_required is e2ee_required && effective e2ee_dm, for Enabled and GetMe's EnabledFeatures alike; GloballyOff (the
+// kill switch K1 and RemoveKeyDevice read) keeps reading the raw flag. e2ee_required is unset (off) by default.
+func TestFeatureRegistry_E2EECoupling(t *testing.T) {
+	const in, out = "uid-a", "uid-z"
+	type want struct{ dm, required bool }
+	for _, tc := range []struct {
+		name                          string
+		messaging, e2eeDM, required   string // mode; "allowlist" lists uid-a only
+		forIn, forOut                 want
+		dmGloballyOff, reqGloballyOff bool
+	}{
+		{"all unset", "", "", "", want{}, want{}, true, true},
+		{"e2ee_dm on, messaging off", "off", "on", "", want{}, want{}, false, true},
+		{"e2ee_dm on, messaging allowlist", "allowlist", "on", "", want{dm: true}, want{}, false, true},
+		{"e2ee_dm and messaging on", "on", "on", "", want{dm: true}, want{dm: true}, false, true},
+		{"required on, e2ee_dm off", "on", "off", "on", want{}, want{}, true, false},
+		{"required on, messaging off", "off", "on", "on", want{}, want{}, false, false},
+		{"required on, messaging allowlist", "allowlist", "on", "on", want{dm: true, required: true}, want{}, false, false},
+		{"required allowlist, all else on", "on", "on", "allowlist", want{dm: true, required: true}, want{dm: true}, false, false},
+		{"required on, e2ee_dm allowlist", "on", "allowlist", "on", want{dm: true, required: true}, want{}, false, false},
+		{"everything on", "on", "on", "on", want{dm: true, required: true}, want{dm: true, required: true}, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for env, mode := range map[string]string{"FEATURE_MESSAGING": tc.messaging, "FEATURE_E2EE_DM": tc.e2eeDM, "FEATURE_E2EE_REQUIRED": tc.required} {
+				t.Setenv(env, mode)
+				t.Setenv(env+"_PERCENT", "")
+				list := ""
+				if mode == "allowlist" {
+					list = in
+				}
+				t.Setenv(env+"_ALLOWLIST", list)
+			}
+			cfg, err := config.Load()
+			if err != nil {
+				t.Fatalf("config.Load: %v", err)
+			}
+			if cfg.FeatureE2EERequired.Name != messaging.E2EERequiredFlag {
+				t.Fatalf("config wire name %q != messaging.E2EERequiredFlag %q", cfg.FeatureE2EERequired.Name, messaging.E2EERequiredFlag)
+			}
+			reg := featureRegistry(cfg)
+			for uid, w := range map[string]want{in: tc.forIn, out: tc.forOut} {
+				if got := reg.Enabled(uid, keys.FlagName); got != w.dm {
+					t.Errorf("%s: e2ee_dm = %v, want %v", uid, got, w.dm)
+				}
+				if got := reg.Enabled(uid, messaging.E2EERequiredFlag); got != w.required {
+					t.Errorf("%s: e2ee_required = %v, want %v", uid, got, w.required)
+				}
+				feats := reg.EnabledFeatures(uid)
+				if got := slices.Contains(feats, keys.FlagName); got != w.dm {
+					t.Errorf("%s: enabled_features has e2ee_dm = %v, want %v (%v)", uid, got, w.dm, feats)
+				}
+				if got := slices.Contains(feats, messaging.E2EERequiredFlag); got != w.required {
+					t.Errorf("%s: enabled_features has e2ee_required = %v, want %v (%v)", uid, got, w.required, feats)
+				}
+			}
+			if got := reg.GloballyOff(keys.FlagName); got != tc.dmGloballyOff {
+				t.Errorf("GloballyOff(e2ee_dm) = %v, want %v (the raw flag)", got, tc.dmGloballyOff)
+			}
+			if got := reg.GloballyOff(messaging.E2EERequiredFlag); got != tc.reqGloballyOff {
+				t.Errorf("GloballyOff(e2ee_required) = %v, want %v (the raw flag)", got, tc.reqGloballyOff)
+			}
+		})
 	}
 }
 

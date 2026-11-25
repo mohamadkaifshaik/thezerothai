@@ -130,6 +130,8 @@ func LoadSpec(envName, wireName string, defaultMode Mode) (Spec, error) {
 // resolved from the Spec values captured at process start).
 type Registry struct {
 	specs map[string]Spec
+	// requires maps a flag name to the flags it needs (Require): name is effective for a uid only while each of them is.
+	requires map[string][]string
 }
 
 // NewRegistry builds a Registry from a fixed set of specs (one per LoadSpec/NewRetired call in main.go).
@@ -138,20 +140,45 @@ func NewRegistry(specs ...Spec) *Registry {
 	for _, s := range specs {
 		m[s.Name] = s
 	}
-	return &Registry{specs: m}
+	return &Registry{specs: m, requires: map[string][]string{}}
+}
+
+// Require couples name to parents: name is effective for a uid only while its own spec is on for that uid and every
+// parent is effective for that uid too (through the parents' own requirements, so a chain composes). Enabled and
+// EnabledFeatures report the effective value; GloballyOff keeps reading name's raw mode (the kill switch is the flag's
+// own setting, never a consequence of another flag). An unknown parent is off, so name is off for everyone; a cycle
+// fails closed (every flag in it is off). Call it while building the registry, before it is shared: it is not safe to
+// call concurrently with reads. It returns r for chaining; a nil registry stays nil.
+func (r *Registry) Require(name string, parents ...string) *Registry {
+	if r == nil {
+		return nil
+	}
+	r.requires[name] = append(r.requires[name], parents...)
+	return r
 }
 
 // Enabled reports whether the named flag is on for uid. An unknown name is always off (never panics) so a
 // module can check a flag defensively without the registry having to know about every module in advance.
+// It is the effective value: a flag coupled with Require is also off while a flag it requires is off for uid.
 func (r *Registry) Enabled(uid, name string) bool {
 	if r == nil {
 		return false
 	}
+	return r.enabled(uid, name, 0)
+}
+
+// enabled is Enabled at a depth of the Require chain: deeper than the number of flags can only be a cycle, which is off.
+func (r *Registry) enabled(uid, name string, depth int) bool {
 	s, ok := r.specs[name]
-	if !ok {
+	if !ok || depth > len(r.specs) || !s.enabledFor(uid) {
 		return false
 	}
-	return s.enabledFor(uid)
+	for _, p := range r.requires[name] {
+		if !r.enabled(uid, p, depth+1) {
+			return false
+		}
+	}
+	return true
 }
 
 // GloballyOff reports whether the named flag is the kill switch: switched off for every caller, so Enabled(uid, name)
@@ -171,15 +198,15 @@ func (r *Registry) GloballyOff(name string) bool {
 	return !s.retired && (s.Mode == Off || !s.Mode.valid())
 }
 
-// EnabledFeatures returns the sorted list of flag names enabled for uid, for GetMeResponse.enabled_features
-// Implements identity.FeatureFlags.
+// EnabledFeatures returns the sorted list of flag names enabled for uid (the effective values, as Enabled), for
+// GetMeResponse.enabled_features. Implements identity.FeatureFlags.
 func (r *Registry) EnabledFeatures(uid string) []string {
 	if r == nil {
 		return nil
 	}
 	var out []string
-	for name, s := range r.specs {
-		if s.enabledFor(uid) {
+	for name := range r.specs {
+		if r.enabled(uid, name, 0) {
 			out = append(out, name)
 		}
 	}

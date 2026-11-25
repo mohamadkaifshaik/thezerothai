@@ -255,6 +255,12 @@ type Config struct {
 	// end-to-end-encrypted direct messages: on for the caller. FEATURE_E2EE_DM[_ALLOWLIST|_PERCENT], default off in
 	// every environment.
 	FeatureE2EEDM flags.Spec
+	// FeatureE2EERequired is the flag (wire name `e2ee_required`, E2EE Plan 6 §1.1) that refuses every plaintext
+	// SendMessage (ENCRYPTION_REQUIRED) when it is effective for the sender or the recipient, into a conversation that is
+	// not encrypted yet included. Effective = this flag && the effective e2ee_dm (which is e2ee_dm && messaging), wired in
+	// apiserver.featureRegistry. Switching it off is the clean rollback lever: plaintext sends work again, nothing stored
+	// changes. FEATURE_E2EE_REQUIRED[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeatureE2EERequired flags.Spec
 	// FeatureDeviceSignOut is the flag (wire name `device_sign_out`) of the session cut (security audit H2): on for the
 	// remover, a RemoveKeyDevice with reason REMOTE and a recent sign-in ends the account's other sessions; the cut check
 	// on every RPC (authn.SessionCutInterceptor) enforces a stored cut unless the flag is globally off, which is the
@@ -1141,6 +1147,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featureE2EERequired, err := flags.LoadSpec("E2EE_REQUIRED", "e2ee_required", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	featurePostViews, err := flags.LoadSpec("POST_VIEWS", "post_views", flags.Off)
 	if err != nil {
 		return Config{}, err
@@ -1370,6 +1380,7 @@ func Load() (Config, error) {
 		FeatureDMSuggestions:         featureDMSuggestions,
 		FeatureE2EEDM:                featureE2EEDM,
 		FeatureDeviceSignOut:         featureDeviceSignOut,
+		FeatureE2EERequired:          featureE2EERequired,
 		FeaturePostViews:             featurePostViews,
 		FeatureCreatorInsights:       featureCreatorInsights,
 		PostViewsPublicThreshold:     int64(postViewsPublicThreshold),
