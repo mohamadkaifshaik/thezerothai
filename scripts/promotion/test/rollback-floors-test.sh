@@ -156,8 +156,8 @@ for bad in '"oops"' '[{"commit": "0123456789012345678901234567890123456789", "st
   expect_msg "rollback_floors that is not an object fails closed: $bad, flag on, older image" 1 "rollback_floors must be an object" "$R" "$svc" "$tmp/lg-on" "$tmp/img-before" "$tmp/ceil-bad-$n" dev
   expect_msg "rollback_floors that is not an object fails closed: $bad, flag off, image after" 1 "rollback_floors must be an object" "$R" "$svc" "$tmp/lg-off" "$tmp/img-after" "$tmp/ceil-bad-$n" dev
 done
-# an underscore key other than "_comment", or an object under any underscore key, is a hidden floor: refuse it
-for bad in '._PRIVATE_ACCOUNTS = .PRIVATE_ACCOUNTS' '._note = "x"' '._comment = {"commit": "0123456789012345678901234567890123456789"}'; do
+# an underscore key other than "_comment", or a "_comment" that is not a string, is a hidden floor: refuse it
+for bad in '._PRIVATE_ACCOUNTS = .PRIVATE_ACCOUNTS' '._note = "x"' '._comment = {"commit": "0123456789012345678901234567890123456789"}' '._comment = [1]' '._comment = 42'; do
   n=$((n + 1))
   jq ".rollback_floors |= ($bad)" "$tmp/ceil-plain" | tr -d '\r' >"$tmp/ceil-bad-$n"
   expect_msg "an underscore floor key fails closed: $bad" 1 "rollback floor key" "$R" "$svc" "$tmp/lg-on" "$tmp/img-after" "$tmp/ceil-bad-$n" dev
@@ -193,6 +193,8 @@ reg '.rollback_floors._note = "x"'
 expect_msg "registry: an underscore note key other than _comment is refused" 1 "rollback floor key _note" "$G" "$cfg" "$tmp/reg"
 reg '.rollback_floors._comment = .rollback_floors.E2EE_DM'
 expect_msg "registry: an object under _comment is refused" 1 "rollback floor key _comment" "$G" "$cfg" "$tmp/reg"
+reg '.rollback_floors._comment = [1]'
+expect_msg "registry: an array under _comment is refused" 1 "rollback floor key _comment" "$G" "$cfg" "$tmp/reg"
 
 echo "rollback floor tests: $pass passed, $failed failed"
 [ "$failed" -eq 0 ]

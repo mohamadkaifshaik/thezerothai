@@ -45,14 +45,14 @@ bad=$(jqr '[(.envs[]?.flags[]?.mode), (.unset_default.dev[]?), (.unset_default.p
 # here, in the PR. Each floor names a registered flag and is an object with a 40-hex "commit"; "sticky" (the floor
 # applies whatever the flag's mode) is optional and must be the JSON boolean true or false, never "true", 1 or null.
 # Only a missing "rollback_floors" means "no floors" (false and null are refused, not read as {}). The only underscore
-# key allowed is "_comment", and not with an object value: any other would be a floor both scripts skip silently.
+# key allowed is "_comment", and only with a string value: any other would be a floor both scripts skip silently.
 while read -r problem; do
   [ -z "$problem" ] || fail "$problem"
 done < <(jqr '.flags as $known | (if has("rollback_floors") then .rollback_floors else {} end) as $fl
   | if ($fl | type) != "object" then "rollback_floors must be an object"
     else $fl | to_entries[] | .key as $k | .value as $v
       | if ($k | startswith("_")) then
-          (if $k != "_comment" or ($v | type) == "object" then "rollback floor key \($k): an underscore key other than a string \"_comment\" is not allowed" else empty end)
+          (if $k != "_comment" or ($v | type) != "string" then "rollback floor key \($k): an underscore key other than a string \"_comment\" is not allowed" else empty end)
         elif ($v | type) != "object" then "rollback floor \($k) must be an object"
         else (if ($known | index($k)) == null then "rollback floor \($k) names no registered flag" else empty end),
           (if (($v.commit | type) == "string" and ($v.commit | test("^[0-9a-f]{40}$"))) then empty else "rollback floor \($k): \"commit\" must be a 40-hex commit" end),

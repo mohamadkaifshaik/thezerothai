@@ -45,10 +45,10 @@ repo=${ROLLBACK_REPO:-$(cd "$here/../.." && pwd)}
 # Only a missing "rollback_floors" means "no floors": a string, array, number, false or null REFUSES (`// {}` would read
 # false and null as {}). The keys are read by a plain assignment so a jq error exits here (set -e does not fire inside a
 # `for ... in $(...)` word list), and mapfile keeps them free of word splitting and globbing. "_comment" holding a string
-# is the one underscore key allowed; any other underscore key, or an object under one, would be a floor skipped silently.
+# is the one underscore key allowed; any other underscore key, or a non-string "_comment", would be a floor skipped silently.
 floors_type=$(jqr 'if has("rollback_floors") then (.rollback_floors | type) else "object" end' "$ceil")
 [ "$floors_type" = "object" ] || { echo "FAIL: rollback_floors must be an object (it is $floors_type); refusing" >&2; exit 1; }
-bad_keys=$(jqr '[.rollback_floors // {} | to_entries[] | select((.key | startswith("_")) and (.key != "_comment" or (.value | type) == "object")) | .key] | join(" ")' "$ceil")
+bad_keys=$(jqr '[.rollback_floors // {} | to_entries[] | select((.key | startswith("_")) and (.key != "_comment" or (.value | type) != "string")) | .key] | join(" ")' "$ceil")
 [ -z "$bad_keys" ] || { echo "FAIL: rollback floor key(s) $bad_keys: an underscore key other than a string \"_comment\" is not allowed; refusing" >&2; exit 1; }
 floor_keys=$(jqr '.rollback_floors // {} | keys[] | select(startswith("_") | not)' "$ceil")
 flags_with_floor=()
