@@ -1,4 +1,5 @@
 import 'package:connectrpc/connect.dart' as connect;
+import 'package:dzeroth/core/app_build.dart';
 import 'package:dzeroth/core/network/auth_token_provider.dart';
 import 'package:dzeroth/core/network/interceptors.dart';
 import 'package:dzeroth/core/network/request_session.dart';
@@ -10,6 +11,10 @@ import '../../support/session_tokens.dart';
 class MockAuthTokenProvider extends Mock implements AuthTokenProvider {}
 
 class MockAppCheckTokenProvider extends Mock implements AppCheckTokenProvider {}
+
+String _android() => 'android';
+String _web() => 'web';
+String _ios() => 'ios';
 
 connect.UnaryRequest<String, String> _request() {
   return connect.UnaryRequest<String, String>(
@@ -38,6 +43,88 @@ connect.UnaryResponse<String, String> _echoResponse(
 }
 
 void main() {
+  group('RequestMetadataInterceptor capability header', () {
+    Future<connect.Request<String, String>> send(
+      RequestMetadataInterceptor interceptor,
+    ) async {
+      connect.Request<String, String>? captured;
+      await interceptor.call<String, String>((request) async {
+        captured = request;
+        return _echoResponse(request);
+      })(_request());
+      return captured!;
+    }
+
+    // No session and no auth interceptor in this chain: the header does not
+    // depend on sign-in.
+    test(
+      'every request carries x-dz-client with the platform and level',
+      () async {
+        final sent = await send(
+          const RequestMetadataInterceptor(platform: _android),
+        );
+        expect(sent.headers['x-dz-client'], 'android/$kClientLevel');
+      },
+    );
+
+    test('the platform word is web, android or ios with its level', () async {
+      expect(
+        (await send(const RequestMetadataInterceptor(platform: _web)))
+            .headers['x-dz-client'],
+        'web/$kClientLevel',
+      );
+      expect(
+        (await send(const RequestMetadataInterceptor(platform: _ios)))
+            .headers['x-dz-client'],
+        'ios/0',
+      );
+    });
+
+    test('adds only x-request-id and x-dz-client', () async {
+      final sent = await send(
+        const RequestMetadataInterceptor(platform: _android),
+      );
+      final names = {for (final e in sent.headers.entries) e.name};
+      expect(names, {'x-request-id', 'x-dz-client'});
+    });
+
+    test('a retried request still carries it on every attempt', () async {
+      final seen = <String?>[];
+      var attempts = 0;
+      final chain = const RequestMetadataInterceptor(platform: _android)
+          .call<String, String>(
+            const RetryInterceptor(baseDelay: Duration.zero)
+                .call<String, String>((request) async {
+                  seen.add(request.headers['x-dz-client']);
+                  if (++attempts < 3) {
+                    throw connect.ConnectException(
+                      connect.Code.unavailable,
+                      'unavailable',
+                    );
+                  }
+                  return _echoResponse(request);
+                }),
+          );
+      final request = connect.UnaryRequest<String, String>(
+        connect.Spec<String, String>(
+          '/test.Service/Method',
+          connect.StreamType.unary,
+          () => '',
+          () => '',
+          idempotency: connect.Idempotency.noSideEffects,
+        ),
+        'https://example.test/test.Service/Method',
+        connect.Headers(),
+        '',
+        connect.CancelableSignal(),
+      );
+
+      await chain(request);
+
+      expect(seen, List.filled(3, 'android/$kClientLevel'));
+    });
+  });
+
   group('AuthHeadersInterceptor', () {
     late MockAuthTokenProvider authTokens;
     late MockAppCheckTokenProvider appCheckTokens;
