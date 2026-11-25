@@ -59,6 +59,80 @@ void main() {
     expect(notified, 2, reason: 'nothing to forget');
   });
 
+  group('update_required (Plan 6 PR 6-4)', () {
+    Object updateRequired() => serverError(
+      connect.Code.failedPrecondition,
+      common.ErrorReason.ERROR_REASON_FEATURE_DISABLED,
+      metadata: {'feature': 'messaging', 'update_required': 'true'},
+    );
+
+    test('the local refusal after an update_required answer keeps the flag '
+        'until reset', () async {
+      final gate = ServiceFeatureGate(isEnabled: () => true);
+      await expectLater(
+        gate.run<void>(() async => throw updateRequired()),
+        throwsA(
+          isA<FeatureDisabledException>().having(
+            (e) => e.updateRequired,
+            'updateRequired',
+            isTrue,
+          ),
+        ),
+      );
+
+      var calls = 0;
+      await expectLater(
+        gate.run<void>(() async => calls++),
+        throwsA(
+          isA<FeatureDisabledException>().having(
+            (e) => e.updateRequired,
+            'local updateRequired',
+            isTrue,
+          ),
+        ),
+      );
+      expect(calls, 0, reason: 'refused locally, no RPC');
+
+      gate.reset();
+      expect(await gate.run(() async => 1), 1);
+    });
+
+    test('a plain FEATURE_DISABLED keeps the local refusal plain', () async {
+      final gate = ServiceFeatureGate(isEnabled: () => true);
+      await hitDisabled(gate);
+      await expectLater(
+        gate.run<void>(() async {}),
+        throwsA(
+          isA<FeatureDisabledException>().having(
+            (e) => e.updateRequired,
+            'updateRequired',
+            isFalse,
+          ),
+        ),
+      );
+    });
+
+    test('after reset a plain refusal is not update_required', () async {
+      final gate = ServiceFeatureGate(isEnabled: () => true);
+      await expectLater(
+        gate.run<void>(() async => throw updateRequired()),
+        throwsA(isA<FeatureDisabledException>()),
+      );
+      gate.reset();
+      await hitDisabled(gate);
+      await expectLater(
+        gate.run<void>(() async {}),
+        throwsA(
+          isA<FeatureDisabledException>().having(
+            (e) => e.updateRequired,
+            'updateRequired',
+            isFalse,
+          ),
+        ),
+      );
+    });
+  });
+
   test('refresh is requested once for concurrent disables and at most once '
       'per 60 s', () async {
     var now = DateTime(2026, 1, 1);

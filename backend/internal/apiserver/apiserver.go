@@ -147,6 +147,9 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	// --- feature flags ---
 	featureFlags := featureRegistry(cfg)
 	log.Info("feature_flags", "flags", featureFlags.StartupLogValues())
+	// The app version floor for messaging (client_floor_wiring.go): GetMe, MessagingService and KeyService. Numbers only.
+	floors := clientFloors(cfg)
+	log.Info("client_floors", "android", floors.Android, "web", floors.Web, "ios", floors.IOS)
 	// F1 post views: who sees Post.view_count (posts/views.go). Process-wide: the converters are free functions.
 	posts.SetViewCountRule(posts.ViewCountRule{Threshold: cfg.PostViewsPublicThreshold, Off: func() bool { return featureFlags.GloballyOff(posts.ViewsFlagName) }})
 	// The private-accounts limits, so an operator can see what the revision enforces. Numbers only.
@@ -244,6 +247,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	notifRepo := notifications.NewFirestoreRepo(fsClient).WithLogger(log)
 	identitySvc := identity.New(identityRepo, identityCache, cfg.HandleChangeCooldown,
 		identity.WithFeatureFlags(featureFlags),
+		identity.WithClientFloor(floors), // a build below the floor: no messaging family, features_needing_update
 		identity.WithBlockChecker(graphSvc),
 		identity.WithProtectedAuthors(protectedAuthors, log), identity.WithFollowRequestCounter(graphSvc, log), // The pin rule and the GetMe badge
 		identity.WithSignupAuth(authAdminClient, log),
@@ -761,7 +765,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		return nil, nil, errors.New("messaging service does not implement MessageReporter")
 	}
 	lateMessages.r = reporter
-	messagingServer := messaging.NewServer(messagingSvc)
+	messagingServer := messaging.NewServer(messagingSvc, messaging.WithClientFloor(floors))
 	routes.connect(func(o ...connect.HandlerOption) (string, http.Handler) {
 		return messagingv1connect.NewMessagingServiceHandler(messagingServer, o...)
 	})
@@ -878,7 +882,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	lookupCap := keysLookupCap(cfg.RateLimit.KeysDeviceLookupsPerDay, cfg.RateLimit.KeysNewAccountDeviceLookupsPerDay, isNewActor)
 	// A REMOTE removal with device_sign_out on for the remover writes the session cut through identity (keys.SessionCutter,
 	// the same identity.SessionCuts the cut interceptor reads).
-	keysMod, err := newKeysModule(keysRepo, featureFlags, messagingPermission, messaging.ConversationID, keysClaimCap, lookupCap, cfg.AccountDeleteReauthMaxAge, sessionCuts, log)
+	keysMod, err := newKeysModule(keysRepo, featureFlags, messagingPermission, messaging.ConversationID, keysClaimCap, lookupCap, cfg.AccountDeleteReauthMaxAge, sessionCuts, log, keys.WithClientFloor(floors))
 	if err != nil {
 		return nil, nil, err
 	}

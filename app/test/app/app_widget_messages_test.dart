@@ -121,9 +121,11 @@ void main() {
     Set<String> flags = const {},
     int unread = 0,
     int unreadConversations = 0,
+    Set<String> needingUpdate = const {},
   }) => OnboardingState(
     status: OnboardingStatus.ready,
     enabledFeatures: flags,
+    featuresNeedingUpdate: needingUpdate,
     unreadNotificationCount: unread,
     unreadConversationCount: unreadConversations,
   );
@@ -245,6 +247,31 @@ void main() {
 
       // The flag set changed: one probe.
       onboardingStates.add(ready(flags: {'graph', 'search'}));
+      await tester.pump();
+      verify(() => messagingRepo.probeAccess()).called(1);
+    });
+  });
+
+  group('the probe below the version floor (Plan 6 PR 6-4)', () {
+    testWidgets('never runs while messaging needs an update: no '
+        'ListConversations, no extra GetMe', (tester) async {
+      await pump(tester, onboarding: ready(needingUpdate: {'messaging'}));
+      verifyNever(() => messagingRepo.probeAccess());
+
+      // A flag-set change and a user change do not start one either.
+      onboardingStates.add(
+        ready(flags: {'search'}, needingUpdate: {'messaging'}),
+      );
+      await tester.pump();
+      verifyNever(() => messagingRepo.probeAccess());
+      verifyNever(() => onboardingBloc.add(any()));
+    });
+
+    testWidgets('runs again once the update need is gone', (tester) async {
+      await pump(tester, onboarding: ready(needingUpdate: {'messaging'}));
+      verifyNever(() => messagingRepo.probeAccess());
+
+      onboardingStates.add(ready(flags: {'search'}));
       await tester.pump();
       verify(() => messagingRepo.probeAccess()).called(1);
     });

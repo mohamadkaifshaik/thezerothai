@@ -819,9 +819,17 @@ type GetMeResponse struct {
 	// made private since, or a community that was suspended: the client learns it from GetListTimeline's or
 	// GetCommunityTimeline's NOT_FOUND, shows the tab as unavailable and offers Unpin. Written by
 	// TimelineService.SetHomeTabs; up to 60 s stale on another instance (the profile cache).
-	HomeTabs      []*v1.HomeTab `protobuf:"bytes,8,rep,name=home_tabs,json=homeTabs,proto3" json:"home_tabs,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	HomeTabs []*v1.HomeTab `protobuf:"bytes,8,rep,name=home_tabs,json=homeTabs,proto3" json:"home_tabs,omitempty"`
+	// Features this app build may not use because it is older than the server's floor for its platform (the request's
+	// x-dz-client header: "<android|web|ios>/<level>"; no header = level 0, and a missing or unknown platform is held to
+	// the highest floor). Each name here is also missing from enabled_features. Today only "messaging" (direct messages
+	// and the key directory), and only for a caller who would otherwise have messaging on. Show an update prompt in that
+	// feature's place: on Android "Update the app to keep messaging", on the web a reload, on iOS "Messages aren't
+	// available on iPhone yet". Empty when the build meets every floor (every floor is 0 unless an operator raised one).
+	// Builds before this field ignore it and simply see the feature off. The header is not a security control.
+	FeaturesNeedingUpdate []string `protobuf:"bytes,9,rep,name=features_needing_update,json=featuresNeedingUpdate,proto3" json:"features_needing_update,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *GetMeResponse) Reset() {
@@ -906,6 +914,13 @@ func (x *GetMeResponse) GetUnreadConversationCount() int64 {
 func (x *GetMeResponse) GetHomeTabs() []*v1.HomeTab {
 	if x != nil {
 		return x.HomeTabs
+	}
+	return nil
+}
+
+func (x *GetMeResponse) GetFeaturesNeedingUpdate() []string {
+	if x != nil {
+		return x.FeaturesNeedingUpdate
 	}
 	return nil
 }
@@ -2113,7 +2128,7 @@ const file_dzeroth_identity_v1_identity_proto_rawDesc = "" +
 	"\x06handle\x18\x01 \x01(\tR\x06handle\"2\n" +
 	"\x16SuggestHandlesResponse\x12\x18\n" +
 	"\ahandles\x18\x01 \x03(\tR\ahandles\"\x0e\n" +
-	"\fGetMeRequest\"\xc7\x03\n" +
+	"\fGetMeRequest\"\xff\x03\n" +
 	"\rGetMeResponse\x126\n" +
 	"\aprofile\x18\x01 \x01(\v2\x1c.dzeroth.identity.v1.ProfileR\aprofile\x12:\n" +
 	"\x06status\x18\x02 \x01(\x0e2\".dzeroth.identity.v1.AccountStatusR\x06status\x12%\n" +
@@ -2122,7 +2137,8 @@ const file_dzeroth_identity_v1_identity_proto_rawDesc = "" +
 	"\x10enabled_features\x18\x05 \x03(\tR\x0fenabledFeatures\x12?\n" +
 	"\x1cpending_follow_request_count\x18\x06 \x01(\x03R\x19pendingFollowRequestCount\x12:\n" +
 	"\x19unread_conversation_count\x18\a \x01(\x03R\x17unreadConversationCount\x127\n" +
-	"\thome_tabs\x18\b \x03(\v2\x1a.dzeroth.common.v1.HomeTabR\bhomeTabs\"}\n" +
+	"\thome_tabs\x18\b \x03(\v2\x1a.dzeroth.common.v1.HomeTabR\bhomeTabs\x126\n" +
+	"\x17features_needing_update\x18\t \x03(\tR\x15featuresNeedingUpdate\"}\n" +
 	"\x11GetProfileRequest\x12\x1f\n" +
 	"\auser_id\x18\x01 \x01(\tB\x04\xe8\xe0\x18\x01H\x00R\x06userId\x12\x18\n" +
 	"\x06handle\x18\x02 \x01(\tH\x00R\x06handle\x12#\n" +
