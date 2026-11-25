@@ -41,6 +41,25 @@ fi
 bad=$(jqr '[(.envs[]?.flags[]?.mode), (.unset_default.dev[]?), (.unset_default.prod[]?)] | map(select(. as $m | ["off","allowlist","percent","on"] | index($m) | not)) | length' "$ceil")
 [ "$bad" = "0" ] || fail "ceiling contains $bad value(s) that are not off|allowlist|percent|on"
 
+# Rollback floors (read by resolve-rollback.sh, which refuses a malformed one at rollback time): catch the same shapes
+# here, in the PR. Each floor names a registered flag and is an object with a 40-hex "commit"; "sticky" (the floor
+# applies whatever the flag's mode) is optional and must be the JSON boolean true or false, never "true", 1 or null.
+# Only a missing "rollback_floors" means "no floors" (false and null are refused, not read as {}). The only underscore
+# key allowed is "_comment", and only with a string value: any other would be a floor both scripts skip silently.
+while read -r problem; do
+  [ -z "$problem" ] || fail "$problem"
+done < <(jqr '.flags as $known | (if has("rollback_floors") then .rollback_floors else {} end) as $fl
+  | if ($fl | type) != "object" then "rollback_floors must be an object"
+    else $fl | to_entries[] | .key as $k | .value as $v
+      | if ($k | startswith("_")) then
+          (if $k != "_comment" or ($v | type) != "string" then "rollback floor key \($k): an underscore key other than a string \"_comment\" is not allowed" else empty end)
+        elif ($v | type) != "object" then "rollback floor \($k) must be an object"
+        else (if ($known | index($k)) == null then "rollback floor \($k) names no registered flag" else empty end),
+          (if (($v.commit | type) == "string" and ($v.commit | test("^[0-9a-f]{40}$"))) then empty else "rollback floor \($k): \"commit\" must be a 40-hex commit" end),
+          (if (($v | has("sticky")) | not) or (($v.sticky | type) == "boolean") then empty else "rollback floor \($k): \"sticky\" must be the JSON boolean true or false" end)
+        end
+    end' "$ceil" || echo "the rollback_floors check could not read the ceiling")
+
 # Defaults: LoadSpec(..., flags.Off) => unset means off; graphDefaultMode => on in dev, off in prod.
 while read -r flag dflt; do
   [ -n "$flag" ] || continue
