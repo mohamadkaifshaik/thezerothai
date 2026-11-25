@@ -89,8 +89,8 @@ class DraftThreadScreen extends StatelessWidget {
       builder: (context, ports) => BlocProvider<MessageComposerCubit>(
         create: (context) => MessageComposerCubit(
           vaultNotOpen: _vaultNotOpenOf(context),
-          // Plan 6 Task 1.B: read live at each send.
-          encryptionRequired: _encryptionRequiredOf(context),
+          // Plan 6 Task 1.B: read live at each send; fails closed.
+          encryptionRequired: e2eeRequiredOf(context.read<OnboardingBloc>()),
           repository: context.read<MessagingRepository>(),
           recipientUserId: peer.userId,
           // R1: the person is addressed from this snapshot only.
@@ -121,13 +121,6 @@ class DraftThreadScreen extends StatelessWidget {
 bool Function() _vaultNotOpenOf(BuildContext context) {
   final status = context.read<EncryptionStatusCubit?>();
   return () => status?.state.vaultNotOpen ?? false;
-}
-
-/// Plan 6 Task 1.B: whether `e2ee_required` is in the caller's enabled
-/// features, read live (a cached flag set counts: fails closed).
-bool Function() _encryptionRequiredOf(BuildContext context) {
-  final onboarding = context.read<OnboardingBloc>();
-  return () => onboarding.state.enabledFeatures.contains(kFeatureE2eeRequired);
 }
 
 class _DraftView extends StatefulWidget {

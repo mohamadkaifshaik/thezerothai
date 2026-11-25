@@ -341,10 +341,10 @@ class _PickerViewState extends State<_PickerView> {
             device.vaultStatus.value != VaultStatus.ready,
         mayStartEncryption: () =>
             onboarding.state.enabledFeatures.contains(kFeatureE2eeDm),
-        // Plan 6 Task 1.B: read live before each row (a cached flag set
-        // counts: fails closed). While it is on no row goes in plaintext.
-        encryptionRequired: () =>
-            onboarding.state.enabledFeatures.contains(kFeatureE2eeRequired),
+        // Plan 6 Task 1.B: read live before each row; fails closed while the
+        // flag set is unknown or another user's. While it answers true no
+        // row goes in plaintext.
+        encryptionRequired: e2eeRequiredOf(onboarding),
         onUnexpectedError: context.read<UnexpectedErrorReporter>(),
       );
       unawaited(_loadRecents(repository));

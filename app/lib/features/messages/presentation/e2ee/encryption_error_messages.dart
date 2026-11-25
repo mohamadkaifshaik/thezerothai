@@ -57,6 +57,7 @@ String composerRefusalText(
   return switch (problem) {
     SendProblem.peerHasNoDevice => kPeerCannotReceiveYetTitle,
     SendProblem.requiredUnavailable => kRequiredUnavailableTitle,
+    SendProblem.requiredNotOnThisDevice => kNotOnThisDeviceText,
     SendProblem.tryTomorrow => kOutgoingTryTomorrowText,
     SendProblem.blocked =>
       vaultBlocked ? kSendWaitsForVaultText : kStateBlockedTitle,
@@ -78,6 +79,7 @@ String composerRefusalText(
 String? composerRefusalDetail(SendProblem problem) => switch (problem) {
   SendProblem.peerHasNoDevice => kPeerCannotReceiveYetBody,
   SendProblem.requiredUnavailable => kRequiredUnavailableBody,
+  SendProblem.requiredNotOnThisDevice => kRequiredNotOnThisDeviceBody,
   SendProblem.none ||
   SendProblem.retryable ||
   SendProblem.blocked ||
@@ -86,11 +88,13 @@ String? composerRefusalDetail(SendProblem problem) => switch (problem) {
 };
 
 /// [composerRefusalText] and [composerRefusalDetail] as one paragraph, for a
-/// place with room for one line of text only (a share's error line).
+/// place with room for one line of text only (a share's error line). A title
+/// that ends its own sentence gets no second full stop.
 String composerRefusalParagraph(SendProblem problem, AppException? error) {
   final title = composerRefusalText(problem, error);
   final detail = composerRefusalDetail(problem);
-  return detail == null ? title : '$title. $detail';
+  if (detail == null) return title;
+  return title.endsWith('.') ? '$title $detail' : '$title. $detail';
 }
 
 /// The status line of an own row that is not delivered (Task 4). A delivered row has no status line (empty).
@@ -113,6 +117,7 @@ String sendStatusText(
       SendProblem.tryTomorrow => kOutgoingTryTomorrowText,
       // Never on a stored row (only a `send` refusal); named for exhaustiveness.
       SendProblem.requiredUnavailable => kRequiredUnavailableTitle,
+      SendProblem.requiredNotOnThisDevice => kNotOnThisDeviceText,
       // A refusal is definitive: with no typed reason the row says "Not sent" and promises no retry.
       SendProblem.refused =>
         error == null

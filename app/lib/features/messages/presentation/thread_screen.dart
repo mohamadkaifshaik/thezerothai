@@ -43,7 +43,8 @@ import '../../profile/presentation/widgets/block_confirmation_dialog.dart';
 import '../data/messaging_repository.dart';
 import '../data/timer_thread_poller.dart';
 import '../domain/message_search.dart';
-import '../domain/messaging_feature_flag.dart' show kFeatureE2eeRequired;
+import '../domain/messaging_feature_flag.dart'
+    show e2eeRequiredOf, kFeatureE2eeRequired;
 import '../domain/messaging_feature_gate.dart';
 import '../domain/thread_poller.dart';
 import '../domain/thread_push_coverage.dart';
@@ -239,10 +240,9 @@ class ThreadScreen extends StatelessWidget {
               final onboarding = context.read<OnboardingBloc>();
               return MessageComposerCubit(
                 vaultNotOpen: () => status?.state.vaultNotOpen ?? false,
-                // Plan 6 Task 1.B: read live at each send (a cached flag
-                // set counts: fails closed).
-                encryptionRequired: () => onboarding.state.enabledFeatures
-                    .contains(kFeatureE2eeRequired),
+                // Plan 6 Task 1.B: read live at each send; fails closed
+                // while the flag set is unknown or another user's.
+                encryptionRequired: e2eeRequiredOf(onboarding),
                 repository: context.read<MessagingRepository>(),
                 conversationId: conversationId,
                 outbox: context.read<MessagingRepository>().outbox,

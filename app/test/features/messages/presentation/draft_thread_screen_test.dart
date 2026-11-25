@@ -100,6 +100,30 @@ void main() {
     expect(fieldText(tester), 'hello');
     expect(o.port.sent, hasLength(1));
     expect(o.rig.server.sends, isEmpty);
+
+    // Code review Minor 4: the title and the body are ONE live region, so a
+    // screen reader announces the refusal once, both lines together.
+    final liveRegions = find.ancestor(
+      of: find.text(kPeerCannotReceiveYetBody),
+      matching: find.byWidgetPredicate(
+        (w) => w is Semantics && (w.properties.liveRegion ?? false),
+      ),
+    );
+    expect(liveRegions, findsOneWidget);
+    expect(
+      find.descendant(
+        of: liveRegions,
+        matching: find.text(kPeerCannotReceiveYetTitle),
+      ),
+      findsOneWidget,
+    );
+    final handle = tester.ensureSemantics();
+    final label = tester
+        .getSemantics(find.text(kPeerCannotReceiveYetTitle))
+        .label;
+    expect(label, contains(kPeerCannotReceiveYetTitle));
+    expect(label, contains(kPeerCannotReceiveYetBody));
+    handle.dispose();
   });
 
   testWidgets('under required a notEncrypted answer is never sent in '
@@ -116,7 +140,9 @@ void main() {
     tester,
   ) async {
     final o = await open(tester, e2eeDm: false, vaultKnown: false);
-    // The port is the one that decides; it refuses (no plaintext, no start).
+    // This checks the COPY only: the fake port is scripted to refuse. That
+    // the real port refuses here is pinned in encrypted_messaging_impl_test
+    // ("required without e2ee_dm").
     o.port.nextSendOutcome = const SendOutcome(
       SendOutcomeKind.refused,
       problem: SendProblem.requiredUnavailable,

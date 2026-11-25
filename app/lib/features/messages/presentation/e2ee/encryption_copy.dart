@@ -298,9 +298,14 @@ const kPeerCannotReceiveYetBody =
 
 /// Shown instead of `kMessagesNotEncryptedText` in a thread that is not
 /// encrypted yet while `e2ee_required` is on. Owner may edit.
+///
+/// Amends the plan's Task 1.B wording ("New messages here will be end-to-end
+/// encrypted once both of you are on the latest app."), security review L4:
+/// the messages already in the thread stay readable by the operator, so the
+/// note keeps saying so before it says what changes for new ones.
 const kRequiredNoteText =
-    'New messages here will be end-to-end encrypted once both of you are on '
-    'the latest app.';
+    'Earlier messages here are not end-to-end encrypted. New messages will be '
+    'once both of you are on the latest app.';
 
 /// `e2ee_required` is on but this device may not start encryption (`e2ee_dm`
 /// off: the server's required flag is not gated by it, ruling of 2026-11-25):
@@ -312,6 +317,12 @@ const kRequiredUnavailableTitle = 'Messages are being upgraded';
 const kRequiredUnavailableBody =
     'Sending is paused while encrypted messaging finishes rolling out. Your '
     "message hasn't been sent.";
+
+/// `e2ee_required` is on and this device cannot hold a vault
+/// (`SendProblem.requiredNotOnThisDevice`, security review L5): the body
+/// under [kNotOnThisDeviceText], the existing line for such a device. Owner
+/// may edit.
+const kRequiredNotOnThisDeviceBody = "Your message hasn't been sent.";
 
 /// This device has no vault (fixed, R11).
 const kNotOnThisDeviceText =

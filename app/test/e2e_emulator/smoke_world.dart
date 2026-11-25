@@ -537,6 +537,7 @@ class SmokeDevice {
     );
     pipeline = E2eePipeline(
       session: session,
+      encryptionRequired: () => false,
       deviceKeys: deviceKeys,
       engine: () => engine,
       messaging: messaging,

@@ -451,12 +451,16 @@ class EncryptedMessagingImpl implements EncryptedMessaging {
       return _refused(SendProblem.retryable);
     }
     // Plan 6 Task 1.B: no vault here, so nothing can be encrypted on this
-    // device. Under required: with the flag on the vault is still to come
+    // device. Under required: a platform that cannot hold a vault says so
+    // whatever the flag (security L5: never "being upgraded", never the
+    // generic blocked line); with the flag on the vault is still to come
     // (blocked, as for a vault that is not ready); otherwise this device may
     // not start encryption at all (requiredUnavailable).
     return _notEncryptedUnlessRequired(
       conversationId,
-      whenRequired: session.mayStart
+      whenRequired: nowStatus == VaultStatus.unsupported
+          ? SendProblem.requiredNotOnThisDevice
+          : session.mayStart
           ? SendProblem.blocked
           : SendProblem.requiredUnavailable,
     );

@@ -1288,6 +1288,45 @@ void main() {
       );
     });
 
+    testWidgets('Plan 6 Task 1.B: under e2ee_required the not-encrypted '
+        'thread says the required note instead, and swaps live when the flag '
+        'set changes', (tester) async {
+      final r = await open(
+        tester,
+        encryption: _none,
+        extraFlags: const {kFeatureE2eeDm, kFeatureE2eeRequired},
+      );
+      expect(find.text(kRequiredNoteText), findsOneWidget);
+      expect(find.text(kMessagesNotEncryptedText), findsNothing);
+      expect(
+        tester.getTopLeft(find.text(kRequiredNoteText)).dy,
+        lessThan(tester.getTopLeft(composer()).dy),
+      );
+
+      // A fresh GetMe without the flag: today's line, in the same place.
+      await r.rig.setFlags(tester, {
+        'messaging',
+        'graph',
+        'reports',
+        'ui_shell',
+        kFeatureE2eeDm,
+      });
+      expect(find.text(kMessagesNotEncryptedText), findsOneWidget);
+      expect(find.text(kRequiredNoteText), findsNothing);
+
+      // And back on.
+      await r.rig.setFlags(tester, {
+        'messaging',
+        'graph',
+        'reports',
+        'ui_shell',
+        kFeatureE2eeDm,
+        kFeatureE2eeRequired,
+      });
+      expect(find.text(kRequiredNoteText), findsOneWidget);
+      expect(find.text(kMessagesNotEncryptedText), findsNothing);
+    });
+
     testWidgets('a draft thread shows it above its composer too', (
       tester,
     ) async {

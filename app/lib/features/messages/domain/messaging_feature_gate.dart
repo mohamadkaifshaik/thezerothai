@@ -140,6 +140,23 @@ class MessagingFeatureGate extends ServiceFeatureGate {
   void reportUnexpected(Object error, StackTrace stack) =>
       _report?.call(error, stack);
 
+  /// [ServiceFeatureGate.run], plus Plan 6 Task 1.B (security review H1): an
+  /// ENCRYPTION_REQUIRED answer means the server requires encryption for this
+  /// send while this session's flag set may still say `e2ee_required` is off
+  /// (it is as old as the last GetMe). It asks for a GetMe refresh, throttled
+  /// with the FEATURE_DISABLED one, so the next send is refused on this
+  /// device. One plaintext send can still reach the server in that window;
+  /// the server's refusal is the control. Nothing is turned off.
+  @override
+  Future<T> run<T>(Future<T> Function() call) async {
+    try {
+      return await super.run(call);
+    } on EncryptionRequiredException {
+      requestRefresh();
+      rethrow;
+    }
+  }
+
   /// Whether this caller may send and accept (the per-caller flag).
   bool get canSend => enabled;
 

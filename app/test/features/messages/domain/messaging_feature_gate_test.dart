@@ -56,6 +56,39 @@ void main() {
     });
   }
 
+  test('ENCRYPTION_REQUIRED (Plan 6 Task 1.B, security H1) asks for a GetMe '
+      'refresh, at most once per interval, and turns nothing off', () async {
+    var now = DateTime.now();
+    var refreshes = 0;
+    final g = MessagingFeatureGate(
+      isMessagingEnabled: () => true,
+      onDisabledByServer: () => refreshes++,
+      now: () => now,
+    );
+    Future<int> required() async => throw withDetail(
+      connect.Code.failedPrecondition,
+      common.ErrorReason.ERROR_REASON_ENCRYPTION_REQUIRED,
+    );
+    await expectLater(
+      g.run(required),
+      throwsA(isA<EncryptionRequiredException>()),
+    );
+    expect(refreshes, 1);
+    await expectLater(
+      g.run(required),
+      throwsA(isA<EncryptionRequiredException>()),
+    );
+    expect(refreshes, 1, reason: 'throttled like FEATURE_DISABLED');
+    now = now.add(const Duration(seconds: 61));
+    await expectLater(
+      g.run(required),
+      throwsA(isA<EncryptionRequiredException>()),
+    );
+    expect(refreshes, 2);
+    expect(g.canSend, isTrue, reason: 'a refusal, not a disable');
+    expect(g.canRead, isTrue);
+  });
+
   test('update_required: the local refusals of run and runRead keep the flag '
       'until reset (Plan 6 PR 6-4)', () async {
     Future<int> updateRequired() async => throw withDetail(

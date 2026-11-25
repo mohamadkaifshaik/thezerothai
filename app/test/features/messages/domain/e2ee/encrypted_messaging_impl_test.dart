@@ -604,8 +604,12 @@ void main() {
         unchecked.toggle(dave);
         await unchecked.send();
         expect(unchecked.state.recipients.single.status, ShareRowStatus.failed);
+        expect(
+          unchecked.state.recipients.single.problem,
+          SendProblem.requiredUnavailable,
+        );
 
-        // No port at all (a platform with no vault).
+        // No port at all (a platform with no vault): its own copy (L5).
         final portless = SharePostCubit(
           repository: repo,
           postId: 'post-1',
@@ -618,7 +622,7 @@ void main() {
         expect(portless.state.recipients.single.status, ShareRowStatus.failed);
         expect(
           portless.state.recipients.single.problem,
-          SendProblem.requiredUnavailable,
+          SendProblem.requiredNotOnThisDevice,
         );
 
         expect(repo.sendKeys, isEmpty, reason: 'no plaintext SendMessage');
@@ -648,7 +652,7 @@ void main() {
         expect(
           cubit.state.refusedProblem,
           encrypted == null
-              ? SendProblem.requiredUnavailable
+              ? SendProblem.requiredNotOnThisDevice
               : SendProblem.peerHasNoDevice,
         );
         expect(cubit.state.draft.text, 'hello');
@@ -697,6 +701,29 @@ void main() {
                 reason: '$flag',
               );
             }
+          }
+          expect(h.rig.server.sends, isEmpty);
+
+          // Security L5: a vault this platform cannot hold (`unsupported`)
+          // says so, with the flag on or off, never "being upgraded" or the
+          // generic blocked line.
+          for (final flag in [E2eeFlag.on, E2eeFlag.off]) {
+            final world = FakeVaultWorld();
+            final s = world.launch(supported: false);
+            await s.start(restoredUid: 'user-a', restoreDefinitive: true);
+            await s.onSignedIn('user-a', flag: flag);
+            expect(s.status.value, VaultStatus.unsupported);
+            final p = (await over(s)).port;
+            final out = await p.send(
+              to: _to('ref-dave'),
+              localId: 'local-1',
+              text: 'hi',
+            );
+            expect(
+              (out.kind, out.problem),
+              (SendOutcomeKind.refused, SendProblem.requiredNotOnThisDevice),
+              reason: '$flag',
+            );
           }
           expect(h.rig.server.sends, isEmpty);
 

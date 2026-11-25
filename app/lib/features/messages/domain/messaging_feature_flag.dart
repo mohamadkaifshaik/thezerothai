@@ -1,3 +1,6 @@
+import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
+import '../../onboarding/presentation/bloc/onboarding_state.dart';
+
 /// Server feature flag for direct messages, mirrored to the
 /// client via `GetMe.enabled_features`.
 const kFeatureMessaging = 'messaging';
@@ -30,9 +33,49 @@ const kFeatureE2eeDm = 'e2ee_dm';
 /// plaintext `SendMessage`: an empty peer device list is refused
 /// (`peerHasNoDevice`), and with `e2ee_dm` off a conversation that is not
 /// encrypted yet offers no send at all (`requiredUnavailable`). Conversations
-/// already encrypted keep sending. Read live at each send; a cached flag set
-/// counts (fails closed).
+/// already encrypted keep sending. Read live at each send through
+/// [e2eeRequiredOf], which also answers "required" while the flag set is not
+/// known (fails closed).
 const kFeatureE2eeRequired = 'e2ee_required';
+
+/// Plan 6 Task 1.B (security review L1): whether a plaintext send must be
+/// refused under `e2ee_required` for the onboarding state [state], emitted
+/// for [stateUid], while [signedInUid] is signed in. Fails closed: the answer
+/// is "required" while the flag set is not known ([OnboardingState.
+/// featuresPending]: no GetMe answer yet this session; flags are never
+/// persisted) and while the state is another user's (a switch the onboarding
+/// state has not caught up with). Only a known flag set of the signed-in user
+/// without `e2ee_required` answers false.
+bool e2eeRequiredFor(
+  OnboardingState state, {
+  required String? stateUid,
+  required String? signedInUid,
+}) {
+  if (state.featuresPending) return true;
+  if (stateUid != signedInUid) return true;
+  return state.enabledFeatures.contains(kFeatureE2eeRequired);
+}
+
+/// The ONE reader of `e2ee_required` every plaintext-capable sender is given
+/// (`encryptionRequired:` of the composer, the share cubit and the E2EE
+/// pipeline; the plaintext-send guard pins that). Reads [bloc] live, with the
+/// fail-closed rule of [e2eeRequiredFor]. [signedInUid] is the authenticated
+/// user (bootstrap passes the auth bloc's); by default the user [bloc] itself
+/// serves ([OnboardingBloc.currentUid]), which a screen can read without the
+/// auth bloc.
+bool Function() e2eeRequiredOf(
+  OnboardingBloc bloc, {
+  String? Function()? signedInUid,
+}) {
+  return () {
+    final state = bloc.state;
+    return e2eeRequiredFor(
+      state,
+      stateUid: bloc.uidOf(state),
+      signedInUid: signedInUid == null ? bloc.currentUid : signedInUid(),
+    );
+  };
+}
 
 /// The most people one share action may be sent to (design Q7).
 const kSharePostMaxRecipients = 5;

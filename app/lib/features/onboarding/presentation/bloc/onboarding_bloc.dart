@@ -105,6 +105,11 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
   /// this bloc's current user, after a switch.
   String? uidOf(OnboardingState state) => _stateUids[state];
 
+  /// The user this bloc serves now (null: signed out). A state whose
+  /// [uidOf] differs from it is another user's (Plan 6 Task 1.B,
+  /// `e2eeRequiredOf` fails closed then).
+  String? get currentUid => _uid;
+
   @override
   void onChange(Change<OnboardingState> change) {
     super.onChange(change);

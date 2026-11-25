@@ -57,7 +57,7 @@ class ServiceFeatureGate extends ChangeNotifier {
     if (exception.updateRequired) _updateRequired = true;
     if (_disabledByServer) return;
     _disabledByServer = true;
-    _requestRefresh();
+    requestRefresh();
     notifyListeners();
   }
 
@@ -103,7 +103,11 @@ class ServiceFeatureGate extends ChangeNotifier {
     }
   }
 
-  void _requestRefresh() {
+  /// Asks for one GetMe refresh through `onDisabledByServer`, at most every
+  /// [kServiceGateRefreshInterval] (one clock for every reason a subclass
+  /// asks, so the reasons together never exceed that rate).
+  @protected
+  void requestRefresh() {
     final callback = _onDisabledByServer;
     if (callback == null) return;
     final now = _now();

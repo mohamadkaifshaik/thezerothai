@@ -271,15 +271,18 @@ class _MessageComposerState extends State<MessageComposer> {
 
 /// A line above the field in the error colour, announced when it appears.
 class _ErrorLine extends StatelessWidget {
-  const _ErrorLine({required this.text});
+  const _ErrorLine({required this.text, this.announced = true});
 
   final String text;
+
+  /// False when an enclosing live region announces this line with others.
+  final bool announced;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Semantics(
-      liveRegion: true,
+      liveRegion: announced ? true : null,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(
           AppSpacing.md,
@@ -315,19 +318,28 @@ class _RefusalLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final line = _ErrorLine(
-      text: composerRefusalText(problem, null, vaultBlocked: vaultBlocked),
+    final title = composerRefusalText(
+      problem,
+      null,
+      vaultBlocked: vaultBlocked,
     );
     // Plan 6 Task 1.B: a refusal with a body (the peer cannot receive yet,
     // sending paused under `e2ee_required`) shows it under the title.
     final detail = composerRefusalDetail(problem);
-    if (detail == null) return line;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        line,
-        _ErrorLine(text: detail),
-      ],
+    if (detail == null) return _ErrorLine(text: title);
+    // One live region for both lines (code review Minor 4): a screen reader
+    // announces the refusal once, title and body together.
+    return Semantics(
+      liveRegion: true,
+      child: MergeSemantics(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _ErrorLine(text: title, announced: false),
+            _ErrorLine(text: detail, announced: false),
+          ],
+        ),
+      ),
     );
   }
 }

@@ -91,6 +91,51 @@ MessagingFeatureGate buildMessagingGate(
   return gate;
 }
 
+/// How old the last answered `GetMe` may be when the app comes back to the
+/// foreground before it is asked again ([ResumeFlagsRefresh]).
+const kResumeFlagsMaxAge = Duration(minutes: 15);
+
+/// Plan 6 Task 1.B (security review H1): an app left open keeps the flag set
+/// of its last `GetMe`, so `e2ee_required` turned on for this user would not
+/// reach it until something else refreshed. On resume, when the last answered
+/// `GetMe` (or the last refresh this asked for) is [kResumeFlagsMaxAge] old
+/// or older, one [OnboardingRefreshRequested] is dispatched. In memory only;
+/// [now] is injectable for tests. Signed out: nothing.
+class ResumeFlagsRefresh {
+  ResumeFlagsRefresh(
+    OnboardingBloc onboardingBloc, {
+    DateTime Function() now = DateTime.now,
+  }) : _onboarding = onboardingBloc,
+       _now = now,
+       _last = now(),
+       _seen = onboardingBloc.state.enabledFeatures {
+    // A fresh GetMe emits a new flag-set instance (as `_wireGateReset`
+    // relies on): that is an answer, and the clock restarts.
+    _sub = onboardingBloc.stream.listen((state) {
+      if (identical(state.enabledFeatures, _seen)) return;
+      _seen = state.enabledFeatures;
+      _last = _now();
+    });
+  }
+
+  final OnboardingBloc _onboarding;
+  final DateTime Function() _now;
+  DateTime _last;
+  Set<String> _seen;
+  late final StreamSubscription<OnboardingState> _sub;
+
+  /// The app came back to the foreground.
+  void onResume() {
+    if (_onboarding.currentUid == null) return;
+    final now = _now();
+    if (now.difference(_last) < kResumeFlagsMaxAge) return;
+    _last = now;
+    _onboarding.add(const OnboardingRefreshRequested());
+  }
+
+  Future<void> dispose() => _sub.cancel();
+}
+
 /// Reports an unexpected (non-user) error. One shared hook, wired from
 /// bootstrap into every cubit that wants non-fatal reports. It goes through
 /// [FlutterError.reportError], which reaches [FlutterError.onError]: the single

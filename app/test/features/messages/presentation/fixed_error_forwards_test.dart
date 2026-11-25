@@ -125,6 +125,7 @@ void main() {
       final reports = _Reports();
       final cubit = MessageComposerCubit(
         repository: repo,
+        encryptionRequired: () => false,
         outbox: repo.outbox,
         conversationId: kThreadId,
         onUnexpectedError: reports.call,
@@ -140,6 +141,7 @@ void main() {
       final reports = _Reports();
       final cubit = MessageComposerCubit(
         repository: repo,
+        encryptionRequired: () => false,
         outbox: repo.outbox,
         conversationId: kThreadId,
         onSent: () async => throw StateError(_secret),
@@ -265,6 +267,7 @@ void main() {
       final reports = _Reports();
       final cubit = SharePostCubit(
         repository: repo,
+        encryptionRequired: () => false,
         postId: '1234567890123456789',
         url: 'https://dzeroth.com/post/1234567890123456789',
         ownUserId: 'u-me',

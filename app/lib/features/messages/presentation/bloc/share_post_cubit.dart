@@ -194,11 +194,11 @@ class SharePostCubit extends Cubit<SharePostState> {
     bool Function()? checkEnabled,
     bool Function()? mayStartEncryption,
     bool Function()? vaultNotReady,
-    bool Function()? encryptionRequired,
+    required bool Function() encryptionRequired,
     this.onUnexpectedError,
     Uuid? uuid,
   }) : _repository = repository,
-       _encryptionRequired = encryptionRequired ?? (() => false),
+       _encryptionRequired = encryptionRequired,
        _encrypted = encrypted,
        _check = check,
        _checkEnabled = checkEnabled ?? (() => false),
@@ -237,8 +237,10 @@ class SharePostCubit extends Cubit<SharePostState> {
   /// classified, so no row is plain (its route is unknown).
   final bool Function() _vaultNotReady;
 
-  /// Plan 6 Task 1.B: whether `e2ee_required` is in the caller's enabled
-  /// features, read live before each row. While it is, no row is sent in
+  /// Plan 6 Task 1.B: whether a plaintext send must be refused under
+  /// `e2ee_required`, read live before each row. Required, so no construction
+  /// can forget it; production passes `e2eeRequiredOf` (fails closed while
+  /// the flag set is not known). While it answers true no row is sent in
   /// plaintext, whatever routed it there (no port, an unchecked plain row, a
   /// `notEncrypted` answer).
   final bool Function() _encryptionRequired;
@@ -545,20 +547,28 @@ class SharePostCubit extends Cubit<SharePostState> {
   }
 
   /// Plan 6 Task 1.B: whether `e2ee_required` refuses the plaintext send to
-  /// [userId] now. When it does the row fails with
-  /// [SendProblem.requiredUnavailable] (nothing is sent, neither plaintext
-  /// nor encrypted) and the share goes on to the next person.
+  /// [userId] now. When it does the row fails (nothing is sent, neither
+  /// plaintext nor encrypted) and the share goes on to the next person.
   bool _plaintextRefused(String userId) {
     if (!_encryptionRequired()) return false;
+    _refuseUnderRequired(userId);
+    return true;
+  }
+
+  /// The failed row of a plaintext send refused under `e2ee_required`: with
+  /// no port this device cannot hold a vault (security L5,
+  /// [SendProblem.requiredNotOnThisDevice]); otherwise this device may not
+  /// start encryption ([SendProblem.requiredUnavailable]).
+  void _refuseUnderRequired(String userId) {
+    final problem = _encrypted == null
+        ? SendProblem.requiredNotOnThisDevice
+        : SendProblem.requiredUnavailable;
     _setRow(
       userId,
       ShareRowStatus.failed,
-      error: UnknownApiException(
-        composerRefusalParagraph(SendProblem.requiredUnavailable, null),
-      ),
-      problem: SendProblem.requiredUnavailable,
+      error: UnknownApiException(composerRefusalParagraph(problem, null)),
+      problem: problem,
     );
-    return true;
   }
 
   ShareRecipient _row(String userId) =>
