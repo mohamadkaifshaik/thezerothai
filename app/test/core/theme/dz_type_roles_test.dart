@@ -20,39 +20,153 @@ void main() {
           double,
         )
       >{
-        'headlineXl': (
+        // Z* artboards are Inter throughout.
+        'headlineXl (ZWelcome)': (
           AppTextStyles.dzHeadlineXl,
-          'PlusJakartaSans',
+          'Inter',
           38,
           FontWeight.w800,
           -1.2,
           42,
         ),
-        'headline': (
+        'headline (ZPlus)': (
           AppTextStyles.dzHeadline,
+          'Inter',
+          32,
+          FontWeight.w800,
+          -0.8,
+          37,
+        ),
+        'headlineL (ZArea)': (
+          AppTextStyles.dzHeadlineL,
+          'Inter',
+          30,
+          FontWeight.w800,
+          -0.8,
+          36,
+        ),
+        'headlineM (ZCalls)': (
+          AppTextStyles.dzHeadlineM,
+          'Inter',
+          28,
+          FontWeight.w800,
+          -0.7,
+          34,
+        ),
+        'heroTitle (ZPlanDetail)': (
+          AppTextStyles.dzHeroTitle,
+          'Inter',
+          26,
+          FontWeight.w800,
+          -0.6,
+          31,
+        ),
+        'screenTitleZ (ZNotifications)': (
+          AppTextStyles.dzScreenTitleZ,
+          'Inter',
+          24,
+          FontWeight.w800,
+          -0.5,
+          30,
+        ),
+        'title (Z back headers)': (
+          AppTextStyles.dzTitle,
+          'Inter',
+          22,
+          FontWeight.w800,
+          -0.4,
+          28,
+        ),
+        'heading (ZCommunities)': (
+          AppTextStyles.dzHeading,
+          'Inter',
+          18,
+          FontWeight.w800,
+          0,
+          24,
+        ),
+        'headingS (DzHome)': (
+          AppTextStyles.dzHeadingS,
+          'Inter',
+          17,
+          FontWeight.w700,
+          0,
+          22,
+        ),
+        'cardTitle (ZLists)': (
+          AppTextStyles.dzCardTitle,
+          'Inter',
+          16,
+          FontWeight.w800,
+          0,
+          22,
+        ),
+        'dateNumber (DzPlans)': (
+          AppTextStyles.dzDateNumber,
+          'Inter',
+          19,
+          FontWeight.w800,
+          0,
+          24,
+        ),
+        'wordmarkWelcome (ZWelcome)': (
+          AppTextStyles.dzWordmarkWelcome,
+          'Inter',
+          14,
+          FontWeight.w800,
+          5,
+          18,
+        ),
+        'caps (ZLists)': (
+          AppTextStyles.dzCaps,
+          'Inter',
+          13,
+          FontWeight.w700,
+          1,
+          18,
+        ),
+        'eyebrow (ZWelcome)': (
+          AppTextStyles.dzEyebrow,
+          'Inter',
+          13,
+          FontWeight.w700,
+          2,
+          18,
+        ),
+        'fieldLabel (ZPlanDetail)': (
+          AppTextStyles.dzFieldLabel,
+          'Inter',
+          12,
+          FontWeight.w700,
+          0.5,
+          16,
+        ),
+        'kicker (ZExplore)': (
+          AppTextStyles.dzKicker,
+          'Inter',
+          12,
+          FontWeight.w700,
+          1.5,
+          16,
+        ),
+        'groupCaps (ZCommunityMembers)': (
+          AppTextStyles.dzGroupCaps,
+          'Inter',
+          12,
+          FontWeight.w700,
+          2,
+          16,
+        ),
+        // The nine Dz* artboards set Jakarta on their headings.
+        'headlinePlans (DzPlans)': (
+          AppTextStyles.dzHeadlinePlans,
           'PlusJakartaSans',
           32,
           FontWeight.w800,
           -1,
           37,
         ),
-        'headlineL': (
-          AppTextStyles.dzHeadlineL,
-          'PlusJakartaSans',
-          30,
-          FontWeight.w800,
-          -0.8,
-          36,
-        ),
-        'headlineM': (
-          AppTextStyles.dzHeadlineM,
-          'PlusJakartaSans',
-          28,
-          FontWeight.w800,
-          -0.7,
-          34,
-        ),
-        'heroName': (
+        'heroName (DzProfile)': (
           AppTextStyles.dzHeroName,
           'PlusJakartaSans',
           26,
@@ -60,7 +174,7 @@ void main() {
           -0.5,
           31,
         ),
-        'screenTitle': (
+        'screenTitle (DzPlans)': (
           AppTextStyles.dzScreenTitle,
           'PlusJakartaSans',
           24,
@@ -68,29 +182,61 @@ void main() {
           0,
           30,
         ),
-        'title': (
-          AppTextStyles.dzTitle,
+        'backTitleSettings (DzSettings)': (
+          AppTextStyles.dzBackTitleSettings,
+          'PlusJakartaSans',
+          24,
+          FontWeight.w800,
+          0,
+          30,
+        ),
+        'emptyTitle (DzPlans)': (
+          AppTextStyles.dzEmptyTitle,
           'PlusJakartaSans',
           22,
           FontWeight.w800,
-          -0.4,
+          0,
           28,
         ),
-        'backTitle': (
+        'backTitle (DzPost)': (
           AppTextStyles.dzBackTitle,
+          'PlusJakartaSans',
+          20,
+          FontWeight.w800,
+          0,
+          25,
+        ),
+        'backTitleThread (DzThread)': (
+          AppTextStyles.dzBackTitleThread,
           'PlusJakartaSans',
           20,
           FontWeight.w800,
           0,
           24,
         ),
-        'wordmark': (
+        'composeTitle (DzCompose)': (
+          AppTextStyles.dzComposeTitle,
+          'PlusJakartaSans',
+          18,
+          FontWeight.w800,
+          0,
+          24,
+        ),
+        'wordmark (DzHome)': (
           AppTextStyles.dzWordmark,
           'PlusJakartaSans',
           17,
           FontWeight.w800,
           5,
           22,
+        ),
+        'wordmarkSmall (DzProfile)': (
+          AppTextStyles.dzWordmarkSmall,
+          'PlusJakartaSans',
+          15,
+          FontWeight.w800,
+          5,
+          20,
         ),
         'sectionCaps': (
           AppTextStyles.dzSectionCaps,
@@ -146,6 +292,15 @@ void main() {
 
       test('monogram is italic, counts are tabular', () {
         expect(AppTextStyles.dzMonogram(theme).fontStyle, FontStyle.italic);
+        expect(AppTextStyles.dzMonogram(theme).fontFamily, 'PlusJakartaSans');
+        final z = AppTextStyles.dzMonogram(
+          theme,
+          size: 13,
+          family: AppFonts.body,
+        );
+        expect(z.fontFamily, 'Inter');
+        expect(z.fontSize, 13);
+        expect(z.fontStyle, FontStyle.italic);
         expect(AppTextStyles.dzCount(theme).fontFeatures, isNotEmpty);
       });
     });

@@ -11,6 +11,7 @@ import 'package:dzeroth/shared/widgets/post/post_media.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../../support/app_fonts.dart';
 import '../../../support/dz_finders.dart';
 import '../../../support/media_pager.dart';
 
@@ -24,6 +25,9 @@ Widget _host(Widget child, {double width = 360}) => MaterialApp(
 );
 
 void main() {
+  // Real Inter metrics: the one-line checks are about the design's text.
+  setUpAll(loadAppFonts);
+
   group('PostActionBar', () {
     for (final scale in const [1.0, 2.0]) {
       testWidgets('real counts fit 328dp at text x$scale', (tester) async {
@@ -159,19 +163,30 @@ void main() {
                 .first,
           ),
       ];
-      expect(boxes.first.left, closeTo(bar.left, 1));
+      // The row hangs 10 dp into the gutter on each side (margin: 0 -10px).
+      expect(boxes.first.left, bar.left - 10);
       // The three counted actions sit edge to edge; Share is at the end.
       for (var i = 1; i < 3; i++) {
-        expect(boxes[i].left, closeTo(boxes[i - 1].right, 1));
+        expect(boxes[i].left, boxes[i - 1].right);
       }
-      for (var i = 1; i < 4; i++) {
-        expect(lefts[i], greaterThan(lefts[i - 1]));
-        expect(boxes[i].width, greaterThanOrEqualTo(44));
+      for (var i = 0; i < 4; i++) {
+        if (i > 0) expect(lefts[i], greaterThan(lefts[i - 1]));
+        expect(boxes[i].height, AppIconSize.actionTarget);
+        // Drawn at 44, tapped at 48.
+        final area = tapAreaOf(tester, findDz(icons[i]));
+        expect(area.height, AppSpacing.minTapTarget);
+        expect(area.width, greaterThanOrEqualTo(AppSpacing.minTapTarget));
       }
-      expect(boxes.last.right, closeTo(bar.right, 1));
+      expect(boxes.last.right, bar.right + 10);
+      expect(boxes.last.size, const Size.square(44));
+      // Glyph, 5, count, 10 dp side padding.
       expect(
         boxes[0].width,
-        greaterThan(AppIconSize.postAction + AppSpacing.actionItemGap),
+        10 +
+            AppIconSize.postAction +
+            5 +
+            tester.getSize(find.text('3')).width +
+            10,
       );
       // 19 dp glyphs (DzHome; was 18).
       expect(
@@ -223,12 +238,14 @@ void main() {
       );
       final bar = tester.getRect(find.byType(PostActionBar));
       final icon = tester.getRect(findDz(DzIcons.save));
-      // Last in the row: its 48 dp box ends at the bar's trailing edge.
-      expect(icon.center.dx, closeTo(bar.right - 24, 1));
+      // Last in the row: its 44 dp box ends 10 dp past the bar's trailing
+      // edge (the row's -10 margin).
+      expect(icon.center.dx, bar.right + 10 - 22);
       expect(icon.width, AppIconSize.postAction);
       expect(dzIconOf(tester, DzIcons.save).fill, 0);
+      // The accessibility node is the 48 dp tap area.
       final off = tester.getSemantics(find.bySemanticsLabel('Bookmark'));
-      expect(off.rect.size.shortestSide, greaterThanOrEqualTo(44));
+      expect(off.rect.size, const Size.square(AppSpacing.minTapTarget));
       await tester.tap(findDz(DzIcons.save));
       expect(taps, 1);
 
@@ -272,23 +289,37 @@ void main() {
       expect(like.right, lessThan(bookmark.left));
       expect(bookmark.right, lessThan(share.left));
       final bar = tester.getRect(find.byType(PostActionBar));
-      expect(share.center.dx, closeTo(bar.right - 24, 1));
-      expect(bookmark.center.dx, closeTo(share.center.dx - 48, 1));
+      // Two 44 dp boxes, the last 10 dp past the edge.
+      expect(share.center.dx, bar.right + 10 - 22);
+      expect(bookmark.center.dx, share.center.dx - 44);
     });
 
-    for (final width in const [320.0, 360.0, 400.0]) {
-      testWidgets('five items at $width dp with text x1.3: every box is '
-          'at least 40 wide and 44 tall, none overlaps', (tester) async {
+    // (width, counts, one line expected): feed-sized counts stay on one line
+    // at 360 and 400 dp with 1.3x text; four-digit counts on every action
+    // wrap only where the width runs out.
+    for (final (width, counts, oneLine) in const [
+      (320.0, (128, 34, 1500), null),
+      (360.0, (128, 34, 1500), true),
+      (400.0, (128, 34, 1500), true),
+      (320.0, (1234, 5678, 91011), false),
+      (360.0, (1234, 5678, 91011), null),
+      (400.0, (1234, 5678, 91011), null),
+    ]) {
+      testWidgets('five items at $width dp, counts $counts, text x1.3: 44 '
+          'tall drawn, 48 dp tap areas, ${switch (oneLine) {
+            true => 'one line',
+            false => 'wrapped',
+            null => 'wrapped only if it must',
+          }}', (tester) async {
         await tester.pumpWidget(
           MediaQuery(
             data: const MediaQueryData(textScaler: TextScaler.linear(1.3)),
             child: _host(
               width: width - 32,
               PostActionBar(
-                replyCount: 1234,
-                repostCount: 5678,
-                likeCount: 91011,
-                shareCount: 1200,
+                replyCount: counts.$1,
+                repostCount: counts.$2,
+                likeCount: counts.$3,
                 actions: PostActions(
                   onReply: () {},
                   onRepost: () {},
@@ -311,15 +342,14 @@ void main() {
             ),
         ];
         for (var i = 0; i < boxes.length; i++) {
-          expect(boxes[i].height, greaterThanOrEqualTo(44));
-          expect(boxes[i].width, greaterThanOrEqualTo(40));
-          if (i > 0) {
-            // Beside the previous box, or on the next line when it flowed.
-            final beside = boxes[i].left >= boxes[i - 1].right - 0.5;
-            final below = boxes[i].top >= boxes[i - 1].bottom - 0.5;
-            expect(beside || below, isTrue, reason: 'box $i overlaps');
-          }
+          expect(boxes[i].height, AppIconSize.actionTarget);
+          final area = tapAreaOf(tester, findDz(dzActionIcons[i]));
+          expect(area.height, AppSpacing.minTapTarget);
+          expect(area.width, greaterThanOrEqualTo(AppSpacing.minTapTarget));
         }
+        final bar = tester.getRect(find.byType(PostActionBar));
+        final flat = expectCompactRowFlow(bar, boxes);
+        if (oneLine != null) expect(flat, oneLine);
       });
     }
 
@@ -360,13 +390,14 @@ void main() {
       final repost = tester.getTopLeft(findDz(DzIcons.repost)).dx;
       final like = tester.getTopLeft(findDz(DzIcons.like)).dx;
       final bar = tester.getRect(find.byType(PostActionBar));
-      // Repost is a bare 48 dp box (its 19 dp glyph centred), like follows.
-      expect(repost, closeTo(bar.left + 14.5, 1));
-      expect(like - repost, closeTo(48, 1));
+      // Repost's glyph sits on the content edge (the row's -10 margin and
+      // its 10 dp padding); like follows its 10 + 19 + 10 box.
+      expect(repost, bar.left);
+      expect(like - repost, 10 + 19 + 10);
       expect(like, lessThan(bar.center.dx));
     });
 
-    testWidgets('dispatches callbacks, has 44dp targets and semantics', (
+    testWidgets('dispatches callbacks, has 48 dp tap areas and semantics', (
       tester,
     ) async {
       final handle = tester.ensureSemantics();
@@ -391,9 +422,21 @@ void main() {
       for (final target in tester.widgetList<InkResponse>(
         find.byType(InkResponse),
       )) {
-        final size = tester.getSize(find.byWidget(target));
-        expect(size.height, greaterThanOrEqualTo(AppIconSize.actionTarget));
-        expect(size.width, greaterThanOrEqualTo(AppIconSize.actionTarget));
+        // Drawn 44 tall; the tap area and its node are 48 dp.
+        final ink = find.byWidget(target);
+        expect(tester.getSize(ink).height, AppIconSize.actionTarget);
+        final area = tapAreaOf(tester, ink);
+        expect(area.height, AppSpacing.minTapTarget);
+        expect(area.width, greaterThanOrEqualTo(AppSpacing.minTapTarget));
+      }
+      for (final label in ['Unlike, 7', 'Repost']) {
+        final rect = tester.getSemantics(find.bySemanticsLabel(label)).rect;
+        expect(rect.height, AppSpacing.minTapTarget, reason: label);
+        expect(
+          rect.width,
+          greaterThanOrEqualTo(AppSpacing.minTapTarget),
+          reason: label,
+        );
       }
       handle.dispose();
     });

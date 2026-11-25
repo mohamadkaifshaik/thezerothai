@@ -17,9 +17,9 @@ import '../../../support/theme_harness.dart';
 
 void main() {
   group('AppChoiceChip', () {
-    testWidgets('40 dp, radius 20, 1.5 border; selected is navy with a tick', (
-      tester,
-    ) async {
+    testWidgets('43 dp drawn (content-box: 40 + 2 x 1.5 border), radius 20; '
+        'selected is navy with a 16 dp tick at 2.6, 6 dp before a 15/600 '
+        'label', (tester) async {
       var taps = 0;
       await pumpThemed(
         tester,
@@ -40,8 +40,22 @@ void main() {
       );
       final selected = tester.getRect(find.byType(AnimatedContainer).at(0));
       final plain = tester.getRect(find.byType(AnimatedContainer).at(1));
-      expect(selected.height, 40);
-      expect(plain.height, 40);
+      expect(selected.height, 43);
+      expect(plain.height, 43);
+      expect(AppChoiceChip.height, 43);
+      final tick = dzIconOf(tester, DzIcons.check);
+      expect(tester.getSize(findDz(DzIcons.check)), const Size.square(16));
+      expect(tick.strokeWidth, 2.6);
+      expect(
+        tester.getRect(find.text('Everyone')).left -
+            tester.getRect(findDz(DzIcons.check)).right,
+        6,
+      );
+      for (final label in ['Everyone', 'Followers']) {
+        final text = tester.widget<Text>(find.text(label));
+        expect(text.style?.fontSize, 15);
+        expect(text.style?.fontWeight, FontWeight.w600, reason: label);
+      }
       final decoration =
           tester
                   .widget<AnimatedContainer>(
@@ -125,6 +139,12 @@ void main() {
       const size = Size(390, 300);
       expect(AppHeroRings.profile.centre(size), const Offset(330, 90));
       expect(AppHeroRings.list.centre(size), const Offset(340, 40));
+      // ZWelcome: centred across the width at any width.
+      expect(AppHeroRings.welcome.centre(size), const Offset(195, 110));
+      expect(
+        AppHeroRings.welcome.centre(const Size(834, 600)),
+        const Offset(417, 110),
+      );
     });
 
     testWidgets('the rings take no input and add no semantics', (tester) async {
@@ -361,7 +381,8 @@ void main() {
   });
 
   group('AppRoundAction', () {
-    testWidgets('named, 44 dp, dims when disabled', (tester) async {
+    testWidgets('named, 44 dp drawn with a 48 dp tap area and node, dims when '
+        'disabled', (tester) async {
       final handle = tester.ensureSemantics();
       await pumpThemed(
         tester,
@@ -378,9 +399,36 @@ void main() {
         tester.getSize(find.byType(AppRoundAction)),
         const Size.square(44),
       );
+      expect(
+        tapAreaOf(tester, findDz(DzIcons.gear)).size,
+        const Size.square(AppSpacing.minTapTarget),
+      );
       expect(find.bySemanticsLabel('Settings'), findsOneWidget);
+      expect(
+        tester.getSemantics(find.bySemanticsLabel('Settings')).rect.size,
+        const Size.square(AppSpacing.minTapTarget),
+      );
       expect(dzIconOf(tester, DzIcons.gear).color!.a, lessThan(1));
       handle.dispose();
+    });
+
+    testWidgets('a tap 1.5 dp outside the disc still fires', (tester) async {
+      var taps = 0;
+      await pumpThemed(
+        tester,
+        // Centred: the ring above the disc must be on screen.
+        Center(
+          child: AppRoundAction(
+            icon: DzIcons.gear,
+            tooltip: 'Settings',
+            onPressed: () => taps++,
+          ),
+        ),
+      );
+      final disc = tester.getRect(find.byType(AppRoundAction));
+      await tester.tapAt(disc.topCenter - const Offset(0, 1.5));
+      await tester.tapAt(disc.centerRight + const Offset(1.5, 0));
+      expect(taps, 2);
     });
 
     testWidgets('dark mode: raised surface, no shadow', (tester) async {

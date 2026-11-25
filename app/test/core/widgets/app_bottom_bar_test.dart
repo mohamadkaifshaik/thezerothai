@@ -346,7 +346,12 @@ void main() {
         expect(find.byType(AppUnreadDot), findsOneWidget);
         expect(find.text('7'), findsNothing);
         final dot = tester.widget<AppUnreadDot>(find.byType(AppUnreadDot));
-        expect(dot.ringColor, AppPalette.navy);
+        // DzHome: a plain 8 dp dot on the bar, no ring.
+        expect(dot.showRing, isFalse);
+        expect(
+          tester.getSize(find.byType(AppUnreadDot)),
+          const Size.square(AppUnreadDot.size),
+        );
         final core = tester.widget<Container>(
           find
               .descendant(

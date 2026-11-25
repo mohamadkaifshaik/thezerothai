@@ -72,13 +72,15 @@ void main() {
   );
 
   group('screen variant', () {
-    testWidgets('60 dp row: 40 dp avatar, 24/800 title, 44 dp round action', (
-      tester,
-    ) async {
+    testWidgets('content-box row as the canvas renders it (60 + 8 + 8, then '
+        'the 1 dp hairline): 40 dp avatar, 24/800 Jakarta title, a 44 dp '
+        'round action with a 48 dp tap area', (tester) async {
       await pump(tester, bar: screenBar, openDrawer: () {});
       final bar = tester.getRect(find.byType(AppTopBar));
-      // The row (the 1 dp hairline is inside the bar's box).
-      expect(bar.height, 60);
+      expect(bar.height, 76 + 1);
+      expect(AppSize.dzHeaderRow, 76);
+      // The row's content is centred in the 76 dp above the hairline.
+      expect(tester.getRect(find.byType(AppRoundAction)).center.dy, 38);
       expect(tester.getSize(find.byType(AppAvatar)), const Size.square(40));
       final title = tester.widget<Text>(find.text('Plans'));
       expect(title.style?.fontSize, 24);
@@ -87,6 +89,16 @@ void main() {
       expect(
         tester.getSize(find.byType(AppRoundAction)),
         const Size.square(44),
+      );
+      expect(
+        tapAreaOf(
+          tester,
+          find.descendant(
+            of: find.byType(AppRoundAction),
+            matching: find.byType(InkResponse),
+          ),
+        ).size,
+        const Size.square(AppSpacing.minTapTarget),
       );
       // 12 dp from the start, 12 from the end; the title between.
       expect(tester.getRect(find.byType(AppAvatar)).left, 12);
@@ -168,7 +180,7 @@ void main() {
     ) async {
       await pump(tester, bar: screenBar, openDrawer: () {}, textScale: 2);
       expect(tester.takeException(), isNull);
-      expect(tester.getRect(find.byType(AppTopBar)).height, greaterThan(60));
+      expect(tester.getRect(find.byType(AppTopBar)).height, greaterThan(77));
     });
   });
 
@@ -181,10 +193,11 @@ void main() {
           onBack: onBack,
         );
 
-    testWidgets('44 dp back arrow, 22/800 title, no avatar', (tester) async {
+    testWidgets('44 dp back arrow with a 48 dp tap area, Inter 22/800 title '
+        '(the Z back headers), no avatar', (tester) async {
       await pump(tester, bar: backBar, openDrawer: () {});
       expect(find.byType(AppAvatar), findsNothing);
-      expect(tester.getRect(find.byType(AppTopBar)).height, 60);
+      expect(tester.getRect(find.byType(AppTopBar)).height, 76 + 1);
       expect(tester.getSize(findDz(DzIcons.back)), const Size.square(22));
       final arrow = tester.getRect(
         find
@@ -196,9 +209,58 @@ void main() {
       );
       expect(arrow.size, const Size.square(44));
       expect(arrow.left, 8);
+      final area = tapAreaOf(tester, findDz(DzIcons.back));
+      expect(area.size, const Size.square(AppSpacing.minTapTarget));
+      expect(area.center, arrow.center);
       final title = tester.widget<Text>(find.text('Settings'));
       expect(title.style?.fontSize, 22);
+      expect(title.style?.fontWeight, FontWeight.w800);
+      expect(title.style?.letterSpacing, closeTo(-0.4, 1e-9));
+      expect(title.style?.fontFamily, AppFonts.body);
+    });
+
+    testWidgets('the ring around the arrow takes a tap; the semantics node '
+        'is 48 dp', (tester) async {
+      final handle = tester.ensureSemantics();
+      var backs = 0;
+      await pump(tester, bar: (c) => backBar(c, onBack: () => backs++));
+      final arrow = tester.getRect(
+        find
+            .ancestor(
+              of: findDz(DzIcons.back),
+              matching: find.byType(InkResponse),
+            )
+            .first,
+      );
+      await tester.tapAt(arrow.bottomCenter + const Offset(0, 1.5));
+      expect(backs, 1, reason: 'below the arrow');
+      // In the row's 8 dp start padding, outside the Row's own bounds.
+      await tester.tapAt(arrow.centerLeft - const Offset(1.5, 0));
+      expect(backs, 2, reason: 'before the arrow');
+      expect(
+        tester.getSemantics(find.bySemanticsLabel('Back')).rect.size,
+        const Size.square(AppSpacing.minTapTarget),
+      );
+      handle.dispose();
+    });
+
+    testWidgets('DzSettings: a Jakarta 24/800 title through titleStyle', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        bar: (c) => AppTopBar.of(
+          c,
+          style: AppTopBarStyle.back,
+          title: 'Settings',
+          titleStyle: AppTextStyles.dzBackTitleSettings(Theme.of(c)),
+        ),
+      );
+      final title = tester.widget<Text>(find.text('Settings'));
+      expect(title.style?.fontSize, 24);
       expect(title.style?.fontFamily, AppFonts.heading);
+      expect(title.style?.letterSpacing, 0);
+      expect(tester.getRect(find.byType(AppTopBar)).height, 76 + 1);
     });
 
     testWidgets('the arrow calls onBack, named Back', (tester) async {

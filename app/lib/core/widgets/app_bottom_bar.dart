@@ -209,6 +209,13 @@ class _FloatingCell extends StatelessWidget {
   final bool selected;
   final VoidCallback onTap;
 
+  /// The unread dot's offset from the item's top and end edges (DzHome).
+  static const double _dotInset = 12;
+
+  /// Where the 24 dp glyph sits inside the 50 dp item.
+  static const double _glyphInset =
+      (AppSize.floatingNavItem - AppIconSize.lg) / 2;
+
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
@@ -245,20 +252,23 @@ class _FloatingCell extends StatelessWidget {
       ),
       child: destination.badgeLabel.isEmpty
           ? glyph
-          : Stack(
-              alignment: Alignment.center,
-              clipBehavior: Clip.none,
-              children: [
-                glyph,
-                // The unread dot sits 12 from the top and end of the item
-                // (the artboards); a count badge rides the glyph's corner.
-                PositionedDirectional(
-                  // Offsets from the 24 dp glyph; the glyph sits 13 dp in.
-                  top: counted ? -AppSpacing.xs : -1,
-                  end: counted ? -AppSpacing.xs : -1,
-                  child: _FloatingBadge(destination: destination),
-                ),
-              ],
+          : SizedBox.square(
+              dimension: AppSize.floatingNavItem,
+              child: Stack(
+                alignment: Alignment.center,
+                clipBehavior: Clip.none,
+                children: [
+                  glyph,
+                  // The unread dot: `top: 12px; right: 12px` of the 50 dp
+                  // item (DzHome). A count badge rides the glyph's corner,
+                  // 4 dp outside it.
+                  PositionedDirectional(
+                    top: counted ? _glyphInset - AppSpacing.xs : _dotInset,
+                    end: counted ? _glyphInset - AppSpacing.xs : _dotInset,
+                    child: _FloatingBadge(destination: destination),
+                  ),
+                ],
+              ),
             ),
     );
     // The 50 dp round item sits in a cell that is at least 48 dp wide.
@@ -313,10 +323,7 @@ class _FloatingBadge extends StatelessWidget {
       data: Theme.of(context).copyWith(extensions: const [AppColors.dark]),
       child: count != null && count > 0
           ? AppCountBadge(count: count, semanticsLabel: spoken, onNavy: true)
-          : AppUnreadDot(
-              semanticsLabel: spoken,
-              ringColor: context.appColors.navBarSurface,
-            ),
+          : AppUnreadDot(semanticsLabel: spoken, showRing: false),
     );
   }
 }

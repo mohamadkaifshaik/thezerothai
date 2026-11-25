@@ -652,9 +652,11 @@ void main() {
         Icons.favorite_border,
         Icons.ios_share,
       ];
+      // The compact row hangs 10 dp into the gutter (DzHome `margin: 0
+      // -10px`), so the reply glyph sits on the content edge.
       expect(
         tester.getTopLeft(byActionIcon(order.first)).dx,
-        greaterThan(bar.left),
+        closeTo(bar.left, 0.01),
       );
       for (var i = 1; i < order.length; i++) {
         final previous = tester.getRect(

@@ -191,6 +191,37 @@ void main() {
       expect(e.dy, closeTo(8, 1e-6));
     });
 
+    test('a rotated ellipse arc passes through its midpoint and keeps its '
+        'bounding box', () {
+      // rx 20 along the y axis (rotation 90), ry 10: (0,0) to (0,40) is the
+      // major axis, so the arc is half the ellipse around the centre (0,20).
+      // With the SVG parametrisation c + R(90)(rx cos t, ry sin t) the start
+      // is t = pi, the end t = 2 pi (sweep 1 = increasing t), and the half
+      // way point t = 3pi/2 is (10, 20).
+      final p = _p('M0 0A20 10 90 0 1 0 40');
+      final m = p.computeMetrics().single;
+      final mid = m.getTangentForOffset(m.length / 2)!.position;
+      expect(mid.dx, closeTo(10, 1e-2));
+      expect(mid.dy, closeTo(20, 1e-2));
+      // Bounding box of the drawn curve (sampled; getBounds counts control
+      // points too).
+      var box = Rect.fromPoints(Offset.zero, Offset.zero);
+      for (var i = 0; i <= 400; i++) {
+        final at = m.getTangentForOffset(m.length * i / 400)!.position;
+        box = box.expandToInclude(Rect.fromPoints(at, at));
+      }
+      expect(box.left, closeTo(0, 1e-3));
+      expect(box.right, closeTo(10, 1e-2));
+      expect(box.top, closeTo(0, 1e-3));
+      expect(box.bottom, closeTo(40, 1e-3));
+      // The other sweep mirrors it across the major axis.
+      final q = _p('M0 0A20 10 90 0 0 0 40');
+      final n = q.computeMetrics().single;
+      final mirrored = n.getTangentForOffset(n.length / 2)!.position;
+      expect(mirrored.dx, closeTo(-10, 1e-2));
+      expect(mirrored.dy, closeTo(20, 1e-2));
+    });
+
     test('a full circle from two arcs stays inside its bounds', () {
       final p = _p('M0 5a5 5 0 1 0 10 0a5 5 0 1 0-10 0z');
       final b = p.getBounds();
@@ -219,7 +250,9 @@ void main() {
     for (final d in bad) {
       test('"$d"', () {
         expect(tryParseSvgPath(d), isNull);
-        expect(parseSvgPath(d).getBounds(), Rect.zero);
+        // Debug builds assert on a malformed constant (release draws an
+        // empty path).
+        expect(() => parseSvgPath(d), throwsAssertionError);
       });
     }
   });

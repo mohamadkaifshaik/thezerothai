@@ -4,6 +4,7 @@ import 'package:dzeroth/core/icons/dz_icons.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/widgets/app_bottom_bar.dart';
 import 'package:dzeroth/core/widgets/app_nav_destination.dart';
+import 'package:dzeroth/shared/widgets/primitives/app_badge.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -206,26 +207,37 @@ void main() {
     },
   );
 
-  testWidgets('the unread dot sits on the bell, top-right of the glyph', (
-    tester,
-  ) async {
+  testWidgets('the unread dot: 8 dp, top 12 / right 12 of the 50 dp item, '
+      'no ring on the bar', (tester) async {
     await _pump(tester);
-    final bell = tester.getRect(findDz(DzIcons.bell));
-    // The dot is a small teal circle over the glyph's top-right corner.
-    final dot = find.descendant(
-      of: find.byType(AppFloatingBottomBar),
+    final item = tester.getRect(
+      find
+          .ancestor(
+            of: findDz(DzIcons.bell),
+            matching: find.byType(AnimatedContainer),
+          )
+          .first,
+    );
+    expect(item.size, const Size.square(50));
+    final circles = find.descendant(
+      of: find.byType(AppUnreadDot),
       matching: find.byWidgetPredicate(
         (w) =>
             w is DecoratedBox &&
             w.decoration is BoxDecoration &&
-            (w.decoration as BoxDecoration).shape == BoxShape.circle &&
-            tester.getSize(find.byWidget(w)).width < 12,
+            (w.decoration as BoxDecoration).shape == BoxShape.circle,
       ),
     );
-    expect(dot, findsWidgets);
-    final r = tester.getRect(dot.first);
-    expect(r.center.dx, greaterThan(bell.center.dx));
-    expect(r.center.dy, lessThan(bell.center.dy));
+    // One circle: the teal core, no ring around it.
+    expect(circles, findsOneWidget);
+    final dot = tester.getRect(circles);
+    expect(dot.size, const Size.square(AppUnreadDot.size));
+    expect(dot.top - item.top, 12);
+    expect(item.right - dot.right, 12);
+    expect(
+      (tester.widget<DecoratedBox>(circles).decoration as BoxDecoration).color,
+      AppColors.dark.accentText,
+    );
   });
 
   testWidgets('tapping a cell selects it; the page below gets no tap', (

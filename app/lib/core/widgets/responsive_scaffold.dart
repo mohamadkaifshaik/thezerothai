@@ -414,7 +414,9 @@ class _ResponsiveScaffoldState extends State<ResponsiveScaffold> {
       ),
     );
     final fabRight = AppSpacing.md + media.padding.right;
-    final fabRaised = reserved + AppSpacing.md;
+    // DzHome, DzPlans, DzMessages: `bottom: 96px` = the bar's 78 dp
+    // (64 + 14) + 18.
+    final fabRaised = reserved + AppSize.floatingFabGap;
     final fabDropped = media.padding.bottom + AppSpacing.md;
     // The bar and the button are children of the body, not the Scaffold's
     // own slots: the Scaffold paints snack bars above its body but under

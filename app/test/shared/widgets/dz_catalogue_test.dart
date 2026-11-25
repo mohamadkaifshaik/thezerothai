@@ -5,6 +5,7 @@ import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/widgets/app_bottom_bar.dart';
 import 'package:dzeroth/core/widgets/app_nav_destination.dart';
 import 'package:dzeroth/core/widgets/app_shell_scope.dart';
+import 'package:dzeroth/core/widgets/app_tap_area.dart';
 import 'package:dzeroth/core/widgets/app_top_bar.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_bloc.dart';
 import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_event.dart';
@@ -22,6 +23,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../support/contrast.dart';
+import '../../support/dz_finders.dart';
 import '../../support/theme_harness.dart';
 
 class _MockOnboardingBloc extends MockBloc<OnboardingEvent, OnboardingState>
@@ -259,12 +261,29 @@ void main() {
           final finder = target();
           expect(finder, findsWidgets, reason: piece.name);
           for (final element in finder.evaluate()) {
-            final size = tester.getSize(find.byWidget(element.widget).first);
-            // The 44 dp the artboards use; 48 where the app's rule applies.
+            final target = find.byWidget(element.widget).first;
+            // The tap area: the drawn box, or the 48 dp AppTapArea around a
+            // control the artboards draw at 44.
+            final inArea = find
+                .ancestor(
+                  of: target,
+                  matching: find.byWidgetPredicate(
+                    (w) => w is AppTapArea && w.mergeSemantics,
+                  ),
+                )
+                .evaluate()
+                .isNotEmpty;
+            final size = inArea
+                ? tapAreaOf(tester, target).size
+                : tester.getSize(target);
+            // 1e-6: the spread row's boxes sit at fractional offsets, so
+            // the area's corners carry float error (47.99999999999997).
+            const slack = 1e-6;
             expect(
-              size.width >= 44 && size.height >= 44,
+              size.width >= AppSpacing.minTapTarget - slack &&
+                  size.height >= AppSpacing.minTapTarget - slack,
               isTrue,
-              reason: '${piece.name}: tap box $size',
+              reason: '${piece.name}: tap area $size',
             );
           }
         }
@@ -319,8 +338,19 @@ void main() {
           useScaffold: false,
         );
         expect(tester.takeException(), isNull, reason: '$style');
+        // Drawn at the artboards' 44, tapped at 48.
         final action = tester.getSize(find.byType(AppRoundAction));
         expect(action, const Size.square(44));
+        expect(
+          tapAreaOf(
+            tester,
+            find.descendant(
+              of: find.byType(AppRoundAction),
+              matching: find.byType(InkResponse),
+            ),
+          ).size,
+          const Size.square(AppSpacing.minTapTarget),
+        );
       }
     },
     widths: const [390, 700, 1300],

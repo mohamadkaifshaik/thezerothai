@@ -60,13 +60,19 @@ abstract final class AppIconSize {
   /// The photo viewer's action row (ZPhotoViewer: 22 px in 48 dp boxes).
   static const double actionViewer = 22;
 
-  /// Tap box of a post action in a feed row (DzHome: 44 px high, 10 dp of
-  /// side padding), and of the spread rows (DzPost, ZPhotoViewer: 48 px).
-  // The design draws 44 dp boxes; the app's minimum tap target (48) wins so
-  // every action stays reachable (AppSpacing.minTapTarget).
-  static const double actionTarget = 48;
+  /// Drawn box of a post action in a feed row (DzHome, DzThread: 44 px high,
+  /// 10 dp of side padding around the glyph and count; Save and Share are
+  /// 44 x 44). The tap area still grows to AppSpacing.minTapTarget (48)
+  /// around it (`AppTapArea`), without changing the layout.
+  static const double actionTarget = 44;
+
+  /// The spread rows' boxes (DzPost, ZPhotoViewer: 48 x 48), and the boxes
+  /// of the distributed row on tablet and desktop.
   static const double actionTargetSpread = 48;
   static const double actionSidePadding = 10;
+
+  /// Space between a glyph and its count (DzHome `gap: 5px`).
+  static const double actionCountGap = 5;
 }
 
 /// The opened post on its post page: text 17dp on a 24dp line on phones (the
@@ -250,8 +256,29 @@ abstract final class AppSize {
   /// One row of a header: the top bar row, and the tab row below it.
   static const double headerRow = 53;
 
-  /// The Dz header variants' row (artboards: 60; 40 dp avatar, 44 dp action).
-  static const double dzHeaderRow = 60;
+  /// The Dz header variants' row, as the canvas renders it. The artboards
+  /// have no shared `box-sizing` rule (no `* {}` reset in any `.dc.html` or
+  /// in canvas.json; `border-box` appears only inline on a few inputs,
+  /// toggles and badges), so their headers are CSS `content-box`:
+  /// `height: 60px` + `padding: 8px` top and bottom = a 76 dp row, and the
+  /// 1 dp `border-bottom` below it ([dzHeaderBorder]), 77 dp in all.
+  /// 40 dp avatar, 44 dp action.
+  static const double dzHeaderRow = 76;
+
+  /// The hairline under a Dz header, outside its row (content-box border).
+  static const double dzHeaderBorder = 1;
+
+  /// Other rendered header rows (content-box, border excluded): DzPost
+  /// `52 + 2x8` = 68 (69 with the border), DzThread and DzCompose
+  /// `56 + 2x8` = 72, and the DzHome top row `56 + 2x8` = 72 over a
+  /// [dzTabRow] tab row.
+  static const double dzHeaderRowPost = 68;
+  static const double dzHeaderRowCompact = 72;
+
+  /// The Dz feed tab row (DzHome, DzMedia: `height: 46px`, no vertical
+  /// padding) and the DzProfile one (50).
+  static const double dzTabRow = 46;
+  static const double dzTabRowProfile = 50;
   static const double dzHeaderAvatar = 40;
   static const double dzHeaderAction = 44;
 
@@ -321,6 +348,10 @@ abstract final class AppSize {
   static const double floatingNavInset = 16;
   static const double floatingNavBottom = 14;
   static const double floatingNavItem = 50;
+
+  /// The compose button's gap above the floating bar (artboards: FAB
+  /// `bottom: 96px` = 64 + 14 + 18).
+  static const double floatingFabGap = 18;
   static const double fabRedesign = 58;
   static const double avatarRow = 44;
   static const double avatarPost = 42;
@@ -1594,9 +1625,13 @@ abstract final class AppTextStyles {
   ).copyWith(color: theme.colorScheme.onSurface);
 
   // ---- Dz redesign roles (design canvas, G0). Sizes, weights, spacing and
-  // line heights are the artboards' px values (1 px = 1 dp). Headings are
-  // Plus Jakarta Sans 700/800, everything else Inter. Colour is onSurface
-  // unless the role is a muted one (onSurfaceVariant); callers may copyWith.
+  // line heights are the artboards' px values (1 px = 1 dp). Only the nine
+  // Dz* artboards set Plus Jakarta Sans (their headings, wordmark and
+  // monogram); every Z* artboard is Inter throughout, so each role carries
+  // the family of the artboards it comes from. Where an artboard sets no
+  // line-height (CSS `normal`) the role keeps the line noted on it.
+  // Colour is onSurface unless the role is a muted one (onSurfaceVariant);
+  // callers may copyWith.
 
   static TextStyle _dz(
     ThemeData theme,
@@ -1626,63 +1661,139 @@ abstract final class AppTextStyles {
   static const _h = AppFonts.heading;
   static const _b = AppFonts.body;
 
-  /// Headline of a welcome or onboarding page: Jakarta 38/800, -1.2, 42.
+  /// Welcome headline (ZWelcome): Inter 38/800, -1.2, 42.
   static TextStyle dzHeadlineXl(ThemeData t) =>
-      _dz(t, _h, 38, FontWeight.w800, line: 42, spacing: -1.2);
+      _dz(t, _b, 38, FontWeight.w800, line: 42, spacing: -1.2);
 
-  /// The 32/800 headline: -1 spacing, 37 line.
+  /// The Plus headline (ZPlus): Inter 32/800, -0.8, 37.
   static TextStyle dzHeadline(ThemeData t) =>
+      _dz(t, _b, 32, FontWeight.w800, line: 37, spacing: -0.8);
+
+  /// The Plans headline ("What's your plan?", DzPlans): Jakarta 32/800, -1
+  /// (the artboard sets no line-height; 37 like [dzHeadline]).
+  static TextStyle dzHeadlinePlans(ThemeData t) =>
       _dz(t, _h, 32, FontWeight.w800, line: 37, spacing: -1);
 
-  /// 30/800, -0.8, 36 (page headline).
+  /// Page headline (ZArea, ZCreateProfile, ZSignIn): Inter 30/800, -0.8, 36.
   static TextStyle dzHeadlineL(ThemeData t) =>
-      _dz(t, _h, 30, FontWeight.w800, line: 36, spacing: -0.8);
+      _dz(t, _b, 30, FontWeight.w800, line: 36, spacing: -0.8);
 
-  /// 28/800, -0.7, 34 (page headline).
+  /// Page headline (ZCalls, ZChangeHandle, ZDeleteAccount, ZExportData):
+  /// Inter 28/800, -0.7, 34. ZArticle's title is the same at -0.6.
   static TextStyle dzHeadlineM(ThemeData t) =>
-      _dz(t, _h, 28, FontWeight.w800, line: 34, spacing: -0.7);
+      _dz(t, _b, 28, FontWeight.w800, line: 34, spacing: -0.7);
 
-  /// Hero name on a navy band: 26/800, -0.5, 31.
+  /// Hero name on the Profile band (DzProfile): Jakarta 26/800, -0.5, 31.
   static TextStyle dzHeroName(ThemeData t) =>
       _dz(t, _h, 26, FontWeight.w800, line: 31, spacing: -0.5);
 
-  /// Screen title in the header: 24/800.
+  /// Hero title of a detail page (ZPlanDetail): Inter 26/800, -0.6, 31.
+  static TextStyle dzHeroTitle(ThemeData t) =>
+      _dz(t, _b, 26, FontWeight.w800, line: 31, spacing: -0.6);
+
+  /// Screen title in a Dz header (DzPlans, DzMessages) and the Settings back
+  /// header (DzSettings): Jakarta 24/800.
   static TextStyle dzScreenTitle(ThemeData t) =>
       _dz(t, _h, 24, FontWeight.w800, line: 30);
 
-  /// Sub-screen title next to a back arrow: 22/800, -0.4.
-  static TextStyle dzTitle(ThemeData t) =>
-      _dz(t, _h, 22, FontWeight.w800, line: 28, spacing: -0.4);
+  /// Screen title in a Z header (ZNotifications): Inter 24/800, -0.5.
+  static TextStyle dzScreenTitleZ(ThemeData t) =>
+      _dz(t, _b, 24, FontWeight.w800, line: 30, spacing: -0.5);
 
-  /// Compact back-header title ("Post"): 20/800, 24 line.
-  static TextStyle dzBackTitle(ThemeData t) =>
+  /// Back-header title of the Z screens (ZBookmarks, ZLists, ZSignIn...):
+  /// Inter 22/800, -0.4.
+  static TextStyle dzTitle(ThemeData t) =>
+      _dz(t, _b, 22, FontWeight.w800, line: 28, spacing: -0.4);
+
+  /// The Settings back-header title (DzSettings): Jakarta 24/800, no
+  /// spacing.
+  static TextStyle dzBackTitleSettings(ThemeData t) =>
+      _dz(t, _h, 24, FontWeight.w800, line: 30);
+
+  /// The opened post's back-header title ("Post", DzPost): Jakarta 20/800
+  /// (no line-height in the artboard: the 25 default).
+  static TextStyle dzBackTitle(ThemeData t) => _dz(t, _h, 20, FontWeight.w800);
+
+  /// The thread back-header title (DzThread): Jakarta 20/800 on a 24 line.
+  static TextStyle dzBackTitleThread(ThemeData t) =>
       _dz(t, _h, 20, FontWeight.w800, line: 24);
 
-  /// Card and section heading: 18/800.
-  static TextStyle dzHeading(ThemeData t) =>
+  /// The composer's header title (DzCompose): Jakarta 18/800.
+  static TextStyle dzComposeTitle(ThemeData t) =>
       _dz(t, _h, 18, FontWeight.w800, line: 24);
 
-  /// The wordmark in the Home bar: 17/800 with 5 px spacing.
+  /// Empty-state title (DzPlans "No plans yet"): Jakarta 22/800.
+  static TextStyle dzEmptyTitle(ThemeData t) =>
+      _dz(t, _h, 22, FontWeight.w800, line: 28);
+
+  /// Card and section heading (ZCommunities, ZExplore, ZDataUsage): Inter
+  /// 18/800.
+  static TextStyle dzHeading(ThemeData t) =>
+      _dz(t, _b, 18, FontWeight.w800, line: 24);
+
+  /// Smaller section heading (DzHome): Inter 17/700.
+  static TextStyle dzHeadingS(ThemeData t) =>
+      _dz(t, _b, 17, FontWeight.w700, line: 22);
+
+  /// Card title (ZLists, ZPlanDetail, ZStudio, ZPlus): Inter 16/800.
+  static TextStyle dzCardTitle(ThemeData t) =>
+      _dz(t, _b, 16, FontWeight.w800, line: 22);
+
+  /// The day number of a plan's date block (DzPlans): Inter 19/800.
+  static TextStyle dzDateNumber(ThemeData t) =>
+      _dz(t, _b, 19, FontWeight.w800, line: 24);
+
+  /// The wordmark in the Home bar (DzHome, DzMedia): Jakarta 17/800, 5 px
+  /// spacing.
   static TextStyle dzWordmark(ThemeData t) =>
       _dz(t, _h, 17, FontWeight.w800, line: 22, spacing: 5);
 
-  /// The smaller wordmark (welcome, sign-in): 15/800 with 5 px spacing.
+  /// The smaller wordmark on the Profile band (DzProfile): Jakarta 15/800,
+  /// 5 px spacing.
   static TextStyle dzWordmarkSmall(ThemeData t) =>
       _dz(t, _h, 15, FontWeight.w800, line: 20, spacing: 5);
 
-  /// The italic "D0" monogram inside an avatar: 14/800 italic (12 for a 36 dp
-  /// avatar, 22-26 for hero avatars via [size]).
-  static TextStyle dzMonogram(ThemeData t, {double size = 14}) =>
-      _dz(t, _h, size, FontWeight.w800, italic: true, line: size * 1.2);
+  /// The welcome wordmark (ZWelcome): Inter 14/800, 5 px spacing.
+  static TextStyle dzWordmarkWelcome(ThemeData t) =>
+      _dz(t, _b, 14, FontWeight.w800, line: 18, spacing: 5);
 
-  /// Section caps: Inter 12/700 with 2.5 px spacing (uppercase at the call
-  /// site).
+  /// The italic "D0" monogram inside an avatar: 14/800 italic (12 for a 36 dp
+  /// avatar, 22-26 for hero avatars via [size]). [family] is Jakarta on the
+  /// Dz screens and [AppFonts.body] (Inter) on the Z screens.
+  static TextStyle dzMonogram(
+    ThemeData t, {
+    double size = 14,
+    String family = AppFonts.heading,
+  }) => _dz(t, family, size, FontWeight.w800, italic: true, line: size * 1.2);
+
+  /// Section caps (DzSettings, ZEncryption, ZNotifSettings): Inter 12/700
+  /// with 2.5 px spacing (uppercase at the call site).
   static TextStyle dzSectionCaps(ThemeData t) =>
       _dz(t, _b, 12, FontWeight.w700, line: 16, spacing: 2.5, muted: true);
 
-  /// Small caps label: Inter 12/700, 1 px spacing.
+  /// Caps label (ZCommunities, ZLists, ZSearch, ZNotifications, ZStudio):
+  /// Inter 13/700, 1 px spacing.
   static TextStyle dzCaps(ThemeData t) =>
-      _dz(t, _b, 12, FontWeight.w700, line: 16, spacing: 1, muted: true);
+      _dz(t, _b, 13, FontWeight.w700, line: 18, spacing: 1, muted: true);
+
+  /// Eyebrow over a headline (ZWelcome, ZPlus, ZCreateProfile): Inter
+  /// 13/700, 2 px spacing.
+  static TextStyle dzEyebrow(ThemeData t) =>
+      _dz(t, _b, 13, FontWeight.w700, line: 18, spacing: 2, muted: true);
+
+  /// Field label caps (ZPlanDetail "WHEN", ZChangeHandle "CURRENT"): Inter
+  /// 12/700, 0.5 px spacing.
+  static TextStyle dzFieldLabel(ThemeData t) =>
+      _dz(t, _b, 12, FontWeight.w700, line: 16, spacing: 0.5, muted: true);
+
+  /// Kicker caps over a band (ZExplore "HAPPENING NEARBY"): Inter 12/700,
+  /// 1.5 px spacing.
+  static TextStyle dzKicker(ThemeData t) =>
+      _dz(t, _b, 12, FontWeight.w700, line: 16, spacing: 1.5, muted: true);
+
+  /// Group caps (ZCommunityMembers): Inter 12/700, 2 px spacing.
+  static TextStyle dzGroupCaps(ThemeData t) =>
+      _dz(t, _b, 12, FontWeight.w700, line: 16, spacing: 2, muted: true);
 
   /// Row title: Inter 16/700.
   static TextStyle dzRowTitle(ThemeData t) =>

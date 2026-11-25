@@ -60,20 +60,43 @@ void main() {
       final save = _target(tester, findDz(DzIcons.save));
       final share = _target(tester, findDz(DzIcons.share));
 
-      expect(reply.left, closeTo(bar.left, 0.5));
-      expect(repost.left, closeTo(reply.right, 0.5));
-      expect(like.left, closeTo(repost.right, 0.5));
-      expect(share.right, closeTo(bar.right, 0.5));
-      expect(save.right, closeTo(share.left, 0.5));
+      // The row hangs 10 dp into the gutter on each side (margin: 0 -10px),
+      // so the reply glyph sits on the content edge.
+      expect(reply.left, bar.left - 10);
+      expect(tester.getRect(findDz(DzIcons.reply)).left, bar.left);
+      expect(repost.left, reply.right);
+      expect(like.left, repost.right);
+      expect(share.right, bar.right + 10);
+      expect(save.right, share.left);
       expect(save.left, greaterThan(like.right));
       for (final box in [reply, repost, like, save, share]) {
-        expect(box.height, 48);
-        expect(box.width, greaterThanOrEqualTo(48));
+        expect(box.height, 44);
       }
-      // Save and share are bare 48 dp squares (the design's 44, raised to the
-      // app's minimum tap target).
-      expect(save.width, 48);
-      expect(share.width, 48);
+      // Save and share are the design's 44 dp squares.
+      expect(save.size, const Size.square(44));
+      expect(share.size, const Size.square(44));
+      // Each tap area is 48 dp around its drawn box.
+      for (final icon in dzActionIcons) {
+        final area = tapAreaOf(tester, findDz(icon));
+        expect(area.height, AppSpacing.minTapTarget);
+        expect(area.width, greaterThanOrEqualTo(AppSpacing.minTapTarget));
+      }
+    });
+
+    testWidgets('an action without a count is 10 + 19 + 10 wide', (
+      tester,
+    ) async {
+      await pumpThemed(
+        tester,
+        _bar(showCounts: false),
+        size: const Size(390, 400),
+      );
+      for (final icon in [DzIcons.reply, DzIcons.repost, DzIcons.like]) {
+        expect(
+          _target(tester, findDz(icon)).size,
+          const Size(10 + 19 + 10, 44),
+        );
+      }
     });
 
     testWidgets('icons are 19 dp and counts are 13/600 with tabular figures', (

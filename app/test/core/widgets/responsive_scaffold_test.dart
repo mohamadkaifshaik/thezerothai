@@ -879,7 +879,11 @@ void main() {
         final pill = tester.getRect(pillFinder);
         final rect = tester.getRect(fab);
         expect(rect.overlaps(pill), isFalse);
-        expect(rect.bottom, pill.top - 16);
+        // Design `bottom: 96px`: 18 above the 78 dp the bar reserves.
+        expect(rect.bottom, pill.top - 18);
+        // The pumped screen is 800 tall with no bottom inset.
+        expect(800 - rect.bottom, 96);
+        expect(AppFloatingBottomBar.reservedHeight + 18, 96);
 
         final decoration =
             tester
@@ -1007,7 +1011,11 @@ void main() {
       await tester.drag(find.byType(ListView), const Offset(0, -300));
       await tester.pumpAndSettle();
       final corner = tester.getRect(fab);
-      expect(corner.top - above.top, AppFloatingBottomBar.reservedHeight);
+      // From 18 above the bar's reserve (bottom: 96) to 16 off the edge.
+      expect(
+        corner.top - above.top,
+        AppFloatingBottomBar.reservedHeight + AppSize.floatingFabGap - 16,
+      );
       // 16 dp from the bottom edge (the Scaffold's FAB margin).
       expect(corner.bottom, 800 - 16);
 

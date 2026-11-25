@@ -16,7 +16,8 @@ enum AppHeroRings {
   /// ZListDetail: two rings, centre 50 dp in from the end and 40 dp down.
   list([(100, .3), (190, .15)], _listCentre),
 
-  /// ZWelcome: three large rings, centre 195 dp from the start, 110 down.
+  /// ZWelcome: three large rings, centred across the width (the artboard's
+  /// 520 svg at `left: -65px` on a 390 page: x = 195 = width / 2), 110 down.
   welcome(
     [(220, .22), (360, .14), (500, .08)],
     _welcomeCentre,
@@ -33,7 +34,7 @@ enum AppHeroRings {
 
 Offset _profileCentre(Size s) => Offset(s.width - 60, 90);
 Offset _listCentre(Size s) => Offset(s.width - 50, 40);
-Offset _welcomeCentre(Size s) => const Offset(195, 110);
+Offset _welcomeCentre(Size s) => Offset(s.width / 2, 110);
 
 /// The navy hero band of DzProfile, ZListDetail and ZWelcome: [AppPalette.navy]
 /// in both themes with the teal rings of [rings] behind [child], clipped to the

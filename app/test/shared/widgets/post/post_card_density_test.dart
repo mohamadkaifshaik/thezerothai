@@ -39,7 +39,7 @@ pb.PostView _view({bool repost = false}) => pb.PostView(
 /// List rows lose the padding
 /// that doubled the whitespace already inside their 48dp tap boxes. Since the
 /// R1 restyle the row follows the designs' `.post` (14 dp above the avatar
-/// circle, 14 dp below the 36 dp action row): 136 dp for one line, with every
+/// circle) and DzHome's 44 dp action row: 132 dp for one line, with every
 /// tap target still 48dp.
 void main() {
   Future<void> pumpRow(
@@ -66,18 +66,22 @@ void main() {
     size: const Size(400, 800),
   );
 
-  testWidgets('a one-line list row with actions is 136dp, targets 48dp', (
+  testWidgets('a one-line list row with actions is 132dp, targets 48dp', (
     tester,
   ) async {
     await pumpRow(tester, focal: false);
 
-    // 11 top + 48 author row + 21 text + 48 action row + 8 bottom (R1: was
-    // 8 + 48 + 20 + 48 + 0 = 124).
-    expect(tester.getSize(find.byType(PostCard)).height, closeTo(136, 1));
+    // 11 top + 48 author row + 21 text + 44 action row (DzHome's drawn
+    // height; the tap areas still reach 48) + 8 bottom (R1: 136 with a 48 dp
+    // row; before R1 8 + 48 + 20 + 48 + 0 = 124).
+    expect(tester.getSize(find.byType(PostCard)).height, closeTo(132, 1));
+    // The accessibility node is the 48 dp tap area around the 44 dp box.
+    final handle = tester.ensureSemantics();
     expect(
-      tester.getSize(find.bySemanticsLabel('Like')).height,
-      greaterThanOrEqualTo(AppSpacing.minTapTarget),
+      tester.getSemantics(find.bySemanticsLabel('Like')).rect.height,
+      AppSpacing.minTapTarget,
     );
+    handle.dispose();
     // The avatar circle starts 14dp down, as in the designs (R1: was 12).
     expect(
       tester.getTopLeft(find.byType(CircleAvatar)).dy -

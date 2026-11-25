@@ -91,14 +91,22 @@ class _DzIconPainter extends CustomPainter {
   final double fill;
   final double strokeWidth;
 
+  // Shared by every icon: painting runs on the UI thread one icon at a time,
+  // and each paint sets every field it relies on before drawing, so a feed
+  // of icons allocates no Paint per frame.
+  static final Paint _fillPaint = Paint()
+    ..style = PaintingStyle.fill
+    ..isAntiAlias = true;
+  static final Paint _strokePaint = Paint()
+    ..style = PaintingStyle.stroke
+    ..isAntiAlias = true;
+
   @override
   void paint(Canvas canvas, Size size) {
     final compiled = data.compiled;
     canvas.save();
     canvas.scale(size.width / DzIconData.grid, size.height / DzIconData.grid);
-    final fillPaint = Paint()
-      ..style = PaintingStyle.fill
-      ..isAntiAlias = true;
+    final fillPaint = _fillPaint;
     if (fill > 0) {
       fillPaint.color = fillColor.withValues(alpha: fillColor.a * fill);
       canvas.drawPath(compiled.fill, fillPaint);
@@ -109,9 +117,7 @@ class _DzIconPainter extends CustomPainter {
     }
     canvas.drawPath(
       compiled.stroke,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..isAntiAlias = true
+      _strokePaint
         ..color = color
         ..strokeWidth = strokeWidth
         ..strokeCap = data.cap

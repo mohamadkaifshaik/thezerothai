@@ -5,6 +5,7 @@ import '../../../core/icons/dz_icon.dart';
 import '../../../core/icons/dz_icon_data.dart';
 import '../../../core/icons/dz_icons.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/app_tap_area.dart';
 import 'post_share_menu.dart';
 import 'post_views_stat.dart';
 
@@ -41,18 +42,26 @@ class PostActions {
 /// Selects the action colours used on cards and on the dark media panel.
 enum PostActionBarStyle { feed, photoViewer }
 
-/// How the actions sit in the row.
+/// How the actions sit in the row. The order is the artboards' on every
+/// width: reply, repost, like, save, share (then the views stat).
 ///
-/// * [compact]: DzHome and DzThread. Reply, repost and like (with counts) at
-///   the leading edge in 44 dp boxes with 10 dp of side padding, then the
-///   free space, then save and share at the trailing edge.
+/// * [compact]: DzHome and DzThread (phone feed). Reply, repost and like
+///   at the leading edge, each as wide as its content (10 + glyph [+ 5 +
+///   count] + 10) and 44 tall, then the free space, then save and share in
+///   44 x 44 boxes at the trailing edge. The row hangs 10 dp into the gutter
+///   on each side (`margin: 0 -10px`), so the reply glyph lines up with the
+///   text. Every action's tap area is 48 dp (`AppTapArea`).
 /// * [spread]: DzPost and ZPhotoViewer. Every action in a 48 dp box, spread
 ///   evenly across the width.
-enum PostActionBarLayout { compact, spread }
+/// * [distributed]: tablet and desktop rows (their earlier spacing): 48 dp
+///   boxes, the first at the leading edge, the last at the trailing edge,
+///   the free space shared between them.
+enum PostActionBarLayout { compact, spread, distributed }
 
 /// The post actions as the Dz artboards draw them: stroke icons (reply,
 /// repost, like, save, share; `DzIcons`), 13/600 tabular counts, 44 dp boxes
-/// (48 dp [PostActionBarLayout.spread]), a press shrink and a short pop when
+/// with 48 dp tap areas (48 dp boxes in [PostActionBarLayout.spread] and
+/// [PostActionBarLayout.distributed]), a press shrink and a short pop when
 /// like, repost or save switch on (none under the platform's reduce-motion
 /// setting). Large text or a narrow width flows onto another line.
 ///
@@ -133,9 +142,13 @@ class PostActionBar extends StatelessWidget {
     final viewer = style == PostActionBarStyle.photoViewer;
     final idle = viewer ? AppPhotoPanel.muted : colors.text2;
     final spread = layout == PostActionBarLayout.spread;
-    final target = spread
-        ? AppIconSize.actionTargetSpread
-        : AppIconSize.actionTarget;
+    final compact = layout == PostActionBarLayout.compact;
+    final target = compact
+        ? AppIconSize.actionTarget
+        : AppIconSize.actionTargetSpread;
+    // Compact: reply, repost and like are as wide as their content; save
+    // and share are square boxes.
+    final countedWidth = compact ? 0.0 : target;
     final weight = viewer ? FontWeight.w400 : FontWeight.w600;
     int? shown(int count) => showCounts ? count : null;
 
@@ -145,6 +158,7 @@ class PostActionBar extends StatelessWidget {
           icon: DzIcons.reply,
           iconSize: iconSize,
           target: target,
+          minWidth: countedWidth,
           idleColor: idle,
           countWeight: weight,
           label: 'Reply',
@@ -160,6 +174,7 @@ class PostActionBar extends StatelessWidget {
             strokeWidth: reposted ? 2.2 : null,
             iconSize: iconSize,
             target: target,
+            minWidth: countedWidth,
             idleColor: idle,
             countWeight: weight,
             label: reposted ? 'Undo repost' : 'Repost',
@@ -176,6 +191,7 @@ class PostActionBar extends StatelessWidget {
           icon: DzIcons.like,
           iconSize: iconSize,
           target: target,
+          minWidth: countedWidth,
           idleColor: idle,
           countWeight: weight,
           label: liked ? 'Unlike' : 'Like',
@@ -193,6 +209,7 @@ class PostActionBar extends StatelessWidget {
             icon: DzIcons.save,
             iconSize: iconSize,
             target: target,
+            minWidth: target,
             idleColor: idle,
             countWeight: weight,
             label: bookmarked ? 'Bookmarked' : 'Bookmark',
@@ -210,6 +227,7 @@ class PostActionBar extends StatelessWidget {
               icon: DzIcons.share,
               iconSize: iconSize,
               target: target,
+              minWidth: target,
               idleColor: idle,
               countWeight: weight,
               label: 'Share',
@@ -222,6 +240,9 @@ class PostActionBar extends StatelessWidget {
     final views = viewCount == null
         ? null
         : Center(
+            // As wide as the stat: in a Wrap a plain Center would take the
+            // whole line.
+            widthFactor: 1,
             child: PostViewsStat(
               count: viewCount!,
               iconSize: iconSize,
@@ -246,38 +267,45 @@ class PostActionBar extends StatelessWidget {
               children: items,
             );
           }
-          if (spread) {
-            // A box each and, with counts, room for a few digits on the
-            // four counted actions.
-            final need = items.length * target + (showCounts ? 4 * 14 : 0);
-            if (constraints.maxWidth < need) {
-              return Wrap(
-                alignment: WrapAlignment.spaceBetween,
+          if (!compact) {
+            // One line laid out like a Row when the boxes fit, else it flows
+            // onto another line instead of overflowing (wide counts, large
+            // text). The full width, so a single line spreads across it.
+            return SizedBox(
+              width: constraints.maxWidth,
+              child: Wrap(
+                // Spread: half a gap at each edge (DzPost `space-around`).
+                // Distributed: the first and last boxes on the edges.
+                alignment: spread
+                    ? WrapAlignment.spaceAround
+                    : WrapAlignment.spaceBetween,
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: items,
-              );
-            }
-            return Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: items,
+              ),
             );
           }
           // Compact: the leading actions take what the trailing ones leave
-          // and flow onto another line when the width or the text is short.
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Wrap(
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: leading,
+          // and flow onto another line only when the width or the text
+          // leaves no room. The row hangs into the gutter by the actions'
+          // side padding (DzHome `margin: 0 -10px`), and grows its own tap
+          // area to 48 dp so the actions' rings can be reached.
+          return AppTapArea.bleed(
+            bleed: AppIconSize.actionSidePadding,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: leading,
+                  ),
                 ),
-              ),
-              Wrap(
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: trailing,
-              ),
-            ],
+                Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: trailing,
+                ),
+              ],
+            ),
           );
         },
       ),
@@ -290,6 +318,7 @@ class _ActionButton extends StatefulWidget {
     required this.icon,
     required this.iconSize,
     required this.target,
+    required this.minWidth,
     required this.label,
     required this.onPressed,
     this.count,
@@ -311,8 +340,13 @@ class _ActionButton extends StatefulWidget {
   final DzIconData icon;
   final double iconSize;
 
-  /// Tap box height and least width (44, or 48 in the spread row).
+  /// Drawn box height (44, or 48 in the spread and distributed rows); the
+  /// tap area is at least AppSpacing.minTapTarget either way.
   final double target;
+
+  /// Least drawn width: 0 for a compact counted action (content width),
+  /// else the box.
+  final double minWidth;
   final String label;
   final int? count;
   final bool active;
@@ -410,7 +444,7 @@ class _ActionButtonState extends State<_ActionButton>
         highlightColor: Colors.transparent,
         child: ConstrainedBox(
           constraints: BoxConstraints(
-            minWidth: widget.target,
+            minWidth: widget.minWidth,
             minHeight: widget.target,
           ),
           child: Center(
@@ -443,12 +477,12 @@ class _ActionButtonState extends State<_ActionButton>
                       ),
                     ),
                     if (shown > 0) ...[
-                      const SizedBox(width: AppSpacing.actionGap - 1),
+                      const SizedBox(width: AppIconSize.actionCountGap),
                       Flexible(
                         child: FittedBox(
                           fit: BoxFit.scaleDown,
                           child: Text(
-                            NumberFormat.compact().format(shown),
+                            _compact.format(shown),
                             maxLines: 1,
                             overflow: TextOverflow.fade,
                             softWrap: false,
@@ -470,8 +504,16 @@ class _ActionButtonState extends State<_ActionButton>
       ),
     );
     final hint = widget.disabledHint;
-    return hint == null
-        ? button
-        : Tooltip(message: hint, excludeFromSemantics: true, child: button);
+    // The drawn box stays at the design size; the tap area (and the
+    // accessibility node) grows to 48 dp around it.
+    return AppTapArea(
+      child: hint == null
+          ? button
+          : Tooltip(message: hint, excludeFromSemantics: true, child: button),
+    );
   }
 }
+
+/// One formatter for every count ("1.2K"); `NumberFormat.compact()` parses
+/// its locale data on each call.
+final NumberFormat _compact = NumberFormat.compact();

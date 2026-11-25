@@ -6,12 +6,13 @@ import '../../../core/theme/app_theme.dart';
 import 'app_chip.dart';
 
 /// The Dz artboards' selectable chip (Plans audience, filters), next to
-/// [AppChip] and [AppFilterPill]: 40 dp tall, radius 20, a 1.5 dp border,
-/// label 15/600. Selected is the strong fill (navy; pearl on dark) with a
-/// tick **and** a w700 label, unselected is white (raised on dark) with the
-/// 3:1 border, so selection is never colour alone.
+/// [AppChip] and [AppFilterPill]: `height: 40px` plus a 1.5 dp border (43 dp
+/// drawn, see [height]), radius 20, 16 dp side padding, label 15/600 in both
+/// states. Selected is the strong fill (navy; pearl on dark) with a 16 dp
+/// tick (stroke 2.6) 6 dp before the label, unselected is white (raised on
+/// dark) with the 3:1 border, so selection is never colour alone.
 ///
-/// Announced as a selected button; the visual is 40 dp inside a 48 dp hit
+/// Announced as a selected button; the visual is 43 dp inside a 48 dp hit
 /// area. The fill changes over 160 ms (none under reduce-motion). A null
 /// [onPressed] disables it.
 class AppChoiceChip extends StatelessWidget {
@@ -30,9 +31,18 @@ class AppChoiceChip extends StatelessWidget {
   /// Spoken label when it differs from [label].
   final String? semanticsLabel;
 
-  /// The visual height and radius (dp).
-  static const double height = 40;
+  /// The drawn height (dp), as the canvas renders it. The artboards have no
+  /// shared `box-sizing` rule (no `* {}` reset in any `.dc.html` or in
+  /// canvas.json; `border-box` is set inline only on some inputs, toggles
+  /// and badges, never on a chip), so the chip is CSS `content-box`:
+  /// `height: 40px` + 2 x 1.5 border = 43.
+  static const double height = 40 + 2 * AppSize.componentBorder;
   static const double radius = 20;
+
+  /// The tick: 16 dp at the artboard's 2.6 stroke, 6 dp before the label.
+  static const double tickSize = 16;
+  static const double tickStroke = 2.6;
+  static const double tickGap = 6;
 
   @override
   Widget build(BuildContext context) {
@@ -50,6 +60,8 @@ class AppChoiceChip extends StatelessWidget {
     final visual = AnimatedContainer(
       duration: reduce ? Duration.zero : const Duration(milliseconds: 160),
       constraints: const BoxConstraints(minHeight: height),
+      // The border is added to this padding (Container adds the
+      // decoration's padding), as content-box CSS does.
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       decoration: BoxDecoration(
         color: fill,
@@ -60,20 +72,22 @@ class AppChoiceChip extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           if (selected) ...[
-            DzIcon(DzIcons.check, size: AppIconSize.sm, color: labelColor),
-            const SizedBox(width: AppSpacing.xs),
+            DzIcon(
+              DzIcons.check,
+              size: tickSize,
+              strokeWidth: tickStroke,
+              color: labelColor,
+            ),
+            const SizedBox(width: tickGap),
           ],
           Flexible(
             child: Text(
               label,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: AppTextStyles.dzChip(theme).copyWith(
-                color: labelColor,
-                fontWeight: selected
-                    ? AppTypeTokens.weightUi
-                    : AppTypeTokens.weightLabel,
-              ),
+              // 15/600 selected or not (DzPlans); the tick and the fill
+              // mark the selection.
+              style: AppTextStyles.dzChip(theme).copyWith(color: labelColor),
             ),
           ),
         ],

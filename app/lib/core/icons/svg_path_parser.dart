@@ -22,8 +22,13 @@ Path? tryParseSvgPath(String data) {
 }
 
 /// [tryParseSvgPath] that returns an empty path for malformed data, so a bad
-/// constant draws nothing instead of failing a frame.
-Path parseSvgPath(String data) => tryParseSvgPath(data) ?? Path();
+/// constant draws nothing instead of failing a frame in release. In debug a
+/// malformed constant asserts, so it is caught at the first paint.
+Path parseSvgPath(String data) {
+  final path = tryParseSvgPath(data);
+  assert(path != null, 'malformed SVG path data: $data');
+  return path ?? Path();
+}
 
 class _Parser {
   _Parser(this._s);

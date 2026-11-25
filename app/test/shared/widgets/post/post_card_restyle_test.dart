@@ -138,13 +138,23 @@ void main() {
         );
 
         expectNoOverflow(tester);
+        final handle = tester.ensureSemantics();
         for (final label in const ['Reply, 6', 'Repost', 'Like', 'Share']) {
+          // The accessibility node is the tap area (48 dp), not the drawn
+          // 44 dp box of the phone row.
+          final rect = tester.getSemantics(find.bySemanticsLabel(label)).rect;
           expect(
-            tester.getSize(find.bySemanticsLabel(label)).height,
-            greaterThanOrEqualTo(AppSpacing.minTapTarget),
+            rect.height,
+            greaterThanOrEqualTo(AppSpacing.minTapTarget - 1e-6),
+            reason: label,
+          );
+          expect(
+            rect.width,
+            greaterThanOrEqualTo(AppSpacing.minTapTarget - 1e-6),
             reason: label,
           );
         }
+        handle.dispose();
       });
     }
   });
@@ -192,12 +202,27 @@ void main() {
           find.ancestor(of: findDz(icon), matching: find.byType(InkResponse)),
         );
         const icons = dzActionIcons;
-        expect(box(icons.first).left, closeTo(bar.left, 1));
-        // Reply, Repost, Like touch; Save and Share touch at the end.
-        for (final i in [1, 2, 4]) {
-          expect(box(icons[i]).left, closeTo(box(icons[i - 1]).right, 1));
+        if (width < AppBreakpoints.mobile) {
+          // Phone (DzHome): the row hangs 10 dp into the gutter on each
+          // side; Reply, Repost, Like touch; Save and Share touch at the end.
+          expect(box(icons.first).left, bar.left - 10);
+          for (final i in [1, 2, 4]) {
+            expect(box(icons[i]).left, box(icons[i - 1]).right);
+          }
+          expect(box(icons.last).right, bar.right + 10);
+        } else {
+          // Tablet and desktop keep the distributed row: 48 dp boxes, the
+          // first and last on the edges, equal gaps between them.
+          expect(box(icons.first).left, bar.left);
+          expect(box(icons.last).right, closeTo(bar.right, 0.01));
+          final gaps = [
+            for (var i = 1; i < icons.length; i++)
+              box(icons[i]).left - box(icons[i - 1]).right,
+          ];
+          for (final gap in gaps) {
+            expect(gap, closeTo(gaps.first, 0.5));
+          }
         }
-        expect(box(icons.last).right, closeTo(bar.right, 1));
       });
 
       testWidgets('at $width in RTL the row starts at the right', (
@@ -217,7 +242,12 @@ void main() {
         final bar = tester.getRect(find.byType(PostActionBar));
         final reply = tester.getRect(findDz(DzIcons.reply));
         final share = tester.getRect(findDz(DzIcons.share));
-        expect(reply.right, lessThan(bar.right));
+        if (width < AppBreakpoints.mobile) {
+          // The row's -10 margin puts the reply glyph on the text edge.
+          expect(reply.right, closeTo(bar.right, 0.01));
+        } else {
+          expect(reply.right, lessThan(bar.right));
+        }
         expect(share.left, lessThan(reply.left));
         expect(bar.right - share.left, lessThanOrEqualTo(bar.width));
       });

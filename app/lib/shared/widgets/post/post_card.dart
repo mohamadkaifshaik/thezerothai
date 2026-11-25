@@ -19,6 +19,7 @@ import '../../../core/network/app_exception.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/session/user_ids.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/app_tap_area.dart';
 import '../../../features/beacons/presentation/widgets/post_beacon_embed.dart';
 import '../../../features/communities/domain/communities_feature_flag.dart';
 import '../../../features/communities/presentation/communities_error_messages.dart';
@@ -522,6 +523,17 @@ class PostCard extends StatelessWidget {
       ],
     ];
 
+    // One order on every width (the artboards': ..., Save, Share). Phones
+    // follow the canvas (the compact feed row, the spread opened post);
+    // tablet and desktop keep their earlier distributed, edge-aligned
+    // spacing.
+    // TODO(dz-post-screen): the opened post passes `showCounts: false` once
+    // the post screen shows its own "4 Replies 0 Reposts" line (DzPost).
+    final barLayout = windowWidth >= AppBreakpoints.mobile
+        ? PostActionBarLayout.distributed
+        : asFocal
+        ? PostActionBarLayout.spread
+        : PostActionBarLayout.compact;
     final Widget? bar = actions != null
         ? PostActionBar(
             likeCount: _post.likeCount.toInt(),
@@ -535,9 +547,7 @@ class PostCard extends StatelessWidget {
                       ? AppFocalPost.actionIcon
                       : AppFocalPost.actionIconPhone)
                 : AppIconSize.postAction,
-            layout: asFocal
-                ? PostActionBarLayout.spread
-                : PostActionBarLayout.compact,
+            layout: barLayout,
           )
         : engagementEnabled
         ? PostEngagementBar(
@@ -551,9 +561,7 @@ class PostCard extends StatelessWidget {
                       ? AppFocalPost.actionIcon
                       : AppFocalPost.actionIconPhone)
                 : AppIconSize.postAction,
-            layout: asFocal
-                ? PostActionBarLayout.spread
-                : PostActionBarLayout.compact,
+            layout: barLayout,
           )
         : null;
 
@@ -756,7 +764,9 @@ class PostCard extends StatelessWidget {
     );
     // A long press anywhere on the card opens the overflow menu (post text is
     // not selectable, so nothing competes for the gesture).
-    final pressable = _PostLongPressMenu(child: padded);
+    // The card's bounds hold the compact action row's bleed into the gutter
+    // and its actions' 48 dp rings; the host routes taps there to them.
+    final pressable = _PostLongPressMenu(child: AppTapAreaHost(child: padded));
     final countedId = impressionTargetId(view);
     if (countedId == null) return pressable;
     return ImpressionDetector(

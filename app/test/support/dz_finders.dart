@@ -2,6 +2,7 @@ import 'package:dzeroth/core/icons/dz_icon.dart';
 import 'package:dzeroth/core/icons/dz_icon_data.dart';
 import 'package:dzeroth/core/icons/dz_icons.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
+import 'package:dzeroth/core/widgets/app_tap_area.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -109,6 +110,78 @@ String _nameOf(DzIconData data) {
     if (identical(value, data)) return key;
   }
   return 'custom';
+}
+
+/// The tap area (global rect) of the control around [of]: the nearest
+/// single-control [AppTapArea] above it, grown to its minimum size. The
+/// drawn box can be smaller (the Dz 44 dp actions); this is what a tap
+/// reaches.
+Rect tapAreaOf(WidgetTester tester, Finder of) {
+  final area = find
+      .ancestor(
+        of: of,
+        matching: find.byWidgetPredicate(
+          (w) => w is AppTapArea && w.mergeSemantics,
+        ),
+      )
+      .first;
+  final box = tester.renderObject<RenderAppTapArea>(area);
+  final rect = box.hitRect;
+  return Rect.fromPoints(
+    box.localToGlobal(rect.topLeft),
+    box.localToGlobal(rect.bottomRight),
+  );
+}
+
+/// The drawn (layout) box of the post action around [icon]: its InkResponse.
+Rect actionBoxOf(WidgetTester tester, DzIconData icon) => tester.getRect(
+  find.ancestor(of: findDz(icon), matching: find.byType(InkResponse)).first,
+);
+
+/// Checks how the compact action row of [bar] flows: one line, in order,
+/// when its drawn boxes fit the row (its width plus the 10 dp it hangs into
+/// the gutter on each side); otherwise save and share keep the first line's
+/// end and the counted actions wrap only where the next one does not fit.
+/// [boxes] are the five drawn boxes in [dzActionIcons] order. Returns
+/// whether the row is on one line.
+bool expectCompactRowFlow(Rect bar, List<Rect> boxes, {String reason = ''}) {
+  const bleed = 10.0;
+  final available = bar.width + 2 * bleed;
+  final needed = boxes.fold(0.0, (sum, box) => sum + box.width);
+  // Save and share always keep the first line's trailing edge.
+  expect(boxes[3].top, boxes.first.top, reason: reason);
+  expect(boxes[4].top, boxes.first.top, reason: reason);
+  expect(boxes[4].right, closeTo(bar.right + bleed, 0.01), reason: reason);
+  if (needed <= available + 0.01) {
+    for (var i = 1; i < boxes.length; i++) {
+      expect(boxes[i].top, boxes.first.top, reason: '$reason box $i');
+      expect(
+        boxes[i].left,
+        greaterThanOrEqualTo(boxes[i - 1].right - 0.01),
+        reason: '$reason box $i',
+      );
+    }
+    return true;
+  }
+  // Wrapped: the leading part has the width save and share leave.
+  final leading = available - boxes[3].width - boxes[4].width;
+  var line = boxes.first.width;
+  for (var i = 1; i < 3; i++) {
+    if (boxes[i].top == boxes[i - 1].top) {
+      expect(
+        boxes[i].left,
+        greaterThanOrEqualTo(boxes[i - 1].right - 0.01),
+        reason: '$reason box $i',
+      );
+      line += boxes[i].width;
+    } else {
+      // It moved down only because it did not fit after the previous one.
+      expect(boxes[i].top, greaterThanOrEqualTo(boxes[i - 1].bottom - 0.01));
+      expect(line + boxes[i].width, greaterThan(leading), reason: reason);
+      line = boxes[i].width;
+    }
+  }
+  return false;
 }
 
 /// The five post-action icons in the order the compact row draws them.

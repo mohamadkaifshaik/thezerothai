@@ -570,7 +570,10 @@ void main() {
                 tester,
                 _view(),
                 serverState: true,
-                width: width,
+                // A card's 20 dp gutter on each side: the compact row hangs
+                // 10 dp into it and the last action's 48 dp tap area 2 dp
+                // more, which the screen edge would otherwise clip.
+                width: width - 40,
                 textScale: scale,
                 theme: dark ? appDarkTheme : appLightTheme,
               );
