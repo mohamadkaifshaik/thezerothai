@@ -37,6 +37,7 @@ void main() {
   EncryptedMessagingImpl portOver(VaultSession session) {
     final pipeline = E2eePipeline(
       session: session,
+      encryptionRequired: () => false,
       deviceKeys: h.deviceKeys,
       engine: () => h.guarded,
       messaging: h.messaging,
@@ -173,6 +174,7 @@ void main() {
       final repo = FakeSendRepository();
       final cubit = MessageComposerCubit(
         repository: repo,
+        encryptionRequired: () => false,
         conversationId: _c2,
         outbox: repo.outbox,
         encrypted: p,

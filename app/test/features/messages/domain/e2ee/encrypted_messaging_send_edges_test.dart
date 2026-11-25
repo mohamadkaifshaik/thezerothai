@@ -211,6 +211,7 @@ void main() {
       expect(session.vaultKnown, isFalse);
       final pipeline = E2eePipeline(
         session: session,
+        encryptionRequired: () => false,
         deviceKeys: h.deviceKeys,
         engine: () => h.guarded,
         messaging: h.messaging,
@@ -252,6 +253,7 @@ void main() {
       var account = 'user-a';
       final pipeline = E2eePipeline(
         session: session,
+        encryptionRequired: () => false,
         deviceKeys: h.deviceKeys,
         engine: () => h.guarded,
         messaging: h.messaging,

@@ -18,6 +18,7 @@ import '../../../shared/widgets/primitives/app_empty_view.dart';
 import '../../../shared/widgets/primitives/app_main_column.dart';
 import '../../../core/vault/vault_status.dart';
 import '../../../shared/widgets/post/post_card.dart' show launchPostLink;
+import '../../onboarding/presentation/bloc/onboarding_bloc.dart';
 import '../data/messaging_repository.dart';
 import '../domain/e2ee/encrypted_messaging.dart';
 import '../domain/e2ee/encryption_access.dart';
@@ -26,7 +27,8 @@ import '../domain/messaging_feature_flag.dart';
 import 'bloc/message_composer_cubit.dart';
 import 'e2ee/encrypted_thread_items.dart';
 import 'e2ee/encryption_access_builder.dart';
-import 'e2ee/encryption_copy.dart' show unsentDiscardText;
+import 'e2ee/encryption_copy.dart'
+    show kRequiredDraftNoteText, unsentDiscardText;
 import 'e2ee/encryption_status.dart';
 import 'e2ee/screen_encrypted_port.dart';
 import 'e2ee/widgets/thread_status_banner.dart';
@@ -88,6 +90,8 @@ class DraftThreadScreen extends StatelessWidget {
       builder: (context, ports) => BlocProvider<MessageComposerCubit>(
         create: (context) => MessageComposerCubit(
           vaultNotOpen: _vaultNotOpenOf(context),
+          // Plan 6 Task 1.B: read live at each send; fails closed.
+          encryptionRequired: e2eeRequiredOf(context.read<OnboardingBloc>()),
           repository: context.read<MessagingRepository>(),
           recipientUserId: peer.userId,
           // R1: the person is addressed from this snapshot only.
@@ -404,6 +408,10 @@ class _DraftViewState extends State<_DraftView> {
 /// before the first send, for a user with access `full` and a usable vault
 /// (security read H1): what the first message is until the pipeline says
 /// otherwise. The thread screen's own rule, with no conversation to ask.
+/// Under `e2ee_required` (Plan 6 Task 1.B) the first message is never
+/// plaintext, so the same place says `kRequiredDraftNoteText` instead (a
+/// draft has no earlier messages), decided by the same fail-closed rule the
+/// composer's sends use ([e2eeRequiredNow]), live.
 class _DraftNotEncryptedNote extends StatelessWidget {
   const _DraftNotEncryptedNote({required this.hasPort});
 
@@ -412,6 +420,9 @@ class _DraftNotEncryptedNote extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final requiredOn = context.select(
+      (OnboardingBloc bloc) => e2eeRequiredNow(bloc),
+    );
     return EncryptionAccessBuilder(
       builder: (context, access) {
         final device = context.read<EncryptionDevice?>();
@@ -420,12 +431,18 @@ class _DraftNotEncryptedNote extends StatelessWidget {
             hasPort &&
             device?.vaultStatus.value == VaultStatus.ready;
         if (!show) return const SizedBox.shrink();
-        return const Padding(
-          padding: EdgeInsets.symmetric(
+        return Padding(
+          padding: const EdgeInsets.symmetric(
             horizontal: AppSpacing.md,
             vertical: AppSpacing.xs,
           ),
-          child: Center(child: NotEncryptedNote(textAlign: TextAlign.center)),
+          child: Center(
+            child: NotEncryptedNote(
+              textAlign: TextAlign.center,
+              encryptionRequired: requiredOn,
+              requiredText: kRequiredDraftNoteText,
+            ),
+          ),
         );
       },
     );

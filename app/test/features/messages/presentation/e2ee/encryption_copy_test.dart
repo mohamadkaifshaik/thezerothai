@@ -190,6 +190,37 @@ void main() {
     }
   });
 
+  test('Plan 6 Task 1.B copy (owner may edit) is pinned verbatim; the '
+      'required note keeps the earlier history disclosed (security L4)', () {
+    expect(
+      kPeerCannotReceiveYetTitle,
+      "They can't receive encrypted messages yet",
+    );
+    expect(
+      kPeerCannotReceiveYetBody,
+      "They need to update the app and open it. Your message hasn't been "
+      'sent.',
+    );
+    expect(
+      kRequiredNoteText,
+      'Earlier messages here are not end-to-end encrypted. New messages will '
+      'be once both of you are on the latest app.',
+    );
+    // A draft has no earlier messages (code review Minor 1).
+    expect(
+      kRequiredDraftNoteText,
+      'New messages here will be end-to-end encrypted once both of you are on '
+      'the latest app.',
+    );
+    expect(kRequiredUnavailableTitle, 'Messages are being upgraded');
+    expect(
+      kRequiredUnavailableBody,
+      'Sending is paused while encrypted messaging finishes rolling out. '
+      "Your message hasn't been sent.",
+    );
+    expect(kRequiredNotOnThisDeviceBody, "Your message hasn't been sent.");
+  });
+
   test('counts and spoken labels', () {
     expect(devicesCount(3), '3 of 5 devices');
     expect(securityCodeGroupLabel(1, '01234'), 'Group 1 of 12: 0 1 2 3 4');

@@ -18,13 +18,18 @@ import '../features/posts/domain/posts_feature_flag.dart';
 import '../features/notifications/data/notifications_repository.dart';
 import '../features/timeline/data/timeline_repository.dart';
 
-/// Resets [gate] on every fresh `GetMe` (it emits a new flag-set instance),
-/// so a remembered FEATURE_DISABLED can never stick for the session.
+/// Resets [gate] on every fresh `GetMe` answer
+/// ([OnboardingBloc.flagsGeneration] moved), so a remembered FEATURE_DISABLED
+/// can never stick for the session, and only then: any other state change
+/// (a follow-request count, a profile edit) keeps what the server said
+/// (security L-new-1; the flag-set instance cannot tell the two apart, the
+/// freezed getter wraps it on every read).
 void _wireGateReset(OnboardingBloc onboardingBloc, ServiceFeatureGate gate) {
-  var last = onboardingBloc.state.enabledFeatures;
-  onboardingBloc.stream.listen((state) {
-    if (!identical(state.enabledFeatures, last)) {
-      last = state.enabledFeatures;
+  var last = onboardingBloc.flagsGeneration;
+  onboardingBloc.stream.listen((_) {
+    final generation = onboardingBloc.flagsGeneration;
+    if (generation != last) {
+      last = generation;
       gate.reset();
     }
   });
@@ -89,6 +94,53 @@ MessagingFeatureGate buildMessagingGate(
   );
   _wireGateReset(onboardingBloc, gate);
   return gate;
+}
+
+/// How old the last answered `GetMe` may be when the app comes back to the
+/// foreground before it is asked again ([ResumeFlagsRefresh]).
+const kResumeFlagsMaxAge = Duration(minutes: 15);
+
+/// Plan 6 Task 1.B (security review H1): an app left open keeps the flag set
+/// of its last `GetMe`, so `e2ee_required` turned on for this user would not
+/// reach it until something else refreshed. On resume, when the last answered
+/// `GetMe` (or the last refresh this asked for) is [kResumeFlagsMaxAge] old
+/// or older, one [OnboardingRefreshRequested] is dispatched. In memory only;
+/// [now] is injectable for tests. Signed out: nothing.
+class ResumeFlagsRefresh {
+  ResumeFlagsRefresh(
+    OnboardingBloc onboardingBloc, {
+    DateTime Function() now = DateTime.now,
+  }) : _onboarding = onboardingBloc,
+       _now = now,
+       _last = now(),
+       _seen = onboardingBloc.flagsGeneration {
+    // Only a GetMe answer restarts the clock ([OnboardingBloc.
+    // flagsGeneration] moved); any other state change does not (security
+    // L-new-1).
+    _sub = onboardingBloc.stream.listen((_) {
+      final generation = _onboarding.flagsGeneration;
+      if (generation == _seen) return;
+      _seen = generation;
+      _last = _now();
+    });
+  }
+
+  final OnboardingBloc _onboarding;
+  final DateTime Function() _now;
+  DateTime _last;
+  int _seen;
+  late final StreamSubscription<OnboardingState> _sub;
+
+  /// The app came back to the foreground.
+  void onResume() {
+    if (_onboarding.currentUid == null) return;
+    final now = _now();
+    if (now.difference(_last) < kResumeFlagsMaxAge) return;
+    _last = now;
+    _onboarding.add(const OnboardingRefreshRequested());
+  }
+
+  Future<void> dispose() => _sub.cancel();
 }
 
 /// Reports an unexpected (non-user) error. One shared hook, wired from
