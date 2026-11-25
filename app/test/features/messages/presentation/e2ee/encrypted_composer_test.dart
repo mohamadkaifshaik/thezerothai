@@ -62,6 +62,7 @@ void main() {
     }) {
       final c = MessageComposerCubit(
         repository: repo,
+        encryptionRequired: () => false,
         outbox: repo.outbox,
         conversationId: draft ? null : kThreadId,
         recipientUserId: draft ? 'u-sam' : null,
@@ -477,6 +478,7 @@ void main() {
       expect(
         () => MessageComposerCubit(
           repository: repo,
+          encryptionRequired: () => false,
           outbox: repo.outbox,
           recipientUserId: 'u-other',
           recipient: _sam,

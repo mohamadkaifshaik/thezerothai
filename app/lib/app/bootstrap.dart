@@ -27,7 +27,7 @@ import '../core/vault/vault_owner.dart';
 import '../core/vault/vault_session.dart';
 import '../core/vault/vault_status.dart' show E2eeFlag;
 import '../features/messages/domain/messaging_feature_flag.dart'
-    show kFeatureE2eeDm;
+    show kFeatureE2eeDm, e2eeRequiredOf;
 import '../core/network/auth_token_provider.dart';
 import '../core/network/firebase_app_check_token_provider.dart';
 import '../core/network/service_paused_cubit.dart';
@@ -405,16 +405,22 @@ Future<void> bootstrap() async {
   vaultSession.status.addListener(
     () => resumeThrottle.noteStatus(vaultSession.status.value),
   );
+  // Plan 6 Task 1.B (security H1): a GetMe older than 15 minutes is asked
+  // again on resume, so `e2ee_required` reaches an app that was left open.
+  final resumeFlags = ResumeFlagsRefresh(onboardingBloc);
   AppLifecycleListener(
-    onResume: () => resumeE2ee(
-      engineResumed: cryptoEngine.onAppResumed,
-      retryVault: vaultSession.retry,
-      deviceKeysResumed: deviceKeys.onAppResumed,
-      pipelineResumed: e2eePipeline?.onAppResumed,
-      throttle: resumeThrottle,
-      vaultStatus: () => vaultSession.status.value,
-      onUnexpectedError: reportUnexpectedError,
-    ),
+    onResume: () {
+      resumeFlags.onResume();
+      resumeE2ee(
+        engineResumed: cryptoEngine.onAppResumed,
+        retryVault: vaultSession.retry,
+        deviceKeysResumed: deviceKeys.onAppResumed,
+        pipelineResumed: e2eePipeline?.onAppResumed,
+        throttle: resumeThrottle,
+        vaultStatus: () => vaultSession.status.value,
+        onUnexpectedError: reportUnexpectedError,
+      );
+    },
     onPause: () {
       resumeThrottle.notePaused();
       e2eePipeline?.onAppPaused();
@@ -661,6 +667,14 @@ Future<void> bootstrap() async {
           ownUserId: () => onboardingBloc.state.myUserId,
           currentUid: () => authBloc.state.user?.uid,
           publicIdsOff: () => publicIdsKnownOff(onboardingBloc.state),
+          // Plan 6 Task 1.B: the port never answers notEncrypted while
+          // `e2ee_required` is listed, nor while this session's flag set is
+          // unknown or another user's (flags are never persisted: no GetMe
+          // answer yet means unknown, which fails closed).
+          encryptionRequired: e2eeRequiredOf(
+            onboardingBloc,
+            signedInUid: () => authBloc.state.user?.uid,
+          ),
           onUnexpectedError: reportUnexpectedError,
         )
       : null;

@@ -35,7 +35,9 @@ String sharePostErrorMessage(
   AppException error, {
   SendProblem problem = SendProblem.none,
 }) {
-  if (problem != SendProblem.none) return composerRefusalText(problem, null);
+  if (problem != SendProblem.none) {
+    return composerRefusalParagraph(problem, null);
+  }
   return switch (error) {
     NotFoundException() => "This post isn't available anymore.",
     ProtectedAccountException() =>

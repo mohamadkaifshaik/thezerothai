@@ -129,6 +129,7 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
     this.recipient,
     EncryptedMessaging? encrypted,
     bool Function()? vaultNotOpen,
+    required bool Function() encryptionRequired,
     this.onConversationCreated,
     this.onActivity,
     this.onSent,
@@ -147,6 +148,7 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
        _repository = repository,
        _encrypted = encrypted,
        _vaultNotOpen = vaultNotOpen,
+       _encryptionRequired = encryptionRequired,
        _conversationId = conversationId,
        _uuid = uuid ?? const Uuid(),
        _outbox = outbox.lease(),
@@ -204,6 +206,13 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
   /// when a blocked refusal arrives (null: never).
   final bool Function()? _vaultNotOpen;
 
+  /// Plan 6 Task 1.B: whether a plaintext send must be refused under
+  /// `e2ee_required`, read live at each send. Required, so no construction
+  /// can forget it; production passes `e2eeRequiredOf` (fails closed while
+  /// the flag set is not known). While it answers true no plaintext
+  /// `SendMessage` is made from this composer ([_plaintextRefused]).
+  final bool Function() _encryptionRequired;
+
   /// Whether sends go through the encrypted port (the field then keeps the
   /// text until the port answers).
   bool get hasPort => _encrypted != null;
@@ -256,8 +265,10 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
   }
 
   /// Today's send: the optimistic row and an empty draft in the same turn,
-  /// then `SendMessage` with [key].
+  /// then `SendMessage` with [key]. Under `e2ee_required` nothing: the text
+  /// stays in the field and the refusal shows above it.
   Future<void> _sendPlain(String key, String text) async {
+    if (_plaintextRefused(key)) return;
     emit(
       state.copyWith(
         // Anything typed while a port lookup was pending stays in the field.
@@ -381,6 +392,10 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
         final created = outcome.conversationId;
         if (created != null) conversationKnown(created);
       case SendOutcomeKind.notEncrypted:
+        // Plan 6 Task 1.B: the port never answers this under required; if
+        // it did, nothing goes out in plaintext and a retried row stays as
+        // it was.
+        if (_plaintextRefused(key, retried: retried)) return;
         emit(state.copyWith(sendPending: false));
         if (retried != null) {
           // The row is already sending, in its place: today's delivery.
@@ -469,6 +484,8 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
       await _sendThroughPort(port, entry.localId, entry.text, retried: entry);
       return;
     }
+    // No port: today's plaintext retry, never under `e2ee_required`.
+    if (_plaintextRefused(entry.localId, retried: entry)) return;
     emit(
       state.copyWith(
         outgoing: _replace(
@@ -521,7 +538,55 @@ class MessageComposerCubit extends Cubit<MessageComposerState> {
       if (m.localId != localId) m else ?next,
   ];
 
+  /// Plan 6 Task 1.B: whether `e2ee_required` refuses a plaintext send of
+  /// the row [key] now. When it does, the composer shows the refusal
+  /// ([_requiredProblem]: no send at all, neither plaintext nor encrypted)
+  /// and nothing is sent; [retried], or a row of [key] that was already
+  /// sending, is kept as a failed row in its place. Asked at every entry to a
+  /// plaintext send and once more right before the call ([_deliver]).
+  bool _plaintextRefused(String key, {OutgoingMessage? retried}) {
+    if (!_encryptionRequired()) return false;
+    _refuseUnderRequired(key, retried);
+    return true;
+  }
+
+  /// The refusal of a plaintext send under `e2ee_required`: with no port
+  /// this device cannot hold a vault (security L5), otherwise this device may
+  /// not start encryption.
+  SendProblem get _requiredProblem => _encrypted == null
+      ? SendProblem.requiredNotOnThisDevice
+      : SendProblem.requiredUnavailable;
+
+  void _refuseUnderRequired(String key, OutgoingMessage? retried) {
+    if (isClosed) {
+      // The screen is gone: a row of [key] waits in the outbox as "Not sent".
+      final row =
+          retried ?? state.outgoing.where((m) => m.localId == key).firstOrNull;
+      _keepFailed(key, row);
+      return;
+    }
+    OutgoingMessage? row = retried;
+    if (row == null) {
+      for (final m in state.outgoing) {
+        if (m.localId == key && m.status == OutgoingStatus.sending) {
+          row = m.copyWith(status: OutgoingStatus.failed);
+        }
+      }
+    }
+    emit(
+      state.copyWith(
+        sendPending: false,
+        outgoing: row == null ? null : _replace(key, row),
+        refusedProblem: _requiredProblem,
+        clearError: true,
+      ),
+    );
+  }
+
   Future<void> _deliver(String key, String text) async {
+    // The last check before the one plaintext call of this composer (the
+    // plaintext-send guard pins it here).
+    if (_plaintextRefused(key)) return;
     final pb.SendMessageResponse response;
     try {
       final id = _conversationId;

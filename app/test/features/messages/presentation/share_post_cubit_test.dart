@@ -37,6 +37,7 @@ void main() {
 
   SharePostCubit make({bool Function()? isEnabled}) => SharePostCubit(
     repository: repo,
+    encryptionRequired: () => false,
     postId: _postId,
     url: _url,
     ownUserId: 'u-me',
@@ -293,6 +294,7 @@ void main() {
 
     SharePostCubit withPort({bool Function()? isEnabled}) => SharePostCubit(
       repository: repo,
+      encryptionRequired: () => false,
       postId: _postId,
       url: _url,
       ownUserId: 'u-me',
@@ -375,7 +377,20 @@ void main() {
       // The widget draws sharePostErrorMessage(lastError, problem: lastProblem).
       for (final (problem, text) in [
         (SendProblem.tryTomorrow, kOutgoingTryTomorrowText),
-        (SendProblem.peerHasNoDevice, kStatePeerNoDeviceText),
+        // Plan 6 Task 1.B: the new title and body as one line.
+        (
+          SendProblem.peerHasNoDevice,
+          '$kPeerCannotReceiveYetTitle. $kPeerCannotReceiveYetBody',
+        ),
+        (
+          SendProblem.requiredUnavailable,
+          '$kRequiredUnavailableTitle. $kRequiredUnavailableBody',
+        ),
+        // A title that ends its own sentence gets no second full stop.
+        (
+          SendProblem.requiredNotOnThisDevice,
+          '$kNotOnThisDeviceText $kRequiredNotOnThisDeviceBody',
+        ),
       ]) {
         port.nextSendOutcome = SendOutcome(
           SendOutcomeKind.refused,
@@ -412,6 +427,7 @@ void main() {
         final reports = <Object>[];
         final c = SharePostCubit(
           repository: repo,
+          encryptionRequired: () => false,
           postId: _postId,
           url: _url,
           encrypted: port,
@@ -452,6 +468,7 @@ void main() {
       bool Function()? isEnabled,
     }) => SharePostCubit(
       repository: repo,
+      encryptionRequired: () => false,
       postId: _postId,
       url: _url,
       ownUserId: 'u-me',
@@ -616,6 +633,7 @@ void main() {
     group('check off: each row routes from the cache and the known set', () {
       SharePostCubit make3({required bool mayStart}) => SharePostCubit(
         repository: repo,
+        encryptionRequired: () => false,
         postId: _postId,
         url: _url,
         ownUserId: 'u-me',
@@ -692,6 +710,7 @@ void main() {
           final reports = <Object>[];
           final c = SharePostCubit(
             repository: repo,
+            encryptionRequired: () => false,
             postId: _postId,
             url: _url,
             encrypted: port,
@@ -815,6 +834,7 @@ void main() {
       () async {
         final c = SharePostCubit(
           repository: repo,
+          encryptionRequired: () => false,
           postId: _postId,
           url: _url,
           ownUserId: 'u-me',
@@ -926,5 +946,93 @@ void main() {
       expect(repo.sendKeys, isEmpty);
       expect(c.state.endedBy, isA<FeatureDisabledException>());
     });
+  });
+
+  // Plan 6 Task 1.B fix round (code review Major): one share action to
+  // several people under `e2ee_required`, with every route to the plaintext
+  // call present: a queued row, a notEncrypted answer, no port, and an
+  // unchecked plain row. Nothing goes out in plaintext.
+  test('under e2ee_required a multi-recipient share with mixed outcomes makes '
+      'no sendMessage call', () async {
+    final port = FakeEncryptedMessaging();
+    addTearDown(port.dispose);
+    port.queueSendOutcomes(const [
+      SendOutcome(SendOutcomeKind.queued),
+      SendOutcome(SendOutcomeKind.notEncrypted),
+      SendOutcome(SendOutcomeKind.queued),
+    ]);
+    final checked = SharePostCubit(
+      repository: repo,
+      postId: _postId,
+      url: _url,
+      ownUserId: 'u-me',
+      encrypted: port,
+      check: _passes,
+      checkEnabled: () => true,
+      encryptionRequired: () => true,
+    );
+    addTearDown(checked.close);
+    checked
+      ..toggle(_peer(1))
+      ..toggle(_peer(2))
+      ..toggle(_peer(3));
+    await checked.send();
+    expect(checked.state.recipients.map((r) => r.status), [
+      ShareRowStatus.sent,
+      ShareRowStatus.failed,
+      ShareRowStatus.sent,
+    ]);
+    expect(
+      checked.state.recipients[1].problem,
+      SendProblem.requiredUnavailable,
+    );
+
+    // Unchecked (dm_share_check off): u4's cached row is plain, u5 has none
+    // and nothing may start, so both route plain.
+    repo.cachedByPeer['u4'] = _conv('c-u4');
+    final unchecked = SharePostCubit(
+      repository: repo,
+      postId: _postId,
+      url: _url,
+      ownUserId: 'u-me',
+      encrypted: port,
+      check: _passes,
+      checkEnabled: () => false,
+      mayStartEncryption: () => false,
+      encryptionRequired: () => true,
+    );
+    addTearDown(unchecked.close);
+    unchecked
+      ..toggle(_peer(4))
+      ..toggle(_peer(5));
+    await unchecked.send();
+    expect(
+      unchecked.state.recipients.map((r) => (r.status, r.problem)),
+      everyElement((ShareRowStatus.failed, SendProblem.requiredUnavailable)),
+    );
+
+    // No port (a platform with no vault): the not-on-this-device refusal.
+    final portless = SharePostCubit(
+      repository: repo,
+      postId: _postId,
+      url: _url,
+      ownUserId: 'u-me',
+      encryptionRequired: () => true,
+    );
+    addTearDown(portless.close);
+    portless
+      ..toggle(_peer(6))
+      ..toggle(_peer(7));
+    await portless.send();
+    expect(
+      portless.state.recipients.map((r) => (r.status, r.problem)),
+      everyElement((
+        ShareRowStatus.failed,
+        SendProblem.requiredNotOnThisDevice,
+      )),
+    );
+
+    expect(repo.sendKeys, isEmpty, reason: 'no plaintext SendMessage');
+    expect(port.sent, hasLength(3), reason: 'only the checked rows asked');
   });
 }
