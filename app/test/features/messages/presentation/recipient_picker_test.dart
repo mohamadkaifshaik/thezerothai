@@ -70,6 +70,9 @@ class _Rig {
       onboarding,
       const Stream<OnboardingState>.empty(),
       initialState: OnboardingState(
+        // A known flag set (GetMe answered): an unknown one fails closed
+        // under e2ee_required (Plan 6 Task 1.B, `e2eeRequiredOf`).
+        status: OnboardingStatus.ready,
         enabledFeatures: features,
         profile: identity.Profile(userId: _me, handle: 'me'),
       ),
@@ -559,6 +562,7 @@ void main() {
       final created = <String>[];
       final cubit = MessageComposerCubit(
         repository: repo,
+        encryptionRequired: () => false,
         outbox: repo.outbox,
         recipientUserId: 'u-peer',
         onConversationCreated: created.add,

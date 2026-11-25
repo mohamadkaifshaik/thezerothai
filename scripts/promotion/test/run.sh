@@ -114,18 +114,22 @@ expect "staged wrong serving" 1 "$T" "$tmp/s" "$ceil" dev staged api-00002-bbb a
 expect "staged missing candidate" 1 "$T" "$fx/service-ok.json" "$ceil" dev staged api-00002-bbb api-00001-aaa
 
 # --- resolve-rollback (last-good is api-00000-zzz; its revision JSON is the ok revision renamed)
+# These cases are not about floors, and the fixture image carries no commit tag: they use the committed ceiling without its
+# rollback_floors, because a sticky floor (enforced whatever the flag's mode) would refuse every one of them first.
+ceil_nf=$tmp/ceil-nofloors
+jq 'del(.rollback_floors)' "$ceil" | tr -d '\r' >"$ceil_nf"
 mut '.metadata.name = "api-00000-zzz"' revision-ok.json lg
-expect "rollback ok" 0 "$R" "$fx/service-ok.json" "$tmp/lg" "$fx/images-ok.json" "$ceil" dev
+expect "rollback ok" 0 "$R" "$fx/service-ok.json" "$tmp/lg" "$fx/images-ok.json" "$ceil_nf" dev
 mut '.status.traffic |= map(select(.tag != "last-good"))' service-ok.json s
-expect "no last-good tag" 1 "$R" "$tmp/s" "$tmp/lg" "$fx/images-ok.json" "$ceil" dev
+expect "no last-good tag" 1 "$R" "$tmp/s" "$tmp/lg" "$fx/images-ok.json" "$ceil_nf" dev
 mut '.metadata.name = "api-00005-xxx"' revision-ok.json lg2
-expect "wrong revision json" 1 "$R" "$fx/service-ok.json" "$tmp/lg2" "$fx/images-ok.json" "$ceil" dev
+expect "wrong revision json" 1 "$R" "$fx/service-ok.json" "$tmp/lg2" "$fx/images-ok.json" "$ceil_nf" dev
 echo '[]' >"$tmp/noimg"
-expect "image deleted" 1 "$R" "$fx/service-ok.json" "$tmp/lg" "$tmp/noimg" "$ceil" dev
+expect "image deleted" 1 "$R" "$fx/service-ok.json" "$tmp/lg" "$tmp/noimg" "$ceil_nf" dev
 jq '.metadata.name="api-00000-zzz" | .spec.containers[0].image = "example/api:latest"' "$fx/revision-ok.json" >"$tmp/lg4"
-expect "tag-pinned image" 1 "$R" "$fx/service-ok.json" "$tmp/lg4" "$fx/images-ok.json" "$ceil" dev
+expect "tag-pinned image" 1 "$R" "$fx/service-ok.json" "$tmp/lg4" "$fx/images-ok.json" "$ceil_nf" dev
 jq '.metadata.name="api-00000-zzz" | .spec.containers[0].env += [{"name":"FEATURE_ENGAGEMENT","value":"on"}]' "$fx/revision-ok.json" >"$tmp/lg5"
-expect "rollback target over ceiling" 1 "$R" "$fx/service-ok.json" "$tmp/lg5" "$fx/images-ok.json" "$ceil" dev
+expect_msg "rollback target over ceiling" 1 "fails validation" "$R" "$fx/service-ok.json" "$tmp/lg5" "$fx/images-ok.json" "$ceil_nf" dev
 
 # --- resolve-rollback.sh rollback floors: a throwaway git repo with commits before, at and after the floor
 fr=$tmp/floorrepo
@@ -136,7 +140,7 @@ git -C "$fr" commit -q --allow-empty -m after && c_after=$(git -C "$fr" rev-pars
 git -C "$fr" checkout -q -b side "$c_before" && git -C "$fr" commit -q --allow-empty -m sideways && c_side=$(git -C "$fr" rev-parse HEAD)
 git -C "$fr" checkout -q - 2>/dev/null
 mut '.metadata.name = "api-00000-zzz"' revision-ok.json lg
-jq --arg c "$c_floor" '.rollback_floors.PRIVATE_ACCOUNTS = {"commit": $c, "pr": 1, "reason": "test"}' "$ceil" >"$tmp/ceil-floor"
+jq --arg c "$c_floor" '.rollback_floors.PRIVATE_ACCOUNTS = {"commit": $c, "pr": 1, "reason": "test"}' "$ceil_nf" >"$tmp/ceil-floor"
 # lg-pa / lg-pa-off: last-good with FEATURE_PRIVATE_ACCOUNTS allowlist / off; img <commit...>: images.json whose digest carries those tags
 jq '.metadata.name = "api-00000-zzz" | .spec.containers[0].env += [{"name":"FEATURE_PRIVATE_ACCOUNTS","value":"allowlist"}]' "$fx/revision-ok.json" >"$tmp/lg-pa"
 jq '.metadata.name = "api-00000-zzz" | .spec.containers[0].env += [{"name":"FEATURE_PRIVATE_ACCOUNTS","value":"off"}]' "$fx/revision-ok.json" >"$tmp/lg-pa-off"
@@ -176,6 +180,8 @@ expect "floor: committed ceiling floor is a 40-hex commit" 0 -c '[[ "$(jq -r .ro
 expect "floor: registry check still ok with rollback_floors" 0 "$G" "$fx/config-ok.go.txt" "$ceil"
 # a floor must name a flag the ceiling knows
 expect "floor: every floor flag is a registered flag" 0 -c 'jq -e ".flags as \$f | [.rollback_floors // {} | keys[] | select(startswith(\"_\")|not) | select(. as \$k | \$f | index(\$k) | not)] | length == 0" "$0" >/dev/null' "$ceil"
+# plain, sticky and malformed floors in every flag mode, and the registry's floor schema check: their own file
+expect_msg "rollback floor tests (plain, sticky, malformed)" 0 "rollback floor tests: [0-9]* passed, 0 failed" "$here/rollback-floors-test.sh"
 
 # --- check-flag-registry
 expect "registry ok" 0 "$G" "$fx/config-ok.go.txt" "$ceil"
@@ -207,10 +213,10 @@ mut '.status.conditions = [{"type":"Ready","status":"False"}]' service-ok.json s
 expect "service not ready" 1 "$T" "$tmp/s" "$ceil" dev serving
 mut '.metadata.name = "api-00000-zzz"' revision-ok.json lg
 jq 'map(.package = "example-docker.pkg.dev/other-proj/api/api")' "$fx/images-ok.json" >"$tmp/img-other"
-expect "images from another repository" 1 "$R" "$fx/service-ok.json" "$tmp/lg" "$tmp/img-other" "$ceil" dev
+expect_msg "images from another repository" 1 "no longer in Artifact Registry" "$R" "$fx/service-ok.json" "$tmp/lg" "$tmp/img-other" "$ceil_nf" dev
 mut '.status.traffic[1].revisionName = "api-00001-aaa"' service-ok.json s
 mut '.metadata.name = "api-00001-aaa"' revision-ok.json lg6
-expect "last-good is the serving revision" 1 "$R" "$tmp/s" "$tmp/lg6" "$fx/images-ok.json" "$ceil" dev
+expect_msg "last-good is the serving revision" 1 "already serving" "$R" "$tmp/s" "$tmp/lg6" "$fx/images-ok.json" "$ceil_nf" dev
 
 # --- check-field-overrides.sh: any change to fieldOverrides must be acknowledged on purpose
 F="$p/check-field-overrides.sh"

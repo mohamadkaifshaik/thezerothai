@@ -20,8 +20,10 @@ import 'package:dzeroth/features/messages/presentation/widgets/message_search_pa
 import 'package:dzeroth/features/messages/presentation/widgets/not_encrypted_note.dart';
 import 'package:dzeroth/features/messages/presentation/widgets/request_banner.dart';
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
+import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:mocktail/mocktail.dart';
 
 import '../../../../support/fake_encrypted_messaging.dart';
 import '../../../../support/fake_encryption_device.dart';
@@ -35,6 +37,8 @@ const _none = ConversationEncryption.CONVERSATION_ENCRYPTION_NONE;
 const _ready = ConversationSecurity(state: ConversationEncryptionState.ready);
 
 void main() {
+  setUpAll(() => registerFallbackValue(const OnboardingState()));
+
   final ref = ThreadRef.conversation(kThreadId);
   // Relative to the clock (the fixed-date guard), after the cached rows.
   final base = DateTime.now().toUtc().add(const Duration(hours: 1));
@@ -1286,6 +1290,88 @@ void main() {
         tester.getTopLeft(find.text(kMessagesNotEncryptedText)).dy,
         lessThan(tester.getTopLeft(composer()).dy),
       );
+    });
+
+    testWidgets('Plan 6 Task 1.B: under e2ee_required the not-encrypted '
+        'thread says the required note instead, and swaps live when the flag '
+        'set changes', (tester) async {
+      final r = await open(
+        tester,
+        encryption: _none,
+        extraFlags: const {kFeatureE2eeDm, kFeatureE2eeRequired},
+      );
+      expect(find.text(kRequiredNoteText), findsOneWidget);
+      expect(find.text(kMessagesNotEncryptedText), findsNothing);
+      expect(
+        tester.getTopLeft(find.text(kRequiredNoteText)).dy,
+        lessThan(tester.getTopLeft(composer()).dy),
+      );
+
+      // A fresh GetMe without the flag: today's line, in the same place.
+      await r.rig.setFlags(tester, {
+        'messaging',
+        'graph',
+        'reports',
+        'ui_shell',
+        kFeatureE2eeDm,
+      });
+      expect(find.text(kMessagesNotEncryptedText), findsOneWidget);
+      expect(find.text(kRequiredNoteText), findsNothing);
+
+      // And back on.
+      await r.rig.setFlags(tester, {
+        'messaging',
+        'graph',
+        'reports',
+        'ui_shell',
+        kFeatureE2eeDm,
+        kFeatureE2eeRequired,
+      });
+      expect(find.text(kRequiredNoteText), findsOneWidget);
+      expect(find.text(kMessagesNotEncryptedText), findsNothing);
+    });
+
+    testWidgets('Plan 6 Task 1.B fix round (code review Nit 1, the uid '
+        'mismatch branch): while the flag set belongs to another user, the '
+        'note follows the fail-closed rule the sends use, and a send makes no '
+        'plaintext call', (tester) async {
+      final r = await open(tester, encryption: _none);
+      expect(find.text(kMessagesNotEncryptedText), findsOneWidget);
+
+      // The flag set without e2ee_required, but emitted for someone else
+      // than the user the bloc serves now (an account switch in flight).
+      when(() => r.rig.onboarding.uidOf(any())).thenReturn('uid-previous');
+      when(() => r.rig.onboarding.currentUid).thenReturn('uid-1');
+      await r.rig.setFlags(tester, {
+        'messaging',
+        'graph',
+        'reports',
+        'ui_shell',
+        kFeatureE2eeDm,
+      });
+      expect(find.text(kRequiredNoteText), findsOneWidget);
+      expect(find.text(kMessagesNotEncryptedText), findsNothing);
+
+      // A port that (wrongly) answered notEncrypted: the composer still
+      // refuses, nothing reaches the server.
+      r.port.nextSendOutcome = const SendOutcome(SendOutcomeKind.notEncrypted);
+      await tester.enterText(find.byKey(MessageComposer.fieldKey), 'hello');
+      await tester.pump();
+      await tester.tap(find.byKey(MessageComposer.sendKey));
+      await tester.pumpAndSettle();
+      expect(r.rig.server.sends, isEmpty);
+      expect(find.text(kRequiredUnavailableTitle), findsOneWidget);
+
+      // The same user again: today's note.
+      when(() => r.rig.onboarding.uidOf(any())).thenReturn('uid-1');
+      await r.rig.setFlags(tester, {
+        'messaging',
+        'graph',
+        'reports',
+        'ui_shell',
+        kFeatureE2eeDm,
+      });
+      expect(find.text(kMessagesNotEncryptedText), findsOneWidget);
     });
 
     testWidgets('a draft thread shows it above its composer too', (
