@@ -307,6 +307,13 @@ const kRequiredNoteText =
     'Earlier messages here are not end-to-end encrypted. New messages will be '
     'once both of you are on the latest app.';
 
+/// [kRequiredNoteText] for a draft thread, which has no earlier messages to
+/// disclose (code review Minor 1): the plan's Task 1.B wording. Owner may
+/// edit.
+const kRequiredDraftNoteText =
+    'New messages here will be end-to-end encrypted once both of you are on '
+    'the latest app.';
+
 /// `e2ee_required` is on but this device may not start encryption (`e2ee_dm`
 /// off: the server's required flag is not gated by it, ruling of 2026-11-25):
 /// a conversation that is not encrypted yet gets no send at all

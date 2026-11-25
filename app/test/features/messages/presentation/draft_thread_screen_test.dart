@@ -9,10 +9,12 @@ import 'package:dzeroth/features/messages/presentation/e2ee/encryption_copy.dart
 import 'package:dzeroth/features/messages/presentation/e2ee/encryption_status.dart';
 import 'package:dzeroth/features/messages/presentation/widgets/message_composer.dart';
 import 'package:dzeroth/features/messages/presentation/widgets/not_encrypted_note.dart';
+import 'package:dzeroth/features/onboarding/presentation/bloc/onboarding_state.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:mocktail/mocktail.dart';
 
 import '../../../support/fake_encrypted_messaging.dart';
 import '../../../support/fake_encryption_device.dart';
@@ -28,11 +30,15 @@ final _sam = common.AuthorSnapshot(
 );
 
 void main() {
+  setUpAll(() => registerFallbackValue(const OnboardingState()));
+
   Future<({FakeEncryptedMessaging port, MessagingFlowRig rig})> open(
     WidgetTester tester, {
     required bool e2eeDm,
     bool required = true,
     bool vaultKnown = true,
+    // Runs on the rig's onboarding mock before the draft opens.
+    void Function(MessagingFlowRig rig)? beforeOpen,
   }) async {
     final server = FakeMessagingServer();
     final port = FakeEncryptedMessaging();
@@ -64,6 +70,7 @@ void main() {
       device: device,
       extraBlocs: [BlocProvider<EncryptionStatusCubit>.value(value: status)],
     );
+    beforeOpen?.call(rig);
     unawaited(
       rig.appRouter.router.push<void>(AppRouter.messageDraftPath, extra: _sam),
     );
@@ -87,7 +94,10 @@ void main() {
   testWidgets('under required the draft shows the required note and the '
       'peer-cannot-receive state', (tester) async {
     final o = await open(tester, e2eeDm: true);
-    expect(find.text(kRequiredNoteText), findsOneWidget);
+    // A draft has no earlier messages: its own note, never the thread's
+    // "Earlier messages here ..." (code review Minor 1).
+    expect(find.text(kRequiredDraftNoteText), findsOneWidget);
+    expect(find.text(kRequiredNoteText), findsNothing);
     expect(find.text(kMessagesNotEncryptedText), findsNothing);
 
     o.port.nextSendOutcome = const SendOutcome(
@@ -155,12 +165,37 @@ void main() {
     expect(o.rig.server.sends, isEmpty);
   });
 
+  testWidgets('code review Nit 1: the draft note follows the fail-closed '
+      'rule the sends use (a flag set of another user reads as required)', (
+    tester,
+  ) async {
+    // The flag set lacks e2ee_required but was emitted for another user than
+    // the one the bloc serves now (an account switch in flight). The live
+    // swap of a note is covered on the thread screen (encrypted thread
+    // tests); this rig's router drops a pushed draft on an onboarding change.
+    final o = await open(
+      tester,
+      e2eeDm: true,
+      required: false,
+      beforeOpen: (rig) {
+        when(() => rig.onboarding.uidOf(any())).thenReturn('uid-previous');
+        when(() => rig.onboarding.currentUid).thenReturn('uid-1');
+      },
+    );
+    expect(find.text(kMessagesNotEncryptedText), findsNothing);
+    expect(find.text(kRequiredDraftNoteText), findsOneWidget);
+    // And its send is refused on the device: no plaintext call.
+    o.port.nextSendOutcome = const SendOutcome(SendOutcomeKind.notEncrypted);
+    await typeAndSend(tester, 'hello');
+    expect(o.rig.server.sends, isEmpty);
+  });
+
   testWidgets('required off: today\'s note and today\'s plaintext send', (
     tester,
   ) async {
     final o = await open(tester, e2eeDm: true, required: false);
     expect(find.text(kMessagesNotEncryptedText), findsOneWidget);
-    expect(find.text(kRequiredNoteText), findsNothing);
+    expect(find.text(kRequiredDraftNoteText), findsNothing);
     o.port.nextSendOutcome = const SendOutcome(SendOutcomeKind.notEncrypted);
     await typeAndSend(tester, 'hello');
     expect(o.rig.server.sends.single.recipientUserId, 'u-sam');

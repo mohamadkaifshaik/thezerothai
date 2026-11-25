@@ -360,6 +360,10 @@ class MessagingFlowRig {
       StreamController<AuthState>.broadcast();
   late _MockAuthBloc _auth;
 
+  /// The mocked onboarding bloc of the last [pump] (a mocktail mock: a test
+  /// may stub `uidOf` / `currentUid` on it).
+  late OnboardingBloc onboarding;
+
   /// The onboarding states after the first ([setFlags]).
   final StreamController<OnboardingState> _onboardingStates =
       StreamController<OnboardingState>.broadcast();
@@ -450,6 +454,7 @@ class MessagingFlowRig {
   }) async {
     final auth = _auth = _MockAuthBloc();
     final onboarding = _MockOnboardingBloc();
+    this.onboarding = onboarding;
     whenListen(
       auth,
       _authStates.stream,

@@ -67,14 +67,20 @@ bool Function() e2eeRequiredOf(
   OnboardingBloc bloc, {
   String? Function()? signedInUid,
 }) {
-  return () {
-    final state = bloc.state;
-    return e2eeRequiredFor(
-      state,
-      stateUid: bloc.uidOf(state),
-      signedInUid: signedInUid == null ? bloc.currentUid : signedInUid(),
-    );
-  };
+  return () => e2eeRequiredNow(bloc, signedInUid: signedInUid);
+}
+
+/// [e2eeRequiredOf]'s answer now: what a widget selects on
+/// (`context.select((OnboardingBloc b) => e2eeRequiredNow(b))`), so a note
+/// shown beside the composer follows the same fail-closed rule as its sends
+/// and rebuilds when the onboarding state changes (code review Nit 1).
+bool e2eeRequiredNow(OnboardingBloc bloc, {String? Function()? signedInUid}) {
+  final state = bloc.state;
+  return e2eeRequiredFor(
+    state,
+    stateUid: bloc.uidOf(state),
+    signedInUid: signedInUid == null ? bloc.currentUid : signedInUid(),
+  );
 }
 
 /// The most people one share action may be sent to (design Q7).

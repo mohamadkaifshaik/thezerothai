@@ -27,7 +27,8 @@ import '../domain/messaging_feature_flag.dart';
 import 'bloc/message_composer_cubit.dart';
 import 'e2ee/encrypted_thread_items.dart';
 import 'e2ee/encryption_access_builder.dart';
-import 'e2ee/encryption_copy.dart' show unsentDiscardText;
+import 'e2ee/encryption_copy.dart'
+    show kRequiredDraftNoteText, unsentDiscardText;
 import 'e2ee/encryption_status.dart';
 import 'e2ee/screen_encrypted_port.dart';
 import 'e2ee/widgets/thread_status_banner.dart';
@@ -408,7 +409,9 @@ class _DraftViewState extends State<_DraftView> {
 /// (security read H1): what the first message is until the pipeline says
 /// otherwise. The thread screen's own rule, with no conversation to ask.
 /// Under `e2ee_required` (Plan 6 Task 1.B) the first message is never
-/// plaintext, so the same place says `kRequiredNoteText` instead.
+/// plaintext, so the same place says `kRequiredDraftNoteText` instead (a
+/// draft has no earlier messages), decided by the same fail-closed rule the
+/// composer's sends use ([e2eeRequiredNow]), live.
 class _DraftNotEncryptedNote extends StatelessWidget {
   const _DraftNotEncryptedNote({required this.hasPort});
 
@@ -417,7 +420,9 @@ class _DraftNotEncryptedNote extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final requiredOn = isFeatureEnabled(context, kFeatureE2eeRequired);
+    final requiredOn = context.select(
+      (OnboardingBloc bloc) => e2eeRequiredNow(bloc),
+    );
     return EncryptionAccessBuilder(
       builder: (context, access) {
         final device = context.read<EncryptionDevice?>();
@@ -435,6 +440,7 @@ class _DraftNotEncryptedNote extends StatelessWidget {
             child: NotEncryptedNote(
               textAlign: TextAlign.center,
               encryptionRequired: requiredOn,
+              requiredText: kRequiredDraftNoteText,
             ),
           ),
         );

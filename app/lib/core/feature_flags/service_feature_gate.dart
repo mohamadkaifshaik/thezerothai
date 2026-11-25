@@ -57,7 +57,7 @@ class ServiceFeatureGate extends ChangeNotifier {
     if (exception.updateRequired) _updateRequired = true;
     if (_disabledByServer) return;
     _disabledByServer = true;
-    requestRefresh();
+    _requestRefresh();
     notifyListeners();
   }
 
@@ -103,19 +103,27 @@ class ServiceFeatureGate extends ChangeNotifier {
     }
   }
 
-  /// Asks for one GetMe refresh through `onDisabledByServer`, at most every
-  /// [kServiceGateRefreshInterval] (one clock for every reason a subclass
-  /// asks, so the reasons together never exceed that rate).
+  /// The FEATURE_DISABLED refresh: at most every [kServiceGateRefreshInterval]
+  /// on its own clock.
+  void _requestRefresh() {
+    _lastRefreshRequest = requestRefreshAfter(_lastRefreshRequest);
+  }
+
+  /// Asks for one GetMe refresh through `onDisabledByServer` unless [last]
+  /// (the caller's own clock for its reason) is less than
+  /// [kServiceGateRefreshInterval] ago; answers the clock's new value. Each
+  /// reason keeps its own clock (code review Minor 2), so a refresh for one
+  /// (an ENCRYPTION_REQUIRED) never swallows the first refresh for another
+  /// (a FEATURE_DISABLED, which turns the service off until GetMe answers).
   @protected
-  void requestRefresh() {
+  DateTime? requestRefreshAfter(DateTime? last) {
     final callback = _onDisabledByServer;
-    if (callback == null) return;
+    if (callback == null) return last;
     final now = _now();
-    final last = _lastRefreshRequest;
     if (last != null && now.difference(last) < kServiceGateRefreshInterval) {
-      return;
+      return last;
     }
-    _lastRefreshRequest = now;
     callback();
+    return now;
   }
 }

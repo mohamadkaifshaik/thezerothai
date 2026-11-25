@@ -17,6 +17,7 @@ import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/identity/v1/identity.pb.dart' as identity;
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.connect.spec.dart';
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
+import 'package:fixnum/fixnum.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
@@ -42,6 +43,9 @@ const _user = AppUser(
 identity.GetMeResponse _me(List<String> features) => identity.GetMeResponse(
   profile: identity.Profile(userId: 'uid-1', handle: 'me'),
   enabledFeatures: features,
+  // Pending follow requests, so answering one changes the state (a state
+  // equal to the last is not emitted).
+  pendingFollowRequestCount: Int64(5),
 );
 
 void main() {
@@ -138,22 +142,47 @@ void main() {
       expect(getMeCalls, 2);
     });
 
-    test('a GetMe answered for another reason restarts the clock', () async {
+    test('a GetMe answered for another reason restarts the clock (and only '
+        'the answer does: a later non-GetMe update does not)', () async {
       var now = DateTime.now();
       final refresh = ResumeFlagsRefresh(onboarding, now: () => now);
       addTearDown(refresh.dispose);
+      final generation = onboarding.flagsGeneration;
       now = now.add(const Duration(minutes: 10));
       onboarding.add(const OnboardingRefreshRequested());
       await pumpEventQueue();
       expect(getMeCalls, 2);
+      expect(onboarding.flagsGeneration, generation + 1);
+
+      // At 20 minutes a state change that is not a GetMe answer.
       now = now.add(const Duration(minutes: 10));
+      onboarding.add(const OnboardingFollowRequestAnswered());
+      await pumpEventQueue();
+      expect(onboarding.flagsGeneration, generation + 1);
       refresh.onResume();
       await pumpEventQueue();
       expect(getMeCalls, 2, reason: '10 minutes after the last answer');
+
+      // 25 minutes: 15 after the answer at 10, whatever happened at 20.
       now = now.add(const Duration(minutes: 5));
       refresh.onResume();
       await pumpEventQueue();
       expect(getMeCalls, 3);
+    });
+
+    test('security L-new-1: a follow-request answer at 10 minutes does not '
+        'restart the clock; a resume at 15 minutes still asks GetMe', () async {
+      var now = DateTime.now();
+      final refresh = ResumeFlagsRefresh(onboarding, now: () => now);
+      addTearDown(refresh.dispose);
+      now = now.add(const Duration(minutes: 10));
+      onboarding.add(const OnboardingFollowRequestAnswered());
+      await pumpEventQueue();
+      expect(onboarding.state.pendingFollowRequestCount, 4, reason: 'emitted');
+      now = now.add(const Duration(minutes: 5));
+      refresh.onResume();
+      await pumpEventQueue();
+      expect(getMeCalls, 2);
     });
 
     test('signed out: no refresh', () async {

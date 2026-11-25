@@ -18,13 +18,18 @@ import '../features/posts/domain/posts_feature_flag.dart';
 import '../features/notifications/data/notifications_repository.dart';
 import '../features/timeline/data/timeline_repository.dart';
 
-/// Resets [gate] on every fresh `GetMe` (it emits a new flag-set instance),
-/// so a remembered FEATURE_DISABLED can never stick for the session.
+/// Resets [gate] on every fresh `GetMe` answer
+/// ([OnboardingBloc.flagsGeneration] moved), so a remembered FEATURE_DISABLED
+/// can never stick for the session, and only then: any other state change
+/// (a follow-request count, a profile edit) keeps what the server said
+/// (security L-new-1; the flag-set instance cannot tell the two apart, the
+/// freezed getter wraps it on every read).
 void _wireGateReset(OnboardingBloc onboardingBloc, ServiceFeatureGate gate) {
-  var last = onboardingBloc.state.enabledFeatures;
-  onboardingBloc.stream.listen((state) {
-    if (!identical(state.enabledFeatures, last)) {
-      last = state.enabledFeatures;
+  var last = onboardingBloc.flagsGeneration;
+  onboardingBloc.stream.listen((_) {
+    final generation = onboardingBloc.flagsGeneration;
+    if (generation != last) {
+      last = generation;
       gate.reset();
     }
   });
@@ -108,12 +113,14 @@ class ResumeFlagsRefresh {
   }) : _onboarding = onboardingBloc,
        _now = now,
        _last = now(),
-       _seen = onboardingBloc.state.enabledFeatures {
-    // A fresh GetMe emits a new flag-set instance (as `_wireGateReset`
-    // relies on): that is an answer, and the clock restarts.
-    _sub = onboardingBloc.stream.listen((state) {
-      if (identical(state.enabledFeatures, _seen)) return;
-      _seen = state.enabledFeatures;
+       _seen = onboardingBloc.flagsGeneration {
+    // Only a GetMe answer restarts the clock ([OnboardingBloc.
+    // flagsGeneration] moved); any other state change does not (security
+    // L-new-1).
+    _sub = onboardingBloc.stream.listen((_) {
+      final generation = _onboarding.flagsGeneration;
+      if (generation == _seen) return;
+      _seen = generation;
       _last = _now();
     });
   }
@@ -121,7 +128,7 @@ class ResumeFlagsRefresh {
   final OnboardingBloc _onboarding;
   final DateTime Function() _now;
   DateTime _last;
-  Set<String> _seen;
+  int _seen;
   late final StreamSubscription<OnboardingState> _sub;
 
   /// The app came back to the foreground.

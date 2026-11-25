@@ -206,6 +206,12 @@ void main() {
       'Earlier messages here are not end-to-end encrypted. New messages will '
       'be once both of you are on the latest app.',
     );
+    // A draft has no earlier messages (code review Minor 1).
+    expect(
+      kRequiredDraftNoteText,
+      'New messages here will be end-to-end encrypted once both of you are on '
+      'the latest app.',
+    );
     expect(kRequiredUnavailableTitle, 'Messages are being upgraded');
     expect(
       kRequiredUnavailableBody,

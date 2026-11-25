@@ -89,6 +89,60 @@ void main() {
     expect(g.canRead, isTrue);
   });
 
+  test('a FEATURE_DISABLED within 60 s of an ENCRYPTION_REQUIRED refresh '
+      'still asks for its own refresh (code review Minor 2: the two never '
+      'share a throttle)', () async {
+    var now = DateTime.now();
+    var refreshes = 0;
+    final g = MessagingFeatureGate(
+      isMessagingEnabled: () => true,
+      onDisabledByServer: () => refreshes++,
+      now: () => now,
+    );
+    await expectLater(
+      g.run<int>(
+        () async => throw withDetail(
+          connect.Code.failedPrecondition,
+          common.ErrorReason.ERROR_REASON_ENCRYPTION_REQUIRED,
+        ),
+      ),
+      throwsA(isA<EncryptionRequiredException>()),
+    );
+    expect(refreshes, 1);
+    now = now.add(const Duration(seconds: 10));
+    await expectLater(
+      g.run(disabled),
+      throwsA(isA<FeatureDisabledException>()),
+    );
+    expect(refreshes, 2);
+    expect(g.canSend, isFalse, reason: 'the disable is remembered');
+
+    // And the other way round: a FEATURE_DISABLED refresh does not hold
+    // back an ENCRYPTION_REQUIRED one.
+    var refreshes2 = 0;
+    final g2 = MessagingFeatureGate(
+      isMessagingEnabled: () => true,
+      onDisabledByServer: () => refreshes2++,
+      now: () => now,
+    );
+    await expectLater(
+      g2.runRead(disabled),
+      throwsA(isA<FeatureDisabledException>()),
+    );
+    expect(refreshes2, 1);
+    g2.reset();
+    await expectLater(
+      g2.run<int>(
+        () async => throw withDetail(
+          connect.Code.failedPrecondition,
+          common.ErrorReason.ERROR_REASON_ENCRYPTION_REQUIRED,
+        ),
+      ),
+      throwsA(isA<EncryptionRequiredException>()),
+    );
+    expect(refreshes2, 2);
+  });
+
   test('update_required: the local refusals of run and runRead keep the flag '
       'until reset (Plan 6 PR 6-4)', () async {
     Future<int> updateRequired() async => throw withDetail(
