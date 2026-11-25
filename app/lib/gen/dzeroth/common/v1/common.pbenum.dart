@@ -195,8 +195,8 @@ class ErrorReason extends $pb.ProtobufEnum {
   /// metadata["conversation_id"] is set when the SendMessage addressed recipient_user_id. A current client never sends
   /// plaintext in either case; on this reason show "Update the app to keep messaging". A client built before this value
   /// decodes it as UNSPECIFIED (no metadata["reason"] is set) and falls back to the FAILED_PRECONDITION mapping, so its
-  /// messaging screens show their generic failure text, not an update prompt: telling such an app to update is the app
-  /// version floor's job (E2EE Plan 6 §3; not yet part of this contract), not this error's.
+  /// messaging screens show their generic failure text, not an update prompt: telling such an app to update is the job
+  /// of the app version floor (not yet part of this contract), not this error's.
   static const ErrorReason ERROR_REASON_ENCRYPTION_REQUIRED = ErrorReason._(
       24, _omitEnumNames ? '' : 'ERROR_REASON_ENCRYPTION_REQUIRED');
 

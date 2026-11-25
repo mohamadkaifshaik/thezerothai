@@ -63,7 +63,8 @@ type Spec struct {
 
 // NewRetired builds a Spec for a flag that always reports enabled, regardless of env vars (retirement rule).
 // Use this in place of LoadSpec once a flag has been fully rolled out and its env vars
-// have been removed from Terraform.
+// have been removed from Terraform. A parent gate still applies to a retired child: a retired flag coupled with
+// Registry.Require is effective only while its parents are (its own mode reads on).
 func NewRetired(wireName string) Spec {
 	return Spec{Name: wireName, Mode: On, retired: true}
 }
@@ -130,8 +131,13 @@ func LoadSpec(envName, wireName string, defaultMode Mode) (Spec, error) {
 // resolved from the Spec values captured at process start).
 type Registry struct {
 	specs map[string]Spec
-	// requires maps a flag name to the flags it needs (Require): name is effective for a uid only while each of them is.
-	requires map[string][]string
+	// The Require coupling (require.go): requires holds the accepted direct edges, ancestors their closure (every flag a
+	// name needs, directly or through a chain; recomputed at each Require, so a read is linear and never recursive),
+	// broken the names a rejected cycle or self-parent turned permanently off, and rejected those rejections.
+	requires  map[string][]string
+	ancestors map[string][]string
+	broken    map[string]bool
+	rejected  []CouplingWarning
 }
 
 // NewRegistry builds a Registry from a fixed set of specs (one per LoadSpec/NewRetired call in main.go).
@@ -140,21 +146,7 @@ func NewRegistry(specs ...Spec) *Registry {
 	for _, s := range specs {
 		m[s.Name] = s
 	}
-	return &Registry{specs: m, requires: map[string][]string{}}
-}
-
-// Require couples name to parents: name is effective for a uid only while its own spec is on for that uid and every
-// parent is effective for that uid too (through the parents' own requirements, so a chain composes). Enabled and
-// EnabledFeatures report the effective value; GloballyOff keeps reading name's raw mode (the kill switch is the flag's
-// own setting, never a consequence of another flag). An unknown parent is off, so name is off for everyone; a cycle
-// fails closed (every flag in it is off). Call it while building the registry, before it is shared: it is not safe to
-// call concurrently with reads. It returns r for chaining; a nil registry stays nil.
-func (r *Registry) Require(name string, parents ...string) *Registry {
-	if r == nil {
-		return nil
-	}
-	r.requires[name] = append(r.requires[name], parents...)
-	return r
+	return &Registry{specs: m, requires: map[string][]string{}, ancestors: map[string][]string{}, broken: map[string]bool{}}
 }
 
 // Enabled reports whether the named flag is on for uid. An unknown name is always off (never panics) so a
@@ -164,21 +156,27 @@ func (r *Registry) Enabled(uid, name string) bool {
 	if r == nil {
 		return false
 	}
-	return r.enabled(uid, name, 0)
+	return r.enabled(uid, name)
 }
 
-// enabled is Enabled at a depth of the Require chain: deeper than the number of flags can only be a cycle, which is off.
-func (r *Registry) enabled(uid, name string, depth int) bool {
-	s, ok := r.specs[name]
-	if !ok || depth > len(r.specs) || !s.enabledFor(uid) {
+// enabled is the effective value: name's own spec, and the own spec of every flag it requires (the precomputed closure),
+// on for uid; a name a rejected requirement broke is off.
+func (r *Registry) enabled(uid, name string) bool {
+	if !r.rawOn(uid, name) {
 		return false
 	}
-	for _, p := range r.requires[name] {
-		if !r.enabled(uid, p, depth+1) {
+	for _, a := range r.ancestors[name] {
+		if !r.rawOn(uid, a) {
 			return false
 		}
 	}
 	return true
+}
+
+// rawOn is name's own spec for uid: off when unknown or broken.
+func (r *Registry) rawOn(uid, name string) bool {
+	s, ok := r.specs[name]
+	return ok && !r.broken[name] && s.enabledFor(uid)
 }
 
 // GloballyOff reports whether the named flag is the kill switch: switched off for every caller, so Enabled(uid, name)
@@ -206,7 +204,7 @@ func (r *Registry) EnabledFeatures(uid string) []string {
 	}
 	var out []string
 	for name := range r.specs {
-		if r.enabled(uid, name, 0) {
+		if r.enabled(uid, name) {
 			out = append(out, name)
 		}
 	}

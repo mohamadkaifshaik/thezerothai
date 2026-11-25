@@ -30,8 +30,8 @@ func requiredSpec(m flags.Mode, uids ...string) flags.Spec {
 }
 
 // requiredRig is a rig with messaging on for everyone, e2ee_dm on for the e2ee uids only (each with one active device),
-// e2ee_required as given, coupled as the composition root couples them (e2ee_dm needs messaging, e2ee_required needs the
-// effective e2ee_dm), and mutual follows between alice and bob.
+// e2ee_required as given, coupled as the composition root couples them (e2ee_dm and e2ee_required each need messaging
+// only), and mutual follows between alice and bob.
 func requiredRig(t *testing.T, required flags.Spec, e2ee []string, mut func(*rig)) *rig {
 	t.Helper()
 	dm := flags.Spec{Name: keys.FlagName, Mode: flags.Allowlist, Allowlist: map[string]struct{}{}}
@@ -40,7 +40,7 @@ func requiredRig(t *testing.T, required flags.Spec, e2ee []string, mut func(*rig
 	}
 	return newRig(t, func(r *rig) {
 		r.reg = flags.NewRegistry(flags.Spec{Name: FlagName, Mode: flags.On}, dm, required).
-			Require(keys.FlagName, FlagName).Require(E2EERequiredFlag, keys.FlagName)
+			Require(keys.FlagName, FlagName).Require(E2EERequiredFlag, FlagName)
 		r.social.snaps[alice] = graph.Snapshot{Following: map[string]bool{bob: true}}
 		r.social.snaps[bob] = graph.Snapshot{Following: map[string]bool{alice: true}}
 		for _, u := range e2ee {
@@ -83,7 +83,8 @@ func wantRequiredRefusal(t *testing.T, r *rig, info *logger.RequestInfo, err err
 // e2ee_dm cohort or not, x bob (the recipient) in it (and so able to encrypt) or not, x a new, a plaintext or an MLS
 // conversation, x a plaintext or an encrypted request. Plaintext into MLS is ENCRYPTION_REQUIRED as before, without the
 // policy field; plaintext elsewhere is refused exactly when e2ee_required is effective for the sender or the recipient
-// (effective: e2ee_required and e2ee_dm both on for that uid); an encrypted send at the current pair always passes, and
+// (effective: e2ee_required and messaging on for that uid, whatever e2ee_dm says: fail closed); an encrypted send at the
+// current pair always passes, and
 // mls_init keeps its own flag rules.
 func TestSendRequired_Matrix(t *testing.T) {
 	convID := ConversationID(alice, bob)
@@ -134,7 +135,7 @@ func TestSendRequired_Matrix(t *testing.T) {
 							ctx, info := logger.WithRequestInfo(verifiedCtx())
 							_, err := r.svc.Send(ctx, alice, req)
 
-							effective := (mode.rawOn[alice] && senderE2EE) || (mode.rawOn[bob] && peerE2EE)
+							effective := mode.rawOn[alice] || mode.rawOn[bob]
 							switch {
 							case !encrypted && cv.name == "mls":
 								// The existing rule, unchanged: the conversation's own encryption, not the policy.
@@ -404,15 +405,70 @@ func TestSendRequired_ReplayWins(t *testing.T) {
 	}
 }
 
-// The service applies the coupling itself too (defence in depth behind the registry's): a checker that reports
-// e2ee_required without e2ee_dm for a uid does not make that uid's sends required.
-func TestSendRequired_NeedsE2EEDMEvenWithoutRegistryCoupling(t *testing.T) {
+// The refusal fails closed (6-1 security review M2): with e2ee_required effective and e2ee_dm off (killed or narrowed),
+// plaintext is still refused, for the sender and for the recipient; mls_init is refused by its own e2ee_dm rule, so the
+// pair can exchange nothing. Turning e2ee_dm off never reopens plaintext; the lever that does is e2ee_required itself.
+func TestSendRequired_FailsClosedWithoutE2EEDM(t *testing.T) {
 	convID := ConversationID(alice, bob)
-	r := newRig(t, func(r *rig) {
-		r.reg = flags.NewRegistry(flags.Spec{Name: FlagName, Mode: flags.On}, requiredSpec(flags.On))
-		r.repo.convs[convID] = plainConv()
-	})
-	if _, err := r.svc.Send(verifiedCtx(), alice, toConv(key1, convID, "hi")); err != nil {
-		t.Fatalf("required without e2ee_dm refused a send: %v", err)
+	for _, tc := range []struct {
+		name     string
+		e2ee     []string // e2ee_dm cohort
+		required flags.Spec
+	}{
+		{"e2ee_dm off for everyone, required for the sender", nil, requiredSpec(flags.Allowlist, alice)},
+		{"e2ee_dm off for everyone, required for the recipient", nil, requiredSpec(flags.Allowlist, bob)},
+		{"e2ee_dm narrowed away from the required sender", []string{bob}, requiredSpec(flags.Allowlist, alice)},
+		{"e2ee_dm narrowed away from the required recipient", []string{alice}, requiredSpec(flags.Allowlist, bob)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for name, conv := range map[string]*ConvDoc{"new": nil, "plaintext": func() *ConvDoc { c := plainConv(); return &c }()} {
+				t.Run(name, func(t *testing.T) {
+					r := requiredRig(t, tc.required, tc.e2ee, func(r *rig) {
+						if conv != nil {
+							r.repo.convs[convID] = *conv
+						}
+					})
+					ctx, info := logger.WithRequestInfo(verifiedCtx())
+					_, err := r.svc.Send(ctx, alice, toUser(key1, bob, "hi"))
+					wantRequiredRefusal(t, r, info, err, convID, map[string]string{"conversation_id": convID})
+				})
+			}
+			// mls_init: refused by e2ee_dm (caller off: FEATURE_DISABLED; recipient off: CANNOT_MESSAGE), as today.
+			r := requiredRig(t, tc.required, tc.e2ee, nil)
+			_, err := r.svc.Send(verifiedCtx(), alice, initSend(key1, "", "sealed", bob+"-device-000001"))
+			if err == nil {
+				t.Fatal("mls_init passed with e2ee_dm off for a participant")
+			}
+		})
+	}
+}
+
+// Required on with messaging off for the sender: messaging refuses first (FEATURE_DISABLED "messaging", before any read);
+// with messaging off for the recipient: the one CANNOT_MESSAGE. The policy never answers in either case.
+func TestSendRequired_MessagingOffAnswersFirst(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		reason commonv1.ErrorReason
+		allow  string // the only uid with messaging on
+	}{
+		{"sender off", commonv1.ErrorReason_ERROR_REASON_FEATURE_DISABLED, bob},
+		{"recipient off", commonv1.ErrorReason_ERROR_REASON_CANNOT_MESSAGE, alice},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := requiredRig(t, requiredSpec(flags.On), []string{alice, bob}, func(r *rig) {
+				r.reg = flags.NewRegistry(flags.Spec{Name: FlagName, Mode: flags.Allowlist, Allowlist: map[string]struct{}{tc.allow: {}}},
+					flags.Spec{Name: keys.FlagName, Mode: flags.On}, requiredSpec(flags.On)).
+					Require(keys.FlagName, FlagName).Require(E2EERequiredFlag, FlagName)
+			})
+			ctx, info := logger.WithRequestInfo(verifiedCtx())
+			_, err := r.svc.Send(ctx, alice, toUser(key1, bob, "hi"))
+			_, reason, _ := reasonOf(t, err)
+			if reason != tc.reason {
+				t.Fatalf("reason = %v (%v), want %v", reason, err, tc.reason)
+			}
+			if v, ok := info.Get(fieldPolicy); ok {
+				t.Errorf("policy = %v, want absent", v)
+			}
+		})
 	}
 }

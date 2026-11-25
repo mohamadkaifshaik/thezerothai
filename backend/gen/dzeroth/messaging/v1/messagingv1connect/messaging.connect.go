@@ -108,8 +108,11 @@
 //     FAILED_PRECONDITION + ENCRYPTION_REQUIRED; there is no plaintext fallback.
 //   - Encryption policy. Flag FEATURE_E2EE_REQUIRED (wire name "e2ee_required", default off) decides whether a
 //     conversation that is not encrypted may still RECEIVE NEW plaintext; it never changes a stored message or a
-//     conversation's encryption. It is effective for a user only while "e2ee_dm" is effective for them, which is only
-//     while "messaging" is on for them; GetMe enabled_features lists these effective values. When it is effective for the
+//     conversation's encryption. It is effective for a user only while "messaging" is on for them, and it does NOT depend
+//     on "e2ee_dm": it fails closed. A user for whom it is effective while "e2ee_dm" is off can exchange no direct message
+//     at all (plaintext is refused below, and starting encryption needs "e2ee_dm"); turning "e2ee_dm" off never makes
+//     plaintext possible again. GetMe enabled_features lists these effective values ("e2ee_required" may be listed
+//     without "e2ee_dm"; a client then offers no send). When it is effective for the
 //     sender OR the recipient, every plaintext SendMessage (no ciphertext) is refused with FAILED_PRECONDITION +
 //     ENCRYPTION_REQUIRED, storing nothing: into a NONE conversation, for a first message or a message request (no
 //     conversation yet), and for a post share (shared_post_id without ciphertext). Encrypted sends, mls_init included, are
@@ -120,8 +123,8 @@
 //     reads nothing; on an existing conversation a refusal costs the 1-read replay check of the message id, as the other
 //     encryption refusals do. A replay of a plaintext message stored under the same idempotency_key before the flag
 //     applied still returns that message. A
-//     client with "e2ee_required" in enabled_features never offers a plaintext send. Switching the flag off makes plaintext
-//     sends into NONE conversations work again.
+//     client with "e2ee_required" in enabled_features never offers a plaintext send. Switching "e2ee_required" itself off
+//     is the only thing that makes plaintext sends into NONE conversations work again.
 //   - Flag FEATURE_E2EE_DM (wire name "e2ee_dm", default off) gates only STARTING encryption, the mls_init of a
 //     SendMessage: it must be on for the caller (else FAILED_PRECONDITION + FEATURE_DISABLED, metadata["feature"] =
 //     "e2ee_dm", before any lookup) AND for the recipient (else the byte-identical CANNOT_MESSAGE). Every other operation

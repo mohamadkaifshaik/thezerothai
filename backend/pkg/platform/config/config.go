@@ -257,9 +257,11 @@ type Config struct {
 	FeatureE2EEDM flags.Spec
 	// FeatureE2EERequired is the flag (wire name `e2ee_required`, E2EE Plan 6 §1.1) that refuses every plaintext
 	// SendMessage (ENCRYPTION_REQUIRED) when it is effective for the sender or the recipient, into a conversation that is
-	// not encrypted yet included. Effective = this flag && the effective e2ee_dm (which is e2ee_dm && messaging), wired in
-	// apiserver.featureRegistry. Switching it off is the clean rollback lever: plaintext sends work again, nothing stored
-	// changes. FEATURE_E2EE_REQUIRED[_ALLOWLIST|_PERCENT], default off in every environment.
+	// not encrypted yet included. Effective = this flag && messaging (apiserver.coupleE2EE), and NOT gated by e2ee_dm: it
+	// fails closed, so with e2ee_dm off or narrowed a required user can exchange nothing (plaintext refused, mls_init
+	// refused) instead of getting plaintext back; startup logs a WARN for that state. Switching THIS flag off is the one
+	// lever that reopens plaintext; nothing stored changes. FEATURE_E2EE_REQUIRED[_ALLOWLIST|_PERCENT], default off in
+	// every environment.
 	FeatureE2EERequired flags.Spec
 	// FeatureDeviceSignOut is the flag (wire name `device_sign_out`) of the session cut (security audit H2): on for the
 	// remover, a RemoveKeyDevice with reason REMOTE and a recent sign-in ends the account's other sessions; the cut check

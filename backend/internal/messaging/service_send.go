@@ -584,17 +584,14 @@ func (s *service) recipientRefusal(mine graph.Snapshot, peer string, active bool
 
 // encryptionRequired reports whether FEATURE_E2EE_REQUIRED applies to a send between uid and peer (P6 §1.1): effective for
 // the sender OR the recipient, because the claim covers a person's messages in both directions (a user in the required
-// cohort never receives a readable message from someone outside it). Effective for a uid is e2ee_required && e2ee_dm: the
-// composition root's registry already couples them (and e2ee_dm to messaging); asking e2ee_dm here as well keeps the rule
-// safe behind any other FlagChecker, so a uid who cannot encrypt is never made unable to send at all. Both answers come
-// from flags in memory: no read. The send transaction applies the verdict (requiredGate) after every CANNOT_MESSAGE
-// refusal, so only someone allowed to message a user can learn that user's cohort.
+// cohort never receives a readable message from someone outside it). It is the effective e2ee_required as the checker
+// reports it (the composition root couples it to messaging only) and deliberately not gated by e2ee_dm: it fails closed,
+// so killing or narrowing e2ee_dm never reopens plaintext for a required user (they then exchange nothing; the lever
+// that reopens plaintext is e2ee_required itself). Both answers come from flags in memory: no read. The send
+// transaction applies the verdict (requiredGate) after every CANNOT_MESSAGE refusal, so only someone allowed to message
+// a user can learn that user's cohort.
 func (s *service) encryptionRequired(uid, peer string) bool {
-	return s.requiredFor(uid) || s.requiredFor(peer)
-}
-
-func (s *service) requiredFor(uid string) bool {
-	return s.flags != nil && s.flags.Enabled(uid, E2EERequiredFlag) && s.flags.Enabled(uid, keys.FlagName)
+	return s.flags != nil && (s.flags.Enabled(uid, E2EERequiredFlag) || s.flags.Enabled(peer, E2EERequiredFlag))
 }
 
 // recipientFollowingOnly is the one F9 predicate shared by Send (SendParams.RecipientFollowingOnly), ListMessageSuggestions

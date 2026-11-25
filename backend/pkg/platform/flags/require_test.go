@@ -2,6 +2,7 @@ package flags
 
 import (
 	"slices"
+	"strconv"
 	"testing"
 )
 
@@ -69,12 +70,97 @@ func TestRegistry_Require_UnknownParentIsOff(t *testing.T) {
 	}
 }
 
-// A cycle (a requires b requires a) never loops: both are off.
-func TestRegistry_Require_CycleFailsClosed(t *testing.T) {
-	r := NewRegistry(Spec{Name: "a", Mode: On}, Spec{Name: "b", Mode: On}).Require("a", "b").Require("b", "a")
-	if r.Enabled("u1", "a") || r.Enabled("u1", "b") {
-		t.Error("a requirement cycle must fail closed")
+// A requirement that would close a cycle (a requires b, then b requires a) or a self-parent is rejected at registration:
+// the edge is not added, its child is permanently off (and so is everything requiring it), and the rejection is reported.
+func TestRegistry_Require_CycleRejectedAtRegistration(t *testing.T) {
+	r := NewRegistry(Spec{Name: "a", Mode: On}, Spec{Name: "b", Mode: On}, Spec{Name: "c", Mode: On}).
+		Require("a", "b").Require("b", "a").Require("c", "c")
+	for _, name := range []string{"a", "b", "c"} {
+		if r.Enabled("u1", name) {
+			t.Errorf("%s must be off (cycle or self-parent)", name)
+		}
+		if r.GloballyOff(name) {
+			t.Errorf("GloballyOff(%s) reads the raw mode (on)", name)
+		}
 	}
+	want := []CouplingWarning{
+		{Flag: "b", Parent: "a", FlagMode: On, ParentMode: On, Reason: ReasonCycle},
+		{Flag: "c", Parent: "c", FlagMode: On, ParentMode: On, Reason: ReasonCycle},
+	}
+	if got := r.CouplingWarnings(); !slices.Equal(got, want) {
+		t.Errorf("CouplingWarnings = %+v, want %+v", got, want)
+	}
+}
+
+// A long chain is evaluated without recursion blow-up: every flag of a 64-deep chain with two parents per level (a
+// dense diamond) answers at once.
+func TestRegistry_Require_DenseChainIsLinear(t *testing.T) {
+	const depth = 64
+	var specs []Spec
+	for i := 0; i < depth; i++ {
+		specs = append(specs, Spec{Name: name2(i, 0), Mode: On}, Spec{Name: name2(i, 1), Mode: On})
+	}
+	r := NewRegistry(specs...)
+	for i := 1; i < depth; i++ {
+		r.Require(name2(i, 0), name2(i-1, 0), name2(i-1, 1)).Require(name2(i, 1), name2(i-1, 0), name2(i-1, 1))
+	}
+	if !r.Enabled("u1", name2(depth-1, 0)) {
+		t.Fatal("the deepest flag should be on")
+	}
+}
+
+func name2(level, side int) string { return string(rune('a'+side)) + "-" + strconv.Itoa(level) }
+
+// TestRegistry_CouplingWarnings: one warning per Require edge whose child is not off while the parent is off, or
+// obviously narrower (child on with parent allowlist / percent / off; child allowlist or percent with parent off). A
+// retired child reads on; an unknown parent reads off. Modes only.
+func TestRegistry_CouplingWarnings(t *testing.T) {
+	for _, tc := range []struct {
+		child, parent Mode
+		warn          bool
+	}{
+		{Off, Off, false}, {Off, Allowlist, false}, {Off, Percent, false}, {Off, On, false},
+		{Allowlist, Off, true}, {Allowlist, Allowlist, false}, {Allowlist, Percent, false}, {Allowlist, On, false},
+		{Percent, Off, true}, {Percent, Allowlist, false}, {Percent, Percent, false}, {Percent, On, false},
+		{On, Off, true}, {On, Allowlist, true}, {On, Percent, true}, {On, On, false},
+	} {
+		t.Run(string(tc.child)+"/"+string(tc.parent), func(t *testing.T) {
+			r := NewRegistry(Spec{Name: "child", Mode: tc.child}, Spec{Name: "parent", Mode: tc.parent}).Require("child", "parent")
+			got := r.CouplingWarnings()
+			if !tc.warn {
+				if len(got) != 0 {
+					t.Fatalf("warnings = %+v, want none", got)
+				}
+				return
+			}
+			want := []CouplingWarning{{Flag: "child", Parent: "parent", FlagMode: tc.child, ParentMode: tc.parent, Reason: ReasonParentNarrower}}
+			if !slices.Equal(got, want) {
+				t.Fatalf("warnings = %+v, want %+v", got, want)
+			}
+			if w, ok := r.Narrower("child", "parent"); !ok || w != want[0] {
+				t.Errorf("Narrower = %+v, %v, want %+v", w, ok, want[0])
+			}
+		})
+	}
+	t.Run("retired child, off parent", func(t *testing.T) {
+		r := NewRegistry(NewRetired("child"), Spec{Name: "parent", Mode: Off}).Require("child", "parent")
+		want := []CouplingWarning{{Flag: "child", Parent: "parent", FlagMode: On, ParentMode: Off, Reason: ReasonParentNarrower}}
+		if got := r.CouplingWarnings(); !slices.Equal(got, want) {
+			t.Errorf("warnings = %+v, want %+v", got, want)
+		}
+	})
+	t.Run("unknown parent", func(t *testing.T) {
+		r := NewRegistry(Spec{Name: "child", Mode: Allowlist}).Require("child", "missing")
+		want := []CouplingWarning{{Flag: "child", Parent: "missing", FlagMode: Allowlist, ParentMode: Off, Reason: ReasonParentNarrower}}
+		if got := r.CouplingWarnings(); !slices.Equal(got, want) {
+			t.Errorf("warnings = %+v, want %+v", got, want)
+		}
+	})
+	t.Run("no requirement, no warning", func(t *testing.T) {
+		if got := NewRegistry(Spec{Name: "child", Mode: On}, Spec{Name: "parent", Mode: Off}).CouplingWarnings(); len(got) != 0 {
+			t.Errorf("warnings = %+v, want none", got)
+		}
+	})
 }
 
 // Several parents: all must be on.

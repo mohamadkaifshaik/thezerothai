@@ -10,6 +10,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/messaging"
 	"github.com/dzeroth/dzeroth/backend/internal/search"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/flags"
 )
 
 // TestAccountLifecycleFlagNameMatchesIdentity: the config spec's wire name is the one identity's
@@ -227,9 +228,11 @@ func TestFeatureRegistry_IncludesE2EEDM(t *testing.T) {
 	}
 }
 
-// TestFeatureRegistry_E2EECoupling (P6 §1.3): the effective e2ee_dm is e2ee_dm && messaging and the effective
-// e2ee_required is e2ee_required && effective e2ee_dm, for Enabled and GetMe's EnabledFeatures alike; GloballyOff (the
-// kill switch K1 and RemoveKeyDevice read) keeps reading the raw flag. e2ee_required is unset (off) by default.
+// TestFeatureRegistry_E2EECoupling (P6 §1.3, as ruled in the 6-1 security review): the effective e2ee_dm is e2ee_dm &&
+// messaging and the effective e2ee_required is e2ee_required && messaging, NOT gated by e2ee_dm, for Enabled and GetMe's
+// EnabledFeatures alike: a user with required effective and e2ee_dm off (the fail-closed state) gets e2ee_required in
+// GetMe without e2ee_dm. GloballyOff (the kill switch K1 and RemoveKeyDevice read) keeps reading the raw flag.
+// e2ee_required is unset (off) by default.
 func TestFeatureRegistry_E2EECoupling(t *testing.T) {
 	const in, out = "uid-a", "uid-z"
 	type want struct{ dm, required bool }
@@ -243,11 +246,15 @@ func TestFeatureRegistry_E2EECoupling(t *testing.T) {
 		{"e2ee_dm on, messaging off", "off", "on", "", want{}, want{}, false, true},
 		{"e2ee_dm on, messaging allowlist", "allowlist", "on", "", want{dm: true}, want{}, false, true},
 		{"e2ee_dm and messaging on", "on", "on", "", want{dm: true}, want{dm: true}, false, true},
-		{"required on, e2ee_dm off", "on", "off", "on", want{}, want{}, true, false},
+		// Fail closed: required stays effective with e2ee_dm off (nothing can be exchanged; the client sees it in GetMe).
+		{"required on, e2ee_dm off", "on", "off", "on", want{required: true}, want{required: true}, true, false},
+		{"required on, e2ee_dm unset", "on", "", "on", want{required: true}, want{required: true}, true, false},
+		{"required on, e2ee_dm allowlist", "on", "allowlist", "on", want{dm: true, required: true}, want{required: true}, false, false},
+		{"required on, e2ee_dm off, messaging allowlist", "allowlist", "off", "on", want{required: true}, want{}, true, false},
+		// Messaging off: required is not effective (messaging refuses first anyway).
 		{"required on, messaging off", "off", "on", "on", want{}, want{}, false, false},
 		{"required on, messaging allowlist", "allowlist", "on", "on", want{dm: true, required: true}, want{}, false, false},
 		{"required allowlist, all else on", "on", "on", "allowlist", want{dm: true, required: true}, want{dm: true}, false, false},
-		{"required on, e2ee_dm allowlist", "on", "allowlist", "on", want{dm: true, required: true}, want{}, false, false},
 		{"everything on", "on", "on", "on", want{dm: true, required: true}, want{dm: true, required: true}, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -288,6 +295,46 @@ func TestFeatureRegistry_E2EECoupling(t *testing.T) {
 			}
 			if got := reg.GloballyOff(messaging.E2EERequiredFlag); got != tc.reqGloballyOff {
 				t.Errorf("GloballyOff(e2ee_required) = %v, want %v (the raw flag)", got, tc.reqGloballyOff)
+			}
+		})
+	}
+}
+
+// TestFeatureCouplingWarnings: the startup WARN lines Build logs (modes only, never uids): one per coupled flag that is
+// not off while its parent is off or obviously narrower (e2ee_dm and e2ee_required under messaging), and one when
+// e2ee_required is not off while e2ee_dm is off or narrower (the fail-closed state operators must see).
+func TestFeatureCouplingWarnings(t *testing.T) {
+	type w = flags.CouplingWarning
+	spec := func(name string, m flags.Mode) flags.Spec {
+		return flags.Spec{Name: name, Mode: m, Allowlist: map[string]struct{}{}}
+	}
+	for _, tc := range []struct {
+		name         string
+		msg, dm, req flags.Mode
+		want         []w
+	}{
+		{"all off", flags.Off, flags.Off, flags.Off, nil},
+		{"all on", flags.On, flags.On, flags.On, nil},
+		{"pilot allowlists", flags.Allowlist, flags.Allowlist, flags.Allowlist, nil},
+		{"e2ee_dm on while messaging ramps", flags.Percent, flags.On, flags.Off, []w{
+			{Flag: keys.FlagName, Parent: messaging.FlagName, FlagMode: flags.On, ParentMode: flags.Percent, Reason: flags.ReasonParentNarrower},
+		}},
+		{"required allowlist with messaging off", flags.Off, flags.Off, flags.Allowlist, []w{
+			{Flag: messaging.E2EERequiredFlag, Parent: messaging.FlagName, FlagMode: flags.Allowlist, ParentMode: flags.Off, Reason: flags.ReasonParentNarrower},
+			{Flag: messaging.E2EERequiredFlag, Parent: keys.FlagName, FlagMode: flags.Allowlist, ParentMode: flags.Off, Reason: reasonRequiredFailsClosed},
+		}},
+		{"e2ee_dm killed under required", flags.On, flags.Off, flags.On, []w{
+			{Flag: messaging.E2EERequiredFlag, Parent: keys.FlagName, FlagMode: flags.On, ParentMode: flags.Off, Reason: reasonRequiredFailsClosed},
+		}},
+		{"required on, e2ee_dm allowlist", flags.On, flags.Allowlist, flags.On, []w{
+			{Flag: messaging.E2EERequiredFlag, Parent: keys.FlagName, FlagMode: flags.On, ParentMode: flags.Allowlist, Reason: reasonRequiredFailsClosed},
+		}},
+		{"required allowlist, e2ee_dm on", flags.On, flags.On, flags.Allowlist, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reg := coupleE2EE(flags.NewRegistry(spec(messaging.FlagName, tc.msg), spec(keys.FlagName, tc.dm), spec(messaging.E2EERequiredFlag, tc.req)))
+			if got := featureCouplingWarnings(reg); !slices.Equal(got, tc.want) {
+				t.Errorf("warnings = %+v\nwant %+v", got, tc.want)
 			}
 		})
 	}
