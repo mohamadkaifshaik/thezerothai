@@ -53,7 +53,7 @@ func call[Req, Resp any](ctx context.Context, floor ClientFloor, req *connect.Re
 		return nil, apierr.New(connect.CodeUnauthenticated, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "unauthenticated")
 	}
 	if floor != nil && floor.BelowFloor(ctx) {
-		return nil, clientinfo.UpdateRequired(ctx, FlagName)
+		return nil, clientinfo.UpdateRequired(ctx, clientinfo.FeatureMessaging)
 	}
 	ctx, cancel := context.WithTimeout(ctx, rpcDeadline)
 	defer cancel()

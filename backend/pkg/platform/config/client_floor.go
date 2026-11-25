@@ -2,7 +2,8 @@ package config
 
 import "fmt"
 
-// clientFloorMax is the highest floor (pkg/platform/clientinfo.MaxLevel; config does not import that package).
+// clientFloorMax is the highest floor. It must equal pkg/platform/clientinfo.MaxLevel (config does not import that
+// package; TestClientFloorMax_IsClientinfoMaxLevel pins the two together).
 const clientFloorMax = 1000
 
 // ClientFloorsConfig is the app version floor for messaging (plan 6 section 3.1): the lowest capability level each

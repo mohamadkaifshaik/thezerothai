@@ -55,7 +55,9 @@ func chainInterceptors(d chainDeps) []connect.Interceptor {
 		mw.Logging(d.log, d.projectID),
 		mw.Recover(d.log),
 		// The app version floor's stamp (plan 6 section 3.1): parses x-dz-client into the context for GetMe and the
-		// messaging and keys guards. One header read, no I/O, never refuses; not a security control.
+		// messaging and keys guards. One header read, no I/O, never refuses; not a security control. A call the floor
+		// refuses (in the handler) has already been charged by the rate limiter, like a flag-off refusal; no idempotency
+		// record is taken.
 		clientinfo.Interceptor(),
 		authn.AppCheckInterceptor(d.appCheck, d.appCheckMode),
 		authn.IDTokenInterceptor(d.idVerifier),

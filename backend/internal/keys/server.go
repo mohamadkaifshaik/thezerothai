@@ -61,8 +61,15 @@ func NewServer(fc FlagChecker, svc Service, opts ...ServerOption) *Server {
 
 var _ keysv1connect.KeyServiceHandler = (*Server)(nil)
 
+// floorExempt are the RPCs the app version floor never refuses: listing and removing the caller's own devices. Removing a
+// device is a safety action (a lost phone, the sign-out clean-up, and what triggers the session cut), so it must work on
+// any build, as it already does while the flag is off (gateNotOff). Every other RPC takes part in messaging (register,
+// upload, claim, look up a peer) and is refused below the floor. A deliberate deviation from plan 6 section 3.1's "every
+// KeyService RPC" (review M1, controller ruling).
+var floorExempt = map[string]bool{"ListMyKeyDevices": true, "RemoveKeyDevice": true}
+
 // entry is the shared front of every handler, in this order: the caller (UNAUTHENTICATED), the app version floor
-// (FEATURE_DISABLED feature=messaging update_required=true for a build below it), the flag class
+// (FEATURE_DISABLED feature=messaging update_required=true for a build below it; floorExempt RPCs pass), the flag class
 // (FEATURE_DISABLED feature=e2ee_dm, before any lookup), the wiring (UNIMPLEMENTED), the idempotency_key format of a
 // mutating RPC (key non-nil; VALIDATION idempotency_key; the key is not stored: Register, Remove and Upload are naturally
 // idempotent and Claim is not replayable), then the RPC deadline. A read RPC passes a nil key.
@@ -71,7 +78,7 @@ func (s *Server) entry(ctx context.Context, rpc string, class gateClass, key *st
 	if !ok || uid == "" {
 		return nil, nil, "", connect.NewError(connect.CodeUnauthenticated, nil)
 	}
-	if s.floor != nil && s.floor.BelowFloor(ctx) {
+	if s.floor != nil && !floorExempt[rpc] && s.floor.BelowFloor(ctx) {
 		return nil, nil, "", clientinfo.UpdateRequired(ctx, clientinfo.FeatureMessaging)
 	}
 	var err error

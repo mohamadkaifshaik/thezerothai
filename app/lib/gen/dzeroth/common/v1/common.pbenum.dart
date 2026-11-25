@@ -119,7 +119,9 @@ class ErrorReason extends $pb.ProtobufEnum {
   /// When absent, the whole feature behind the called service is off.
   /// metadata["update_required"] = "true" when the feature is refused only because this app build is below the
   /// server's floor (identity.v1 GetMeResponse.features_needing_update): ask the user to update, do not just hide.
-  /// Every MessagingService and KeyService RPC answers so (feature "messaging") for a build below the floor.
+  /// Every MessagingService RPC and the KeyService RPCs other than listing and removing the caller's own devices answer
+  /// so (feature "messaging") for a build below the floor. The refusal depends only on the caller's own build and the
+  /// floor, not on feature flags; whether to show an update prompt comes from GetMeResponse.features_needing_update.
   static const ErrorReason ERROR_REASON_FEATURE_DISABLED =
       ErrorReason._(14, _omitEnumNames ? '' : 'ERROR_REASON_FEATURE_DISABLED');
 

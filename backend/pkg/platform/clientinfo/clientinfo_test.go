@@ -15,9 +15,10 @@ import (
 )
 
 // TestParse is the parse table of plan 6 section 3.1: lenient, never an error. A value that is not exactly
-// "<platform>/<digits>" (after trimming and lowercasing) is an unknown platform at level 0; a known platform with a bad
-// level keeps the platform at level 0; an unknown platform word (other, desktop, ...) keeps its level but is held to the
-// highest floor (TestFloors_UnknownPlatformUsesTheHighestFloor).
+// "<word>/<level>" after trimming (over 32 bytes, no slash, extra slashes), or whose lowercased word is empty or has a
+// byte outside [a-z], is an unknown platform at level 0; a known platform with a bad level keeps the platform at level 0;
+// an unknown [a-z] word (other, desktop, ...) keeps its level but is held to the highest floor
+// (TestFloors_UnknownPlatformUsesTheHighestFloor).
 func TestParse(t *testing.T) {
 	unknown0 := clientinfo.Client{Platform: clientinfo.PlatformUnknown, Level: 0}
 	for _, tc := range []struct {
@@ -54,11 +55,17 @@ func TestParse(t *testing.T) {
 		{"extra slashes", "web/1/2", unknown0},
 		{"two slashes", "web//1", unknown0},
 		{"slash only", "/", unknown0},
-		{"empty platform", "/1", clientinfo.Client{Platform: clientinfo.PlatformUnknown, Level: 1}},
+		// A platform word that is empty or has a byte outside [a-z] (after lowercasing) is garbage too.
+		{"empty platform", "/1", unknown0},
+		{"control bytes", "web\x00/1", unknown0},
+		{"digit in the word", "web2/1", unknown0},
+		{"underscore in the word", "my_os/1", unknown0},
+		{"non-ascii word", "wéb/1", unknown0},
 		{"unknown word", "desktop/1", clientinfo.Client{Platform: clientinfo.PlatformUnknown, Level: 1}},
 		{"over-long value", "android/" + strings.Repeat("1", 64), unknown0},
 		{"over-long platform", strings.Repeat("a", 40) + "/1", unknown0},
-		{"control bytes", "web\x00/1", clientinfo.Client{Platform: clientinfo.PlatformUnknown, Level: 1}},
+		{"over-long after trimming only", "  " + strings.Repeat("A", 31) + "/1  ", unknown0},
+		{"at the cap after trimming", "  " + strings.Repeat("q", 28) + "/123  ", clientinfo.Client{Platform: clientinfo.PlatformUnknown, Level: 123}},
 		{"comma list", "web/1, android/1", unknown0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -4,9 +4,10 @@ package apiserver
 
 // The app version floor for messaging over the real Build chain (Firestore and Auth emulators; plan 6 section 3.1, Task
 // 3.B). With CLIENT_FLOOR_ANDROID=1: an android/0 build, a build with no header and an unknown platform lose the
-// messaging family in GetMe and see "messaging" in features_needing_update, and MessagingService and KeyService answer
-// FEATURE_DISABLED feature=messaging update_required=true; an android/1 build sees today's answers; the rest of the app
-// (GetMe itself, posts) is unaffected. With every floor 0 GetMe is the same with and without the header.
+// messaging family in GetMe and see "messaging" in features_needing_update, and MessagingService and the messaging part
+// of KeyService (here GetKeyDevices) answer FEATURE_DISABLED feature=messaging update_required=true, while listing the
+// caller's own devices still works (removal is a safety action, review M1); an android/1 build sees today's answers; the
+// rest of the app (GetMe itself, posts) is unaffected. With every floor 0 GetMe is the same with and without the header.
 
 import (
 	"context"
@@ -82,8 +83,12 @@ func TestClientFloorChain_MessagingBelowTheFloor(t *testing.T) {
 			}
 			_, err = e.msg.ListConversations(ctx, withClient(u.token, header, inbox()))
 			wantFloorRefusal(t, "ListConversations", err)
-			_, err = keysClient.ListMyKeyDevices(ctx, withClient(u.token, header, &keysv1.ListMyKeyDevicesRequest{}))
-			wantFloorRefusal(t, "ListMyKeyDevices", err)
+			_, err = keysClient.GetKeyDevices(ctx, withClient(u.token, header, &keysv1.GetKeyDevicesRequest{UserIds: []string{u.uid}}))
+			wantFloorRefusal(t, "GetKeyDevices", err)
+			// Listing (and removing) the caller's own devices works on any build.
+			if _, err := keysClient.ListMyKeyDevices(ctx, withClient(u.token, header, &keysv1.ListMyKeyDevicesRequest{})); err != nil {
+				t.Errorf("ListMyKeyDevices below the floor: %v, want a list (exempt from the floor)", err)
+			}
 			// Posts are untouched.
 			if _, err := e.posts.CreatePost(ctx, withClient(u.token, header, &postsv1.CreatePostRequest{IdempotencyKey: contractKey("floor-post"), Text: "still posting"})); err != nil {
 				t.Errorf("CreatePost below the floor: %v, want a post", err)

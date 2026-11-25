@@ -120,10 +120,15 @@ func TestNewKeysModule_PassesTheClientFloor(t *testing.T) {
 		t.Fatalf("newKeysModule: %v", err)
 	}
 	ctx := clientinfo.WithClient(authn.WithClaims(context.Background(), authn.Claims{UID: "uid-a"}), clientinfo.Parse("android/0"))
-	_, err = mod.server.ListMyKeyDevices(ctx, connect.NewRequest(&keysv1.ListMyKeyDevicesRequest{}))
+	_, err = mod.server.GetKeyDevices(ctx, connect.NewRequest(&keysv1.GetKeyDevicesRequest{UserIds: []string{"uid-b"}}))
 	var ae *apierr.Error
 	if !errors.As(err, &ae) || ae.Metadata["update_required"] != "true" || ae.Metadata["feature"] != "messaging" {
-		t.Fatalf("ListMyKeyDevices below the floor = %v, want FEATURE_DISABLED feature=messaging update_required=true", err)
+		t.Fatalf("GetKeyDevices below the floor = %v, want FEATURE_DISABLED feature=messaging update_required=true", err)
+	}
+	// Listing the caller's own devices passes the floor (removal is a safety action): here the nil flag checker answers.
+	_, err = mod.server.ListMyKeyDevices(ctx, connect.NewRequest(&keysv1.ListMyKeyDevicesRequest{}))
+	if errors.As(err, &ae) && ae.Metadata["update_required"] != "" {
+		t.Fatalf("ListMyKeyDevices below the floor = %v, want it exempt from the floor", err)
 	}
 }
 

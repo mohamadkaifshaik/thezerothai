@@ -10,10 +10,11 @@
 // backstop for messaging stays the server's own rules (ENCRYPTION_REQUIRED).
 //
 // Parsing is lenient and never fails a request: a missing header is an unknown platform at level 0; a value that is not
-// exactly "<word>/<digits>" after trimming and lowercasing (garbage, extra slashes, over-long, a list) is an unknown
-// platform at level 0; a known platform with a bad level (negative, signed, not decimal, above MaxLevel) keeps the
-// platform at level 0; any other word ("other", "desktop") is an unknown platform with its level. An unknown platform
-// is held to the highest of the three floors (Floors.For).
+// exactly "<word>/<level>" after trimming (over 32 bytes, no slash, extra slashes, a list) is an unknown platform at
+// level 0; so is a word that, lowercased, is empty or has a byte outside [a-z] ("/1", "web2/1", a control byte); a known
+// platform with a bad level (negative, signed, not decimal, above MaxLevel) keeps the platform at level 0; any other
+// [a-z] word ("other", "desktop") is an unknown platform with its level. An unknown platform is held to the highest of
+// the three floors (Floors.For).
 //
 // Cost: the stamp reads one header and does no I/O, so it adds no Firestore read or write to any request.
 package clientinfo
@@ -63,12 +64,13 @@ type Client struct {
 
 // Parse reads a header value; it never fails (see the package doc for the rules).
 func Parse(v string) Client {
-	v = strings.ToLower(strings.TrimSpace(v))
+	v = strings.TrimSpace(v)
+	// The cap is checked before any lowercasing, so an over-long value costs nothing more.
 	if v == "" || len(v) > maxValueLen {
 		return Client{}
 	}
-	word, level, ok := strings.Cut(v, "/")
-	if !ok || strings.Contains(level, "/") {
+	word, level, ok := strings.Cut(strings.ToLower(v), "/")
+	if !ok || strings.Contains(level, "/") || !isWord(word) {
 		return Client{}
 	}
 	c := Client{Level: parseLevel(level)}
@@ -77,6 +79,19 @@ func Parse(v string) Client {
 		c.Platform = p
 	}
 	return c
+}
+
+// isWord reports whether w is a non-empty run of [a-z].
+func isWord(w string) bool {
+	if w == "" {
+		return false
+	}
+	for i := 0; i < len(w); i++ {
+		if w[i] < 'a' || w[i] > 'z' {
+			return false
+		}
+	}
+	return true
 }
 
 // parseLevel is a plain decimal in 0..MaxLevel, else 0 (no sign, no spaces, no fraction).

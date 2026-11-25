@@ -3,7 +3,17 @@ package config
 import (
 	"strings"
 	"testing"
+
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/clientinfo"
 )
+
+// TestClientFloorMax_IsClientinfoMaxLevel: config validates the floors against the same maximum the parser accepts as a
+// level (review n3), so a raised floor can always be met by some valid header.
+func TestClientFloorMax_IsClientinfoMaxLevel(t *testing.T) {
+	if clientFloorMax != clientinfo.MaxLevel {
+		t.Errorf("clientFloorMax = %d, clientinfo.MaxLevel = %d: keep them equal", clientFloorMax, clientinfo.MaxLevel)
+	}
+}
 
 // TestLoad_ClientFloors (plan 6 Task 3.B): CLIENT_FLOOR_ANDROID, CLIENT_FLOOR_WEB and CLIENT_FLOOR_IOS default to 0 (no
 // floor), accept 0..1000 and refuse anything else at startup.
