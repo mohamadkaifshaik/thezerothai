@@ -5,8 +5,8 @@ package messaging
 // FEATURE_E2EE_REQUIRED (E2EE Plan 6 Task 1.A) on the emulator: the send transaction refuses every plaintext send while
 // the policy applies to the sender or the recipient, into a NONE conversation and for a first message, writing nothing;
 // a plaintext retry of a message stored before the flag applied still replays; ciphertext into an MLS conversation still
-// passes. The registry is coupled as the composition root couples it (e2ee_dm needs messaging, e2ee_required needs the
-// effective e2ee_dm).
+// passes. The registry is coupled as the composition root couples it (e2ee_dm needs messaging; e2ee_required needs
+// messaging only, so it fails closed).
 
 import (
 	"testing"

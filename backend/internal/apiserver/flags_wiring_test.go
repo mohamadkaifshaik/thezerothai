@@ -1,7 +1,9 @@
 package apiserver
 
 import (
+	"log/slog"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/dzeroth/dzeroth/backend/internal/beacons"
@@ -300,43 +302,159 @@ func TestFeatureRegistry_E2EECoupling(t *testing.T) {
 	}
 }
 
-// TestFeatureCouplingWarnings: the startup WARN lines Build logs (modes only, never uids): one per coupled flag that is
-// not off while its parent is off or obviously narrower (e2ee_dm and e2ee_required under messaging), and one when
-// e2ee_required is not off while e2ee_dm is off or narrower (the fail-closed state operators must see).
+// leveled is one expected startup line: the warning and the level Build logs it at.
+type leveled struct {
+	w     flags.CouplingWarning
+	level slog.Level
+}
+
+func checkCoupling(t *testing.T, reg *flags.Registry, want []leveled) {
+	t.Helper()
+	got := featureCouplingWarnings(reg)
+	if len(got) != len(want) {
+		t.Fatalf("warnings = %+v\nwant %+v", got, want)
+	}
+	for i := range got {
+		if got[i] != want[i].w {
+			t.Errorf("warning %d = %+v\nwant %+v", i, got[i], want[i].w)
+		}
+		if lv := couplingLevel(got[i]); lv != want[i].level {
+			t.Errorf("warning %d (%s) level = %v, want %v", i, got[i].Reason, lv, want[i].level)
+		}
+	}
+}
+
+// TestFeatureCouplingWarnings: the startup feature_flag_coupling lines Build logs (modes and counts only, never uids):
+// one per coupled flag that is not off while its parent is off or narrower (e2ee_dm and e2ee_required under messaging:
+// INFO, the planned ramp), one when e2ee_required is not off while e2ee_dm is off or narrower (WARN, the fail-closed
+// state), and one when messaging reaches users e2ee_required does not cover (WARN: readable DMs are stored for them).
 func TestFeatureCouplingWarnings(t *testing.T) {
-	type w = flags.CouplingWarning
+	const info, warn = slog.LevelInfo, slog.LevelWarn
 	spec := func(name string, m flags.Mode) flags.Spec {
 		return flags.Spec{Name: name, Mode: m, Allowlist: map[string]struct{}{}}
 	}
+	narrower := func(flag, parent string, fm, pm flags.Mode, reason string) flags.CouplingWarning {
+		return flags.CouplingWarning{Flag: flag, Parent: parent, FlagMode: fm, ParentMode: pm, Reason: reason}
+	}
+	const msg, dm, req = messaging.FlagName, keys.FlagName, messaging.E2EERequiredFlag
 	for _, tc := range []struct {
-		name         string
-		msg, dm, req flags.Mode
-		want         []w
+		name            string
+		msgM, dmM, reqM flags.Mode
+		want            []leveled
 	}{
 		{"all off", flags.Off, flags.Off, flags.Off, nil},
 		{"all on", flags.On, flags.On, flags.On, nil},
-		{"pilot allowlists", flags.Allowlist, flags.Allowlist, flags.Allowlist, nil},
-		{"e2ee_dm on while messaging ramps", flags.Percent, flags.On, flags.Off, []w{
-			{Flag: keys.FlagName, Parent: messaging.FlagName, FlagMode: flags.On, ParentMode: flags.Percent, Reason: flags.ReasonParentNarrower},
+		{"pilot allowlists (empty)", flags.Allowlist, flags.Allowlist, flags.Allowlist, nil},
+		{"the planned ramp: messaging percent, e2ee_dm and required on", flags.Percent, flags.On, flags.On, []leveled{
+			{narrower(dm, msg, flags.On, flags.Percent, flags.ReasonParentNarrower), info},
+			{narrower(req, msg, flags.On, flags.Percent, flags.ReasonParentNarrower), info},
 		}},
-		{"required allowlist with messaging off", flags.Off, flags.Off, flags.Allowlist, []w{
-			{Flag: messaging.E2EERequiredFlag, Parent: messaging.FlagName, FlagMode: flags.Allowlist, ParentMode: flags.Off, Reason: flags.ReasonParentNarrower},
-			{Flag: messaging.E2EERequiredFlag, Parent: keys.FlagName, FlagMode: flags.Allowlist, ParentMode: flags.Off, Reason: reasonRequiredFailsClosed},
+		{"e2ee_dm on while messaging ramps, required off", flags.Percent, flags.On, flags.Off, []leveled{
+			{narrower(dm, msg, flags.On, flags.Percent, flags.ReasonParentNarrower), info},
+			{narrower(msg, req, flags.Percent, flags.Off, reasonMessagingWithoutRequired), warn},
 		}},
-		{"e2ee_dm killed under required", flags.On, flags.Off, flags.On, []w{
-			{Flag: messaging.E2EERequiredFlag, Parent: keys.FlagName, FlagMode: flags.On, ParentMode: flags.Off, Reason: reasonRequiredFailsClosed},
+		{"required allowlist with messaging off", flags.Off, flags.Off, flags.Allowlist, []leveled{
+			{narrower(req, msg, flags.Allowlist, flags.Off, flags.ReasonParentNarrower), info},
+			{narrower(req, dm, flags.Allowlist, flags.Off, reasonRequiredFailsClosed), warn},
 		}},
-		{"required on, e2ee_dm allowlist", flags.On, flags.Allowlist, flags.On, []w{
-			{Flag: messaging.E2EERequiredFlag, Parent: keys.FlagName, FlagMode: flags.On, ParentMode: flags.Allowlist, Reason: reasonRequiredFailsClosed},
+		{"e2ee_dm killed under required", flags.On, flags.Off, flags.On, []leveled{
+			{narrower(req, dm, flags.On, flags.Off, reasonRequiredFailsClosed), warn},
 		}},
-		{"required allowlist, e2ee_dm on", flags.On, flags.On, flags.Allowlist, nil},
+		{"required on, e2ee_dm allowlist", flags.On, flags.Allowlist, flags.On, []leveled{
+			{narrower(req, dm, flags.On, flags.Allowlist, reasonRequiredFailsClosed), warn},
+		}},
+		// messaging_without_required: not off over off; on over allowlist or percent; percent over allowlist or off.
+		{"messaging allowlist, required off (stage D1)", flags.Allowlist, flags.Allowlist, flags.Off, []leveled{
+			{narrower(msg, req, flags.Allowlist, flags.Off, reasonMessagingWithoutRequired), warn},
+		}},
+		{"messaging on, required allowlist", flags.On, flags.On, flags.Allowlist, []leveled{
+			{narrower(msg, req, flags.On, flags.Allowlist, reasonMessagingWithoutRequired), warn},
+		}},
+		{"messaging on, required percent", flags.On, flags.On, flags.Percent, []leveled{
+			{narrower(msg, req, flags.On, flags.Percent, reasonMessagingWithoutRequired), warn},
+		}},
+		{"messaging percent, required allowlist", flags.Percent, flags.On, flags.Allowlist, []leveled{
+			{narrower(dm, msg, flags.On, flags.Percent, flags.ReasonParentNarrower), info},
+			{narrower(msg, req, flags.Percent, flags.Allowlist, reasonMessagingWithoutRequired), warn},
+		}},
+		{"messaging percent, required percent", flags.Percent, flags.Percent, flags.Percent, nil},
+		{"messaging on, required off", flags.On, flags.On, flags.Off, []leveled{
+			{narrower(msg, req, flags.On, flags.Off, reasonMessagingWithoutRequired), warn},
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			reg := coupleE2EE(flags.NewRegistry(spec(messaging.FlagName, tc.msg), spec(keys.FlagName, tc.dm), spec(messaging.E2EERequiredFlag, tc.req)))
-			if got := featureCouplingWarnings(reg); !slices.Equal(got, tc.want) {
-				t.Errorf("warnings = %+v\nwant %+v", got, tc.want)
+			checkCoupling(t, coupleE2EE(flags.NewRegistry(spec(msg, tc.msgM), spec(dm, tc.dmM), spec(req, tc.reqM))), tc.want)
+		})
+	}
+}
+
+// TestFeatureCouplingWarnings_AllowlistCounts: two allowlists are silent by mode (the dev and first prod stages), so each
+// line counts the "should be covered" side's entries the other flag's own spec does not enable, and any count above 0 is
+// WARN, a messaging parent included. The count is the only trace of the lists: no uid in any field.
+func TestFeatureCouplingWarnings_AllowlistCounts(t *testing.T) {
+	const info, warn = slog.LevelInfo, slog.LevelWarn
+	const msg, dm, req = messaging.FlagName, keys.FlagName, messaging.E2EERequiredFlag
+	list := func(name string, uids ...string) flags.Spec {
+		s := flags.Spec{Name: name, Mode: flags.Allowlist, Allowlist: map[string]struct{}{}}
+		for _, u := range uids {
+			s.Allowlist[u] = struct{}{}
+		}
+		return s
+	}
+	al := flags.Allowlist
+	for _, tc := range []struct {
+		name    string
+		m, d, r flags.Spec
+		want    []leveled
+	}{
+		{"same pilot uids everywhere", list(msg, "uid-a", "uid-b"), list(dm, "uid-a", "uid-b"), list(req, "uid-b", "uid-a"), nil},
+		{"messaging reaches a uid required does not", list(msg, "uid-a", "uid-b", "uid-c"), list(dm, "uid-a", "uid-b", "uid-c"), list(req, "uid-a"), []leveled{
+			{flags.CouplingWarning{Flag: msg, Parent: req, FlagMode: al, ParentMode: al, Reason: reasonMessagingWithoutRequired, Uncovered: 2}, warn},
+		}},
+		{"required reaches a uid e2ee_dm does not", list(msg, "uid-a", "uid-b"), list(dm, "uid-a"), list(req, "uid-a", "uid-b"), []leveled{
+			{flags.CouplingWarning{Flag: req, Parent: dm, FlagMode: al, ParentMode: al, Reason: reasonRequiredFailsClosed, Uncovered: 1}, warn},
+		}},
+		{"e2ee_dm lists a uid messaging does not", list(msg, "uid-a"), list(dm, "uid-a", "uid-x"), list(req, "uid-a"), []leveled{
+			{flags.CouplingWarning{Flag: dm, Parent: msg, FlagMode: al, ParentMode: al, Reason: flags.ReasonParentNarrower, Uncovered: 1}, warn},
+		}},
+		{"percent e2ee_dm under a messaging allowlist", list(msg, "uid-a"), flags.Spec{Name: dm, Mode: flags.Percent, Allowlist: map[string]struct{}{}}, list(req, "uid-a"), []leveled{
+			{flags.CouplingWarning{Flag: dm, Parent: msg, FlagMode: flags.Percent, ParentMode: al, Reason: flags.ReasonParentNarrower}, info},
+			// e2ee_dm at percent 0 with an empty allowlist enables nobody: required's one uid is uncovered.
+			{flags.CouplingWarning{Flag: req, Parent: dm, FlagMode: al, ParentMode: flags.Percent, Reason: reasonRequiredFailsClosed, Uncovered: 1}, warn},
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reg := coupleE2EE(flags.NewRegistry(tc.m, tc.d, tc.r))
+			checkCoupling(t, reg, tc.want)
+			for _, w := range featureCouplingWarnings(reg) {
+				for _, field := range []string{w.Flag, w.Parent, string(w.FlagMode), string(w.ParentMode), w.Reason} {
+					if strings.Contains(field, "uid-") {
+						t.Errorf("warning %+v carries a uid", w)
+					}
+				}
 			}
 		})
+	}
+}
+
+// couplingLevel: WARN for every finding except a parent_narrower under messaging with nothing uncovered (the planned
+// ramp), which is INFO; an unknown parent and a cycle are WARN.
+func TestCouplingLevel(t *testing.T) {
+	for _, tc := range []struct {
+		w    flags.CouplingWarning
+		want slog.Level
+	}{
+		{flags.CouplingWarning{Flag: keys.FlagName, Parent: messaging.FlagName, Reason: flags.ReasonParentNarrower}, slog.LevelInfo},
+		{flags.CouplingWarning{Flag: keys.FlagName, Parent: messaging.FlagName, Reason: flags.ReasonParentNarrower, Uncovered: 1}, slog.LevelWarn},
+		{flags.CouplingWarning{Flag: "x", Parent: "y", Reason: flags.ReasonParentNarrower}, slog.LevelWarn},
+		{flags.CouplingWarning{Flag: "x", Parent: messaging.FlagName, Reason: flags.ReasonUnknownParent}, slog.LevelWarn},
+		{flags.CouplingWarning{Flag: "x", Parent: messaging.FlagName, Reason: flags.ReasonCycle}, slog.LevelWarn},
+		{flags.CouplingWarning{Reason: reasonRequiredFailsClosed}, slog.LevelWarn},
+		{flags.CouplingWarning{Reason: reasonMessagingWithoutRequired}, slog.LevelWarn},
+	} {
+		if got := couplingLevel(tc.w); got != tc.want {
+			t.Errorf("couplingLevel(%+v) = %v, want %v", tc.w, got, tc.want)
+		}
 	}
 }
 

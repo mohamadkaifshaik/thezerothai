@@ -13,14 +13,18 @@ const (
 	// ReasonCycle: a Require that would have closed a cycle (or named the flag as its own parent) was rejected, and the
 	// flag is permanently off.
 	ReasonCycle = "cycle"
+	// ReasonUnknownParent: the flag requires a name the registry does not know, so it is off for everyone.
+	ReasonUnknownParent = "unknown_parent"
 )
 
-// CouplingWarning is one startup warning about the Require coupling. It carries flag names and modes only, never a uid
-// (a retired flag reads On, an unknown or invalid one Off).
+// CouplingWarning is one startup warning about the Require coupling, or about any pair checked with Narrower. It carries
+// flag names, modes, a reason and a count only, never a uid (a retired flag reads On, an unknown or invalid one Off).
+// Uncovered is how many of Flag's allowlist entries Parent's own spec does not enable (0 when Flag is on or off).
 type CouplingWarning struct {
 	Flag, Parent         string
 	FlagMode, ParentMode Mode
 	Reason               string
+	Uncovered            int
 }
 
 // Require couples name to parents: name is effective for a uid only while its own spec is on for that uid and every
@@ -30,8 +34,8 @@ type CouplingWarning struct {
 // gate still applies to a retired child (NewRetired): it is effective only while its parents are.
 //
 // A requirement that would close a cycle, or name name as its own parent, is rejected at registration: the edge is not
-// added, name is permanently off (and so is every flag that requires it), and CouplingWarnings reports it with
-// ReasonCycle. The closure of every flag's requirements is recomputed here, so Enabled is linear in the number of flags
+// added, name is permanently off for everyone (and so is every flag that requires it) while GloballyOff still reads its
+// raw mode, and CouplingWarnings reports it with ReasonCycle. The closure of every flag's requirements is recomputed here, so Enabled is linear in the number of flags
 // a name needs and never recursive. Call it while building the registry, before it is shared: it is not safe to call
 // concurrently with reads. It returns r for chaining; a nil registry stays nil.
 func (r *Registry) Require(name string, parents ...string) *Registry {
@@ -90,19 +94,37 @@ func (r *Registry) modeOf(name string) Mode {
 	return s.Mode
 }
 
-// Narrower reports whether flag's mode is not off while parent's is off, or is on while parent's is an allowlist or a
-// percentage: the "obviously narrower" pairs, judged from modes alone (an allowlist under a percentage, or two
-// allowlists, may or may not overlap and is not reported). It works for any two names, coupled with Require or not.
+// Narrower reports whether parent fails to cover everyone flag is on for: by mode (flag not off while parent is off;
+// flag on while parent is an allowlist or a percentage; flag a percentage while parent is an allowlist), or by count
+// (Uncovered: flag's allowlist entries, in allowlist or percent mode, that parent's own spec does not enable, evaluated
+// per uid, percent buckets included). An off flag never warns, and a pair whose modes pass with nothing uncovered
+// (two allowlists with the same members, say) is silent. The reason is ReasonUnknownParent when parent is not
+// registered, else ReasonParentNarrower. It works for any two names, coupled with Require or not.
 func (r *Registry) Narrower(flag, parent string) (CouplingWarning, bool) {
 	if r == nil {
 		return CouplingWarning{}, false
 	}
 	fm, pm := r.modeOf(flag), r.modeOf(parent)
-	narrower := (fm != Off && pm == Off) || (fm == On && (pm == Allowlist || pm == Percent))
-	if !narrower {
+	if fm == Off {
 		return CouplingWarning{}, false
 	}
-	return CouplingWarning{Flag: flag, Parent: parent, FlagMode: fm, ParentMode: pm, Reason: ReasonParentNarrower}, true
+	byMode := pm == Off || (fm == On && (pm == Allowlist || pm == Percent)) || (fm == Percent && pm == Allowlist)
+	uncovered := 0
+	if fm == Allowlist || fm == Percent {
+		for uid := range r.specs[flag].Allowlist {
+			if !r.rawOn(uid, parent) {
+				uncovered++
+			}
+		}
+	}
+	if !byMode && uncovered == 0 {
+		return CouplingWarning{}, false
+	}
+	reason := ReasonParentNarrower
+	if _, ok := r.specs[parent]; !ok {
+		reason = ReasonUnknownParent
+	}
+	return CouplingWarning{Flag: flag, Parent: parent, FlagMode: fm, ParentMode: pm, Reason: reason, Uncovered: uncovered}, true
 }
 
 // CouplingWarnings is what the composition root logs at startup: one ReasonParentNarrower warning per accepted Require

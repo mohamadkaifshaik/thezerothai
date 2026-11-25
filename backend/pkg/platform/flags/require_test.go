@@ -3,6 +3,7 @@ package flags
 import (
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -121,7 +122,7 @@ func TestRegistry_CouplingWarnings(t *testing.T) {
 	}{
 		{Off, Off, false}, {Off, Allowlist, false}, {Off, Percent, false}, {Off, On, false},
 		{Allowlist, Off, true}, {Allowlist, Allowlist, false}, {Allowlist, Percent, false}, {Allowlist, On, false},
-		{Percent, Off, true}, {Percent, Allowlist, false}, {Percent, Percent, false}, {Percent, On, false},
+		{Percent, Off, true}, {Percent, Allowlist, true}, {Percent, Percent, false}, {Percent, On, false},
 		{On, Off, true}, {On, Allowlist, true}, {On, Percent, true}, {On, On, false},
 	} {
 		t.Run(string(tc.child)+"/"+string(tc.parent), func(t *testing.T) {
@@ -150,8 +151,8 @@ func TestRegistry_CouplingWarnings(t *testing.T) {
 		}
 	})
 	t.Run("unknown parent", func(t *testing.T) {
-		r := NewRegistry(Spec{Name: "child", Mode: Allowlist}).Require("child", "missing")
-		want := []CouplingWarning{{Flag: "child", Parent: "missing", FlagMode: Allowlist, ParentMode: Off, Reason: ReasonParentNarrower}}
+		r := NewRegistry(allow("child", "u1", "u2")).Require("child", "missing")
+		want := []CouplingWarning{{Flag: "child", Parent: "missing", FlagMode: Allowlist, ParentMode: Off, Reason: ReasonUnknownParent, Uncovered: 2}}
 		if got := r.CouplingWarnings(); !slices.Equal(got, want) {
 			t.Errorf("warnings = %+v, want %+v", got, want)
 		}
@@ -161,6 +162,76 @@ func TestRegistry_CouplingWarnings(t *testing.T) {
 			t.Errorf("warnings = %+v, want none", got)
 		}
 	})
+}
+
+// TestRegistry_Narrower_UncoveredAllowlist: two allowlists (or an allowlist child under a percentage) are silent by mode,
+// so the warning counts the child's allowlist entries the parent's own spec does not enable (deterministic, percent
+// buckets included). No warning when the count is 0.
+func TestRegistry_Narrower_UncoveredAllowlist(t *testing.T) {
+	// Percent 100 enables everyone, percent 0 no one outside its own allowlist: deterministic whatever the bucket.
+	pct := func(name string, p int, uids ...string) Spec {
+		s := allow(name, uids...)
+		s.Mode, s.Percent = Percent, p
+		return s
+	}
+	for _, tc := range []struct {
+		name          string
+		child, parent Spec
+		want          *CouplingWarning
+	}{
+		{"same members", allow("child", "u1", "u2"), allow("parent", "u2", "u1"), nil},
+		{"child inside a larger parent", allow("child", "u1"), allow("parent", "u1", "u2"), nil},
+		{"one member missing", allow("child", "u1", "u2", "u3"), allow("parent", "u1", "u2"),
+			&CouplingWarning{Flag: "child", Parent: "parent", FlagMode: Allowlist, ParentMode: Allowlist, Reason: ReasonParentNarrower, Uncovered: 1}},
+		{"disjoint", allow("child", "u1", "u2"), allow("parent", "u3"),
+			&CouplingWarning{Flag: "child", Parent: "parent", FlagMode: Allowlist, ParentMode: Allowlist, Reason: ReasonParentNarrower, Uncovered: 2}},
+		{"allowlist under percent 100", allow("child", "u1", "u2"), pct("parent", 100), nil},
+		{"allowlist under percent 0", allow("child", "u1", "u2"), pct("parent", 0, "u2"),
+			&CouplingWarning{Flag: "child", Parent: "parent", FlagMode: Allowlist, ParentMode: Percent, Reason: ReasonParentNarrower, Uncovered: 1}},
+		{"percent child's allowlist under a parent allowlist", pct("child", 0, "u1", "u9"), allow("parent", "u1"),
+			&CouplingWarning{Flag: "child", Parent: "parent", FlagMode: Percent, ParentMode: Allowlist, Reason: ReasonParentNarrower, Uncovered: 1}},
+		{"mode-narrower with a count", allow("child", "u1", "u2"), Spec{Name: "parent", Mode: Off},
+			&CouplingWarning{Flag: "child", Parent: "parent", FlagMode: Allowlist, ParentMode: Off, Reason: ReasonParentNarrower, Uncovered: 2}},
+		{"on child counts nothing", Spec{Name: "child", Mode: On, Allowlist: map[string]struct{}{"u1": {}}}, allow("parent", "u2"),
+			&CouplingWarning{Flag: "child", Parent: "parent", FlagMode: On, ParentMode: Allowlist, Reason: ReasonParentNarrower}},
+		{"off child never warns", Spec{Name: "child", Mode: Off, Allowlist: map[string]struct{}{"u1": {}}}, allow("parent"), nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := NewRegistry(tc.child, tc.parent).Require("child", "parent")
+			got := r.CouplingWarnings()
+			switch {
+			case tc.want == nil && len(got) != 0:
+				t.Fatalf("warnings = %+v, want none", got)
+			case tc.want != nil && !slices.Equal(got, []CouplingWarning{*tc.want}):
+				t.Fatalf("warnings = %+v, want %+v", got, *tc.want)
+			}
+			// Narrower answers the same for an uncoupled pair.
+			w, ok := NewRegistry(tc.child, tc.parent).Narrower("child", "parent")
+			if ok != (tc.want != nil) || (ok && w != *tc.want) {
+				t.Errorf("Narrower = %+v, %v, want %+v", w, ok, tc.want)
+			}
+		})
+	}
+}
+
+// No warning field ever carries a uid: names, modes, a reason and a count only.
+func TestRegistry_CouplingWarnings_NoUIDs(t *testing.T) {
+	uids := []string{"uid-secret-1", "uid-secret-2", "uid-secret-3"}
+	r := NewRegistry(allow("child", uids...), allow("parent", uids[0]), allow("orphan", uids[1])).
+		Require("child", "parent").Require("orphan", "missing").Require("parent", "child")
+	got := r.CouplingWarnings()
+	if len(got) == 0 {
+		t.Fatal("want warnings to inspect")
+	}
+	for _, w := range got {
+		for _, field := range []string{w.Flag, w.Parent, string(w.FlagMode), string(w.ParentMode), w.Reason} {
+			for _, u := range uids {
+				if strings.Contains(field, u) {
+					t.Errorf("warning %+v carries uid %q", w, u)
+				}
+			}
+		}
+	}
 }
 
 // Several parents: all must be on.

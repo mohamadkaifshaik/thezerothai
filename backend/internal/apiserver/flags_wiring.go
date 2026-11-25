@@ -4,6 +4,8 @@
 package apiserver
 
 import (
+	"log/slog"
+
 	"github.com/dzeroth/dzeroth/backend/internal/keys"
 	"github.com/dzeroth/dzeroth/backend/internal/messaging"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
@@ -36,14 +38,37 @@ func coupleE2EE(reg *flags.Registry) *flags.Registry {
 	return reg.Require(keys.FlagName, messaging.FlagName).Require(messaging.E2EERequiredFlag, messaging.FlagName)
 }
 
-// featureCouplingWarnings is what Build logs as WARN lines at startup (modes only, never uids): every coupled flag that
-// is not off while its parent is off or obviously narrower, every rejected requirement cycle, and e2ee_required not off
-// while e2ee_dm is off or narrower (reasonRequiredFailsClosed).
+// reasonMessagingWithoutRequired is the startup warning for messaging reaching users e2ee_required does not cover: their
+// DMs can be stored readable, which breaks the promise the required cohort is built for.
+const reasonMessagingWithoutRequired = "messaging_without_required"
+
+// featureCouplingWarnings is what Build logs at startup as feature_flag_coupling lines (flag names, modes, a reason and
+// an uncovered count; never a uid), in this order: every coupled flag whose parent does not cover it, every rejected
+// requirement cycle and unknown parent (flags.Registry.CouplingWarnings); e2ee_required reaching users e2ee_dm does not
+// (reasonRequiredFailsClosed); messaging reaching users e2ee_required does not (reasonMessagingWithoutRequired). Each
+// uses flags.Registry.Narrower: by mode, and by the count of allowlist entries the other flag's own spec does not
+// enable. couplingLevel picks the level.
 func featureCouplingWarnings(reg *flags.Registry) []flags.CouplingWarning {
 	out := reg.CouplingWarnings()
-	if w, ok := reg.Narrower(messaging.E2EERequiredFlag, keys.FlagName); ok {
-		w.Reason = reasonRequiredFailsClosed
-		out = append(out, w)
+	for _, pair := range []struct{ flag, by, reason string }{
+		{messaging.E2EERequiredFlag, keys.FlagName, reasonRequiredFailsClosed},
+		{messaging.FlagName, messaging.E2EERequiredFlag, reasonMessagingWithoutRequired},
+	} {
+		if w, ok := reg.Narrower(pair.flag, pair.by); ok {
+			w.Reason = pair.reason
+			out = append(out, w)
+		}
 	}
 	return out
+}
+
+// couplingLevel is a feature_flag_coupling line's level: INFO for a parent_narrower finding under messaging with nothing
+// uncovered (e2ee_dm or e2ee_required on while MESSAGING alone ramps: the planned rollout, which must not WARN on every
+// start); WARN for everything else (required_without_e2ee_dm, messaging_without_required, a cycle, an unknown parent, a
+// parent other than messaging, and any uncovered count above 0). One event name, so an alert keys on level and reason.
+func couplingLevel(w flags.CouplingWarning) slog.Level {
+	if w.Reason == flags.ReasonParentNarrower && w.Parent == messaging.FlagName && w.Uncovered == 0 {
+		return slog.LevelInfo
+	}
+	return slog.LevelWarn
 }
