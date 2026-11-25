@@ -167,6 +167,10 @@ func (s *Server) homeSources(ctx context.Context, authors []string, tok request,
 	w := tok.window()
 	for i, c := range chunks {
 		g.Go(mw.RecoverGo(ctx, slog.Default(), chunkWorkerOp, func() error {
+			if err := s.chunkReads.Acquire(gctx, 1); err != nil {
+				return err
+			}
+			defer s.chunkReads.Release(1)
 			ps, err := s.deps.Posts.ByAuthors(gctx, c, w, k)
 			if err != nil {
 				return logger.RedactErr(fmt.Errorf("timeline: chunk query: %w", err), c...)
@@ -233,18 +237,16 @@ func covers(rec posts.Recent, after *posts.Position) bool {
 
 // inWindow keeps the entry's posts strictly below before and strictly above after.
 func inWindow(ps []*posts.Post, before, after *posts.Position) []*posts.Post {
-	out := make([]*posts.Post, 0, len(ps))
-	for _, p := range ps {
-		pos := PositionOf(p)
-		if before != nil && Compare(pos, *before) <= 0 {
-			continue
-		}
-		if after != nil && Compare(pos, *after) >= 0 {
-			continue
-		}
-		out = append(out, p)
+	// Entries are newest first. A full slice expression prevents a caller's
+	// append from overwriting the rest of the shared cache entry.
+	start, end := 0, len(ps)
+	if before != nil {
+		start = sort.Search(end, func(i int) bool { return Compare(PositionOf(ps[i]), *before) > 0 })
 	}
-	return out
+	if after != nil {
+		end = start + sort.Search(end-start, func(i int) bool { return Compare(PositionOf(ps[start+i]), *after) >= 0 })
+	}
+	return ps[start:end:end]
 }
 
 func chunk(xs []string, n int) [][]string {

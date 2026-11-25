@@ -38,11 +38,22 @@ const mean = (a) => a.reduce((s, x) => s + x, 0) / (a.length || 1);
 
 for (const [rpc, rows] of [...byRpc.entries()].sort()) {
   const lat = rows.map((r) => r.latency_ms).sort((a, b) => a - b);
+  const waves = new Map();
+  for (const row of rows) {
+    if (!Number.isInteger(row.timeline_chunks)) continue;
+    const group = Math.ceil(row.timeline_chunks / 4);
+    if (!waves.has(group)) waves.set(group, []);
+    waves.get(group).push(row.latency_ms);
+  }
   const codes = {};
   for (const r of rows) codes[r.code] = (codes[r.code] || 0) + 1;
   console.log(
     `${rpc}\n  calls=${rows.length} server_latency_ms mean=${mean(lat).toFixed(1)} p50=${pct(lat, 50)} p95=${pct(lat, 95)} p99=${pct(lat, 99)} max=${lat[lat.length - 1]}\n` +
       `  codes=${JSON.stringify(codes)}`,
   );
+  for (const [group, durations] of [...waves].sort(([a], [b]) => a - b)) {
+    durations.sort((a, b) => a - b);
+    console.log(`  query_waves_min=${group} calls=${durations.length} p95_ms=${pct(durations, 95)} p99_ms=${pct(durations, 99)}`);
+  }
 }
 console.log(`ERROR lines: ${errors}   WARN lines: ${warns}`);

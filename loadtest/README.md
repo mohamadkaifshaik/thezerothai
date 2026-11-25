@@ -76,6 +76,8 @@ API_URL=http://localhost:8081 RATE=50 DURATION=1m NUM_USERS=50 make loadtest SCE
 
 ### Posts and timelines (T22)
 
+Run `k6 run -e FIRST_PAGE_ONLY=1 loadtest/timeline_read.js` for tokenless first opens without setup feed reads. Set `FIRST_PAGE_RATE`, `DURATION` and `FIRST_PAGE_P95_MS` for the test load and latency budget (defaults 1/s, 2m, 400 ms). To mix first opens with refresh and pagination, set only `FIRST_PAGE_RATE`. Compare p95/p99 and achieved request counts on fresh and warm instances. Seed writes can warm author caches even in first-page-only mode. Use the server log's query chunk and author-cache counts to identify cold reads. The API setting `TIMELINE_MAX_CHUNK_READS` bounds simultaneous Home and list author queries per instance (default 80, with four per request). Compare queueing, cost and tail latency under realistic concurrency before tuning this limit.
+
 `posts_create` and `timeline_read` reuse `graph_common.js` (`mintUsers`, `rpcCall`). Extra requirements on top of the
 graph ones: `FEATURE_POSTS=on` on the API, and the per-IP limiters raised (`RATE_LIMIT_PER_IP_PER_MIN`,
 `RATE_LIMIT_PRE_AUTH_IP_PER_MIN`). Per-user limits stay at defaults: the scripts spread calls over enough users to

@@ -220,12 +220,12 @@ class TimelineRepository {
   Future<TimelineSnapshot> loadOlder(FeedKey feed) {
     final session = _store.session;
     return _single(feed, 'older', () async {
-      final state = await _store.read(feed);
-      if (state.olderPageToken.isEmpty) return state;
+      final token = await _store.olderPageToken(feed);
+      if (token.isEmpty) return _store.read(feed);
       final page = await _fetchUnlessRejected(
         feed,
         'page_token',
-        pageToken: state.olderPageToken,
+        pageToken: token,
         session: session,
       );
       if (page == null) return _coldOpen(feed, session, replace: true);

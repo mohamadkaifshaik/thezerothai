@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter/rendering.dart' show ScrollDirection;
 
 import '../../../core/feature_flags/feature_flags.dart';
 import '../../../core/network/app_exception.dart';
@@ -22,6 +23,7 @@ import '../../../shared/widgets/post/post_pin_control.dart';
 import '../../engagement/domain/engagement_feature_flag.dart';
 import '../../graph/domain/graph_feature_flag.dart';
 import '../../moderation/domain/reports_feature_flag.dart';
+import '../../settings/presentation/bloc/data_usage_cubit.dart';
 import 'bloc/timeline_cubit.dart';
 import 'bloc/timeline_state.dart';
 import 'timeline_error_messages.dart';
@@ -250,7 +252,8 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
   void _onScroll() {
     if (!_controller.hasClients) return;
     final position = _controller.position;
-    if (position.maxScrollExtent > 0 &&
+    if (position.userScrollDirection != ScrollDirection.forward &&
+        position.maxScrollExtent > 0 &&
         position.pixels >= kPrefetchFraction * position.maxScrollExtent) {
       unawaited(context.read<TimelineCubit>().loadMore());
     }
@@ -313,7 +316,12 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
   /// Nested bodies have no controller of their own: the prefetch reads the
   /// inner scroll view's notifications instead.
   bool _onNestedScroll(ScrollNotification notification) {
-    if (notification.depth != 0) return false;
+    if (notification.depth != 0 ||
+        notification.metrics.axis != Axis.vertical ||
+        notification is! ScrollUpdateNotification ||
+        (notification.scrollDelta ?? 0) <= 0) {
+      return false;
+    }
     final metrics = notification.metrics;
     if (metrics.maxScrollExtent > 0 &&
         metrics.pixels >= kPrefetchFraction * metrics.maxScrollExtent) {
@@ -338,6 +346,9 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
   @override
   Widget build(BuildContext context) {
     final cubit = context.read<TimelineCubit>();
+    final dataSaver = context.select<DataUsageCubit?, bool>(
+      (cubit) => cubit?.state.dataSaver ?? false,
+    );
     final graphEnabled = isFeatureEnabled(context, kFeatureGraph);
     final reportsEnabled = isFeatureEnabled(context, kFeatureReports);
     final engagementEnabled = isFeatureEnabled(context, kFeatureEngagement);
@@ -352,6 +363,10 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
           builder: (context, state) {
             final scrollView = CustomScrollView(
               key: widget.scrollViewKey,
+              // Prepare nearby rows and their media before they enter either edge.
+              scrollCacheExtent: dataSaver
+                  ? null
+                  : const ScrollCacheExtent.viewport(1),
               controller: widget.nested ? null : _controller,
               physics: const AlwaysScrollableScrollPhysics(),
               slivers: [
@@ -363,18 +378,19 @@ class _TimelineFeedViewState extends State<TimelineFeedView>
                   ),
                 for (final sliver in widget.headerSlivers)
                   _inset(inset, sliver),
-                if (state.notice != null)
-                  _inset(
-                    inset,
-                    SliverToBoxAdapter(
-                      child: AppNoticeBanner(
-                        message: timelineNoticeMessage(state.notice!),
-                        onRetry: noticeCanRetry(state.notice!)
-                            ? cubit.refresh
-                            : null,
-                      ),
-                    ),
+                _inset(
+                  inset,
+                  SliverToBoxAdapter(
+                    child: state.notice == null
+                        ? const SizedBox.shrink()
+                        : AppNoticeBanner(
+                            message: timelineNoticeMessage(state.notice!),
+                            onRetry: noticeCanRetry(state.notice!)
+                                ? cubit.refresh
+                                : null,
+                          ),
                   ),
+                ),
                 if (widget.showPending)
                   _inset(
                     inset,

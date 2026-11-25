@@ -42,6 +42,18 @@ locals {
       aligner = "ALIGN_MEAN"
       period  = "60s"
     },
+    {
+      title   = "Cloud Run request latency p95 by revision (ms)"
+      metric  = "run.googleapis.com/request_latencies"
+      aligner = "ALIGN_PERCENTILE_95"
+      period  = "60s"
+    },
+    {
+      title   = "Cloud Run request latency p99 by revision (ms)"
+      metric  = "run.googleapis.com/request_latencies"
+      aligner = "ALIGN_PERCENTILE_99"
+      period  = "60s"
+    },
   ]
 
   # The Monitoring API drops position fields equal to 0 and adds targetAxis = "Y1" on read-back. Mirror that
@@ -56,7 +68,7 @@ locals {
           dataSets = [{
             timeSeriesQuery = {
               timeSeriesFilter = {
-                filter = "metric.type=\"${c.metric}\" resource.type=\"${c.metric == "run.googleapis.com/request_count" || c.metric == "run.googleapis.com/container/instance_count" ? "cloud_run_revision" : "firestore_instance"}\""
+                filter = "metric.type=\"${c.metric}\" resource.type=\"${startswith(c.metric, "run.googleapis.com/") ? "cloud_run_revision" : "firestore_instance"}\""
                 aggregation = {
                   alignmentPeriod  = c.period
                   perSeriesAligner = c.aligner
@@ -77,7 +89,7 @@ locals {
   egress_tile = {
     width  = 12
     height = 4
-    yPos   = 8
+    yPos   = 12
     widget = {
       title = "GCS egress (network sent bytes, media bucket)"
       xyChart = {
@@ -103,7 +115,7 @@ locals {
   dlq_tile = {
     width  = 12
     height = 4
-    yPos   = 12
+    yPos   = 16
     widget = {
       title = "Pub/Sub DLQ: dead-lettered messages"
       xyChart = {

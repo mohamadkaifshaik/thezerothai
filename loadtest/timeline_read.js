@@ -35,6 +35,9 @@ const NUM_AUTHORS = parseInt(__ENV.NUM_AUTHORS || '60', 10);
 const POSTS_PER_AUTHOR = parseInt(__ENV.POSTS_PER_AUTHOR || '5', 10);
 const MIN_F = parseInt(__ENV.MIN_F || '10', 10);
 const MAX_F = parseInt(__ENV.MAX_F || '45', 10);
+// First-page-only runs skip setup feed reads so the first timed requests encounter cold feed caches.
+const FIRST_PAGE_ONLY = __ENV.FIRST_PAGE_ONLY === '1';
+const FIRST_PAGE_RATE = Number(__ENV.FIRST_PAGE_RATE || (FIRST_PAGE_ONLY ? 1 : 0));
 const DURATION = __ENV.DURATION || '2m';
 const POSTS = 'dzeroth.posts.v1.PostService';
 const TIMELINE = 'dzeroth.timeline.v1.TimelineService';
@@ -58,20 +61,39 @@ function scenario(exec_, rate, vus, maxVus, timeUnit = '1s') {
 
 export const options = {
   setupTimeout: '900s',
+  summaryTrendStats: ['avg', 'med', 'p(95)', 'p(99)', 'max'],
   scenarios: {
-    home_refresh: scenario('homeRefresh', Number(__ENV.REFRESH_RATE || 14), 30, 100),
-    home_older: scenario('homeOlder', Number(__ENV.OLDER_RATE || 2), 10, 40),
-    user_timeline: scenario('userTimeline', Number(__ENV.USER_RATE || 4), 10, 40),
-    new_posts: scenario('newPosts', Number(__ENV.NEW_POST_RATE || 1), 5, 20, `${NEW_POST_EVERY_S}s`),
+    ...(FIRST_PAGE_RATE > 0 ? {
+      home_first_page: scenario('homeFirstPage', FIRST_PAGE_RATE, 10, 100),
+    } : {}),
+    ...(FIRST_PAGE_ONLY ? {} : {
+      home_refresh: scenario('homeRefresh', Number(__ENV.REFRESH_RATE || 14), 30, 100),
+      home_older: scenario('homeOlder', Number(__ENV.OLDER_RATE || 2), 10, 40),
+      user_timeline: scenario('userTimeline', Number(__ENV.USER_RATE || 4), 10, 40),
+      new_posts: scenario('newPosts', Number(__ENV.NEW_POST_RATE || 1), 5, 20, `${NEW_POST_EVERY_S}s`),
+    }),
   },
   thresholds: {
+    dropped_iterations: ['count==0'],
     http_req_failed: ['rate<0.01'],
     // Ticket targets: home refresh p95 < 400 ms warm; user timeline held to the same Stage 0 target.
-    'http_req_duration{rpc:home_refresh}': ['p(95)<400'],
-    'http_req_duration{rpc:home_older}': ['p(95)<400'],
-    'http_req_duration{rpc:user_timeline}': ['p(95)<400'],
-    // CreatePost target p95 < 500 ms (the background poster; posts_create.js is the acceptance driver).
-    'http_req_duration{rpc:new_post}': ['p(95)<500'],
+    ...(FIRST_PAGE_ONLY ? {} : {
+      'http_req_duration{rpc:home_refresh}': ['p(95)<400'],
+      'http_req_duration{rpc:home_older}': ['p(95)<400'],
+      'http_req_duration{rpc:user_timeline}': ['p(95)<400'],
+      // CreatePost target p95 < 500 ms (the background poster; posts_create.js is the acceptance driver).
+      'http_req_duration{rpc:new_post}': ['p(95)<500'],
+    }),
+    ...(FIRST_PAGE_RATE > 0 ? {
+      'http_reqs{rpc:home_first_page}': ['count>0'],
+      'http_req_duration{rpc:home_first_page}': [`p(95)<${Number(__ENV.FIRST_PAGE_P95_MS || 400)}`],
+    } : {}),
+    ...(FIRST_PAGE_ONLY ? {} : {
+      'http_reqs{rpc:home_older}': ['count>0'],
+      'http_reqs{rpc:home_refresh}': ['count>0'],
+      'http_reqs{rpc:user_timeline}': ['count>0'],
+      'http_reqs{rpc:new_post}': ['count>0'],
+    }),
     timeline_unexpected_responses: ['count==0'],
   },
 };
@@ -88,6 +110,9 @@ function retry(fn, what) {
 }
 
 export function setup() {
+  if (MAX_F >= NUM_USERS || MIN_F < 0 || MIN_F > MAX_F) {
+    throw new Error('Expected 0 <= MIN_F <= MAX_F < NUM_USERS');
+  }
   const users = mintUsers(NUM_USERS, 'lttl');
   const run = Math.floor(Date.now() / 1000).toString(36);
   const authors = Math.min(NUM_AUTHORS, users.length);
@@ -110,13 +135,16 @@ export function setup() {
         `seed follow ${u}->${j}`,
       );
     }
+    if (FIRST_PAGE_ONLY) continue;
     const cold = retry(
       () => rpcCall(TIMELINE, 'GetHomeTimeline', { pageSize: 20 }, users[u].idToken, 'SeedColdOpen'),
       `cold open ${u}`,
     );
     state.push({ since: cold.json('sinceToken') || '', older: cold.json('nextPageToken') || '' });
   }
-  return { users, state, authors, run };
+  const olderUsers = state.map((row, index) => row.older ? index : -1).filter(index => index >= 0);
+  if (!FIRST_PAGE_ONLY && olderUsers.length === 0) throw new Error('Seed more posts or follows for the older-page scenario');
+  return { users, state, authors, olderUsers, run };
 }
 
 const sinceByUser = {}; // per VU: newest since_token seen for a user
@@ -128,6 +156,13 @@ function expect(res, name, i) {
     console.error(`${name} i=${i} status=${res.status} body=${String(res.body).slice(0, 200)}`);
   }
   return ok;
+}
+
+// Tokenless first-page latency. Cache temperature depends on the API instance.
+export function homeFirstPage(data) {
+  const i = exec.scenario.iterationInTest;
+  const user = data.users[i % data.users.length];
+  expect(rpcCall(TIMELINE, 'GetHomeTimeline', { pageSize: 20 }, user.idToken, 'home_first_page'), 'home_first_page', i);
 }
 
 export function homeRefresh(data) {
@@ -151,9 +186,8 @@ export function homeRefresh(data) {
 
 export function homeOlder(data) {
   const i = exec.scenario.iterationInTest;
-  const u = (i * 7 + 3) % data.users.length;
+  const u = data.olderUsers[i % data.olderUsers.length];
   const token = data.state[u].older;
-  if (!token) return; // fewer posts than one page: nothing older to fetch
   const res = rpcCall(TIMELINE, 'GetHomeTimeline', { pageToken: token, pageSize: 20 }, data.users[u].idToken, 'home_older');
   expect(res, 'home_older', i);
 }

@@ -219,6 +219,7 @@ void main() {
     test('past the last-resort-only bound, a saved batch without a '
         'last-resort package is sent as it is (nothing generated), then the '
         'cap', () async {
+      rig.toNextIstDay(); // Keep both hourly retries inside the capped day.
       await rig.signIn(_a);
       final device = rig.devices.values.single;
       device.pool.removeRange(0, 40);
@@ -247,6 +248,7 @@ void main() {
 
     test('past the last-resort-only bound, a cleared batch gets no fresh '
         'last-resort package: the cap', () async {
+      rig.toNextIstDay();
       await rig.signIn(_a);
       final device = rig.devices.values.single;
       device.pool.removeRange(10, device.pool.length);

@@ -219,13 +219,18 @@ class PostMedia extends StatelessWidget {
         key: ValueKey(id),
         load: () async =>
             (await context.read<PostsRepository>().getPost(id)).post.media,
+        placeholder: _buildMedia(context, media, reserveOnly: true),
         render: (refs) => _buildMedia(context, refs),
       );
     }
     return _buildMedia(context, media);
   }
 
-  Widget _buildMedia(BuildContext context, List<common.MediaRef> refs) {
+  Widget _buildMedia(
+    BuildContext context,
+    List<common.MediaRef> refs, {
+    bool reserveOnly = false,
+  }) {
     final items = refs.take(kMaxPostImages).toList();
     if (items.isEmpty) return const SizedBox.shrink();
     VoidCallback? open(int index) {
@@ -255,11 +260,13 @@ class PostMedia extends StatelessWidget {
             ),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(radius),
-              child: _MediaTile(
-                media: items[index],
-                useFullImage: useFullImage,
-                onOpen: open(index),
-              ),
+              child: reserveOnly
+                  ? ColoredBox(color: colors.surfaceContainerHigh)
+                  : _MediaTile(
+                      media: items[index],
+                      useFullImage: useFullImage,
+                      onOpen: open(index),
+                    ),
             ),
           ),
         );
@@ -286,7 +293,9 @@ class PostMedia extends StatelessWidget {
           showIndicator: showPageIndicator,
           insetStart: insetStart,
           insetEnd: insetEnd,
-          onOpen: onOpenImage == null ? null : (i) => open(i)?.call(),
+          onOpen: reserveOnly || onOpenImage == null
+              ? null
+              : (i) => open(i)?.call(),
           tile: (index, size) => tile(index, size, AppRadius.postMediaTile),
         );
       },
@@ -315,8 +324,10 @@ class _RefreshPostMedia extends StatefulWidget {
   const _RefreshPostMedia({
     super.key,
     required this.load,
+    required this.placeholder,
     required this.render,
   });
+  final Widget placeholder;
   final Future<List<common.MediaRef>> Function() load;
   final Widget Function(List<common.MediaRef>) render;
 
@@ -337,12 +348,25 @@ class _RefreshPostMediaState extends State<_RefreshPostMedia> {
     future: request,
     builder: (context, snapshot) {
       if (snapshot.hasError) {
-        return TextButton(
-          onPressed: () => setState(() => request = widget.load()),
-          child: const Text('Reload media'),
+        return Stack(
+          alignment: Alignment.center,
+          children: [
+            widget.placeholder,
+            TextButton(
+              onPressed: () {
+                final next = widget.load();
+                setState(() {
+                  request = next;
+                });
+              },
+              child: const Text('Reload media'),
+            ),
+          ],
         );
       }
-      return widget.render(snapshot.data ?? const []);
+      return snapshot.hasData
+          ? widget.render(snapshot.requireData)
+          : widget.placeholder;
     },
   );
 }
@@ -721,6 +745,8 @@ Widget _cached(
     color: colors.surfaceContainerHigh,
     child: CachedNetworkImage(
       imageUrl: url,
+      fadeInDuration: Duration.zero,
+      fadeOutDuration: Duration.zero,
       fit: BoxFit.cover,
       alignment: Alignment.center,
       width: double.infinity,

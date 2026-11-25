@@ -496,7 +496,7 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	timelineServer := timeline.NewServer(timeline.Deps{
 		Flags: featureFlags, Posts: postsSvc, Graph: graphSvc, Directory: timelineDir, Viewer: engagementMod,
 		Removals: removals, Lists: listsReader,
-		CursorKey: cfg.CursorHMACKey, TokenTTL: cfg.TimelineTokenTTL, SettleWindow: cfg.TimelineSettleWindow,
+		CursorKey: cfg.CursorHMACKey, TokenTTL: cfg.TimelineTokenTTL, SettleWindow: cfg.TimelineSettleWindow, MaxChunkReads: cfg.TimelineMaxChunkReads,
 	}, timeline.WithProtectedAuthors(protectedAuthors),
 		timeline.WithHomeTabs(timeline.HomeTabsDeps{Store: homeTabs, Lists: listsReader, Flags: featureFlags, Max: cfg.Lists.HomeTabsMaxPinned}))
 

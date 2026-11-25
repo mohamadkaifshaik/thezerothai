@@ -66,10 +66,11 @@ func Merge(sources []Source, limit int, keep func(*posts.Post) bool) Page {
 	if limit < 1 {
 		limit = 1
 	}
-	var all []*posts.Post
-	var bound *posts.Position
+	total := 0
+	var bound posts.Position
+	hasBound := false
 	for _, s := range sources {
-		all = append(all, s.Posts...)
+		total += len(s.Posts)
 		if !s.Filled || len(s.Posts) == 0 {
 			continue
 		}
@@ -79,46 +80,45 @@ func Merge(sources []Source, limit int, keep func(*posts.Post) bool) Page {
 				last = pos
 			}
 		}
-		if bound == nil || Compare(last, *bound) < 0 {
-			b := last
-			bound = &b
+		if !hasBound || Compare(last, bound) < 0 {
+			bound = last
+			hasBound = true
 		}
+	}
+	all := make([]*posts.Post, 0, total)
+	for _, source := range sources {
+		for _, p := range source.Posts {
+			if !hasBound || Compare(PositionOf(p), bound) <= 0 {
+				all = append(all, p)
+			}
+		}
+	}
+	if len(all) == 0 {
+		return Page{}
 	}
 	sort.SliceStable(all, func(i, j int) bool { return Compare(PositionOf(all[i]), PositionOf(all[j])) < 0 })
 
-	var prefix []*posts.Post
-	for _, p := range all {
-		if len(prefix) > 0 && prefix[len(prefix)-1].ID == p.ID {
+	newest := PositionOf(all[0])
+	out := Page{Newest: &newest, Items: make([]*posts.Post, 0, min(limit, len(all)))}
+	for i, p := range all {
+		if i > 0 && all[i-1].ID == p.ID {
 			continue
 		}
-		if bound != nil && Compare(PositionOf(p), *bound) > 0 {
-			break
+		if keep != nil && !keep(p) {
+			out.Filtered++
+			continue
 		}
-		prefix = append(prefix, p)
-	}
-	if len(prefix) == 0 {
-		return Page{}
-	}
-	newest := PositionOf(prefix[0])
-	out := Page{Newest: &newest}
-	kept := prefix
-	if keep != nil {
-		kept = make([]*posts.Post, 0, len(prefix))
-		for _, p := range prefix {
-			if keep(p) {
-				kept = append(kept, p)
-			}
+		if len(out.Items) == limit {
+			out.HasMore = true
+			continue
 		}
-		out.Filtered = len(prefix) - len(kept)
+		out.Items = append(out.Items, p)
 	}
-	if len(kept) > limit {
-		out.Items = kept[:limit]
-		out.Last = PositionOf(kept[limit-1])
-		out.HasMore = true
-		return out
+	if out.HasMore {
+		out.Last = PositionOf(out.Items[len(out.Items)-1])
+	} else {
+		out.Last = PositionOf(all[len(all)-1])
+		out.HasMore = hasBound
 	}
-	out.Items = kept
-	out.Last = PositionOf(prefix[len(prefix)-1])
-	out.HasMore = bound != nil
 	return out
 }

@@ -115,6 +115,65 @@ void main() {
     expect(find.byType(CachedNetworkImage), findsNothing);
   });
 
+  testWidgets(
+    'late media and retry keep the scroll anchor in both directions',
+    (tester) async {
+      final repo = _ReadPosts();
+      final first = Completer<pb.PostView>();
+      final retry = Completer<pb.PostView>();
+      var attempts = 0;
+      when(() => repo.getPost('p'))
+          .thenAnswer((_) => (attempts++ == 0 ? first : retry).future);
+      final stale = common.MediaRef(
+        width: 400,
+        height: 300,
+        url: 'https://storage.googleapis.com/demo-media/m/old.jpg?X-Goog-Date=20200101T000000Z&X-Goog-Expires=300',
+      );
+      const anchor = ValueKey('next-post');
+      await tester.pumpWidget(
+        RepositoryProvider<PostsRepository>.value(
+          value: repo,
+          child: MaterialApp(
+            home: Scaffold(
+              body: ListView(
+                children: [
+                  const SizedBox(height: 220),
+                  PostMedia(postId: 'p', media: [stale]),
+                  const SizedBox(key: anchor, height: 160),
+                  const SizedBox(height: 1200),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      final list = find.byType(ListView);
+      Future<void> drag(double dy) async {
+        await tester.drag(list, Offset(0, dy));
+        await tester.pumpAndSettle();
+      }
+
+      await drag(-160);
+      await drag(-140);
+      final yDown = tester.getTopLeft(find.byKey(anchor)).dy;
+      first.completeError(StateError('offline'));
+      await tester.pumpAndSettle();
+      expect(tester.getTopLeft(find.byKey(anchor)).dy, yDown);
+      await tester.tap(find.text('Reload media'));
+      await tester.pump();
+      await drag(100);
+      final yUp = tester.getTopLeft(find.byKey(anchor)).dy;
+      retry.complete(
+        pb.PostView(
+          post: pb.Post(media: [common.MediaRef(width: 400, height: 300)]),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.getTopLeft(find.byKey(anchor)).dy, yUp);
+      expect(attempts, 2);
+    },
+  );
+
   late _FakeUrlLauncherPlatform launcher;
   late MockGraphRepository graphRepository;
 

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"golang.org/x/sync/semaphore"
 
 	timelinev1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1"
 	"github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1/timelinev1connect"
@@ -29,10 +30,12 @@ const rpcDeadline = 10 * time.Second
 // Deps is what the timeline server needs: the flag, the read seams it is allowed to use, and the token
 // configuration (cursor key, TIMELINE_TOKEN_TTL, TIMELINE_SETTLE_WINDOW).
 type Deps struct {
-	Flags     posts.FlagChecker
-	Posts     posts.Reader
-	Graph     graph.Reader
-	Directory identity.Directory
+	// MaxChunkReads bounds concurrent Firestore author queries across Home and list requests.
+	MaxChunkReads int
+	Flags         posts.FlagChecker
+	Posts         posts.Reader
+	Graph         graph.Reader
+	Directory     identity.Directory
 	// Viewer supplies the caller's liked/reposted flags (engagement). Nil, or FEATURE_ENGAGEMENT off
 	// for the caller, means every flag is false with no userLikes read.
 	Viewer posts.ViewerFlags
@@ -56,10 +59,11 @@ type Deps struct {
 // Server adapts the timeline logic to timelinev1connect.TimelineServiceHandler.
 type Server struct {
 	timelinev1connect.UnimplementedTimelineServiceHandler
-	deps   Deps
-	codec  codec
-	settle time.Duration
-	now    func() time.Time
+	chunkReads *semaphore.Weighted
+	deps       Deps
+	codec      codec
+	settle     time.Duration
+	now        func() time.Time
 	// aud is the visibility predicate (posts.Audience); WithProtectedAuthors gives it the protected set.
 	aud *posts.Audience
 	// community wires GetCommunityTimeline (service_community.go, set by SetCommunities); nil = Unimplemented.
@@ -81,6 +85,10 @@ func NewServer(d Deps, opts ...Option) *Server {
 		now = time.Now
 	}
 	s := &Server{deps: d, now: now, settle: d.SettleWindow, codec: codec{key: d.CursorKey, ttl: d.TokenTTL, now: now}, aud: posts.NewSnapshotAudience(nil)}
+	if d.MaxChunkReads <= 0 {
+		d.MaxChunkReads = 80
+	}
+	s.chunkReads = semaphore.NewWeighted(int64(d.MaxChunkReads))
 	for _, o := range opts {
 		o(s)
 	}

@@ -97,6 +97,9 @@ class TimelineStore {
     });
   }
 
+  Future<String> olderPageToken(FeedKey feed) async =>
+      (await _state(feed))?.olderPageToken ?? '';
+
   Future<TimelineSnapshot> read(FeedKey feed) async {
     final rows =
         await (_db.select(_db.timelineItemEntries)
