@@ -79,6 +79,9 @@ class TimelineCubit extends Cubit<TimelineState> {
   StreamSubscription<EngagementState>? _engagementSub;
 
   TimelineSnapshot _snapshot = const TimelineSnapshot();
+  // Only feeds subscribed to engagement build this index. The viewer can
+  // arrive after load, so check the author when an update is reconciled.
+  Map<String, List<pb.PostView>>? _repostsByTarget;
   final Set<String> _known = {};
   final Set<String> _held = {};
   final Set<String> _removed = {};
@@ -91,6 +94,7 @@ class TimelineCubit extends Cubit<TimelineState> {
     final cached = await _timeline.cached(_feed);
     if (isClosed) return;
     _snapshot = cached;
+    _repostsByTarget = null;
     _known.addAll(_postIds(cached));
     final visible = _visible(cached);
     emit(
@@ -183,7 +187,7 @@ class TimelineCubit extends Cubit<TimelineState> {
     }
     final limited = _timeline.rateLimitedFor();
     if (limited != null) {
-      _holdBack(limited);
+      if (state.notice is! RateLimitedException) _holdBack(limited);
       return;
     }
     emit(state.copyWith(loadingMore: true));
@@ -306,18 +310,33 @@ class TimelineCubit extends Cubit<TimelineState> {
   void _onEngagement(EngagementState engagement) {
     final me = viewerUserId;
     if (isClosed || me == null || engagement.entries.isEmpty) return;
-    for (final e in _snapshot.entries) {
-      final view = e.postView;
-      if (view == null || view.post.kind != PostKind.POST_KIND_REPOST) continue;
-      final id = view.post.postId;
-      if (view.post.author.userId != me || _removed.contains(id)) continue;
-      final entry = engagement.entries[engagementTargetId(view.post)];
-      if (entry == null || entry.busy || entry.reposted) continue;
-      if (!entry.matches(view)) continue;
-      _removed.add(id);
-      _emitVisible();
-      unawaited(_posts.forgetPostLocally(id));
+    final reposts = _repostsByTarget ??= _indexReposts();
+    var changed = false;
+    for (final update in engagement.entries.entries) {
+      final entry = update.value;
+      if (entry.busy || entry.reposted) continue;
+      for (final view in reposts[update.key] ?? const <pb.PostView>[]) {
+        final id = view.post.postId;
+        if (view.post.author.userId != me ||
+            !entry.matches(view) ||
+            !_removed.add(id)) {
+          continue;
+        }
+        changed = true;
+        unawaited(_posts.forgetPostLocally(id));
+      }
     }
+    if (changed) _emitVisible();
+  }
+
+  Map<String, List<pb.PostView>> _indexReposts() {
+    final result = <String, List<pb.PostView>>{};
+    for (final row in _snapshot.entries) {
+      final view = row.postView;
+      if (view == null || view.post.kind != PostKind.POST_KIND_REPOST) continue;
+      (result[engagementTargetId(view.post)] ??= []).add(view);
+    }
+    return result;
   }
 
   // -- internals -----------------------------------------------------------
@@ -351,6 +370,7 @@ class TimelineCubit extends Cubit<TimelineState> {
       });
     }
     _snapshot = snapshot;
+    _repostsByTarget = null;
     _emitVisible();
   }
 
@@ -432,6 +452,7 @@ class TimelineCubit extends Cubit<TimelineState> {
   bool _listGone(AppException error) {
     if (!_feed.isList || error is! NotFoundException) return false;
     _snapshot = const TimelineSnapshot();
+    _repostsByTarget = null;
     _held.clear();
     emit(
       state.copyWith(

@@ -423,6 +423,40 @@ void main() {
     verify(() => timeline.loadOlder(feed)).called(1);
   });
 
+  testWidgets(
+    'an older page arriving during upward scrolling keeps the visible post in place',
+    (tester) async {
+      final ids = [for (var i = 50; i >= 21; i--) i];
+      stubCached(snapshotOf(ids, older: 'page-two'));
+      since = const Duration(seconds: 1);
+      final page = Completer<TimelineSnapshot>();
+      when(() => timeline.loadOlder(feed)).thenAnswer((_) => page.future);
+      await open(tester);
+
+      final scroll = find.byType(CustomScrollView);
+      final position = tester
+          .state<ScrollableState>(find.byType(Scrollable).first)
+          .position;
+      final distance = position.maxScrollExtent * 0.42;
+      await tester.drag(scroll, Offset(0, -distance));
+      await tester.pump();
+      await tester.drag(scroll, Offset(0, -distance));
+      await tester.pump();
+      verify(() => timeline.loadOlder(feed)).called(1);
+      await tester.drag(scroll, const Offset(0, 150));
+      await tester.pump();
+
+      final visible = ids.firstWhere(
+        (id) => find.text('post $id').hitTestable().evaluate().isNotEmpty,
+      );
+      final row = find.text('post $visible');
+      final before = tester.getTopLeft(row);
+      page.complete(snapshotOf([...ids, for (var i = 20; i > 0; i--) i]));
+      await tester.pumpAndSettle();
+      expect(tester.getTopLeft(row), before);
+    },
+  );
+
   testWidgets('pull-to-refresh shows new posts directly', (tester) async {
     stubCached(snapshotOf([2, 1]));
     stubRefresh(snapshotOf([2, 1]));

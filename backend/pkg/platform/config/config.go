@@ -102,7 +102,8 @@ type Config struct {
 	// TimelineSettleWindow is the since-watermark settle window, env TIMELINE_SETTLE_WINDOW,
 	// default and minimum MinTimelineSettleWindow: a post whose transaction started before the watermark has
 	// committed or timed out (3 x the 5 s transaction deadline), so a `since` refresh cannot skip it.
-	TimelineSettleWindow time.Duration
+	TimelineSettleWindow  time.Duration
+	TimelineMaxChunkReads int
 
 	// InternalOIDCAudience/InternalOIDCAllowedEmails configure /internal/* OIDC verification.
 	// Empty only in local dev (no real Pub/Sub push subscriptions exist yet); Load fails closed (M8)
@@ -568,6 +569,13 @@ func Load() (Config, error) {
 	}
 	if timelineSettleWindow < MinTimelineSettleWindow {
 		return Config{}, fmt.Errorf("config: TIMELINE_SETTLE_WINDOW %v must be at least %v (3 x the 5 s CreatePost transaction deadline, ADR-0010 D13)", timelineSettleWindow, MinTimelineSettleWindow)
+	}
+	timelineMaxChunkReads, err := getInt("TIMELINE_MAX_CHUNK_READS", 80)
+	if err != nil {
+		return Config{}, err
+	}
+	if timelineMaxChunkReads < 1 {
+		return Config{}, fmt.Errorf("config: TIMELINE_MAX_CHUNK_READS must be positive")
 	}
 	cacheTTL, err := getDuration("CACHE_TTL", 60*time.Second)
 	if err != nil {
@@ -1352,6 +1360,7 @@ func Load() (Config, error) {
 		CacheAuthorRecentEntries:     cacheAuthorRecentEntries,
 		TimelineTokenTTL:             timelineTokenTTL,
 		TimelineSettleWindow:         timelineSettleWindow,
+		TimelineMaxChunkReads:        timelineMaxChunkReads,
 		InternalOIDCAudience:         internalOIDCAudience,
 		InternalOIDCAllowedEmails:    allowedEmails,
 		CORSAllowedOrigins:           corsOrigins,

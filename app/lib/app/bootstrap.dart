@@ -245,7 +245,7 @@ Future<void> bootstrap() async {
     ),
   );
 
-  await _activateAppCheck(config);
+  final appCheckReady = _activateAppCheck(config);
 
   // While the API is paused, Google's front end answers HTTP 403;
   // the interceptor flips this cubit and the root shows the paused screen.
@@ -299,6 +299,9 @@ Future<void> bootstrap() async {
   } catch (error, stack) {
     reportUnexpectedError(error, stack);
   }
+
+  // Local cache priming can overlap attestation. RPC consumers still start after both.
+  await appCheckReady;
 
   // The push cubit is built before the auth bloc so sign-out can unregister
   // the device while the ID token is still valid; AppWidget gives
