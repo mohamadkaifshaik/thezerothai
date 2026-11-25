@@ -15,6 +15,7 @@ import (
 	"github.com/rs/cors"
 
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/clientinfo"
 )
 
 // maxAgeSeconds bounds how long a browser caches a preflight response (2h): long enough to avoid a
@@ -32,7 +33,10 @@ func Wrap(origins []string, next http.Handler) http.Handler {
 	c := cors.New(cors.Options{
 		AllowedOrigins: origins,
 		AllowedMethods: connectcors.AllowedMethods(),
-		AllowedHeaders: append(connectcors.AllowedHeaders(), "Authorization", authn.AppCheckHeader),
+		// The app's own request headers: the ID token, App Check, the per-call X-Request-Id (sent since Phase 0) and the
+		// X-Dz-Client capability header (plan 6 section 3.1). Only local web development calls cross-origin; production
+		// web is same-origin through Firebase Hosting and never preflights.
+		AllowedHeaders: append(connectcors.AllowedHeaders(), "Authorization", authn.AppCheckHeader, "X-Request-Id", clientinfo.Header),
 		ExposedHeaders: connectcors.ExposedHeaders(),
 		MaxAge:         maxAgeSeconds,
 		// No cookies/credentials are used for auth (Firebase ID tokens go in the Authorization header), so

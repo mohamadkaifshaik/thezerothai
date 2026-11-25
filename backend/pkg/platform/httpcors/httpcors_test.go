@@ -57,12 +57,17 @@ func TestWrap_PreflightAllowsAuthorizationAndAppCheckHeaders(t *testing.T) {
 	req.Header.Set("Access-Control-Request-Method", http.MethodPost)
 	// Browsers send this list normalized to lowercase and sorted lexicographically (Fetch spec) before the
 	// server ever sees it; rs/cors validates that ordering, so the test must replicate it.
-	req.Header.Set("Access-Control-Request-Headers", "authorization,content-type,x-firebase-appcheck")
+	// The app also sends x-request-id (every call since Phase 0) and x-dz-client (the capability header, plan 6 section
+	// 3.1): a local web build calling the API cross-origin must not be refused at the preflight.
+	req.Header.Set("Access-Control-Request-Headers", "authorization,content-type,x-dz-client,x-firebase-appcheck,x-request-id")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK && rec.Code != http.StatusNoContent {
 		t.Fatalf("preflight status = %d, want 200/204", rec.Code)
+	}
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "https://app.example.com" {
+		t.Errorf("Access-Control-Allow-Origin = %q, want the origin (a refused preflight sets none)", got)
 	}
 	if got := rec.Header().Get("Access-Control-Allow-Headers"); got == "" {
 		t.Error("expected Access-Control-Allow-Headers to be set on the preflight response")

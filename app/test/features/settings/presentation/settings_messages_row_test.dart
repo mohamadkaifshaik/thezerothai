@@ -49,6 +49,7 @@ void main() {
     Brightness brightness = Brightness.light,
     double textScale = 1,
     MessagingFeatureGate? gate,
+    Set<String> needingUpdate = const {},
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
@@ -63,7 +64,10 @@ void main() {
     whenListen(
       onboarding,
       const Stream<OnboardingState>.empty(),
-      initialState: OnboardingState(enabledFeatures: flags),
+      initialState: OnboardingState(
+        enabledFeatures: flags,
+        featuresNeedingUpdate: needingUpdate,
+      ),
     );
     final router = GoRouter(
       routes: [
@@ -121,6 +125,27 @@ void main() {
       expect(find.text('Messaging'), findsNothing, reason: '$flags');
       expect(find.text('PRIVACY & SAFETY'), findsNothing, reason: '$flags');
     }
+  });
+
+  testWidgets('below the version floor the legacy chrome keeps the row and it '
+      'opens the update prompt page; the new shell has the destination '
+      '(Plan 6 PR 6-4)', (tester) async {
+    await open(tester, const {}, needingUpdate: const {kFeatureMessaging});
+    expect(find.text('Messages'), findsOneWidget);
+    await tester.tap(find.text('Messages'));
+    await tester.pumpAndSettle();
+    expect(find.text('inbox page'), findsOneWidget);
+
+    // The new shell: no Settings row (the bar / rail destination has it).
+    await open(
+      tester,
+      const {kFeatureUiShell},
+      needingUpdate: const {kFeatureMessaging},
+    );
+    expect(find.text('Messages'), findsNothing);
+    // Messaging simply off in the legacy chrome stays hidden.
+    await open(tester, const {});
+    expect(find.text('Messages'), findsNothing);
   });
 
   Future<MessagingFeatureGate> readOnlyGate() async {

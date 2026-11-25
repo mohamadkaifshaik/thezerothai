@@ -29,7 +29,9 @@ type service struct {
 	now                  func() time.Time
 	blockChecker         BlockChecker
 	features             FeatureFlags
-	avatars              AvatarResolver
+	// clientFloor is the app version floor GetMe applies to enabled_features (client_floor.go); nil = none.
+	clientFloor ClientFloor
+	avatars     AvatarResolver
 	// pins and extras are the profile-extras seams. Both nil by default: no checker means a non-empty pinned_post_id is
 	// VALIDATION, and no flags means profile_extras is off for every caller and globally off.
 	pins   PinChecker
@@ -285,7 +287,10 @@ func (s *service) GetMe(ctx context.Context, uid string) (MeResult, error) {
 	if s.features != nil {
 		enabled = s.features.EnabledFeatures(uid)
 	}
-	res := MeResult{Profile: s.present(profile), EnabledFeatures: enabled, PendingFollowRequestCount: s.pendingRequests(ctx, profile)}
+	// The app version floor (plan 6 section 3.1): a build below it loses the messaging family here, before the badge reads.
+	enabled, needingUpdate := s.applyClientFloor(ctx, enabled)
+	res := MeResult{Profile: s.present(profile), EnabledFeatures: enabled, PendingFollowRequestCount: s.pendingRequests(ctx, profile),
+		FeaturesNeedingUpdate: needingUpdate}
 	s.showPublicID(&res.Profile, profile, uid)
 	res.UnreadConversationCount = s.unreadConversations(ctx, uid, enabled)
 	res.HomeTabs = visibleHomeTabs(profile.HomeTabs(), enabled)

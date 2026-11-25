@@ -30,7 +30,9 @@ type keysModule struct {
 //
 // reauthMaxAge is config.AccountDeleteReauthMaxAge (ACCOUNT_DELETE_REAUTH_MAX_AGE, validated in (0, 10m]): the recent
 // sign-in a REMOTE RemoveKeyDevice of an id not yet marked needs. Required: zero would refuse every REMOTE removal.
-func newKeysModule(repo keys.Repo, fc keys.FlagChecker, perm messaging.Permission, convID func(a, b string) string, claimCap *ratelimit.DailyCap, chargeLookups func(context.Context, string, int) error, reauthMaxAge time.Duration, sessions keys.SessionCutter, log *slog.Logger) (keysModule, error) {
+//
+// serverOpts configure the handler (Build passes the app version floor, keys.WithClientFloor).
+func newKeysModule(repo keys.Repo, fc keys.FlagChecker, perm messaging.Permission, convID func(a, b string) string, claimCap *ratelimit.DailyCap, chargeLookups func(context.Context, string, int) error, reauthMaxAge time.Duration, sessions keys.SessionCutter, log *slog.Logger, serverOpts ...keys.ServerOption) (keysModule, error) {
 	if repo == nil || perm == nil || convID == nil || claimCap == nil || chargeLookups == nil || sessions == nil {
 		return keysModule{}, errors.New("keys: missing repository, permission, conversation id function, claim cap, lookup cap or session cutter")
 	}
@@ -39,7 +41,7 @@ func newKeysModule(repo keys.Repo, fc keys.FlagChecker, perm messaging.Permissio
 	}
 	svc := keys.New(keys.Deps{Repo: repo, Permission: keysPermission{m: perm}, Flags: fc, ClaimCap: claimCap, ChargeLookups: chargeLookups,
 		ConversationID: convID, Log: log, ReauthMaxAge: reauthMaxAge, Sessions: sessions})
-	return keysModule{svc: svc, server: keys.NewServer(fc, svc)}, nil
+	return keysModule{svc: svc, server: keys.NewServer(fc, svc, serverOpts...)}, nil
 }
 
 func keysLookupCap(established, newAccount int64, isNew func(string) bool) func(context.Context, string, int) error {

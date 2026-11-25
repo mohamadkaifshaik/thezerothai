@@ -259,6 +259,7 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
             (afterCreate && response.enabledFeatures.contains(kFeatureMedia)),
         profile: response.profile,
         enabledFeatures: response.enabledFeatures.toSet(),
+        featuresNeedingUpdate: response.featuresNeedingUpdate.toSet(),
         unreadNotificationCount: response.unreadNotificationCount.toInt(),
         unreadConversationCount: response.unreadConversationCount.toInt(),
         pendingFollowRequestCount: response.pendingFollowRequestCount.toInt(),

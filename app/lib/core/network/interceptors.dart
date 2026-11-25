@@ -5,14 +5,22 @@ import 'package:connectrpc/connect.dart' as connect;
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
+import '../app_build.dart';
 import 'auth_token_provider.dart';
 import 'connect_error_mapper.dart';
 import 'request_session.dart';
 
 /// Adds a fresh `X-Request-Id` to every call, so backend logs and client
-/// error reports can be correlated (the health and logging rule).
+/// error reports can be correlated (the health and logging rule), and the
+/// `x-dz-client` capability header (`<platform>/<level>`, see
+/// `core/app_build.dart`) so a server floor can tell old builds from new ones.
+/// Both are set here, outermost and before any auth work, so they are on every
+/// call, signed in or not, and on every retry attempt.
 final class RequestMetadataInterceptor {
-  const RequestMetadataInterceptor();
+  const RequestMetadataInterceptor({this.platform = clientPlatformName});
+
+  /// The platform word source; tests inject one.
+  final String Function() platform;
 
   static const _uuid = Uuid();
 
@@ -21,6 +29,7 @@ final class RequestMetadataInterceptor {
   ) {
     return (request) {
       request.headers.set('x-request-id', [_uuid.v4()]);
+      request.headers.set(kClientHeader, [clientHeaderValue(platform())]);
       return next(request);
     };
   }

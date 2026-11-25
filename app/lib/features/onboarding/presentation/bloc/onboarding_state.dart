@@ -46,6 +46,11 @@ abstract class OnboardingState with _$OnboardingState {
     // keeps whatever was known from the previous fetch this session; a name
     // this set doesn't contain is treated as off.
     @Default(<String>{}) Set<String> enabledFeatures,
+    // `GetMe.features_needing_update`: features this build is too old to use
+    // (today only "messaging"). Each is also missing from [enabledFeatures].
+    // Empty while no server floor is raised, and for a server that predates
+    // the field.
+    @Default(<String>{}) Set<String> featuresNeedingUpdate,
     // `GetMe.unread_notification_count` (capped server-side at 100), seeded
     // into the unread badge on every fresh GetMe; 0 extra reads.
     @Default(0) int unreadNotificationCount,

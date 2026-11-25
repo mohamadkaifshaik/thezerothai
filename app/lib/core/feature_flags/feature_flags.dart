@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
+import '../../features/onboarding/presentation/bloc/onboarding_state.dart';
 
 /// Whether the server feature flag [name] is enabled for the signed-in caller
 /// (server-driven, via `GetMe.enabled_features`; a missing name means off).
@@ -13,6 +14,21 @@ import '../../features/onboarding/presentation/bloc/onboarding_bloc.dart';
 bool isFeatureEnabled(BuildContext context, String name) {
   return context.select(
     (OnboardingBloc bloc) => bloc.state.enabledFeatures.contains(name),
+  );
+}
+
+/// Whether [name] is off for the caller only because this app build is older
+/// than the server's floor (`GetMe.features_needing_update`): the feature's
+/// place shows an update prompt instead of vanishing. False whenever [name] is
+/// enabled, so floors at 0 change nothing.
+bool needsUpdateFor(OnboardingState state, String name) =>
+    !state.enabledFeatures.contains(name) &&
+    state.featuresNeedingUpdate.contains(name);
+
+/// Reactive [needsUpdateFor] for widgets.
+bool featureNeedsUpdate(BuildContext context, String name) {
+  return context.select(
+    (OnboardingBloc bloc) => needsUpdateFor(bloc.state, name),
   );
 }
 

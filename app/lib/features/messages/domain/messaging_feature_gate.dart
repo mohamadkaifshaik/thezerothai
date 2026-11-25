@@ -150,7 +150,10 @@ class MessagingFeatureGate extends ServiceFeatureGate {
   /// Runs a read or clean-up [call] (not globally off is enough).
   Future<T> runRead<T>(Future<T> Function() call) async {
     if (_globallyOff) {
-      throw const FeatureDisabledException('This feature is not available.');
+      throw FeatureDisabledException(
+        'This feature is not available.',
+        updateRequired: updateRequiredByServer,
+      );
     }
     try {
       return await guardApiCall(call);

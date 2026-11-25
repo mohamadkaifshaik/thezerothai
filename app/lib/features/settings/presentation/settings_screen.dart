@@ -25,6 +25,8 @@ import '../../../core/widgets/shell_geometry.dart';
 import '../../../core/widgets/telemetry_consent_card.dart';
 import '../../../shared/widgets/primitives/settings_group.dart';
 import '../../account/presentation/account_feature_flags.dart';
+import '../../messages/domain/messaging_feature_flag.dart'
+    show kFeatureMessaging;
 import '../../auth/presentation/bloc/auth_bloc.dart';
 import '../../auth/presentation/request_sign_out.dart';
 import '../../beacons/domain/beacons_feature_flag.dart';
@@ -997,10 +999,14 @@ _SettingsRows _rowsFor(
   // carries the only entry. The new shell has the bar / rail destination.
   // Read-only Messages (off for this caller only, with a cached
   // conversation) keeps the row in both chromes: it is the only way in.
+  // Below the server's version floor (`features_needing_update`) the legacy
+  // chrome keeps the row: it opens `/messages`, which shows the update prompt.
   final messagesEntry = switch (messaging) {
     MessagingAccess.full => !isFeatureEnabled(context, kFeatureUiShell),
     MessagingAccess.readOnly => true,
-    MessagingAccess.hidden => false,
+    MessagingAccess.hidden =>
+      featureNeedsUpdate(context, kFeatureMessaging) &&
+          !isFeatureEnabled(context, kFeatureUiShell),
   };
 
   // Encrypted messages: with access full or manage only (hidden and

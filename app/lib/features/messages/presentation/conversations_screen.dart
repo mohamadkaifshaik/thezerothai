@@ -39,6 +39,7 @@ import 'messages_list_detail.dart';
 import 'widgets/conversation_row.dart';
 import 'widgets/message_search_panel.dart';
 import 'widgets/messaging_access_builder.dart';
+import 'widgets/messaging_update_required.dart';
 import 'widgets/messages_encryption_note.dart';
 import '../../settings/presentation/widgets/message_settings_action.dart';
 import '../../../core/widgets/shell_bottom_inset_sliver.dart';
@@ -79,6 +80,20 @@ class ConversationsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // This build is older than the server's floor for messaging: the update
+    // prompt takes the inbox's place (the Messages tab and every messages
+    // deep link land here). Nothing below is built, so no cubit starts.
+    if (featureNeedsUpdate(context, kFeatureMessaging)) {
+      // The inbox's own header (`AppTopBar`), so the prompt has the same top
+      // bar as the inbox in each shell and at each width.
+      return Scaffold(
+        appBar: AppTopBar.of(context, title: 'Messages'),
+        // TODO(play-listing-link): pass `onUpdate` (open the Play listing) on
+        // Android once the owner gives the link; until then the Update button
+        // is left out.
+        body: const MessagingUpdateRequired(),
+      );
+    }
     // `readOnly` (messaging off for this caller only) keeps the list,
     // the requests and the clean-up, and drops the New message action.
     return MessagingAccessBuilder(
