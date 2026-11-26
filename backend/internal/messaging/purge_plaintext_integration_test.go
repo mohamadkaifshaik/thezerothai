@@ -326,7 +326,8 @@ func TestPurgePlaintext_AndEraserInEitherOrder(t *testing.T) {
 }
 
 // A request accepted after the page read the conversation: the recipient's entry moved from dmRequests to dmInbox, and
-// the preview there is rewritten. When the request entry is gone and no dmInbox entry exists either, it is PreviewsSkipped.
+// the preview there is rewritten. When the request entry is gone and no dmInbox entry exists either, there is no stored
+// snippet: nothing to do, and nothing is counted as skipped.
 func TestPurgePlaintext_RequestAcceptedMidRun(t *testing.T) {
 	for _, moved := range []bool{true, false} {
 		t.Run(fmt.Sprintf("entry moved %v", moved), func(t *testing.T) {
@@ -363,8 +364,8 @@ func TestPurgePlaintext_RequestAcceptedMidRun(t *testing.T) {
 				if en, ok := e.entry(alice, dmInboxCollection, conv); !ok || en.Last.Snippet != noLongerStoredSnippet {
 					t.Errorf("the moved entry = %+v (found %v), want %q", en.Last, ok, noLongerStoredSnippet)
 				}
-			} else if got.Purged != 1 || got.Previews != 1 || got.PreviewsSkipped != 1 {
-				t.Errorf("purge = %+v, want 1 purged, carol's preview rewritten and alice's counted as skipped", got)
+			} else if got.Purged != 1 || got.Previews != 1 || got.PreviewsSkipped != 0 {
+				t.Errorf("purge = %+v, want 1 purged, carol's preview rewritten and nothing skipped (alice has no entry)", got)
 			}
 		})
 	}

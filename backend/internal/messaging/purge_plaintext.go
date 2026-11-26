@@ -147,8 +147,8 @@ func aggCount(ctx context.Context, q firestore.Query) (int64, error) {
 // last.sharedPost = false, again with a LastUpdateTime precondition (a conflict is PreviewsSkipped). lastMessageAt and
 // changedAt stay: the inbox keeps its order and no device is told to refresh. A request accepted after the page read
 // the conversation has moved the recipient's entry from dmRequests to dmInbox: a missing dmRequests entry is looked up in
-// dmInbox (one more read) and handled the same way; when neither exists it is PreviewsSkipped (the next run reads the
-// conversation again).
+// dmInbox (one more read) and handled the same way; when neither exists the participant holds no stored snippet, so there
+// is nothing to do (only precondition conflicts and failed rewrites are PreviewsSkipped).
 //
 // Errors name no ids in the clear (redactErr). A failed call can be repeated with the same `after`: everything it did is
 // already done and is not counted again.
@@ -282,9 +282,8 @@ func (r *FirestoreRepo) plaintextPreviews(ctx context.Context, convID string, co
 		for _, s := range inbox {
 			if s != nil && s.Exists() {
 				present = append(present, s)
-			} else {
-				out.PreviewsSkipped++ // neither entry exists: counted, the next run reads the conversation again
 			}
+			// else: neither entry exists (the request was deleted for themselves): no stored snippet, nothing to do
 		}
 	}
 	var stale []*firestore.DocumentSnapshot
