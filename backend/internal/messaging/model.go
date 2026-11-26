@@ -265,6 +265,11 @@ type MsgDoc struct {
 	MlsKey     string    `firestore:"mlsKey,omitempty"`
 	CtExpireAt time.Time `firestore:"ctExpireAt,omitempty"`
 	CtRemoved  bool      `firestore:"ctRemoved,omitempty"`
+	// TextRemoved is true once `opsctl messages purge-plaintext` deleted this plaintext message's text, request digest and
+	// shared post id (purge_plaintext.go); absent = false. Only that tool sets it, and never on an encrypted message. No
+	// query ever filters or orders on it, so it needs no index entry and no exemption (firebase/firestore.indexes.json is
+	// untouched; its single-field auto index entry costs one tiny boolean per purged message).
+	TextRemoved bool `firestore:"textRemoved,omitempty"`
 }
 
 // PeerDoc is the peer snapshot an inbox entry holds (index-exempt).

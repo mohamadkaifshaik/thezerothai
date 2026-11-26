@@ -617,6 +617,12 @@ func TestExport_MatchesGolden(t *testing.T) {
 		}
 	}
 
+	// The plaintext purge (opsctl messages purge-plaintext) ran on the alice-dave conversation after one more message each
+	// way: alice's own exports as sent, its state and textRemoved, no text; dave's stays "received" only.
+	daveConv := ConversationID(alice, "uid-dave")
+	e.putMsg(daveConv, fmt.Sprintf("%032x", 0xf0), MsgDoc{SenderID: alice, State: msgVisible, TextRemoved: true, CreatedAt: base.Add(48*time.Hour + time.Minute)})
+	e.putMsg(daveConv, fmt.Sprintf("%032x", 0xf1), MsgDoc{SenderID: "uid-dave", State: msgVisible, TextRemoved: true, CreatedAt: base.Add(48*time.Hour + 2*time.Minute)})
+
 	var buf bytes.Buffer
 	if err := NewExporter(e.repo, e.profs, e.social).ExportUser(context.Background(), alice, &buf); err != nil {
 		t.Fatal(err)

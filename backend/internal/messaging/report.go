@@ -74,8 +74,8 @@ var _ MessageReporter = (*service)(nil)
 //
 // Order: the conversation (instance cache for a participant, so membership is checked against a copy at most 60 s old; membership of a 1:1
 // conversation never changes), then the message (never cached). A missing conversation, a conversation the
-// caller is not in, a missing message, a message that is no longer VISIBLE (REMOVED, or its sender deleted the account)
-// and a message whose sender is not the peer all answer ErrNotFound, so the wire answer cannot tell
+// caller is not in, a missing message, a message that is no longer VISIBLE (REMOVED, or its sender deleted the account),
+// a message whose sender is not the peer and a plaintext message whose text the plaintext purge deleted all answer ErrNotFound, so the wire answer cannot tell
 // them apart. The caller's own message is ErrOwnMessage, checked before the state so a taken-down own message is no
 // different. The sender's handle comes from the identity directory (cache-first 60 s); a sender it does not list as ACTIVE
 // gives an empty handle, not an error.
@@ -107,6 +107,10 @@ func (s *service) ReportableMessage(ctx context.Context, uid, convID, msgID stri
 	case msg.SenderID == uid:
 		return ReportedMessage{}, ErrOwnMessage
 	case msg.State != msgVisible || peer == "" || peer == DeletedUID || msg.SenderID != peer:
+		return ReportedMessage{}, ErrNotFound
+	case msg.TextRemoved && msg.MlsGen < 1:
+		// The plaintext purge deleted the text: nothing is left to copy into the evidence, so it is unreportable like the
+		// causes above (the same sentinel, so the wire answer cannot tell them apart).
 		return ReportedMessage{}, ErrNotFound
 	}
 

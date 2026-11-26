@@ -312,8 +312,17 @@ func messageOf(r MessageRow, convID, uid string) *messagingv1.Message {
 	case msgRemoved:
 		m.State = messagingv1.MessageState_MESSAGE_STATE_REMOVED
 	}
+	setTextRemoved(m, r.MsgDoc)
 	setEncrypted(m, r.MsgDoc)
 	return m
+}
+
+// setTextRemoved marks a plaintext message whose text the plaintext purge deleted (MsgDoc.TextRemoved): text_removed =
+// true and no text, whatever the state. Never on an encrypted message (ciphertext_removed is its signal).
+func setTextRemoved(m *messagingv1.Message, d MsgDoc) {
+	if d.TextRemoved && d.MlsGen < 1 {
+		m.TextRemoved, m.Text = true, ""
+	}
 }
 
 // setEncrypted fills the encrypted-message fields of a wire Message from the stored one (every place a stored message

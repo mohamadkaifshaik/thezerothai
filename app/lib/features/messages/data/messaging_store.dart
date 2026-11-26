@@ -574,7 +574,12 @@ class MessagingStore {
   }) {
     return _tx(session, () async {
       await _putEverEncrypted(encryptedIds);
-      final valid = _validMessages(items);
+      // Read before the delete below: the cached text of a purged row must
+      // survive the replace.
+      final valid = await _keepCachedText(
+        conversationId,
+        _validMessages(items),
+      );
       final known = await _knownIds(conversationId);
       await (_db.delete(
         _db.messageEntries,
@@ -618,7 +623,10 @@ class MessagingStore {
   }) {
     return _tx(session, () async {
       await _putEverEncrypted(encryptedIds);
-      final valid = _validMessages(items);
+      final valid = await _keepCachedText(
+        conversationId,
+        _validMessages(items),
+      );
       final known = await _knownIds(conversationId);
       await _upsertMessages(conversationId, valid);
       await _saveState(_threadStateKey(conversationId), sinceToken: sinceToken);
@@ -637,7 +645,10 @@ class MessagingStore {
   }) {
     return _tx(session, () async {
       await _putEverEncrypted(encryptedIds);
-      final valid = _validMessages(items);
+      final valid = await _keepCachedText(
+        conversationId,
+        _validMessages(items),
+      );
       await _upsertMessages(conversationId, valid);
       if (valid.isNotEmpty && nextPageToken.isNotEmpty) {
         await _setPageToken(conversationId, valid.last.id, nextPageToken);
@@ -676,7 +687,10 @@ class MessagingStore {
           ? message.conversationId
           : conversation?.id ?? '';
       if (conversationId.isEmpty || message.id.isEmpty) return;
-      await _upsertMessages(conversationId, [message]);
+      await _upsertMessages(
+        conversationId,
+        await _keepCachedText(conversationId, [message]),
+      );
       if (conversation != null && conversation.id.isNotEmpty) {
         await _putConversation(conversation);
       }
@@ -754,6 +768,62 @@ class MessagingStore {
     }
     return byId.values.toList();
   }
+
+  /// [items] with the cached text and shared post kept for every visible
+  /// `text_removed` row (Plan 6 PR 6-5): the server purged its plaintext and
+  /// sends an empty text and no shared post, but a device that holds the text
+  /// keeps showing it (the claim is about the server, not the user's device).
+  /// The row keeps `text_removed` true, so it stays unreportable. A tombstone
+  /// (deleted account, removed) is written as the server sent it: a right to
+  /// delete or a takedown never brings cached text back. The same list comes
+  /// back when no row needs the cache.
+  Future<List<pb.Message>> _keepCachedText(
+    String conversationId,
+    List<pb.Message> items,
+  ) async {
+    final purged = {
+      for (final m in items)
+        if (m.textRemoved && !_isTombstoneState(m.state)) m.id,
+    };
+    if (purged.isEmpty) return items;
+    final rows =
+        await (_db.select(_db.messageEntries)..where(
+              (t) =>
+                  t.conversationId.equals(conversationId) &
+                  t.messageId.isIn(purged),
+            ))
+            .get();
+    final cached = <String, pb.Message>{};
+    for (final row in rows) {
+      try {
+        cached[row.messageId] = pb.Message.fromBuffer(row.payload);
+      } catch (_) {
+        // An undecodable row has nothing to keep; readThread drops it.
+      }
+    }
+    if (cached.isEmpty) return items;
+    return [
+      for (final m in items)
+        if (purged.contains(m.id) && cached[m.id] != null)
+          _withCachedText(m, cached[m.id]!)
+        else
+          m,
+    ];
+  }
+
+  pb.Message _withCachedText(pb.Message fresh, pb.Message old) {
+    final keepText = fresh.text.isEmpty && old.text.isNotEmpty;
+    final keepPost = !fresh.hasSharedPost() && old.hasSharedPost();
+    if (!keepText && !keepPost) return fresh;
+    final merged = fresh.deepCopy();
+    if (keepText) merged.text = old.text;
+    if (keepPost) merged.sharedPost = old.sharedPost;
+    return merged;
+  }
+
+  static bool _isTombstoneState(MessageState state) =>
+      state == MessageState.MESSAGE_STATE_DELETED_ACCOUNT ||
+      state == MessageState.MESSAGE_STATE_REMOVED;
 
   Future<Set<String>> _knownIds(String conversationId) async {
     final rows = await (_db.select(

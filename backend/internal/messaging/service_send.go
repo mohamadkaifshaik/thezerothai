@@ -528,6 +528,7 @@ func sendResponse(convID, msgID string, peer identity.Profile, res SendResult, c
 	// An encrypted message: the pair always; the ciphertext and commitment only while present on a VISIBLE message (a
 	// replay of a swept or taken-down message answers ciphertext_removed instead).
 	encrypted := res.Msg.MlsGen > 0
+	setTextRemoved(msg, res.Msg) // a replay of a purged REMOVED message (text_removed keeps saying why the text is gone)
 	setEncrypted(msg, res.Msg)
 	if encrypted {
 		snippet = ""

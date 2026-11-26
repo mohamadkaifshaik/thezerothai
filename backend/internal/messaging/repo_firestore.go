@@ -44,6 +44,8 @@ type raceHooks struct {
 	afterTombstoneRead func()
 	// afterCiphertextSweepRead runs between the retention sweep's query and its updates.
 	afterCiphertextSweepRead func()
+	// afterPlaintextRead runs between the plaintext purge's read of a message page and its updates (purge mode only).
+	afterPlaintextRead func()
 	// commitThenFail runs after a send, accept or delete transaction COMMITTED and returns the error the caller then sees
 	// (a deadline that expires while the commit is in flight; the write is applied, the client is told it failed).
 	commitThenFail func() error
@@ -76,6 +78,12 @@ func (h *raceHooks) tombstoneRead() {
 func (h *raceHooks) ciphertextSweepRead() {
 	if h != nil && h.afterCiphertextSweepRead != nil {
 		h.afterCiphertextSweepRead()
+	}
+}
+
+func (h *raceHooks) plaintextRead() {
+	if h != nil && h.afterPlaintextRead != nil {
+		h.afterPlaintextRead()
 	}
 }
 
@@ -216,8 +224,10 @@ func (r *FirestoreRepo) Send(ctx context.Context, p SendParams) (SendResult, err
 		}
 		// A moderator takedown clears the digest (and the text), so a retry of the same key can no longer be compared: it
 		// replays the tombstone (REMOVED) instead of answering "key reused". The message id is derived from the sender's own
-		// uid and key, so only the sender gets here.
-		if stored.State != msgRemoved && stored.RequestHash != p.RequestHash {
+		// uid and key, so only the sender gets here. The plaintext purge clears the digest too (textRemoved): a purged message
+		// that is still VISIBLE replays as stored (text_removed, no text). A purged one later tombstoned by the eraser
+		// (DELETED_ACCOUNT) does not: it keeps the tombstone's rule.
+		if stored.State != msgRemoved && (!stored.TextRemoved || stored.State != msgVisible) && stored.RequestHash != p.RequestHash {
 			return SendResult{}, ErrKeyReused
 		}
 		return SendResult{Replay: true, Msg: stored, Conv: res.Conv}, nil
@@ -459,7 +469,9 @@ func (r *FirestoreRepo) replayOrRefuse(ctx context.Context, tx *firestore.Transa
 		if derr := snap.DataTo(&stored); derr != nil {
 			return res, fmt.Errorf("messaging: decode message: %w", derr)
 		}
-		if stored.State != msgRemoved && stored.RequestHash != p.RequestHash { // a taken-down message replays as REMOVED
+		// A taken-down message replays as REMOVED, a purged VISIBLE one (textRemoved, digest cleared) as stored with
+		// text_removed; a purged message the eraser tombstoned since (DELETED_ACCOUNT) is not a replay.
+		if stored.State != msgRemoved && (!stored.TextRemoved || stored.State != msgVisible) && stored.RequestHash != p.RequestHash {
 			return res, ErrKeyReused
 		}
 		res.Replay, res.Msg = true, stored

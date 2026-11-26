@@ -1806,6 +1806,42 @@ void main() {
       expect(find.text(kReportMessageLabel), findsNothing);
     });
 
+    testWidgets('a text_removed row with no cache shows the no-longer-stored '
+        'line and no Report action', (tester) async {
+      final purged = msg(2, secondsAgo: 10).deepCopy()
+        ..text = ''
+        ..textRemoved = true;
+      current = snap([msg(3, secondsAgo: 5, fromSelf: true), purged]);
+      await open(
+        tester,
+        features: const {'messaging', 'graph', 'reports'},
+        onReport: reportConversationPeer,
+      );
+
+      expect(find.text(kMessageNoLongerStoredText), findsOneWidget);
+      await tester.longPress(bubble(peerMessageId));
+      await tester.pumpAndSettle();
+      expect(find.text(kReportMessageLabel), findsNothing);
+    });
+
+    testWidgets('a text_removed row with cached text shows the text and still '
+        'no Report action (the server holds no text)', (tester) async {
+      final purged = msg(2, secondsAgo: 10, text: 'kept on device').deepCopy()
+        ..textRemoved = true;
+      current = snap([msg(3, secondsAgo: 5, fromSelf: true), purged]);
+      await open(
+        tester,
+        features: const {'messaging', 'graph', 'reports'},
+        onReport: reportConversationPeer,
+      );
+
+      expect(find.text('kept on device'), findsOneWidget);
+      expect(find.text(kMessageNoLongerStoredText), findsNothing);
+      await tester.longPress(bubble(peerMessageId));
+      await tester.pumpAndSettle();
+      expect(find.text(kReportMessageLabel), findsNothing);
+    });
+
     testWidgets('with reports off: no menu on a bubble and no Report item', (
       tester,
     ) async {
@@ -2092,6 +2128,8 @@ void main() {
       final deleted = msg(7).deepCopy()
         ..state = MessageState.MESSAGE_STATE_DELETED_ACCOUNT;
       expect(canReportMessage(deleted), isFalse);
+      final purged = msg(7).deepCopy()..textRemoved = true;
+      expect(canReportMessage(purged), isFalse);
       expect(() => messageReportTargetId('c1', msg(7)), throwsArgumentError);
       final odd = msg(7).deepCopy()..id = 'ABC';
       expect(() => messageReportTargetId(kThreadId, odd), throwsArgumentError);

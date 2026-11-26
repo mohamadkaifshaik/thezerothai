@@ -434,6 +434,7 @@ class Message extends $pb.GeneratedMessage {
     $fixnum.Int64? mlsEpoch,
     $core.List<$core.int>? reportCommitment,
     $core.bool? ciphertextRemoved,
+    $core.bool? textRemoved,
   }) {
     final result = Message._();
     if (id != null) result.id = id;
@@ -448,6 +449,7 @@ class Message extends $pb.GeneratedMessage {
     if (mlsEpoch != null) result.mlsEpoch = mlsEpoch;
     if (reportCommitment != null) result.reportCommitment = reportCommitment;
     if (ciphertextRemoved != null) result.ciphertextRemoved = ciphertextRemoved;
+    if (textRemoved != null) result.textRemoved = textRemoved;
     return result;
   }
 
@@ -486,6 +488,7 @@ class Message extends $pb.GeneratedMessage {
     ..a<$core.List<$core.int>>(
         12, _omitFieldNames ? '' : 'reportCommitment', $pb.PbFieldType.OY)
     ..aOB(13, _omitFieldNames ? '' : 'ciphertextRemoved')
+    ..aOB(14, _omitFieldNames ? '' : 'textRemoved')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -646,6 +649,19 @@ class Message extends $pb.GeneratedMessage {
   $core.bool hasCiphertextRemoved() => $_has(11);
   @$pb.TagNumber(13)
   void clearCiphertextRemoved() => $_clearField(13);
+
+  /// True when the server deleted this plaintext message's text (and its shared post id) at the plaintext cut-over
+  /// (`opsctl messages purge-plaintext`). The record, its state and its times stay; text and shared_post are empty.
+  /// A device that still holds the text locally keeps showing it; otherwise show "This message is no longer stored".
+  /// Never true for an encrypted message (see ciphertext_removed). Absent on older servers: read as false.
+  @$pb.TagNumber(14)
+  $core.bool get textRemoved => $_getBF(12);
+  @$pb.TagNumber(14)
+  set textRemoved($core.bool value) => $_setBool(12, value);
+  @$pb.TagNumber(14)
+  $core.bool hasTextRemoved() => $_has(12);
+  @$pb.TagNumber(14)
+  void clearTextRemoved() => $_clearField(14);
 }
 
 /// What a device encrypts as the plaintext of one encrypted message (Message.ciphertext). Never sent to the server in

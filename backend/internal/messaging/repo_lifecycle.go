@@ -374,11 +374,13 @@ type ExportMsg struct {
 	SharedPostID string
 	// Encrypted is true for an end-to-end encrypted message (it has an mlsGen): the export shows no content for it.
 	Encrypted bool
+	// TextRemoved is true for a plaintext message whose text the plaintext purge deleted (MsgDoc.TextRemoved).
+	TextRemoved bool
 }
 
 // exportMsgFields are the message fields the export reads (Select): never ciphertext or commitment, so a page of 500 stays
 // small whatever the messages hold.
-var exportMsgFields = []string{"senderId", "text", "state", "createdAt", "sharedPostId", "mlsGen"}
+var exportMsgFields = []string{"senderId", "text", "state", "createdAt", "sharedPostId", "mlsGen", "textRemoved"}
 
 // ExportConversations returns every conversation of uid, in pages of 500 by __name__ (`participants array-contains
 // uid`).
@@ -431,7 +433,7 @@ func (r *FirestoreRepo) ExportMessages(ctx context.Context, uid, convID string, 
 		if derr := d.DataTo(&m); derr != nil {
 			return nil, redactErr(fmt.Errorf("messaging: decode message %s: %w", d.Ref.ID, derr), uid, convID, d.Ref.ID)
 		}
-		out = append(out, ExportMsg{ID: d.Ref.ID, FromSelf: m.SenderID == uid, Text: m.Text, State: m.State, CreatedAt: m.CreatedAt.UTC(), SharedPostID: m.SharedPostID, Encrypted: m.MlsGen >= 1})
+		out = append(out, ExportMsg{ID: d.Ref.ID, FromSelf: m.SenderID == uid, Text: m.Text, State: m.State, CreatedAt: m.CreatedAt.UTC(), SharedPostID: m.SharedPostID, Encrypted: m.MlsGen >= 1, TextRemoved: m.TextRemoved && m.MlsGen < 1})
 	}
 	return out, nil
 }
