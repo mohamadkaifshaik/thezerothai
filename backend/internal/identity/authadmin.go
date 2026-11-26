@@ -10,7 +10,13 @@
 //   - C1 amendment (M2, 2026-10-08): a signupTarget, built from the verified ID token's own uid only (never from
 //     request data), authorizes one read-only `get` of the caller's own Auth record at the CreateProfile boundary,
 //     and only when users/{uid} does not exist. It refuses a deleted or disabled Auth user.
-//   - C2: this file is the only caller of AuthClient. Its four operations take only those target types, which
+//   - C1 amendment (H1, 2026-11-25): a sessionRevokeTarget authorizes one RevokeRefreshTokens of a uid whose
+//     users/{uid}, read fresh in this invocation, carries a session cut (sessionsValidAfter) at or after the cut being
+//     applied. Only SessionCuts.EndSessionsBefore writes that field (a REMOTE key-device removal of the caller's own
+//     account, with a recent sign-in and device_sign_out on), so the document says the account asked for it. The
+//     uid comes from the keys seam, which passes the caller's token uid, never request data. It never disables or
+//     deletes: the deletion target is not widened.
+//   - C2: this file is the only caller of AuthClient. Its five operations take only those target types, which
 //     only this package can construct; no method takes a bare uid string. TestAuthAdminConfinement fails CI if
 //     another package outside cmd/opsctl calls the Admin SDK's Auth methods.
 //   - C3: one NOTICE line per operation (auth_admin_op, outcome, uid_hash, account_job, seq, actor, trace), never
@@ -35,6 +41,9 @@ const (
 	authOpDisableRevoke = "disable_revoke"
 	authOpDelete        = "delete"
 	authOpGet           = "get"
+	// authOpRevokeSessions is the H1 revoke on a session cut (account_job session_cut, actor caller).
+	authOpRevokeSessions = "revoke_sessions"
+	jobSessionCut        = "session_cut"
 
 	authOutcomeOK       = "ok"
 	authOutcomeNotFound = "not_found"
@@ -49,6 +58,8 @@ const (
 
 	// signupAuthTimeout bounds the one Auth lookup in CreateProfile (project rule: every outbound call has a deadline).
 	signupAuthTimeout = 3 * time.Second
+	// sessionRevokeTimeout bounds the one Auth call of a session revoke, inside the removal's RPC deadline.
+	sessionRevokeTimeout = 3 * time.Second
 )
 
 // Sentinels of the sign-up check; the service maps them to Connect codes.
@@ -73,6 +84,11 @@ type exportTarget struct {
 // signupTarget authorizes checkSignup for one uid. Only newSignupTarget builds it, and its only caller passes the
 // uid of the verified ID token (service.CreateProfile's uid argument comes from the token, never the request body).
 type signupTarget struct {
+	uid string
+}
+
+// sessionRevokeTarget authorizes revokeSessions for one uid. Only authAdmin.sessionRevokeTarget builds it.
+type sessionRevokeTarget struct {
 	uid string
 }
 
@@ -102,12 +118,36 @@ func newAuthAdmin(client AuthClient, log *slog.Logger) *authAdmin {
 
 // refuse logs the C1 refusal at ERROR (Error Reporting emails the founder at $0) and returns ErrAuthAdminRefused.
 func (a *authAdmin) refuse(ctx context.Context, op, job, why, uid string, seq int64) error {
+	return a.refuseAs(ctx, actorJob, op, job, why, uid, seq)
+}
+
+// refuseAs is refuse with the C3 actor named (the session revoke runs on the caller's own request, not a job).
+func (a *authAdmin) refuseAs(ctx context.Context, actor, op, job, why, uid string, seq int64) error {
 	err := fmt.Errorf("auth_admin_refused: %w: %s", ErrAuthAdminRefused, why)
 	mw.ReportError(ctx, a.log.With(append([]any{
 		"auth_admin_op", op, "outcome", authOutcomeRefused, "reason", why,
-		"uid_hash", logger.HashUID(uid), "account_job", job, "seq", seq, "actor", actorJob,
+		"uid_hash", logger.HashUID(uid), "account_job", job, "seq", seq, "actor", actor,
 	}, logger.TraceAttrs(ctx)...)...), "auth_admin_refused", err)
 	return err
+}
+
+// sessionRevokeTarget applies C1 (H1 amendment) to a freshly read profile and the cut the caller is applying: the
+// document must carry a session cut at or after it. Zero state on any refusal.
+func (a *authAdmin) sessionRevokeTarget(ctx context.Context, p Profile, cut time.Time) (sessionRevokeTarget, error) {
+	refuse := func(why string) (sessionRevokeTarget, error) {
+		return sessionRevokeTarget{}, a.refuseAs(ctx, actorCaller, authOpRevokeSessions, jobSessionCut, why, p.UserID, 0)
+	}
+	switch {
+	case p.UserID == "":
+		return refuse("no uid")
+	case cut.IsZero():
+		return refuse("no session cut asked")
+	case p.SessionsValidAfter.IsZero():
+		return refuse("the account has no session cut")
+	case p.SessionsValidAfter.Before(cut):
+		return refuse("the account's session cut is older than the one asked")
+	}
+	return sessionRevokeTarget{uid: p.UserID}, nil
 }
 
 // deletionTarget applies C1 to a freshly read profile. Zero state on any refusal.
@@ -182,6 +222,36 @@ func (a *authAdmin) deleteUser(ctx context.Context, t deletionTarget) error {
 		return logger.RedactErr(fmt.Errorf("identity: delete auth user: %w", err), t.uid)
 	}
 	return nil
+}
+
+// revokeSessions revokes every refresh token of the uid (H1): Firebase then refuses to mint new ID tokens from any
+// session that signed in before now, the caller's own included, and Identity Toolkit refuses older ID tokens for
+// account changes such as linking a provider. ID tokens already minted keep passing VerifyIDToken (no revocation check
+// outside the emulator) until they expire, at most 1 h; the session cut covers that window for our API. One Auth call,
+// no Firestore, one C3 NOTICE line (op revoke_sessions, job session_cut, actor caller). A user that no longer exists
+// counts as done. Idempotent in effect: a repeat only moves validSince forward.
+func (a *authAdmin) revokeSessions(ctx context.Context, t sessionRevokeTarget) error {
+	cctx, cancel := context.WithTimeout(ctx, sessionRevokeTimeout)
+	defer cancel()
+	err := a.client.RevokeRefreshTokens(cctx, t.uid)
+	outcome := a.outcomeOf(err)
+	a.auditRevoke(ctx, outcome, t.uid)
+	if outcome == authOutcomeNotFound {
+		return nil
+	}
+	if err != nil {
+		return logger.RedactErr(fmt.Errorf("identity: revoke refresh tokens: %w", err), t.uid)
+	}
+	return nil
+}
+
+// auditRevoke writes the C3 line of a session revoke: op revoke_sessions, job session_cut, actor caller. RevokeSessionsAt
+// also writes it (outcome not_found, no Auth call) for a uid without users/{uid}, so every call has exactly one line.
+func (a *authAdmin) auditRevoke(ctx context.Context, outcome, uid string) {
+	a.log.Log(ctx, logger.LevelNotice, "auth_admin_op", append([]any{
+		"auth_admin_op", authOpRevokeSessions, "outcome", outcome, "uid_hash", logger.HashUID(uid),
+		"account_job", jobSessionCut, "seq", int64(0), "actor", actorCaller,
+	}, logger.TraceAttrs(ctx)...)...)
 }
 
 // getUserRecord reads the export's `account` section. A user that no longer exists yields an empty record.

@@ -65,8 +65,11 @@ type keysModule struct {
 // push is notifications' push registrations (keys.PushRegistrations, the notifications repository), dropped by a REMOTE
 // removal that carries a session cut (lane D PR 5); required, like the session cutter.
 //
+// sessions is identity's session cut and, from the same value, its refresh-token revoke (security audit H1): a REMOTE
+// removal writes the cut, then revokes. One value, so the revoke can never be wired to a different identity than the cut.
+//
 // serverOpts configure the handler (Build passes the app version floor, keys.WithClientFloor).
-func newKeysModule(repo keys.Repo, fc keys.FlagChecker, perm messaging.Permission, convID func(a, b string) string, claimCap *ratelimit.DailyCap, chargeLookups func(context.Context, string, int) error, reauthMaxAge time.Duration, sessions keys.SessionCutter, push keys.PushRegistrations, log *slog.Logger, serverOpts ...keys.ServerOption) (keysModule, error) {
+func newKeysModule(repo keys.Repo, fc keys.FlagChecker, perm messaging.Permission, convID func(a, b string) string, claimCap *ratelimit.DailyCap, chargeLookups func(context.Context, string, int) error, reauthMaxAge time.Duration, sessions sessionCutRevoker, push keys.PushRegistrations, log *slog.Logger, serverOpts ...keys.ServerOption) (keysModule, error) {
 	if repo == nil || perm == nil || convID == nil || claimCap == nil || chargeLookups == nil || sessions == nil || push == nil {
 		return keysModule{}, errors.New("keys: missing repository, permission, conversation id function, claim cap, lookup cap, session cutter or push registrations")
 	}
@@ -74,8 +77,14 @@ func newKeysModule(repo keys.Repo, fc keys.FlagChecker, perm messaging.Permissio
 		return keysModule{}, errors.New("keys: missing reauth max age")
 	}
 	svc := keys.New(keys.Deps{Repo: repo, Permission: keysPermission{m: perm}, Flags: fc, ClaimCap: claimCap, ChargeLookups: chargeLookups,
-		ConversationID: convID, Log: log, ReauthMaxAge: reauthMaxAge, Sessions: sessions, Push: push})
+		ConversationID: convID, Log: log, ReauthMaxAge: reauthMaxAge, Sessions: sessions, Revoke: sessions, Push: push})
 	return keysModule{svc: svc, server: keys.NewServer(fc, svc, serverOpts...)}, nil
+}
+
+// sessionCutRevoker is what keys needs from identity.SessionCuts: the cut write and the H1 revoke.
+type sessionCutRevoker interface {
+	keys.SessionCutter
+	keys.SessionRevoker
 }
 
 func keysLookupCap(established, newAccount int64, isNew func(string) bool) func(context.Context, string, int) error {

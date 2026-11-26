@@ -89,6 +89,12 @@ type SessionCuts interface {
 	// cached profile of uid (other instances serve theirs for up to the 60 s cache TTL). A missing users/{uid} is
 	// success with nothing written (no session passes account status without a profile). A zero t is an error.
 	EndSessionsBefore(ctx context.Context, uid string, t time.Time) error
+	// RevokeSessionsAt revokes every Firebase refresh token of uid (security audit H1), the caller's own included, once
+	// users/{uid} carries a cut at or after `cut` (read fresh; the C1 precondition in authadmin.go). Call it only after
+	// EndSessionsBefore(uid, cut) succeeded. A missing users/{uid} is success with no Auth call; a document without such
+	// a cut is ErrAuthAdminRefused; any other failure is an error to retry. keys' REMOTE removal calls it once per
+	// removal mark (revokeDone).
+	RevokeSessionsAt(ctx context.Context, uid string, cut time.Time) error
 	// SessionsValidAfter is uid's cut from the cached profile (the same 60 s cache and 10 s negative cache account status
 	// uses, so it adds no read to a request): zero when there is none or uid has no profile. A failed read is an error.
 	SessionsValidAfter(ctx context.Context, uid string) (time.Time, error)

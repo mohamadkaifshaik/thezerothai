@@ -33,6 +33,14 @@ type SessionCutter interface {
 	EndSessionsBefore(ctx context.Context, uid string, t time.Time) error
 }
 
+// SessionRevoker is the seam to identity's refresh-token revoke (identity.SessionCuts.RevokeSessionsAt, security audit H1);
+// the composition root fills it with the same identity service as SessionCutter. RevokeSessionsAt revokes every Firebase
+// refresh token of uid, the caller's own included, once the account carries a cut at or after cut; keys calls it only
+// after the cut is written. A failure is an error (the removal answers the retryable UNAVAILABLE).
+type SessionRevoker interface {
+	RevokeSessionsAt(ctx context.Context, uid string, cut time.Time) error
+}
+
 // PushRegistrations is the seam to notifications' push registrations (users/{uid}/devices and their deviceTokens
 // entries); the composition root fills it, keys never imports notifications (removal-server design Q9, lane D PR 5).
 // DropPushRegistrations deletes every push registration of uid and answers how many it deleted. It is idempotent (an

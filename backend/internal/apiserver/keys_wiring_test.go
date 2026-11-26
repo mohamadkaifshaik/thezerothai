@@ -88,10 +88,11 @@ func TestNewKeysModule_RequiresReauthMaxAge(t *testing.T) {
 	}
 }
 
-// stubCutter satisfies keys.SessionCutter for wiring tests that never cut.
+// stubCutter satisfies keys.SessionCutter and keys.SessionRevoker for wiring tests that never cut.
 type stubCutter struct{}
 
 func (stubCutter) EndSessionsBefore(context.Context, string, time.Time) error { return nil }
+func (stubCutter) RevokeSessionsAt(context.Context, string, time.Time) error  { return nil }
 
 // TestNewKeysModule_RequiresSessionCutter: a nil session cutter fails the wiring (a REMOTE removal with device_sign_out on
 // could not cut, keys never imports identity).

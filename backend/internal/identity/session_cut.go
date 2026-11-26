@@ -38,6 +38,31 @@ func (s *service) EndSessionsBefore(ctx context.Context, uid string, t time.Time
 	return nil
 }
 
+// RevokeSessionsAt implements SessionCuts (H1): one uncached read of users/{uid} (C1 needs the document as it is now,
+// not the 60 s cache), then, when it carries a cut at or after `cut`, one Firebase Auth RevokeRefreshTokens through
+// authadmin.go. A missing users/{uid} is success with no Auth call (EndSessionsBefore wrote nothing for it either; no
+// session passes account status without a profile); it still writes the one C3 line, outcome not_found. A document
+// without such a cut is a C1 refusal (ERROR auth_admin_refused, ErrAuthAdminRefused). Every other failure is an error
+// the caller retries.
+func (s *service) RevokeSessionsAt(ctx context.Context, uid string, cut time.Time) error {
+	if s.sessionAuth == nil {
+		return errors.New("identity: revoke sessions: no auth admin wired")
+	}
+	p, err := s.repo.GetProfile(ctx, uid)
+	switch {
+	case errors.Is(err, ErrNotFound):
+		s.sessionAuth.auditRevoke(ctx, authOutcomeNotFound, uid)
+		return nil
+	case err != nil:
+		return logger.RedactErr(fmt.Errorf("identity: revoke sessions: %w", err), uid)
+	}
+	t, err := s.sessionAuth.sessionRevokeTarget(ctx, p, cut.UTC())
+	if err != nil {
+		return err
+	}
+	return s.sessionAuth.revokeSessions(ctx, t)
+}
+
 // SessionsValidAfter implements SessionCuts from the cached profile (getProfileCached, as AccountStatus).
 func (s *service) SessionsValidAfter(ctx context.Context, uid string) (time.Time, error) {
 	p, err := s.getProfileCached(ctx, uid)

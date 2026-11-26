@@ -44,11 +44,13 @@ func TestSessionCutChain_CapsFreshAndPushDropped(t *testing.T) {
 		c.RateLimit.MessagesCommitsPerDay = daily
 		c.RateLimit.MessagesCommitPerUserPerMinute = 1_000_000
 	}
-	e := newDMChain(t, mutate)
+	// The removal below also revokes the account's refresh tokens (H1); unrevokedVerifier keeps the pre-revoke ID tokens
+	// valid as production does (session_revoke_chain_integration_test.go), so the cut is what refuses the thief.
+	e := newDMChainUnrevoked(t, mutate)
 	e.createProfile(t, thief.idToken)
 	// Another instance whose identity cache holds the profile from before the cut (warmed by the thief's GetMe): its cut
 	// interceptor serves the stale copy for up to 60 s.
-	stale := newDMChain(t, mutate)
+	stale := newDMChainUnrevoked(t, mutate)
 	if _, err := stale.identity.GetMe(ctx, authed(thief.idToken, &identityv1.GetMeRequest{})); err != nil {
 		t.Fatalf("warm the other instance's cache: %v", err)
 	}
@@ -147,7 +149,8 @@ func TestSessionCutChain_CapsFreshAndPushDropped(t *testing.T) {
 func TestSessionCutChain_CommittedResetAfterCut(t *testing.T) {
 	ctx := context.Background()
 	w := newE2EEWorld(t)
-	e := newDMChain(t, func(c *config.Config) {
+	// unrevokedVerifier: Alice's token predates the removal's revoke (H1), which production does not check per request.
+	e := newDMChainUnrevoked(t, func(c *config.Config) {
 		c.FeatureE2EEDM = flags.Spec{Name: "e2ee_dm", Mode: flags.Allowlist, Allowlist: w.allow}
 		c.FeatureDeviceSignOut = flags.Spec{Name: "device_sign_out", Mode: flags.Allowlist, Allowlist: map[string]struct{}{w.alice.uid: {}}}
 		c.RateLimit.MessagesResetsPerDay = 1

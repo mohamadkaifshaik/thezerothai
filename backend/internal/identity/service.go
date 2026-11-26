@@ -39,6 +39,9 @@ type service struct {
 	// signup is the M2 Auth-user check at the CreateProfile boundary; nil (tests) skips it. apiserver.Build always
 	// wires it, so production never runs without it.
 	signup *authAdmin
+	// sessionAuth is the H1 refresh-token revoke on a session cut (RevokeSessionsAt), the same authAdmin as signup (one
+	// narrow client, C2). Nil (tests) makes RevokeSessionsAt an error, never a silent success.
+	sessionAuth *authAdmin
 	// snap is the profile-snapshot-refresh trigger (profile_snapshot.go); nil = never publishes.
 	snap *profileSnapshots
 	// retire hands a replaced or removed avatar to the media module after the commit (media_retire.go
@@ -125,11 +128,13 @@ func WithFeatureFlags(ff FeatureFlags) Option {
 
 // WithSignupAuth wires the M2 check : before a first profile is created the caller's
 // own Firebase Auth user must exist and be enabled, because an ID token can outlive its deleted or disabled user.
-// auth is the same narrow client the account lifecycle holds (C2); log receives the C3 audit line.
+// auth is the same narrow client the account lifecycle holds (C2); log receives the C3 audit line. The same wrapper
+// also serves RevokeSessionsAt (H1), so apiserver hands the Auth client to identity in exactly two places.
 func WithSignupAuth(auth AuthClient, log *slog.Logger) Option {
 	return func(s *service) {
 		if auth != nil {
 			s.signup = newAuthAdmin(auth, log)
+			s.sessionAuth = s.signup
 		}
 	}
 }
