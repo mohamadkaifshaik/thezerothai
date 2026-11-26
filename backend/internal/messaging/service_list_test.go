@@ -32,12 +32,21 @@ func (r *rig) entryAt(peerID string, n int) EntryRow {
 	}}
 }
 
+// put stores entries and makes each row's peer an ACTIVE account in the directory unless the test already gave it a profile
+// (an erased peer has none): a list row reads a peer the directory does not list as "Deleted account".
 func (r *rig) put(uid, folder string, rows ...EntryRow) {
 	if r.repo.entries == nil {
 		r.repo.entries = map[string][]EntryRow{}
 	}
 	k := entryKey(uid, folder)
 	r.repo.entries[k] = append(r.repo.entries[k], rows...)
+	r.profs.mu.Lock()
+	defer r.profs.mu.Unlock()
+	for _, row := range rows {
+		if _, ok := r.profs.profiles[row.PeerID]; !ok && row.PeerID != DeletedUID {
+			r.profs.profiles[row.PeerID] = activeProfile(row.PeerID, "h-"+row.PeerID, r.now.Add(-30*24*time.Hour))
+		}
+	}
 }
 
 func (r *rig) list(t *testing.T, uid string, req *messagingv1.ListConversationsRequest) *messagingv1.ListConversationsResponse {
@@ -362,8 +371,9 @@ func TestListConversations_PeerSnapshotAndTombstones(t *testing.T) {
 	if live.LastMessage.Snippet != "hello p" || live.LastMessage.State != messagingv1.MessageState_MESSAGE_STATE_VISIBLE {
 		t.Errorf("preview = %+v", live.LastMessage)
 	}
-	if rg.profs.calls != 0 {
-		t.Errorf("directory calls = %d, want 0 (the entry holds the snapshot)", rg.profs.calls)
+	// One batched directory call for the page's liveness; the shown snapshot is still the entry's own.
+	if rg.profs.calls != 1 {
+		t.Errorf("directory calls = %d, want 1 (one batched liveness lookup per page)", rg.profs.calls)
 	}
 }
 

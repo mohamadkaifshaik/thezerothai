@@ -50,7 +50,7 @@ type Limits struct {
 	CommitsPerConversationPerDay int64
 }
 
-// Deps are the collaborators of the service. Repo and Social are required for ListConversations, Repo, Social and Profiles for SendMessage; Events and Badge may
+// Deps are the collaborators of the service. Repo, Social and Profiles are required for ListConversations and SendMessage; Events and Badge may
 // be nil (no push, no badge cache yet).
 type Deps struct {
 	Repo   Repo
