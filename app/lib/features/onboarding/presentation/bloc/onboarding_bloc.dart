@@ -115,7 +115,10 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
   /// flag set, and only to that, compare it: the state's `enabledFeatures`
   /// cannot tell (the freezed getter wraps the set on every read, so it is
   /// never identical twice), and an equal set from a new GetMe still counts.
-  /// A plain bloc getter, not a state field. Plan 6 Task 1.B, security L-new-1.
+  /// Monotonic for the bloc's life (sign-out does not reset it). The state
+  /// carries a copy ([OnboardingState.flagsGeneration]) only so an answer
+  /// equal to the current state is still emitted; listeners read this
+  /// getter. Plan 6 Task 1.B, security L-new-1; PR 6-2 follow-up.
   int get flagsGeneration => _flagsGeneration;
   int _flagsGeneration = 0;
 
@@ -284,6 +287,9 @@ class OnboardingBloc extends Bloc<OnboardingEvent, OnboardingState> {
         flagsPending: false,
         isSubmitting: isSubmitting ?? state.isSubmitting,
         error: null,
+        // Makes this state differ from the last even when the answer is the
+        // same, so it is emitted and the generation listeners run.
+        flagsGeneration: _flagsGeneration,
       ),
     );
   }
