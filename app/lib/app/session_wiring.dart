@@ -40,7 +40,8 @@ void _wireGateReset(OnboardingBloc onboardingBloc, ServiceFeatureGate gate) {
 /// - enabled iff `GetMe.enabled_features` contains `posts`;
 /// - FEATURE_DISABLED with no feature named dispatches
 ///   [OnboardingRefreshRequested], so a fresh `GetMe` decides;
-/// - every successful `GetMe` (it emits a new flag-set instance) resets what
+/// - every successful `GetMe` (it moves [OnboardingBloc.flagsGeneration] and
+///   always emits, also for an answer equal to the last one) resets what
 ///   earlier FEATURE_DISABLED answers taught the gate, so a whole-service
 ///   disable can never stick for the session.
 PostsFeatureGate buildPostsGate(OnboardingBloc onboardingBloc) {
