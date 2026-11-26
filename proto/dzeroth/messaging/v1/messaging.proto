@@ -814,6 +814,11 @@ message Message {
   // one left, else show "Couldn't decrypt this message"), by a takedown (state REMOVED) or by the sender's account
   // deletion (state DELETED_ACCOUNT). ciphertext and report_commitment are then empty.
   bool ciphertext_removed = 13;
+  // True when the server deleted this plaintext message's text (and its shared post id) at the plaintext cut-over
+  // (`opsctl messages purge-plaintext`). The record, its state and its times stay; text and shared_post are empty.
+  // A device that still holds the text locally keeps showing it; otherwise show "This message is no longer stored".
+  // Never true for an encrypted message (see ciphertext_removed). Absent on older servers: read as false.
+  bool text_removed = 14;
 }
 
 // What a device encrypts as the plaintext of one encrypted message (Message.ciphertext). Never sent to the server in

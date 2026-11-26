@@ -959,8 +959,13 @@ type Message struct {
 	// one left, else show "Couldn't decrypt this message"), by a takedown (state REMOVED) or by the sender's account
 	// deletion (state DELETED_ACCOUNT). ciphertext and report_commitment are then empty.
 	CiphertextRemoved bool `protobuf:"varint,13,opt,name=ciphertext_removed,json=ciphertextRemoved,proto3" json:"ciphertext_removed,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// True when the server deleted this plaintext message's text (and its shared post id) at the plaintext cut-over
+	// (`opsctl messages purge-plaintext`). The record, its state and its times stay; text and shared_post are empty.
+	// A device that still holds the text locally keeps showing it; otherwise show "This message is no longer stored".
+	// Never true for an encrypted message (see ciphertext_removed). Absent on older servers: read as false.
+	TextRemoved   bool `protobuf:"varint,14,opt,name=text_removed,json=textRemoved,proto3" json:"text_removed,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Message) Reset() {
@@ -1073,6 +1078,13 @@ func (x *Message) GetReportCommitment() []byte {
 func (x *Message) GetCiphertextRemoved() bool {
 	if x != nil {
 		return x.CiphertextRemoved
+	}
+	return false
+}
+
+func (x *Message) GetTextRemoved() bool {
+	if x != nil {
+		return x.TextRemoved
 	}
 	return false
 }
@@ -3335,7 +3347,7 @@ const file_dzeroth_messaging_v1_messaging_proto_rawDesc = "" +
 	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12\x1f\n" +
 	"\vshared_post\x18\x05 \x01(\bR\n" +
 	"sharedPost\x12\x1c\n" +
-	"\tencrypted\x18\x06 \x01(\bR\tencrypted\"\xef\x03\n" +
+	"\tencrypted\x18\x06 \x01(\bR\tencrypted\"\x92\x04\n" +
 	"\aMessage\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12'\n" +
 	"\x0fconversation_id\x18\x02 \x01(\tR\x0econversationId\x12\x1b\n" +
@@ -3353,7 +3365,8 @@ const file_dzeroth_messaging_v1_messaging_proto_rawDesc = "" +
 	" \x01(\x04R\rmlsGeneration\x12\x1b\n" +
 	"\tmls_epoch\x18\v \x01(\x04R\bmlsEpoch\x12+\n" +
 	"\x11report_commitment\x18\f \x01(\fR\x10reportCommitment\x12-\n" +
-	"\x12ciphertext_removed\x18\r \x01(\bR\x11ciphertextRemovedJ\x04\b\a\x10\b\"i\n" +
+	"\x12ciphertext_removed\x18\r \x01(\bR\x11ciphertextRemoved\x12!\n" +
+	"\ftext_removed\x18\x0e \x01(\bR\vtextRemovedJ\x04\b\a\x10\b\"i\n" +
 	"\x0eMessageContent\x12\x12\n" +
 	"\x04text\x18\x01 \x01(\tR\x04text\x12$\n" +
 	"\x0eshared_post_id\x18\x02 \x01(\tR\fsharedPostId\x12\x1d\n" +

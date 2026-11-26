@@ -310,6 +310,7 @@ const Message$json = {
       '5': 8,
       '10': 'ciphertextRemoved'
     },
+    {'1': 'text_removed', '3': 14, '4': 1, '5': 8, '10': 'textRemoved'},
   ],
   '9': [
     {'1': 7, '2': 8},
@@ -326,7 +327,8 @@ final $typed_data.Uint8List messageDescriptor = $convert.base64Decode(
     'RkZWRQb3N0UgpzaGFyZWRQb3N0Eh4KCmNpcGhlcnRleHQYCSABKAxSCmNpcGhlcnRleHQSJQoO'
     'bWxzX2dlbmVyYXRpb24YCiABKARSDW1sc0dlbmVyYXRpb24SGwoJbWxzX2Vwb2NoGAsgASgEUg'
     'htbHNFcG9jaBIrChFyZXBvcnRfY29tbWl0bWVudBgMIAEoDFIQcmVwb3J0Q29tbWl0bWVudBIt'
-    'ChJjaXBoZXJ0ZXh0X3JlbW92ZWQYDSABKAhSEWNpcGhlcnRleHRSZW1vdmVkSgQIBxAI');
+    'ChJjaXBoZXJ0ZXh0X3JlbW92ZWQYDSABKAhSEWNpcGhlcnRleHRSZW1vdmVkEiEKDHRleHRfcm'
+    'Vtb3ZlZBgOIAEoCFILdGV4dFJlbW92ZWRKBAgHEAg=');
 
 @$core.Deprecated('Use messageContentDescriptor instead')
 const MessageContent$json = {
