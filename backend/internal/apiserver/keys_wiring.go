@@ -91,7 +91,9 @@ type sessionCutRevoker interface {
 // identityKeysSessions is keys' view of identity's session cut (identity.SessionCuts) and refresh-token revoke
 // (identity.SessionRevokes). This file is the only place outside identity that holds an identity.SessionRevokes
 // (identity's TestSessionRevokes_OnlyKeysWiring): the revoke is not on identity.Service, so no other module can reach it.
-// It maps identity.ErrNoSessionCut to keys.ErrNoCutToRevoke (keys never imports identity).
+// It maps identity.ErrNoSessionCut to keys.ErrNoCutToRevoke (the removal finishes without the revoke) and every other
+// identity.ErrAuthAdminRefused to keys.ErrRevokeRefused (no inline retry, so one C1 ERROR line per attempt); keys never
+// imports identity.
 type identityKeysSessions struct {
 	cuts    identity.SessionCuts
 	revokes identity.SessionRevokes
@@ -114,8 +116,11 @@ func (s identityKeysSessions) EndSessionsBefore(ctx context.Context, uid string,
 
 func (s identityKeysSessions) RevokeSessionsAt(ctx context.Context, uid string, cut time.Time) error {
 	err := s.revokes.RevokeSessionsAt(ctx, uid, cut)
-	if errors.Is(err, identity.ErrNoSessionCut) {
+	switch {
+	case errors.Is(err, identity.ErrNoSessionCut): // checked first: a cleared cut is also ErrAuthAdminRefused
 		return fmt.Errorf("%w: %w", keys.ErrNoCutToRevoke, err)
+	case errors.Is(err, identity.ErrAuthAdminRefused):
+		return fmt.Errorf("%w: %w", keys.ErrRevokeRefused, err)
 	}
 	return err
 }

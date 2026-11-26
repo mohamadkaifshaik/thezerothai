@@ -49,6 +49,7 @@ func newRevokeHarness(t *testing.T, withAuth bool) *revokeHarness {
 func TestAuthAdmin_SessionRevokeTarget(t *testing.T) {
 	ancient := revokeNow.Add(-MaxSessionRevokeCutAge - time.Second)
 	edge := revokeNow.Add(-MaxSessionRevokeCutAge)
+	lagged := revokeNow.Add(-90*24*time.Hour - 12*time.Hour)
 	tests := []struct {
 		name      string
 		p         Profile
@@ -59,6 +60,8 @@ func TestAuthAdmin_SessionRevokeTarget(t *testing.T) {
 		{name: "stored cut equals the cut asked", p: Profile{UserID: "u1", SessionsValidAfter: cutT1}, cut: cutT1, wantOK: true},
 		{name: "stored cut is later (another removal moved it)", p: Profile{UserID: "u1", SessionsValidAfter: cutT2}, cut: cutT1, wantOK: true},
 		{name: "a cut asked exactly MaxSessionRevokeCutAge ago", p: Profile{UserID: "u1", SessionsValidAfter: edge}, cut: edge, wantOK: true},
+		{name: "a cut on a mark past its 90-day TTL but not yet deleted (TTL lag)", p: Profile{UserID: "u1", SessionsValidAfter: lagged},
+			cut: lagged, wantOK: true},
 		{name: "no stored cut (cleared)", p: Profile{UserID: "u1"}, cut: cutT1, wantNoCut: true},
 		{name: "stored cut is older than the cut asked", p: Profile{UserID: "u1", SessionsValidAfter: cutT0}, cut: cutT1},
 		{name: "a cut asked longer ago than a removal mark lives", p: Profile{UserID: "u1", SessionsValidAfter: ancient}, cut: ancient},

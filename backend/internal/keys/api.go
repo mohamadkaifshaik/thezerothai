@@ -33,12 +33,12 @@ type SessionCutter interface {
 	EndSessionsBefore(ctx context.Context, uid string, t time.Time) error
 }
 
-// SessionRevoker is the seam to identity's refresh-token revoke (identity.SessionCuts.RevokeSessionsAt, security audit H1);
-// the composition root fills it with the same identity service as SessionCutter. RevokeSessionsAt revokes every Firebase
-// refresh token of uid, the caller's own included, once the account carries a cut at or after cut; keys calls it only
-// after the cut is written. ErrNoCutToRevoke (possibly wrapped) means there is no cut on the account any more (cleared by
-// an operator, or no profile): the removal skips the revoke and finishes. Any other failure is an error (one inline
-// retry, then the retryable UNAVAILABLE).
+// SessionRevoker is the seam to identity's refresh-token revoke (identity's SessionRevokes interface, security audit H1); the composition root (apiserver/keys_wiring.go) fills it from the same identity service as SessionCutter.
+// RevokeSessionsAt revokes every Firebase refresh token of uid, the caller's own included, once the account carries a cut
+// at or after cut; keys calls it only after the cut is written. ErrNoCutToRevoke (possibly wrapped) means there is no cut
+// on the account any more (cleared by an operator, or no profile): the removal skips the revoke and finishes.
+// ErrRevokeRefused (possibly wrapped) is any other C1 refusal: not retried inline, the retryable UNAVAILABLE. Any other
+// failure gets one inline retry, then the retryable UNAVAILABLE.
 type SessionRevoker interface {
 	RevokeSessionsAt(ctx context.Context, uid string, cut time.Time) error
 }
@@ -46,6 +46,10 @@ type SessionRevoker interface {
 // ErrNoCutToRevoke is the SessionRevoker answer "the account carries no cut to revoke for" (the composition root maps
 // identity's own sentinel to it; keys never imports identity).
 var ErrNoCutToRevoke = errors.New("keys: no session cut to revoke for")
+
+// ErrRevokeRefused is the SessionRevoker answer "identity refused the revoke" (its C1 check, logged there at ERROR). An
+// inline retry would only read the same document and log a second ERROR, so keys does not retry it inline.
+var ErrRevokeRefused = errors.New("keys: session revoke refused")
 
 // PushRegistrations is the seam to notifications' push registrations (users/{uid}/devices and their deviceTokens
 // entries); the composition root fills it, keys never imports notifications (removal-server design Q9, lane D PR 5).

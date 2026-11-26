@@ -106,9 +106,12 @@ type SessionRevokes interface {
 	RevokeSessionsAt(ctx context.Context, uid string, cut time.Time) error
 }
 
-// MaxSessionRevokeCutAge is how old a cut RevokeSessionsAt still revokes for: keys' removal mark lives this long
-// (keys.RemovalMarkTTL, 90 days; apiserver's wiring test pins the two equal), so an older cut can only come from a bug.
-const MaxSessionRevokeCutAge = 90 * 24 * time.Hour
+// MaxSessionRevokeCutAge is how old a cut RevokeSessionsAt still revokes for. A cut is the remover's auth_time, taken at
+// most the reauth window (ACCOUNT_DELETE_REAUTH_MAX_AGE, at most 10 min) before the mark is written; the mark then lives
+// keys.RemovalMarkTTL (90 days), and Firestore's TTL deletes it up to about 24 h after expireAt. So a retry of a live mark
+// can carry a cut up to 90 days + 10 min + 24 h old; anything older can only come from a bug. apiserver's wiring test
+// checks it is at least keys.RemovalMarkTTL (identity does not import keys).
+const MaxSessionRevokeCutAge = 90*24*time.Hour + 10*time.Minute + 24*time.Hour
 
 // ErrNoSessionCut is RevokeSessionsAt's answer when there is no cut to revoke for (no users/{uid}, or its cut was
 // cleared). No Auth call was made.

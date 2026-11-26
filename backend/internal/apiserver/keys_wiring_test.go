@@ -101,26 +101,28 @@ type stubRevokes struct{ err error }
 func (r stubRevokes) RevokeSessionsAt(context.Context, string, time.Time) error { return r.err }
 
 // TestIdentityKeysSessions_MapsNoCut (H1 fix round 1): identity's "no cut to revoke for" reaches keys as its own
-// sentinel, so the removal finishes; every other revoke error stays an error keys retries.
+// sentinel, so the removal finishes; any other C1 refusal becomes keys' no-retry refusal; every other revoke error stays a
+// plain error keys retries once inline.
 func TestIdentityKeysSessions_MapsNoCut(t *testing.T) {
 	refused := fmt.Errorf("%w: %w", identity.ErrNoSessionCut, identity.ErrAuthAdminRefused)
 	down := errors.New("auth down")
 	for _, tc := range []struct {
-		name      string
-		err       error
-		wantNoCut bool
-		wantErr   bool
+		name        string
+		err         error
+		wantNoCut   bool
+		wantRefused bool
+		wantErr     bool
 	}{
-		{"revoked", nil, false, false},
-		{"no profile", identity.ErrNoSessionCut, true, true},
-		{"cut cleared (a C1 refusal that is also no cut)", refused, true, true},
-		{"any other refusal stays a plain error", identity.ErrAuthAdminRefused, false, true},
-		{"an Auth failure stays a plain error", down, false, true},
+		{"revoked", nil, false, false, false},
+		{"no profile", identity.ErrNoSessionCut, true, false, true},
+		{"cut cleared (a C1 refusal that is also no cut)", refused, true, false, true},
+		{"any other refusal is keys' no-retry refusal", fmt.Errorf("x: %w", identity.ErrAuthAdminRefused), false, true, true},
+		{"an Auth failure stays a plain error", down, false, false, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := identityKeysSessions{revokes: stubRevokes{err: tc.err}}.RevokeSessionsAt(context.Background(), "u", time.Now())
-			if (err != nil) != tc.wantErr || errors.Is(err, keys.ErrNoCutToRevoke) != tc.wantNoCut {
-				t.Fatalf("err = %v; want error %v, ErrNoCutToRevoke %v", err, tc.wantErr, tc.wantNoCut)
+			if (err != nil) != tc.wantErr || errors.Is(err, keys.ErrNoCutToRevoke) != tc.wantNoCut || errors.Is(err, keys.ErrRevokeRefused) != tc.wantRefused {
+				t.Fatalf("err = %v; want error %v, ErrNoCutToRevoke %v, ErrRevokeRefused %v", err, tc.wantErr, tc.wantNoCut, tc.wantRefused)
 			}
 		})
 	}
@@ -129,10 +131,11 @@ func TestIdentityKeysSessions_MapsNoCut(t *testing.T) {
 	}
 }
 
-// TestSessionRevokeCutAgeMatchesMarkTTL: identity refuses to revoke for a cut older than keys' removal mark can live.
-func TestSessionRevokeCutAgeMatchesMarkTTL(t *testing.T) {
-	if identity.MaxSessionRevokeCutAge != keys.RemovalMarkTTL {
-		t.Fatalf("identity.MaxSessionRevokeCutAge = %v, keys.RemovalMarkTTL = %v; want equal", identity.MaxSessionRevokeCutAge, keys.RemovalMarkTTL)
+// TestSessionRevokeCutAgeCoversMarkTTL: identity never refuses a cut a live removal mark can still carry. The limit
+// must be at least keys.RemovalMarkTTL (identity adds the reauth window and the TTL deletion lag on top).
+func TestSessionRevokeCutAgeCoversMarkTTL(t *testing.T) {
+	if identity.MaxSessionRevokeCutAge < keys.RemovalMarkTTL {
+		t.Fatalf("identity.MaxSessionRevokeCutAge = %v < keys.RemovalMarkTTL = %v: a retry of a live mark would be refused", identity.MaxSessionRevokeCutAge, keys.RemovalMarkTTL)
 	}
 }
 

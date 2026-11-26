@@ -319,10 +319,10 @@ const (
 const revokeRetryBudget = 4 * time.Second
 
 // revokeOnce calls the revoke with one inline retry (security review M2) when the first attempt failed with a retryable
-// error and the request still has revokeRetryBudget left. ErrNoCutToRevoke is never retried.
+// error and the request still has revokeRetryBudget left. ErrNoCutToRevoke and ErrRevokeRefused are never retried.
 func (s *service) revokeOnce(ctx context.Context, uid string, cut time.Time) error {
 	err := s.revoke.RevokeSessionsAt(ctx, uid, cut)
-	if err == nil || errors.Is(err, ErrNoCutToRevoke) || ctx.Err() != nil {
+	if err == nil || errors.Is(err, ErrNoCutToRevoke) || errors.Is(err, ErrRevokeRefused) || ctx.Err() != nil {
 		return err
 	}
 	if d, ok := ctx.Deadline(); ok && time.Until(d) < revokeRetryBudget {
