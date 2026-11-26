@@ -82,7 +82,11 @@ class EncryptedInboxRig {
   /// The user the onboarding states belong to ([OnboardingBloc.uidOf]).
   late String? stateUid = signedInAs;
 
-  /// Provided to the tree when set (the claim's GetMe refresh).
+  /// Builds the claim's GetMe refresher in [open], once the bloc's stream is
+  /// stubbed (it listens to it); null: none in the tree.
+  ResumeFlagsRefresh Function(OnboardingBloc bloc)? flagsRefreshFactory;
+
+  /// The refresher [open] built and provided, if any.
   ResumeFlagsRefresh? flagsRefresh;
 
   OnboardingState _state() => OnboardingState(
@@ -178,6 +182,9 @@ class EncryptedInboxRig {
           )
         : null;
     if (status != null) addTearDown(status.close);
+    // After whenListen: the refresher listens to the stubbed stream.
+    final refresh = flagsRefresh = flagsRefreshFactory?.call(onboarding);
+    if (refresh != null) addTearDown(refresh.dispose);
     final router = GoRouter(
       routes: [
         GoRoute(

@@ -174,13 +174,24 @@ void main() {
     late DateTime now;
 
     /// A rig with a [ResumeFlagsRefresh] on a fake clock; its GetMe asks
-    /// are the bloc's `add(OnboardingRefreshRequested)` calls.
-    EncryptedInboxRig rigWithRefresh({Set<String> features = live}) {
+    /// are the bloc's `add(OnboardingRefreshRequested)` calls. The refresher
+    /// is built in `open` and takes its last answer as [answerAge] before
+    /// [now] (the clock reads that while it is being constructed).
+    EncryptedInboxRig rigWithRefresh({
+      Set<String> features = live,
+      Duration answerAge = Duration.zero,
+    }) {
       now = DateTime.now();
-      final rig = rigWith(features: features);
-      final refresh = ResumeFlagsRefresh(rig.onboarding, now: () => now);
-      addTearDown(refresh.dispose);
-      return rig..flagsRefresh = refresh;
+      return rigWith(features: features)
+        ..flagsRefreshFactory = (bloc) {
+          var constructing = true;
+          final refresh = ResumeFlagsRefresh(
+            bloc,
+            now: () => constructing ? now.subtract(answerAge) : now,
+          );
+          constructing = false;
+          return refresh;
+        };
     }
 
     int refreshes(EncryptedInboxRig rig) => verify(
@@ -194,8 +205,7 @@ void main() {
     testWidgets('opening the inbox with a GetMe 15 minutes old asks again', (
       tester,
     ) async {
-      final rig = rigWithRefresh();
-      now = now.add(kResumeFlagsMaxAge);
+      final rig = rigWithRefresh(answerAge: kResumeFlagsMaxAge);
       await rig.open(tester);
       expect(headline(), findsOneWidget);
       expect(refreshes(rig), 1);
@@ -205,8 +215,7 @@ void main() {
     testWidgets('opening the inbox with a fresh GetMe asks nothing', (
       tester,
     ) async {
-      final rig = rigWithRefresh();
-      now = now.add(const Duration(minutes: 14));
+      final rig = rigWithRefresh(answerAge: const Duration(minutes: 14));
       await rig.open(tester);
       expect(headline(), findsOneWidget);
       verifyNever(
@@ -244,9 +253,73 @@ void main() {
       await close(tester);
     });
 
+    testWidgets('the check stops when the claim stops showing', (tester) async {
+      final rig = rigWithRefresh();
+      await rig.open(tester);
+      expect(headline(), findsOneWidget);
+      rig.device.vaultStatus.value = VaultStatus.unavailable;
+      await tester.pump();
+      expect(headline(), findsNothing);
+      for (var i = 0; i < 20; i++) {
+        now = now.add(kClaimFlagsCheckEvery);
+        await tester.pump(kClaimFlagsCheckEvery);
+      }
+      verifyNever(
+        () => rig.onboarding.add(any(that: isA<OnboardingRefreshRequested>())),
+      );
+      // Showing again restarts it: the answer is 20 minutes old, one ask.
+      rig.device.vaultStatus.value = VaultStatus.ready;
+      await tester.pump();
+      expect(headline(), findsOneWidget);
+      expect(refreshes(rig), 1);
+      await close(tester);
+    });
+
+    testWidgets('the keeper stays mounted while the claim comes and goes', (
+      tester,
+    ) async {
+      final rig = rigWithRefresh();
+      await rig.open(tester);
+      final keeper = tester.element(find.byType(ClaimFlagsKeeper));
+      rig.device.vaultStatus.value = VaultStatus.unavailable;
+      await tester.pump();
+      rig.device.vaultStatus.value = VaultStatus.ready;
+      await tester.pump();
+      expect(tester.element(find.byType(ClaimFlagsKeeper)), same(keeper));
+      await close(tester);
+    });
+
+    testWidgets('offline: hidden once the last successful GetMe is over 30 '
+        'minutes old, shown again after an answer', (tester) async {
+      final rig = rigWithRefresh();
+      await rig.open(tester);
+      // The asks at 15 and 30 minutes get no answer (offline).
+      for (var i = 0; i < 30; i++) {
+        now = now.add(kClaimFlagsCheckEvery);
+        await tester.pump(kClaimFlagsCheckEvery);
+      }
+      expect(refreshes(rig), 2);
+      expect(headline(), findsOneWidget, reason: 'exactly 30 minutes old');
+      now = now.add(kClaimFlagsCheckEvery);
+      await tester.pump(kClaimFlagsCheckEvery);
+      expect(headline(), findsNothing, reason: '31 minutes old');
+      expect(covers(), findsNothing);
+      // An answer arrives (the bloc applied a GetMe).
+      when(() => rig.onboarding.flagsGeneration).thenReturn(1);
+      rig.setFlagOn(true);
+      await tester.pump();
+      now = now.add(kClaimFlagsCheckEvery);
+      await tester.pump(kClaimFlagsCheckEvery);
+      expect(headline(), findsOneWidget);
+      expect(covers(), findsOneWidget);
+      await close(tester);
+    });
+
     testWidgets('no check while the claim is hidden', (tester) async {
-      final rig = rigWithRefresh(features: {kFeatureE2eeRequired});
-      now = now.add(kResumeFlagsMaxAge);
+      final rig = rigWithRefresh(
+        features: {kFeatureE2eeRequired},
+        answerAge: kResumeFlagsMaxAge,
+      );
       await rig.open(tester);
       now = now.add(const Duration(minutes: 30));
       await tester.pump(const Duration(minutes: 30));

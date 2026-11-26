@@ -4,6 +4,9 @@
 // None of the phrases below may appear in any string, comment or identifier
 // of lib/ (generated code excluded), nor in app/web/**/*.html or *.json (the
 // static pages and the manifest). Before matching, each source is folded:
+// - HTML entities decoded (&rsquo; &lsquo; &apos; &quot; &nbsp; &mdash;
+//   &ndash;, every numeric &#NN; / &#xNN;, then &amp;) and Dart escapes
+//   decoded (\' \" \uXXXX \u{X...});
 // - lower case;
 // - curly apostrophes and quotes become straight ones;
 // - Unicode dashes (U+2010-U+2015, U+2212) become '-';
@@ -56,17 +59,72 @@ const kBannedClaimPhrases = <String>[
   // Not "no metadata": a JPEG re-encode "with no metadata" (EXIF) is true.
 ];
 
-/// [source] folded for the scan (see the header).
-String foldForClaimScan(String source) => source
-    .toLowerCase()
-    .replaceAll(RegExp('[​‌‍﻿]'), '')
-    .replaceAll(RegExp('[‘’ʼ]'), "'")
-    .replaceAll(RegExp('[“”]'), '"')
-    .replaceAll(RegExp('[‐-―−]'), '-')
-    // A literal's end, optional `+`, an optional raw prefix, the next
-    // literal's start, with any quote types: 'a ' "b", 'a ' + r'b'.
-    .replaceAll(RegExp(r"""['"]\s*\+?\s*r?['"]"""), '')
-    .replaceAll(RegExp(r'\s+'), ' ');
+/// [code] as a character, or null when it is not a valid code point.
+String? _char(int? code) =>
+    code == null ||
+        code < 0 ||
+        code > 0x10ffff ||
+        (code >= 0xd800 && code <= 0xdfff)
+    ? null
+    : String.fromCharCode(code);
+
+const _namedEntities = {
+  'rsquo': '\u2019',
+  'lsquo': '\u2018',
+  'apos': "'",
+  'quot': '"',
+  'nbsp': ' ',
+  'mdash': '\u2014',
+  'ndash': '\u2013',
+};
+
+/// HTML entities decoded: the named ones above and every numeric `&#NN;` /
+/// `&#xNN;`, then `&amp;` last (so `&amp;#39;` stays text, as a browser
+/// shows it).
+String decodeHtmlEntities(String s) => s
+    .replaceAllMapped(RegExp(r'&#(x[0-9a-f]+|[0-9]+);', caseSensitive: false), (
+      m,
+    ) {
+      final v = m.group(1)!;
+      final code = v[0] == 'x' || v[0] == 'X'
+          ? int.tryParse(v.substring(1), radix: 16)
+          : int.tryParse(v);
+      return _char(code) ?? m.group(0)!;
+    })
+    .replaceAllMapped(
+      RegExp(
+        r'&(rsquo|lsquo|apos|quot|nbsp|mdash|ndash);',
+        caseSensitive: false,
+      ),
+      (m) => _namedEntities[m.group(1)!.toLowerCase()]!,
+    )
+    .replaceAll(RegExp('&amp;', caseSensitive: false), '&');
+
+/// Dart string escapes decoded: `\'`, `\"`, `\uXXXX` and `\u{X…}`.
+String decodeDartEscapes(String s) => s
+    .replaceAllMapped(
+      RegExp(r'\\u\{([0-9a-fA-F]{1,6})\}|\\u([0-9a-fA-F]{4})'),
+      (m) =>
+          _char(int.tryParse(m.group(1) ?? m.group(2)!, radix: 16)) ??
+          m.group(0)!,
+    )
+    .replaceAll(r"\'", "'")
+    .replaceAll(r'\"', '"');
+
+/// [source] folded for the scan (see the header). Entities and escapes are
+/// decoded first, so `can&#x27;t`, `can\'t` and `military\u2014grade` reach
+/// the folds below as the characters they stand for (PR 6-6, security L1).
+String foldForClaimScan(String source) =>
+    decodeDartEscapes(decodeHtmlEntities(source))
+        .toLowerCase()
+        .replaceAll(RegExp('[​‌‍﻿]'), '')
+        .replaceAll(RegExp('[‘’ʼ]'), "'")
+        .replaceAll(RegExp('[“”]'), '"')
+        .replaceAll(RegExp('[‐-―−]'), '-')
+        // A literal's end, optional `+`, an optional raw prefix, the next
+        // literal's start, with any quote types: 'a ' "b", 'a ' + r'b'.
+        .replaceAll(RegExp(r"""['"]\s*\+?\s*r?['"]"""), '')
+        .replaceAll(RegExp(r'\s+'), ' ');
 
 /// The banned phrases found in each file of [sources] (path to content).
 Map<String, List<String>> bannedClaimPhrases(Map<String, String> sources) {
@@ -200,6 +258,66 @@ void main() {
           'web/x.json': ['military-grade'],
         },
       );
+    });
+
+    test('decodes an HTML numeric apostrophe: can&#x27;t', () {
+      const want = {
+        'web/x.html': ["a stolen phone can't read your messages"],
+      };
+      for (final entity in ['&#x27;', '&#X27;', '&#39;', '&apos;', '&rsquo;']) {
+        expect(
+          bannedClaimPhrases({
+            'web/x.html':
+                '<p>A stolen phone can${entity}t read your messages</p>',
+          }),
+          want,
+          reason: entity,
+        );
+      }
+    });
+
+    test('decodes &nbsp; &quot; and &amp; (last, once)', () {
+      expect(
+        bannedClaimPhrases({
+          'web/x.html': '<p>Nobody&nbsp;can read your messages</p>',
+        }),
+        {
+          'web/x.html': ['nobody can read your messages'],
+        },
+      );
+      // &amp;#39; is the text "&#39;" on the page, not an apostrophe.
+      expect(foldForClaimScan("can&amp;#39;t"), 'can&#39;t');
+    });
+
+    test(r"decodes a Dart escaped apostrophe: can\'t", () {
+      expect(scan(r"const x = 'A stolen phone can\'t read your messages';"), {
+        'a.dart': ["a stolen phone can't read your messages"],
+      });
+      expect(scan(r'const x = "Even we can\"t"; // no phrase'), isEmpty);
+    });
+
+    test('decodes an em dash however it is written', () {
+      for (final dash in [
+        'military—grade',
+        r'military—grade',
+        r'military\u{2014}grade',
+        'military&mdash;grade',
+        'military&#8212;grade',
+        'military&#x2014;grade',
+      ]) {
+        expect(bannedClaimPhrases({'x': "'$dash'"}), {
+          'x': ['military-grade'],
+        }, reason: dash);
+      }
+    });
+
+    test('decodes \\u escapes to letters and quotes', () {
+      expect(scan(r"const x = 'Locks it out';"), {
+        'a.dart': ['locks it out'],
+      });
+      expect(scan(r"const x = 'Even we can’t read';"), {
+        'a.dart': ["even we can't read"],
+      });
     });
 
     test('accepts the shipped claim words', () {

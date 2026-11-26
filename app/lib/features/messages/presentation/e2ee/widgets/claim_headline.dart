@@ -5,7 +5,11 @@ import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 
 import '../../../../../app/session_wiring.dart'
-    show ResumeFlagsRefresh, kClaimFlagsCheckEvery, kResumeFlagsMaxAge;
+    show
+        ResumeFlagsRefresh,
+        kClaimFlagsCheckEvery,
+        kClaimFlagsMaxAge,
+        kResumeFlagsMaxAge;
 import '../../../../../core/app_build.dart';
 import '../../../../../core/feature_flags/device_sign_out_feature_flag.dart';
 import '../../../../../core/router/app_router.dart';
@@ -87,17 +91,21 @@ class ClaimVisibilityBuilder extends StatelessWidget {
     // the BlocSelector below follows only `blocksMessaging`.
     final statusCubit = context.read<EncryptionStatusCubit?>();
     final word = platform ?? clientPlatformName();
-    Widget decide(BuildContext context, VaultStatus vault, bool blocked) {
-      final visible = claimVisible(
-        featuresKnown: flags.known,
-        features: flags.features,
-        platform: word,
-        vault: vault,
-        messagingBlocked: blocked,
-      );
-      final child = builder(context, visible);
-      return visible ? ClaimFlagsKeeper(child: child) : child;
-    }
+    // The keeper is always mounted (one tree shape, so a page under it keeps
+    // its state and scroll position when the claim comes or goes); its
+    // `visible` switches the timer, and it hides a claim whose last
+    // successful GetMe is too old.
+    Widget decide(BuildContext context, VaultStatus vault, bool blocked) =>
+        ClaimFlagsKeeper(
+          visible: claimVisible(
+            featuresKnown: flags.known,
+            features: flags.features,
+            platform: word,
+            vault: vault,
+            messagingBlocked: blocked,
+          ),
+          builder: builder,
+        );
 
     return ValueListenableBuilder<VaultStatus>(
       valueListenable: device.vaultStatus,
@@ -112,19 +120,34 @@ class ClaimVisibilityBuilder extends StatelessWidget {
   }
 }
 
-/// Keeps the flag set fresh while a claim is shown (Plan 6 PR 6-6 fix round
-/// 1, security M1). The server withdraws `claim_live` at once, but a client
-/// only sees that at its next `GetMe`. When this is mounted (the Messages
-/// inbox, Settings or the About page opening with the claim visible) it
-/// calls [ResumeFlagsRefresh.refreshIfStale] once. Then, every
-/// [kClaimFlagsCheckEvery] while the app is in the foreground, it calls it
-/// again. That asks `GetMe` again only when the last answer is
-/// [kResumeFlagsMaxAge] old, through the existing refresh path; there is no
-/// new RPC. With no [ResumeFlagsRefresh] in the tree (tests) it does nothing.
+/// Keeps the flag set fresh while the claim may show, and hides it when the
+/// flag set is too old (Plan 6 PR 6-6, security M1 and L2). Always mounted
+/// by [ClaimVisibilityBuilder]; [visible] is [claimVisible]'s answer.
+///
+/// - The server withdraws `claim_live` at once, but a client only sees that
+///   at its next `GetMe`. When [visible] becomes true (or this mounts with
+///   it true: the Messages inbox, Settings or the About page opening) it
+///   calls [ResumeFlagsRefresh.refreshIfStale] once. Then, every
+///   [kClaimFlagsCheckEvery] while the app is in the foreground, it calls
+///   it again. That asks `GetMe` only when the last answer is
+///   [kResumeFlagsMaxAge] old, through the existing refresh path; there is
+///   no new RPC. The timer runs only while [visible] is true.
+/// - [builder] gets [visible] AND a last successful `GetMe` no older than
+///   [kClaimFlagsMaxAge], so a device that stays offline stops showing the
+///   claim. Each tick re-checks, so the claim shows again within a minute of
+///   a fresh answer.
+///
+/// With no [ResumeFlagsRefresh] in the tree (screen tests) there is no
+/// timer and no age check. The app always provides one (bootstrap).
 class ClaimFlagsKeeper extends StatefulWidget {
-  const ClaimFlagsKeeper({super.key, required this.child});
+  const ClaimFlagsKeeper({
+    super.key,
+    required this.visible,
+    required this.builder,
+  });
 
-  final Widget child;
+  final bool visible;
+  final Widget Function(BuildContext context, bool visible) builder;
 
   @override
   State<ClaimFlagsKeeper> createState() => _ClaimFlagsKeeperState();
@@ -132,29 +155,52 @@ class ClaimFlagsKeeper extends StatefulWidget {
 
 class _ClaimFlagsKeeperState extends State<ClaimFlagsKeeper> {
   Timer? _timer;
+  ResumeFlagsRefresh? _refresh;
 
   @override
   void initState() {
     super.initState();
-    final refresh = context.read<ResumeFlagsRefresh?>();
-    if (refresh == null) return;
+    _refresh = context.read<ResumeFlagsRefresh?>();
+    if (widget.visible) _start();
+  }
+
+  @override
+  void didUpdateWidget(ClaimFlagsKeeper old) {
+    super.didUpdateWidget(old);
+    if (widget.visible && !old.visible) _start();
+    if (!widget.visible && old.visible) _stop();
+  }
+
+  void _start() {
+    final refresh = _refresh;
+    if (refresh == null || _timer != null) return;
     refresh.refreshIfStale();
     _timer = Timer.periodic(kClaimFlagsCheckEvery, (_) {
       // Foreground only: a resume asks again through `onResume` anyway.
       final state = WidgetsBinding.instance.lifecycleState;
       if (state != null && state != AppLifecycleState.resumed) return;
       refresh.refreshIfStale();
+      // Re-check the age of the last answer (shown or hidden).
+      if (mounted) setState(() {});
     });
+  }
+
+  void _stop() {
+    _timer?.cancel();
+    _timer = null;
   }
 
   @override
   void dispose() {
-    _timer?.cancel();
+    _stop();
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) => widget.child;
+  Widget build(BuildContext context) {
+    final stale = _refresh?.answerOlderThan(kClaimFlagsMaxAge) ?? false;
+    return widget.builder(context, widget.visible && !stale);
+  }
 }
 
 /// The claim headline with its "What this covers" link, drawn only while
