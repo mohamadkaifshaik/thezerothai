@@ -26,7 +26,7 @@ func TestConversationOf_RequestPending(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			row := EntryRow{ID: ConversationID(alice, bob), EntryDoc: EntryDoc{PeerID: bob, RequestPending: tt.pending}}
-			c := conversationOf(row, tt.folder, graph.Snapshot{})
+			c := conversationOf(row, tt.folder, rowSources{snap: graph.Snapshot{}, live: map[string]bool{bob: true}})
 			if c.State != tt.wantState || c.Folder != tt.wantFolder {
 				t.Errorf("state/folder = %v/%v, want %v/%v", c.State, c.Folder, tt.wantState, tt.wantFolder)
 			}

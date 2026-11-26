@@ -126,6 +126,38 @@ func (r *FirestoreRepo) GetConversation(ctx context.Context, id string) (ConvDoc
 	return c, true, nil
 }
 
+// GetConversations implements Repo: one GetAll on conversations/{id} for every id (ListConversations passes the
+// erased-peer rows of one page, so at most MaxPageSize; more is an error, never a larger read). Missing documents are
+// absent, not an error.
+func (r *FirestoreRepo) GetConversations(ctx context.Context, ids []string) (map[string]ConvDoc, error) {
+	out := make(map[string]ConvDoc, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	if len(ids) > MaxPageSize {
+		return nil, fmt.Errorf("messaging: get conversations: %d ids exceeds the limit of %d", len(ids), MaxPageSize)
+	}
+	refs := make([]*firestore.DocumentRef, len(ids))
+	for i, id := range ids {
+		refs[i] = r.convRef(id)
+	}
+	snaps, err := r.client.GetAll(ctx, refs)
+	if err != nil {
+		return nil, fmt.Errorf("messaging: get conversations: %w", err)
+	}
+	for i, snap := range snaps {
+		if !snap.Exists() {
+			continue
+		}
+		var c ConvDoc
+		if err := snap.DataTo(&c); err != nil {
+			return nil, fmt.Errorf("messaging: decode conversation: %w", err)
+		}
+		out[ids[i]] = c
+	}
+	return out, nil
+}
+
 // GetEntry implements Repo: users/{uid}/dmInbox/{convId} or dmRequests/{convId} by folder (entryRequests, else inbox).
 func (r *FirestoreRepo) GetEntry(ctx context.Context, uid, convID, folder string) (EntryDoc, bool, error) {
 	snap, err := r.entryRef(uid, convID, folder).Get(ctx)

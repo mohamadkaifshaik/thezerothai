@@ -71,7 +71,11 @@ func clampPageSize(n int32) int {
 //
 // Read-time rules from the graph snapshots (cached 60 s; the peer's only past the blockedBy cap): REQUESTS drops an entry whose
 // peer the caller blocks or mutes or who blocks the caller; INBOX keeps every entry, with can_reply false when either side blocks the other. An
-// erased peer (DeletedUID) is a "Deleted account" snapshot, never looked up, and can_reply is false. Filtering runs after
+// erased peer (DeletedUID) is a "Deleted account" snapshot, never looked up, and can_reply is false. Every row agrees with
+// the thread header (ListMessages.conversation) for the same caller (rowSources, rowPeer): a peer the directory no longer
+// lists as ACTIVE (one batched, cache-first lookup per page) is "Deleted account" and read-only unless the peer blocks the
+// caller (then the entry's frozen snapshot, so the block hides the account status), and a request whose recipient was
+// erased stays REQUEST in the INBOX for its requester. Filtering runs after
 // the page query, so a page may be short or empty while next_page_token is set; both tokens come from the scanned rows,
 // not the shown ones. There is no refill loop and no gap token: a since refresh returns at most page_size entries.
 func (s *service) ListConversations(ctx context.Context, uid string, req *messagingv1.ListConversationsRequest) (*messagingv1.ListConversationsResponse, error) {
@@ -84,7 +88,7 @@ func (s *service) ListConversations(ctx context.Context, uid string, req *messag
 		return nil, err
 	}
 	logger.SetRequestField(ctx, fieldFolder, in.label)
-	if s.d.Repo == nil || s.d.Social == nil || len(s.d.CursorKey) == 0 {
+	if s.d.Repo == nil || s.d.Social == nil || s.d.Profiles == nil || len(s.d.CursorKey) == 0 {
 		return nil, errors.New("messaging: list is not configured")
 	}
 	return s.listConversations(ctx, uid, in)
@@ -161,14 +165,16 @@ func (s *service) listConversations(ctx context.Context, uid string, in listInpu
 		return nil, s.listErr(ctx, uid, err)
 	}
 
-	// The caller's graph is read only when there is something to show (an empty refresh stays at the one query read).
-	var snap graph.Snapshot
+	// The caller's graph, the peers' liveness and (rarely) the conversations of erased-peer rows are read only when there is
+	// something to show (an empty refresh stays at the one query read).
+	var rs rowSources
 	if len(rows) > 0 {
 		var err error
-		if snap, err = s.d.Social.Snapshot(ctx, uid); err != nil {
-			return nil, s.listErr(ctx, uid, fmt.Errorf("messaging: caller graph: %w", err))
+		if rs, err = s.rowSources(ctx, uid, in.folder, rows); err != nil {
+			return nil, s.listErr(ctx, uid, err)
 		}
 	}
+	snap := rs.snap
 	var dropped droppedCounts
 	shown := make([]*messagingv1.Conversation, 0, len(rows))
 	for _, r := range rows {
@@ -188,7 +194,7 @@ func (s *service) listConversations(ctx context.Context, uid string, in listInpu
 				continue
 			}
 		}
-		shown = append(shown, conversationOf(r, in.folder, snap))
+		shown = append(shown, conversationOf(r, in.folder, rs))
 	}
 	logger.SetRequestField(ctx, fieldResults, len(shown))
 	logger.SetRequestField(ctx, fieldDroppedBlocked, dropped.blocked)
@@ -285,25 +291,150 @@ func (s *service) requestBlockedByPeer(ctx context.Context, uid, peer string, sn
 	return ps.Blocked[uid], nil
 }
 
-// conversationOf maps an entry to the wire Conversation. The state comes from the folder (the entry holds none, and a
-// conversation read per row is too costly): REQUESTS is REQUEST, INBOX is ACCEPTED, except an INBOX row with
-// RequestPending (the requester's own entry while the peer has not accepted), which is REQUEST in the
-// INBOX, the same pair the ListMessages header returns for the requester, with no extra read.
-func conversationOf(r EntryRow, folder string, snap graph.Snapshot) *messagingv1.Conversation {
+// rowSources is what a page of rows is decided from besides the rows themselves: the caller's graph, the peers the
+// directory lists as ACTIVE, and the erased-peer INBOX rows whose conversation is still a REQUEST.
+type rowSources struct {
+	snap graph.Snapshot
+	// live holds the peers GetProfiles returned (it drops every uid that is not ACTIVE: suspended, being deleted, missing).
+	live map[string]bool
+	// erasedRequests holds the ids of INBOX rows whose peer was erased while the conversation was a REQUEST (the eraser's
+	// MarkGone deletes requestPending from the requester's entry, so the entry alone would read ACCEPTED).
+	erasedRequests map[string]bool
+}
+
+// rowSources reads, in parallel, what conversationOf needs for a non-empty page, the same facts the thread header
+// (ListMessages.conversation) is decided from:
+//   - the caller's graph (60 s cache);
+//   - the peers' liveness: ONE batched, cache-first directory call (identity's 60 s profile cache, then one GetAll on
+//     users/* for the misses) over the page's distinct live-uid peers, at most MaxPageSize, within GetProfiles' 50. The
+//     public-id interceptor reads the same profile cache for this response, so its lookup then hits what this one warmed;
+//   - only when the page holds an INBOX row whose peer is erased and that is not RequestPending: those rows' conversations
+//     (the instance's 60 s copy, else ONE GetAll for the misses), to tell a request whose recipient was erased (REQUEST in
+//     the header) from an accepted conversation (ACCEPTED). A page without such a row reads none.
+//
+// Any failure fails the page, as the header fails on the same reads; peer uids are redacted from the error.
+func (s *service) rowSources(ctx context.Context, uid, folder string, rows []EntryRow) (rowSources, error) {
+	var (
+		out    rowSources
+		peers  []string
+		erased []string
+	)
+	seen := make(map[string]bool, len(rows))
+	for _, r := range rows {
+		if r.PeerID == DeletedUID {
+			if folder == dmInboxCollection && !r.RequestPending {
+				erased = append(erased, r.ID)
+			}
+			continue
+		}
+		if !seen[r.PeerID] {
+			seen[r.PeerID] = true
+			peers = append(peers, r.PeerID)
+		}
+	}
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(3)
+	g.Go(s.recovered(ctx, func() (err error) {
+		if out.snap, err = s.d.Social.Snapshot(gctx, uid); err != nil {
+			return fmt.Errorf("messaging: caller graph: %w", err)
+		}
+		return nil
+	}))
+	if len(peers) > 0 {
+		g.Go(s.recovered(ctx, func() error {
+			got, err := s.d.Profiles.GetProfiles(gctx, peers)
+			if err != nil {
+				return redactErr(fmt.Errorf("messaging: peer profiles: %w", err), peers...)
+			}
+			out.live = make(map[string]bool, len(got))
+			for _, p := range peers {
+				out.live[p] = got[p].UserID != "" // the header's rule (listMessages: live)
+			}
+			return nil
+		}))
+	}
+	if len(erased) > 0 {
+		g.Go(s.recovered(ctx, func() (err error) {
+			out.erasedRequests, err = s.erasedPeerRequests(gctx, uid, erased)
+			return err
+		}))
+	}
+	if err := g.Wait(); err != nil {
+		return rowSources{}, err
+	}
+	return out, nil
+}
+
+// erasedPeerRequests answers which of ids (the caller's own INBOX rows whose peer is erased) belong to a conversation that
+// is still a REQUEST: the instance's 60 s copy when it names the caller, else one GetAll for the rest. A conversation the
+// caller is not in, or a missing one, is not a request (the row keeps ACCEPTED; the header answers NOT_FOUND there). A
+// request whose peer is gone can never be accepted, so a cached copy cannot be stale on this point.
+func (s *service) erasedPeerRequests(ctx context.Context, uid string, ids []string) (map[string]bool, error) {
+	out := map[string]bool{}
+	var misses []string
+	for _, id := range ids {
+		if c, ok := s.convs.Get(id); ok && c.hasParticipant(uid) {
+			out[id] = c.State == stateRequest
+			continue
+		}
+		misses = append(misses, id)
+	}
+	if len(misses) == 0 {
+		return out, nil
+	}
+	got, err := s.d.Repo.GetConversations(ctx, misses)
+	if err != nil {
+		return nil, redactErr(fmt.Errorf("messaging: erased-peer conversations: %w", err), misses...)
+	}
+	for id, c := range got {
+		if !c.hasParticipant(uid) {
+			continue
+		}
+		s.putConv(id, c)
+		out[id] = c.State == stateRequest
+	}
+	return out, nil
+}
+
+// conversationOf maps an entry to the wire Conversation, agreeing with the thread header (threadConversation) for the
+// same caller: same state, folder and can_reply, and the same "Deleted account" placeholder for an erased or inactive
+// peer. The state comes from the folder: REQUESTS is REQUEST, INBOX is ACCEPTED, except an INBOX row with RequestPending
+// (the requester's own entry while the peer has not accepted) or in rs.erasedRequests (a request whose recipient was
+// erased), which is REQUEST in the INBOX, the pair the header returns for the requester. A live peer is shown from the
+// entry's own snapshot (the header shows the live profile; the entry copy is what the list always showed).
+func conversationOf(r EntryRow, folder string, rs rowSources) *messagingv1.Conversation {
+	peer, reply := rowPeer(r, rs)
 	c := &messagingv1.Conversation{
 		Id: r.ID, Kind: messagingv1.ConversationKind_CONVERSATION_KIND_DIRECT,
-		Peer: peerSnapshotOf(r.PeerID, r.Peer), State: messagingv1.ConversationState_CONVERSATION_STATE_ACCEPTED,
+		Peer: peer, State: messagingv1.ConversationState_CONVERSATION_STATE_ACCEPTED,
 		Folder: messagingv1.Folder_FOLDER_INBOX, LastMessage: previewOf(r),
-		UnreadCount: r.UnreadCount, CanReply: canReply(r.PeerID, snap), Silent: r.Silent,
+		UnreadCount: r.UnreadCount, CanReply: reply, Silent: r.Silent,
 		UpdatedAt: timestamppb.New(r.LastMessageAt),
 	}
 	if folder == dmRequestsCollection {
 		c.State, c.Folder = messagingv1.ConversationState_CONVERSATION_STATE_REQUEST, messagingv1.Folder_FOLDER_REQUESTS
 	}
-	if folder == dmInboxCollection && r.RequestPending {
+	if folder == dmInboxCollection && (r.RequestPending || rs.erasedRequests[r.ID]) {
 		c.State = messagingv1.ConversationState_CONVERSATION_STATE_REQUEST
 	}
 	return c
+}
+
+// rowPeer is the peer and can_reply of a row, in the header's order (security audit): an erased peer first; then a block
+// of the caller (or an overflowed blockedBy list), whatever the directory says, so a blocked caller learns nothing about the
+// blocker's account status (the entry's snapshot is the frozen one the header shows, as the row is the caller's own entry
+// naming this peer); only then liveness, where a peer the directory does not list as ACTIVE is "Deleted account" and
+// read-only.
+func rowPeer(r EntryRow, rs rowSources) (*commonv1.AuthorSnapshot, bool) {
+	switch {
+	case r.PeerID == DeletedUID:
+		return &commonv1.AuthorSnapshot{DisplayName: DeletedAccountName}, false
+	case peerBlockedCaller(rs.snap, r.PeerID):
+		return peerSnapshotOf(r.PeerID, r.Peer), canReply(r.PeerID, rs.snap)
+	case !rs.live[r.PeerID]:
+		return &commonv1.AuthorSnapshot{DisplayName: DeletedAccountName}, false
+	}
+	return peerSnapshotOf(r.PeerID, r.Peer), canReply(r.PeerID, rs.snap)
 }
 
 // canReply: false when either side blocks the other or the peer deleted the account (read-only thread, still reportable). A
