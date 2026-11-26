@@ -451,8 +451,8 @@ func TestCouplingLevel(t *testing.T) {
 		{flags.CouplingWarning{Flag: "x", Parent: messaging.FlagName, Reason: flags.ReasonCycle}, slog.LevelWarn},
 		{flags.CouplingWarning{Reason: reasonRequiredFailsClosed}, slog.LevelWarn},
 		{flags.CouplingWarning{Reason: reasonMessagingWithoutRequired}, slog.LevelWarn},
-		{flags.CouplingWarning{Reason: reasonClaimWithoutSignOut}, slog.LevelWarn},
 		{flags.CouplingWarning{Flag: messaging.E2EEClaimFlag, Parent: messaging.E2EERequiredFlag, Reason: flags.ReasonParentNarrower}, slog.LevelWarn},
+		{flags.CouplingWarning{Flag: messaging.E2EEClaimFlag, Parent: keys.DeviceSignOutFlag, Reason: flags.ReasonParentNarrower}, slog.LevelWarn},
 	} {
 		if got := couplingLevel(tc.w); got != tc.want {
 			t.Errorf("couplingLevel(%+v) = %v, want %v", tc.w, got, tc.want)
@@ -460,31 +460,35 @@ func TestCouplingLevel(t *testing.T) {
 	}
 }
 
-// TestFeatureRegistry_E2EEClaim (P6 §4.7, §7.2 c): the registry built from config knows `claim_live` under
-// messaging.E2EEClaimFlag, defaults off, and its effective value is claim_live && effective e2ee_required (which is
-// e2ee_required && messaging) for Enabled and GetMe's EnabledFeatures alike: switching E2EE_REQUIRED or MESSAGING off
-// withdraws the headline. GloballyOff keeps reading the raw flag.
+// TestFeatureRegistry_E2EEClaim (P6 §4.1 items 1 and 5, §4.7, §7.2 c; 6-6 security L1): the registry built from config
+// knows `claim_live` under messaging.E2EEClaimFlag, defaults off, and its effective value is claim_live && effective
+// e2ee_required (which is e2ee_required && messaging) && device_sign_out, for Enabled and GetMe's EnabledFeatures alike:
+// switching E2EE_REQUIRED, MESSAGING or DEVICE_SIGN_OUT off withdraws the headline. GloballyOff keeps reading the raw
+// flag, for claim_live and for device_sign_out (the session cut's kill switch is not changed by the coupling).
 func TestFeatureRegistry_E2EEClaim(t *testing.T) {
 	const in, out = "uid-a", "uid-z"
 	for _, tc := range []struct {
-		name                       string
-		messaging, required, claim string // mode; "allowlist" lists uid-a only
-		forIn, forOut              bool
-		claimGloballyOff           bool
+		name                                string
+		messaging, required, signOut, claim string // mode; "allowlist" lists uid-a only
+		forIn, forOut                       bool
+		claimGloballyOff                    bool
 	}{
-		{"all unset", "", "", "", false, false, true},
-		{"claim unset, required on", "on", "on", "", false, false, true},
-		{"claim on, required off", "on", "off", "on", false, false, false},
-		{"claim on, required unset", "on", "", "on", false, false, false},
-		{"claim on, required on, messaging off", "off", "on", "on", false, false, false},
-		{"claim on, required allowlist", "on", "allowlist", "on", true, false, false},
-		{"claim on, messaging allowlist", "allowlist", "on", "on", true, false, false},
-		{"claim allowlist, all else on", "on", "on", "allowlist", true, false, false},
-		{"claim off, all else on", "on", "on", "off", false, false, true},
-		{"everything on", "on", "on", "on", true, true, false},
+		{"all unset", "", "", "", "", false, false, true},
+		{"claim unset, required and sign-out on", "on", "on", "on", "", false, false, true},
+		{"claim on, required off", "on", "off", "on", "on", false, false, false},
+		{"claim on, required unset", "on", "", "on", "on", false, false, false},
+		{"claim on, required on, messaging off", "off", "on", "on", "on", false, false, false},
+		{"claim on, required allowlist", "on", "allowlist", "on", "on", true, false, false},
+		{"claim on, messaging allowlist", "allowlist", "on", "on", "on", true, false, false},
+		{"claim on, sign-out off", "on", "on", "off", "on", false, false, false},
+		{"claim on, sign-out unset", "on", "on", "", "on", false, false, false},
+		{"claim on, sign-out allowlist", "on", "on", "allowlist", "on", true, false, false},
+		{"claim allowlist, all else on", "on", "on", "on", "allowlist", true, false, false},
+		{"claim off, all else on", "on", "on", "on", "off", false, false, true},
+		{"everything on", "on", "on", "on", "on", true, true, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			for env, mode := range map[string]string{"FEATURE_MESSAGING": tc.messaging, "FEATURE_E2EE_REQUIRED": tc.required, "FEATURE_E2EE_CLAIM": tc.claim} {
+			for env, mode := range map[string]string{"FEATURE_MESSAGING": tc.messaging, "FEATURE_E2EE_REQUIRED": tc.required, "FEATURE_DEVICE_SIGN_OUT": tc.signOut, "FEATURE_E2EE_CLAIM": tc.claim} {
 				t.Setenv(env, mode)
 				t.Setenv(env+"_PERCENT", "")
 				list := ""
@@ -513,14 +517,17 @@ func TestFeatureRegistry_E2EEClaim(t *testing.T) {
 			if got := reg.GloballyOff(messaging.E2EEClaimFlag); got != tc.claimGloballyOff {
 				t.Errorf("GloballyOff(claim_live) = %v, want %v (the raw flag)", got, tc.claimGloballyOff)
 			}
+			if got, want := reg.GloballyOff(keys.DeviceSignOutFlag), tc.signOut == "" || tc.signOut == "off"; got != want {
+				t.Errorf("GloballyOff(device_sign_out) = %v, want %v (unchanged by the coupling)", got, want)
+			}
 		})
 	}
 }
 
-// TestFeatureCouplingWarnings_E2EEClaim: claim_live not off while e2ee_required is off or narrower is a parent_narrower
-// line at WARN (its parent is not messaging), and claim_live reaching users device_sign_out does not cover is a
-// claim_without_device_sign_out line at WARN, counted per allowlist entry without naming a uid. Messaging, e2ee_dm and
-// e2ee_required are on here, so the other findings stay silent.
+// TestFeatureCouplingWarnings_E2EEClaim: claim_live not off while either parent (e2ee_required, device_sign_out) is off
+// or narrower is a parent_narrower line at WARN (neither parent is messaging), counted per allowlist entry without
+// naming a uid, one line per parent sorted by parent name. Only claim_live's lines are checked; the others are covered
+// by TestFeatureCouplingWarnings.
 func TestFeatureCouplingWarnings_E2EEClaim(t *testing.T) {
 	const warn = slog.LevelWarn
 	const msg, dm, req, claim, so = messaging.FlagName, keys.FlagName, messaging.E2EERequiredFlag, messaging.E2EEClaimFlag, keys.DeviceSignOutFlag
@@ -547,10 +554,14 @@ func TestFeatureCouplingWarnings_E2EEClaim(t *testing.T) {
 			{flags.CouplingWarning{Flag: claim, Parent: req, FlagMode: on, ParentMode: al, Reason: flags.ReasonParentNarrower}, warn},
 		}},
 		{"claim on, sign-out off", spec(req, on), spec(claim, on), spec(so, off), []leveled{
-			{flags.CouplingWarning{Flag: claim, Parent: so, FlagMode: on, ParentMode: off, Reason: reasonClaimWithoutSignOut}, warn},
+			{flags.CouplingWarning{Flag: claim, Parent: so, FlagMode: on, ParentMode: off, Reason: flags.ReasonParentNarrower}, warn},
 		}},
 		{"claim lists a uid sign-out does not", spec(req, al, "uid-a", "uid-b"), spec(claim, al, "uid-a", "uid-b"), spec(so, al, "uid-a"), []leveled{
-			{flags.CouplingWarning{Flag: claim, Parent: so, FlagMode: al, ParentMode: al, Reason: reasonClaimWithoutSignOut, Uncovered: 1}, warn},
+			{flags.CouplingWarning{Flag: claim, Parent: so, FlagMode: al, ParentMode: al, Reason: flags.ReasonParentNarrower, Uncovered: 1}, warn},
+		}},
+		{"claim on, both parents off (sorted by parent)", spec(req, off), spec(claim, on), spec(so, off), []leveled{
+			{flags.CouplingWarning{Flag: claim, Parent: so, FlagMode: on, ParentMode: off, Reason: flags.ReasonParentNarrower}, warn},
+			{flags.CouplingWarning{Flag: claim, Parent: req, FlagMode: on, ParentMode: off, Reason: flags.ReasonParentNarrower}, warn},
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

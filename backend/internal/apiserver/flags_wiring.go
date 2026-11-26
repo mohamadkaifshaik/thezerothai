@@ -31,21 +31,20 @@ func featureRegistry(cfg config.Config) *flags.Registry {
 //     no readable DM is stored for a required user. Killing or narrowing e2ee_dm must not reopen plaintext for them: they
 //     then can exchange nothing (plaintext refused, mls_init refused by e2ee_dm), visibly, and the startup warning says
 //     so. The one lever that reopens plaintext is E2EE_REQUIRED itself.
-//   - effective claim_live = claim_live && effective e2ee_required (P6 §4.1 item 1, §7.2 c): the headline "We cannot
-//     read your messages." is never reported where plaintext is still accepted, and switching E2EE_REQUIRED off (or
-//     messaging, through the chain) withdraws it the same moment.
+//   - effective claim_live = claim_live && effective e2ee_required && device_sign_out (P6 §4.1 items 1 and 5, §7.2 c;
+//     6-6 security review L1): the headline "We cannot read your messages." is never reported where plaintext is still
+//     accepted, nor where removing a lost device does not sign the others out (the "If a device is lost or stolen"
+//     wording the claim links to). It fails closed rather than warning. Switching E2EE_REQUIRED, MESSAGING (through the
+//     chain) or DEVICE_SIGN_OUT off withdraws it on the server at once: Enabled and every later GetMe answer without
+//     it. A client keeps what it last read until its next GetMe, so the headline it shows can lag by that long (the
+//     app bounds the lag with its own refresh). Requiring device_sign_out changes nothing for device_sign_out itself.
 //
 // Enabled (every module's gate) and EnabledFeatures (GetMe.enabled_features) report the effective values; GloballyOff
 // (the kill switch K1 and RemoveKeyDevice read) keeps reading each raw flag.
 func coupleE2EE(reg *flags.Registry) *flags.Registry {
 	return reg.Require(keys.FlagName, messaging.FlagName).Require(messaging.E2EERequiredFlag, messaging.FlagName).
-		Require(messaging.E2EEClaimFlag, messaging.E2EERequiredFlag)
+		Require(messaging.E2EEClaimFlag, messaging.E2EERequiredFlag, keys.DeviceSignOutFlag)
 }
-
-// reasonClaimWithoutSignOut is the startup warning for claim_live reaching users device_sign_out does not cover: the
-// "If a device is lost or stolen" wording the claim links to says removing a device signs the others out, which only
-// holds with the session cut on (P6 §4.1 item 5). Not a Require: the claim stays effective, operators must see it.
-const reasonClaimWithoutSignOut = "claim_without_device_sign_out"
 
 // reasonMessagingWithoutRequired is the startup warning for messaging reaching users e2ee_required does not cover: their
 // DMs can be stored readable, which breaks the promise the required cohort is built for.
@@ -54,8 +53,7 @@ const reasonMessagingWithoutRequired = "messaging_without_required"
 // featureCouplingWarnings is what Build logs at startup as feature_flag_coupling lines (flag names, modes, a reason and
 // an uncovered count; never a uid), in this order: every coupled flag whose parent does not cover it, every rejected
 // requirement cycle and unknown parent (flags.Registry.CouplingWarnings); e2ee_required reaching users e2ee_dm does not
-// (reasonRequiredFailsClosed); messaging reaching users e2ee_required does not (reasonMessagingWithoutRequired);
-// claim_live reaching users device_sign_out does not (reasonClaimWithoutSignOut). Each
+// (reasonRequiredFailsClosed); messaging reaching users e2ee_required does not (reasonMessagingWithoutRequired). Each
 // uses flags.Registry.Narrower: by mode, and by the count of allowlist entries the other flag's own spec does not
 // enable. couplingLevel picks the level.
 func featureCouplingWarnings(reg *flags.Registry) []flags.CouplingWarning {
@@ -63,7 +61,6 @@ func featureCouplingWarnings(reg *flags.Registry) []flags.CouplingWarning {
 	for _, pair := range []struct{ flag, by, reason string }{
 		{messaging.E2EERequiredFlag, keys.FlagName, reasonRequiredFailsClosed},
 		{messaging.FlagName, messaging.E2EERequiredFlag, reasonMessagingWithoutRequired},
-		{messaging.E2EEClaimFlag, keys.DeviceSignOutFlag, reasonClaimWithoutSignOut},
 	} {
 		if w, ok := reg.Narrower(pair.flag, pair.by); ok {
 			w.Reason = pair.reason
@@ -75,9 +72,9 @@ func featureCouplingWarnings(reg *flags.Registry) []flags.CouplingWarning {
 
 // couplingLevel is a feature_flag_coupling line's level: INFO for a parent_narrower finding under messaging with nothing
 // uncovered (e2ee_dm or e2ee_required on while MESSAGING alone ramps: the planned rollout, which must not WARN on every
-// start); WARN for everything else (required_without_e2ee_dm, messaging_without_required, claim_without_device_sign_out,
-// a cycle, an unknown parent, a parent other than messaging such as claim_live under e2ee_required, and any uncovered
-// count above 0). One event name, so an alert keys on level and reason.
+// start); WARN for everything else (required_without_e2ee_dm, messaging_without_required, a cycle, an unknown parent, a
+// parent other than messaging such as claim_live under e2ee_required or device_sign_out, and any uncovered count above
+// 0). One event name, so an alert keys on level and reason.
 func couplingLevel(w flags.CouplingWarning) slog.Level {
 	if w.Reason == flags.ReasonParentNarrower && w.Parent == messaging.FlagName && w.Uncovered == 0 {
 		return slog.LevelInfo
