@@ -35,6 +35,12 @@ const FlagName = "messaging"
 // read through FlagChecker.Enabled: no new method on the seam.
 const E2EERequiredFlag = "e2ee_required"
 
+// E2EEClaimFlag is the wire name of FEATURE_E2EE_CLAIM (P6 §4.7, owner Q-8): the switch that says the public claim "We
+// cannot read your messages." is live, so the app may show the headline. No RPC reads it; it exists only in
+// GetMe.enabled_features. The composition root couples it to e2ee_required (apiserver.coupleE2EE), so it is never
+// effective where encryption is not required, and switching E2EE_REQUIRED off withdraws the headline with it (P6 §7.2 c).
+const E2EEClaimFlag = "claim_live"
+
 // FlagChecker is the seam to pkg/platform/flags.Registry (*flags.Registry satisfies it): Enabled answers "is the flag on
 // for this caller", GloballyOff "is it the kill switch" (off for everyone; a rollout the caller is outside of is not).
 type FlagChecker interface {

@@ -267,6 +267,13 @@ type Config struct {
 	// lever that reopens plaintext; nothing stored changes. FEATURE_E2EE_REQUIRED[_ALLOWLIST|_PERCENT], default off in
 	// every environment.
 	FeatureE2EERequired flags.Spec
+	// FeatureE2EEClaim is the flag (wire name `claim_live`, E2EE Plan 6 §4.7, owner Q-8) that tells the app the public
+	// claim "We cannot read your messages." is live; the owner turns the headline on and off without a release. No RPC
+	// reads it: it only appears in GetMe.enabled_features. Effective = this flag && effective e2ee_required
+	// (apiserver.coupleE2EE), so the claim is never shown where plaintext is still accepted, and switching E2EE_REQUIRED
+	// off withdraws it too; startup WARNs when it reaches users e2ee_required or device_sign_out does not cover.
+	// FEATURE_E2EE_CLAIM[_ALLOWLIST|_PERCENT], default off in every environment.
+	FeatureE2EEClaim flags.Spec
 	// FeatureDeviceSignOut is the flag (wire name `device_sign_out`) of the session cut (security audit H2): on for the
 	// remover, a RemoveKeyDevice with reason REMOTE and a recent sign-in ends the account's other sessions; the cut check
 	// on every RPC (authn.SessionCutInterceptor) enforces a stored cut unless the flag is globally off, which is the
@@ -1168,6 +1175,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	featureE2EEClaim, err := flags.LoadSpec("E2EE_CLAIM", "claim_live", flags.Off)
+	if err != nil {
+		return Config{}, err
+	}
 	featurePostViews, err := flags.LoadSpec("POST_VIEWS", "post_views", flags.Off)
 	if err != nil {
 		return Config{}, err
@@ -1400,6 +1411,7 @@ func Load() (Config, error) {
 		FeatureE2EEDM:                featureE2EEDM,
 		FeatureDeviceSignOut:         featureDeviceSignOut,
 		FeatureE2EERequired:          featureE2EERequired,
+		FeatureE2EEClaim:             featureE2EEClaim,
 		FeaturePostViews:             featurePostViews,
 		FeatureCreatorInsights:       featureCreatorInsights,
 		PostViewsPublicThreshold:     int64(postViewsPublicThreshold),

@@ -18,7 +18,7 @@ import (
 // change nothing for any client, header or not.
 
 // messagingFamilyOn is every name of the messaging family plus unrelated flags, in the order a registry returns them.
-var messagingFamilyOn = []string{"graph", MessagingFlag, "e2ee_dm", "e2ee_required", "dm_share_check", "dm_post_share",
+var messagingFamilyOn = []string{"graph", MessagingFlag, "e2ee_dm", "e2ee_required", "claim_live", "dm_share_check", "dm_post_share",
 	"message_search", "read_receipts", "dm_suggestions", "dm_policy", "chat_shared_plans", "posts", ListsFlag}
 
 // withoutMessaging is messagingFamilyOn below the floor.
