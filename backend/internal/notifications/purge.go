@@ -218,28 +218,12 @@ func (r *FirestoreRepo) purgeDevices(ctx context.Context, uid string, cp Checkpo
 	}
 	b.Delete(prefsRef)
 	if len(docs) > 0 {
-		idxRefs := make([]*firestore.DocumentRef, 0, len(docs))
-		for _, s := range docs {
-			var d deviceDoc
-			if err := s.DataTo(&d); err == nil && d.Token != "" {
-				idxRefs = append(idxRefs, r.tokenRef(d.Token))
-			}
+		owned, err := r.ownedTokenIndex(ctx, uid, docs)
+		if err != nil {
+			return cp, false, fmt.Errorf("notifications: purge %s devices: %w", logger.HashUID(uid), err)
 		}
-		if len(idxRefs) > 0 {
-			snaps, err := r.client.GetAll(ctx, idxRefs)
-			if err != nil {
-				return cp, false, fmt.Errorf("notifications: purge %s devices: token index: %w", logger.HashUID(uid), err)
-			}
-			for _, s := range snaps {
-				if !s.Exists() {
-					continue
-				}
-				var idx tokenIndexDoc
-				// Only the index entries this user owns: a token another account took over is theirs now.
-				if err := s.DataTo(&idx); err == nil && idx.UID == uid {
-					b.Delete(s.Ref)
-				}
-			}
+		for _, s := range owned {
+			b.Delete(s.Ref)
 		}
 		for _, s := range docs {
 			b.Delete(s.Ref)

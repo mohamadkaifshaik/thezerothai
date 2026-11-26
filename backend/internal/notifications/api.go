@@ -297,6 +297,13 @@ type FlagChecker interface {
 	Enabled(uid, name string) bool
 }
 
+// FreshSessionCuts answers the account's session cut (users/{uid}.sessionsValidAfter) from an UNCACHED read: zero for none
+// or for a uid without a profile. RegisterDevice reads it so a session from before a cut cannot register push inside the
+// other instances' 60 s profile-cache window (lane D PR 5 fix round 1); the composition root fills it.
+type FreshSessionCuts interface {
+	FreshSessionsValidAfter(ctx context.Context, uid string) (time.Time, error)
+}
+
 // SeenStore writes users/{uid}.notificationsSeenAt (identity.FirestoreRepo).
 type SeenStore interface {
 	MarkNotificationsSeen(ctx context.Context, uid string, at time.Time) error

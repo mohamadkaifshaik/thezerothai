@@ -334,6 +334,10 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	notifService := notifications.NewService(notifications.Deps{
 		Repo: notifRepo, Directory: identitySvc.(identity.Directory), Social: graphSvc, Seen: identityRepo, Validator: tokenValidator, CursorKey: cfg.CursorHMACKey,
 		Blocks: graphSvc, // F-04: read-time blocked-by check for a caller whose blockedBy overflowed
+		// Lane D PR 5 fix round 1: RegisterPushDevice refuses a session from before the account's session cut, read fresh
+		// (never the 60 s cache) unless device_sign_out is globally off, so a cut thief cannot re-register push inside
+		// the other instances' stale-cache window.
+		SessionCuts: freshSessionCuts{repo: identityRepo}, SessionCutOn: sessionCutEnforced(featureFlags),
 	})
 	notifServer := notifications.NewServer(notifService, featureFlags, notifications.WithPrefs(notifPrefs))
 
@@ -430,7 +434,9 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		audienceSvc = bo.audienceSource(postsSvc)
 	}
 	engAudience := rowAudience(posts.AudienceOf(audienceSvc))
-	rlCfg := RateLimitConfig(cfg)
+	// messages_commits_daily is keyed by the caller's session cut as well (lane D PR 5), peeked from identity's profile
+	// cache (never a read on a miss).
+	rlCfg := withCommitCapCutKey(RateLimitConfig(cfg), identityCutPeek(identityCache.GetProfile))
 	// F-03: ListBookmarks and ListLikedPosts drop rows whose author is not ACTIVE through identity's Directory (the page
 	// fails closed without it), so a wiring regression refuses to start instead.
 	engagementDir := identitySvc.(identity.Directory)
@@ -763,6 +769,8 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		// F30: follow-back answers from graph's batched edge lookup; plans and communities late-bound.
 		Suggestions: messaging.SuggestionDeps{Follows: graphSvc, Plans: suggestPlans, Communities: suggestCommunities},
 		Devices:     keyDevices,
+		// The commit caps start fresh after a session cut (lane D PR 5): keyed by identity's cached cut, 0 extra reads.
+		SessionCuts: identitySvc,
 	})
 	reporter, ok := messagingSvc.(messaging.MessageReporter)
 	if !ok {
@@ -885,8 +893,9 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	keysClaimCap := ratelimit.NewDailyCap(cfg.RateLimit.KeysClaimsPerTargetPerDay)
 	lookupCap := keysLookupCap(cfg.RateLimit.KeysDeviceLookupsPerDay, cfg.RateLimit.KeysNewAccountDeviceLookupsPerDay, isNewActor)
 	// A REMOTE removal with device_sign_out on for the remover writes the session cut through identity (keys.SessionCutter,
-	// the same identity.SessionCuts the cut interceptor reads).
-	keysMod, err := newKeysModule(keysRepo, featureFlags, messagingPermission, messaging.ConversationID, keysClaimCap, lookupCap, cfg.AccountDeleteReauthMaxAge, sessionCuts, log, keys.WithClientFloor(floors))
+	// the same identity.SessionCuts the cut interceptor reads). With the cut done, it drops the account's push registrations
+	// through the notifications repository (keys.PushRegistrations; keys never imports notifications).
+	keysMod, err := newKeysModule(keysRepo, featureFlags, messagingPermission, messaging.ConversationID, keysClaimCap, lookupCap, cfg.AccountDeleteReauthMaxAge, sessionCuts, notifRepo, log, keys.WithClientFloor(floors))
 	if err != nil {
 		return nil, nil, err
 	}

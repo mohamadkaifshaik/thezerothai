@@ -10,6 +10,7 @@ import (
 	"connectrpc.com/connect"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
+	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/keys"
 	"github.com/dzeroth/dzeroth/backend/internal/messaging"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
@@ -71,7 +72,7 @@ func TestKeysPermission_SharesEncryptedConversation(t *testing.T) {
 // TestNewKeysModule_RequiresConversationID: a nil conversation id function fails the wiring (keys never imports messaging,
 // so the composition root injects messaging.ConversationID).
 func TestNewKeysModule_RequiresConversationID(t *testing.T) {
-	if _, err := newKeysModule(unusedKeysRepo{}, nil, stubMessagingPermission{}, nil, ratelimit.NewDailyCap(2), keysLookupCap(4, 3, func(string) bool { return false }), testKeysReauth, stubCutter{}, nil); err == nil {
+	if _, err := newKeysModule(unusedKeysRepo{}, nil, stubMessagingPermission{}, nil, ratelimit.NewDailyCap(2), keysLookupCap(4, 3, func(string) bool { return false }), testKeysReauth, stubCutter{}, stubPush{}, nil); err == nil {
 		t.Fatal("a nil conversation id function was accepted")
 	}
 }
@@ -82,7 +83,7 @@ const testKeysReauth = 5 * time.Minute
 // TestNewKeysModule_RequiresReauthMaxAge: a zero reauth window fails the wiring (it would refuse every REMOTE removal).
 func TestNewKeysModule_RequiresReauthMaxAge(t *testing.T) {
 	lookup := keysLookupCap(4, 3, func(string) bool { return false })
-	if _, err := newKeysModule(unusedKeysRepo{}, nil, stubMessagingPermission{}, messaging.ConversationID, ratelimit.NewDailyCap(2), lookup, 0, stubCutter{}, nil); err == nil {
+	if _, err := newKeysModule(unusedKeysRepo{}, nil, stubMessagingPermission{}, messaging.ConversationID, ratelimit.NewDailyCap(2), lookup, 0, stubCutter{}, stubPush{}, nil); err == nil {
 		t.Fatal("a zero reauth max age was accepted")
 	}
 }
@@ -96,8 +97,46 @@ func (stubCutter) EndSessionsBefore(context.Context, string, time.Time) error { 
 // could not cut, keys never imports identity).
 func TestNewKeysModule_RequiresSessionCutter(t *testing.T) {
 	lookup := keysLookupCap(4, 3, func(string) bool { return false })
-	if _, err := newKeysModule(unusedKeysRepo{}, nil, stubMessagingPermission{}, messaging.ConversationID, ratelimit.NewDailyCap(2), lookup, testKeysReauth, nil, nil); err == nil {
+	if _, err := newKeysModule(unusedKeysRepo{}, nil, stubMessagingPermission{}, messaging.ConversationID, ratelimit.NewDailyCap(2), lookup, testKeysReauth, nil, stubPush{}, nil); err == nil {
 		t.Fatal("a nil session cutter was accepted")
+	}
+}
+
+// profileGetter is a GetProfile stub for freshSessionCuts.
+type profileGetter struct {
+	p   identity.Profile
+	err error
+}
+
+func (g profileGetter) GetProfile(context.Context, string) (identity.Profile, error) {
+	return g.p, g.err
+}
+
+// TestFreshSessionCuts: the stored cut; a missing profile is no cut; any other failure is an error, never "no cut".
+func TestFreshSessionCuts(t *testing.T) {
+	cut := time.Date(2026, 11, 26, 9, 0, 0, 0, time.UTC)
+	if got, err := (freshSessionCuts{repo: profileGetter{p: identity.Profile{SessionsValidAfter: cut}}}).FreshSessionsValidAfter(context.Background(), "u"); err != nil || !got.Equal(cut) {
+		t.Errorf("stored cut = %v, %v", got, err)
+	}
+	if got, err := (freshSessionCuts{repo: profileGetter{err: identity.ErrNotFound}}).FreshSessionsValidAfter(context.Background(), "u"); err != nil || !got.IsZero() {
+		t.Errorf("missing profile = %v, %v; want no cut", got, err)
+	}
+	if _, err := (freshSessionCuts{repo: profileGetter{err: errors.New("down")}}).FreshSessionsValidAfter(context.Background(), "u"); err == nil {
+		t.Error("a failed read answered no cut")
+	}
+}
+
+// stubPush satisfies keys.PushRegistrations for wiring tests that never drop.
+type stubPush struct{}
+
+func (stubPush) DropPushRegistrations(context.Context, string) (int, error) { return 0, nil }
+
+// TestNewKeysModule_RequiresPushRegistrations: a nil push seam fails the wiring (a REMOTE removal with a cut could not
+// drop the lost phone's push registrations; keys never imports notifications).
+func TestNewKeysModule_RequiresPushRegistrations(t *testing.T) {
+	lookup := keysLookupCap(4, 3, func(string) bool { return false })
+	if _, err := newKeysModule(unusedKeysRepo{}, nil, stubMessagingPermission{}, messaging.ConversationID, ratelimit.NewDailyCap(2), lookup, testKeysReauth, stubCutter{}, nil, nil); err == nil {
+		t.Fatal("a nil push registrations seam was accepted")
 	}
 }
 
@@ -143,7 +182,7 @@ type unusedKeysRepo struct{ keys.Repo }
 func TestKeysLookupDailyCap(t *testing.T) {
 	isNew := true
 	cap := keysLookupCap(4, 3, func(string) bool { return isNew })
-	mod, err := newKeysModule(unusedKeysRepo{}, nil, stubMessagingPermission{}, messaging.ConversationID, ratelimit.NewDailyCap(2), cap, testKeysReauth, stubCutter{}, nil)
+	mod, err := newKeysModule(unusedKeysRepo{}, nil, stubMessagingPermission{}, messaging.ConversationID, ratelimit.NewDailyCap(2), cap, testKeysReauth, stubCutter{}, stubPush{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,10 +227,10 @@ func TestKeysLookupDailyCap(t *testing.T) {
 func TestNewKeysModule_PerTargetClaimCapIsWired(t *testing.T) {
 	perm := stubMessagingPermission{err: messaging.ErrCannotMessage}
 	lookup := keysLookupCap(4, 3, func(string) bool { return false })
-	if _, err := newKeysModule(unusedKeysRepo{}, nil, perm, messaging.ConversationID, nil, lookup, testKeysReauth, stubCutter{}, nil); err == nil {
+	if _, err := newKeysModule(unusedKeysRepo{}, nil, perm, messaging.ConversationID, nil, lookup, testKeysReauth, stubCutter{}, stubPush{}, nil); err == nil {
 		t.Fatal("a nil per-target claim cap was accepted")
 	}
-	mod, err := newKeysModule(unusedKeysRepo{}, nil, perm, messaging.ConversationID, ratelimit.NewDailyCap(2), lookup, testKeysReauth, stubCutter{}, nil)
+	mod, err := newKeysModule(unusedKeysRepo{}, nil, perm, messaging.ConversationID, ratelimit.NewDailyCap(2), lookup, testKeysReauth, stubCutter{}, stubPush{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -114,7 +114,7 @@ func TestChain_TheClientStampRunsBeforeTheHandlersAndAddsNoRead(t *testing.T) {
 // below it gets FEATURE_DISABLED update_required before the flag class, here a nil checker that would say e2ee_dm).
 func TestNewKeysModule_PassesTheClientFloor(t *testing.T) {
 	lookup := keysLookupCap(4, 3, func(string) bool { return false })
-	mod, err := newKeysModule(unusedKeysRepo{}, nil, stubMessagingPermission{}, messaging.ConversationID, ratelimit.NewDailyCap(2), lookup, testKeysReauth, stubCutter{}, nil,
+	mod, err := newKeysModule(unusedKeysRepo{}, nil, stubMessagingPermission{}, messaging.ConversationID, ratelimit.NewDailyCap(2), lookup, testKeysReauth, stubCutter{}, stubPush{}, nil,
 		keys.WithClientFloor(clientinfo.Floors{Android: 1}))
 	if err != nil {
 		t.Fatalf("newKeysModule: %v", err)

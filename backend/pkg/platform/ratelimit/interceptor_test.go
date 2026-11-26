@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -179,6 +180,54 @@ func TestInterceptor_SetsViaHostingFalseOnDirectPath(t *testing.T) {
 	if (*info).XFFHops != 1 {
 		t.Errorf("XFFHops = %d, want 1", (*info).XFFHops)
 	}
+}
+
+// TestInterceptor_DailyCapKey: a NamedDailyCap without Key counts under the uid; with Key the counter is the key the
+// call site builds, so a new key starts a fresh counter while the old one stays spent.
+func TestInterceptor_DailyCapKey(t *testing.T) {
+	t.Run("nil key counts under the uid", func(t *testing.T) {
+		c := ratelimit.NewDailyCap(1)
+		srv := newServer(t, "uid-1", ratelimit.Config{DailyCaps: map[string]ratelimit.NamedDailyCap{procedure: {Name: "x_daily", Cap: c}}})
+		if err := call(t, srv, ""); err != nil {
+			t.Fatalf("first call: %v", err)
+		}
+		if got := c.Spent("uid-1"); got != 1 {
+			t.Fatalf("Spent(uid) = %d, want 1", got)
+		}
+		err := call(t, srv, "")
+		assertResourceExhausted(t, err)
+	})
+	t.Run("key builds the counter", func(t *testing.T) {
+		c := ratelimit.NewDailyCap(1)
+		var suffix atomic.Value
+		suffix.Store("a")
+		named := ratelimit.NamedDailyCap{Name: "x_daily", Cap: c, Key: func(_ context.Context, uid string) string {
+			return uid + "|" + suffix.Load().(string)
+		}}
+		srv := newServer(t, "uid-1", ratelimit.Config{DailyCaps: map[string]ratelimit.NamedDailyCap{procedure: named}})
+		if err := call(t, srv, ""); err != nil {
+			t.Fatalf("first call: %v", err)
+		}
+		assertResourceExhausted(t, call(t, srv, ""))
+		if c.Spent("uid-1") != 0 || c.Spent("uid-1|a") != 1 {
+			t.Fatalf("spent uid=%d key=%d, want 0 and 1", c.Spent("uid-1"), c.Spent("uid-1|a"))
+		}
+		suffix.Store("b")
+		if err := call(t, srv, ""); err != nil {
+			t.Fatalf("a new key must start a fresh counter: %v", err)
+		}
+	})
+	t.Run("an empty key falls back to the uid", func(t *testing.T) {
+		c := ratelimit.NewDailyCap(1)
+		named := ratelimit.NamedDailyCap{Name: "x_daily", Cap: c, Key: func(context.Context, string) string { return "" }}
+		srv := newServer(t, "uid-1", ratelimit.Config{DailyCaps: map[string]ratelimit.NamedDailyCap{procedure: named}})
+		if err := call(t, srv, ""); err != nil {
+			t.Fatalf("first call: %v", err)
+		}
+		if c.Spent("uid-1") != 1 || c.Spent("") != 0 {
+			t.Fatalf("spent uid=%d empty=%d, want 1 and 0", c.Spent("uid-1"), c.Spent(""))
+		}
+	})
 }
 
 func assertResourceExhausted(t *testing.T, err error) {

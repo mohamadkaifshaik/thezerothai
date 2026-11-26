@@ -89,11 +89,18 @@ const (
 // drawn on before the flag, they count every such call, a recognised retry and a refused one included. A call refused by
 // the first does not draw on the second. A refusal is RATE_LIMITED with metadata["limit"] = the cap's name and retry_after
 // the next IST day.
+//
+// Both keys carry the caller's session cut when there is one (CommitCapKey, caps_after_cut.go): a session that signed in
+// after a REMOTE removal draws on fresh counters. One cached lookup for both.
 func (s *service) commitCaps(ctx context.Context, uid string, req *messagingv1.CommitConversationRequest) error {
-	if s.convCommits != nil && !s.convCommits.Allow(convCommitKey(uid, req.GetConversationId())) {
+	if s.convCommits == nil && (!req.GetReset_() || s.resets == nil) {
+		return nil
+	}
+	tag := CommitCapKey(ctx, s.d.SessionCuts, uid, "")
+	if s.convCommits != nil && !s.convCommits.Allow(convCommitKey(uid, req.GetConversationId())+tag) {
 		return s.convCommits.ExceededError(ctx, limitCommitsPerConvDaily)
 	}
-	if req.GetReset_() && s.resets != nil && !s.resets.Allow(uid) {
+	if req.GetReset_() && s.resets != nil && !s.resets.Allow(uid+tag) {
 		return s.resets.ExceededError(ctx, limitResetsDaily)
 	}
 	return nil

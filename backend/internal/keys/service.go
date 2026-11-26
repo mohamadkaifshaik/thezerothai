@@ -74,6 +74,9 @@ type Deps struct {
 	// Sessions is identity's session cut (SessionCutter), injected by the composition root; newKeysModule fails when nil.
 	// A cut that is due with no Sessions wired is an error, never a silent success.
 	Sessions SessionCutter
+	// Push is notifications' push registrations (PushRegistrations), dropped when a REMOTE removal carries a session cut;
+	// newKeysModule fails when nil. Nil here drops nothing (unit rigs).
+	Push PushRegistrations
 }
 
 type service struct {
@@ -87,6 +90,7 @@ type service struct {
 	log           *slog.Logger
 	reauthMaxAge  time.Duration
 	sessions      SessionCutter
+	push          PushRegistrations
 }
 
 // New builds the service.
@@ -100,7 +104,7 @@ func New(d Deps) Service {
 		log = slog.Default()
 	}
 	return &service{repo: d.Repo, now: now, perm: d.Permission, flags: d.Flags, claimCap: d.ClaimCap, chargeLookups: d.ChargeLookups,
-		convID: d.ConversationID, log: log, reauthMaxAge: d.ReauthMaxAge, sessions: d.Sessions}
+		convID: d.ConversationID, log: log, reauthMaxAge: d.ReauthMaxAge, sessions: d.Sessions, push: d.Push}
 }
 
 var _ Service = (*service)(nil)
@@ -211,7 +215,8 @@ const fieldSessionsEnded = "other_sessions_ended"
 // the caller's own session passes the cut; a retry without a recent sign-in never asks for one, it only finishes a cut
 // already on the mark); (4) a cut on the mark that is not done is written through SessionCutter, then noted done on the
 // mark; both before the sweep, so a failure leaves the device for the retry, which needs no sign-in and writes the same
-// cut; (5) the sweep and delete.
+// cut; (4b) with the cut done, the account's push registrations are dropped (dropPush); a failed drop is a retryable
+// UNAVAILABLE before the sweep, so the key device stays for the retry; (5) the sweep and delete.
 func (s *service) RemoveDevice(ctx context.Context, uid, deviceID string, reason RemoveReason) (RemoveResult, error) {
 	begin(ctx, "remove")
 	if err := validDeviceID(ctx, deviceID); err != nil {
@@ -249,6 +254,11 @@ func (s *service) RemoveDevice(ctx context.Context, uid, deviceID string, reason
 			}
 			st.CutDone = true
 		}
+		if st.CutDone {
+			if err := s.dropPush(ctx, uid); err != nil {
+				return RemoveResult{}, err
+			}
+		}
 		res.OtherSessionsEnded = st.CutDone
 		logger.SetRequestField(ctx, fieldSessionsEnded, res.OtherSessionsEnded)
 	}
@@ -259,8 +269,8 @@ func (s *service) RemoveDevice(ctx context.Context, uid, deviceID string, reason
 	return res, nil
 }
 
-// cutSessions writes the mark's cut on the account and notes it done on the mark. Either failure is a retryable
-// UNAVAILABLE (outcome session_cut_failed, a WARN with the uid hashed and the ids redacted): the retry writes the same cut
+// cutSessions writes the mark's cut on the account and notes it done on the mark. Either failure is a retryable plain
+// UNAVAILABLE (removalRetryable; outcome session_cut_failed, a WARN with the uid hashed and the ids redacted): the retry writes the same cut
 // again (identity keeps the maximum) and needs no sign-in, the id being marked.
 func (s *service) cutSessions(ctx context.Context, uid, deviceID string, at time.Time) error {
 	var err error
@@ -275,8 +285,83 @@ func (s *service) cutSessions(ctx context.Context, uid, deviceID string, at time
 	logger.SetRequestField(ctx, fieldOutcome, "session_cut_failed")
 	slog.WarnContext(ctx, "keys_session_cut_failed", "uid_hash", logger.HashUID(uid),
 		"err", logger.RedactErr(err, uid, deviceID).Error())
-	return apierr.New(connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "temporarily busy, please retry").
-		WithRetryAfter(time.Second)
+	return removalRetryable()
+}
+
+// removalRetryable is the answer of a REMOTE removal that stopped after its mark (a failed session cut or push drop):
+// a plain UNAVAILABLE with no ErrorDetail and no retry_after (lane D PR 5 fix round 1, items 5 and 10). The shape is
+// what makes the app retry: its connect_error_mapper maps UNAVAILABLE with an ErrorDetail and a retry_after to
+// ScreeningUnavailableException, which the removal queue's _definiteRefusal treats as a refusal and settles from the own
+// list (no longer showing the stamped device: "removed", never resent); a plain UNAVAILABLE maps to NetworkException, so
+// the stored intent stays and the next pass sends it again. The retry needs no sign-in (the id is marked) and finishes the
+// cut, the drop and the sweep.
+func removalRetryable() error {
+	return connect.NewError(connect.CodeUnavailable, errors.New("temporarily busy, please retry"))
+}
+
+// fieldPushDropped is the request-line count of push registrations a REMOTE removal with a session cut deleted;
+// fieldPushDropFailed is set when that drop failed. Counts and bools only, never a uid, a time or a token.
+const (
+	fieldPushDropped    = "push_registrations_dropped"
+	fieldPushDropFailed = "push_drop_failed"
+)
+
+// pushDropTimeout bounds the drop inside the RPC deadline (rpcDeadline), derived from the request context, so a slow
+// notifications store cannot use up the time the sweep needs (fix round 1, security L4).
+const pushDropTimeout = 3 * time.Second
+
+// The fixed reasons of keys_push_drop_failed besides the PushDropReasoner words.
+const (
+	pushDropReasonDeadline = "deadline"
+	pushDropReasonUnknown  = "unknown"
+)
+
+// dropPush deletes the account's push registrations after a session cut (removal-server design Q9, lane D PR 5), so the
+// lost phone stops receiving notifications; honest devices register again on their next app start. It runs on every
+// REMOTE call whose mark carries a done cut, so the first removal drops them and a retry of the same removal tries again
+// (the drop is idempotent). It is gated like the cut write: a cut is only recorded with device_sign_out on for the
+// remover.
+//
+// A failure fails the removal (fix round 1, security M2, overriding the brief's best effort): otherwise nothing would ever
+// retry and the lost phone would keep receiving pushes. The answer is a plain UNAVAILABLE, before the sweep, so the key
+// device stays and the client's removal queue sends its stored intent again: the cut is already recorded (the thief is
+// out) and the id is marked, so the retry needs no sign-in. Plain, without an ErrorDetail or retry_after, on purpose: the
+// app maps UNAVAILABLE with a detail and a retry_after to ScreeningUnavailableException, which its removal queue treats as a
+// definite refusal and settles from the own list (which no longer shows the stamped device), so it would never resend; a
+// plain UNAVAILABLE maps to NetworkException, which keeps the intent for the next pass. The WARN carries a fixed reason
+// and the gRPC code, never the error text, a uid, a time or a token.
+func (s *service) dropPush(ctx context.Context, uid string) error {
+	if s.push == nil {
+		return nil
+	}
+	dctx, cancel := context.WithTimeout(ctx, pushDropTimeout)
+	defer cancel()
+	n, err := s.push.DropPushRegistrations(dctx, uid)
+	if err == nil {
+		logger.SetRequestField(ctx, fieldPushDropped, n)
+		return nil
+	}
+	reason := pushDropReasonUnknown
+	var r PushDropReasoner
+	switch {
+	case errors.Is(err, context.DeadlineExceeded) || errors.Is(dctx.Err(), context.DeadlineExceeded):
+		reason = pushDropReasonDeadline
+	case errors.As(err, &r):
+		reason = r.PushDropReason()
+	}
+	logger.SetRequestField(ctx, fieldPushDropFailed, true)
+	logger.SetRequestField(ctx, fieldOutcome, "push_drop_failed")
+	s.log.WarnContext(ctx, "keys_push_drop_failed", "reason", reason, "grpc_code", grpcCode(err).String())
+	return removalRetryable()
+}
+
+// grpcCode is the gRPC code anywhere in err's chain (a Firestore error wrapped by notifications), else Unknown.
+func grpcCode(err error) codes.Code {
+	var gs interface{ GRPCStatus() *status.Status }
+	if errors.As(err, &gs) {
+		return gs.GRPCStatus().Code()
+	}
+	return codes.Unknown
 }
 
 // fieldReauthRequired is the request-line field authn.RequireRecentSignIn sets on its refusal.
