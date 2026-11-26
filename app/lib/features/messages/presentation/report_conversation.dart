@@ -26,9 +26,12 @@ const kReportMessageDetail =
 /// Whether [message] can be reported: the peer's own, still
 /// visible message. The caller's messages and tombstones (no text is left to
 /// review) are not offered; the server answers VALIDATION for the first and
-/// NOT_FOUND for the second.
+/// NOT_FOUND for the second. A purged plaintext message (`text_removed`) is
+/// not offered either, even when this device still shows its cached text: the
+/// server holds no text to review and answers NOT_FOUND (Plan 6 PR 6-5).
 bool canReportMessage(pb.Message message) =>
     !message.fromSelf &&
+    !message.textRemoved &&
     message.state == MessageState.MESSAGE_STATE_VISIBLE &&
     isConversationId(message.id);
 

@@ -498,9 +498,16 @@ const Map<String, List<String>> _messageConstructionExempt = {
 const Map<String, List<String>> _pinnedPbMutations = {
   // Marks a row encrypted: the snippet is emptied, never filled.
   'lib/features/messages/data/messaging_repository.dart': ['..snippet ='],
-  // The same marker, and the cache's own rows decoded on read.
+  // The same marker, and the cache's own rows decoded on read. Plan 6 PR 6-5:
+  // `_keepCachedText` decodes the cached copy of a `text_removed` plaintext
+  // row and writes the cache's own text back onto it (`.text =`), so the
+  // server's purge never erases what the device holds. That text came from
+  // the same cache row, never from a decrypted message (encrypted rows are
+  // never cached).
   'lib/features/messages/data/messaging_store.dart': [
     '..snippet =',
+    '.text =',
+    'pb.Message.fromBuffer(',
     'pb.Message.fromBuffer(',
     'pb.Message.fromBuffer(',
   ],

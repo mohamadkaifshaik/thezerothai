@@ -3,6 +3,7 @@ import 'package:dzeroth/core/storage/app_database.dart';
 import 'package:dzeroth/features/messages/data/messaging_store.dart';
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import 'package:dzeroth/gen/dzeroth/messaging/v1/messaging.pbenum.dart';
+import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as posts;
 import 'package:fixnum/fixnum.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -329,6 +330,91 @@ void main() {
         final merged = mergeThreadHeader(cached, conv('c1'), firstPage: false);
         expect(merged.silent, isTrue);
       });
+    });
+  });
+
+  group('text_removed rows (Plan 6 PR 6-5)', () {
+    pb.Message purged(int n) => msg(n, secondsAgo: 10000 - n).deepCopy()
+      ..text = ''
+      ..textRemoved = true;
+
+    Future<void> coldOpen(List<pb.Message> items) => store.applyThreadColdOpen(
+      'c1',
+      items: items,
+      conversation: null,
+      sinceToken: 's',
+      nextPageToken: '',
+      session: store.session,
+    );
+
+    Future<pb.Message> cached(int n) async =>
+        (await store.readThread('c1')).messages
+            .singleWhere((m) => m.id == hexId(n));
+
+    test('a text_removed row keeps the cached text', () async {
+      await coldOpen(msgs(1, 3));
+
+      await store.applyThreadRefresh(
+        'c1',
+        items: [purged(2)],
+        sinceToken: 's2',
+        session: store.session,
+      );
+      var row = await cached(2);
+      expect(row.text, 'hello');
+      expect(row.textRemoved, isTrue);
+
+      // A cold open replaces the thread; the cached text still survives.
+      await coldOpen([purged(3), purged(2), purged(1)]);
+      row = await cached(2);
+      expect(row.text, 'hello');
+      expect(row.textRemoved, isTrue);
+
+      await store.applyThreadOlder(
+        'c1',
+        items: [purged(1)],
+        nextPageToken: '',
+        session: store.session,
+      );
+      expect((await cached(1)).text, 'hello');
+    });
+
+    test('a text_removed row keeps the cached shared post', () async {
+      final shared = msg(1).deepCopy()
+        ..sharedPost = (posts.EmbeddedPost()..postId = 'p1');
+      await coldOpen([shared]);
+
+      await coldOpen([purged(1)]);
+      final row = await cached(1);
+      expect(row.sharedPost.postId, 'p1');
+      expect(row.text, 'hello');
+    });
+
+    test('with nothing cached the row is stored as sent', () async {
+      await coldOpen([purged(1)]);
+      final row = await cached(1);
+      expect(row.text, isEmpty);
+      expect(row.textRemoved, isTrue);
+    });
+
+    test('a tombstone never brings the cached text back', () async {
+      await coldOpen(msgs(1, 1));
+      final erased = purged(1)
+        ..state = MessageState.MESSAGE_STATE_DELETED_ACCOUNT;
+
+      await store.applyThreadRefresh(
+        'c1',
+        items: [erased],
+        sinceToken: 's2',
+        session: store.session,
+      );
+      expect((await cached(1)).text, isEmpty);
+    });
+
+    test('a row that is not text_removed replaces the cached text', () async {
+      await coldOpen(msgs(1, 1));
+      await coldOpen([msg(1, secondsAgo: 9999, text: 'edited')]);
+      expect((await cached(1)).text, 'edited');
     });
   });
 

@@ -24,6 +24,20 @@ import 'conversation_row.dart';
 const kMessageDeletedText = kConversationDeletedSnippet;
 const kMessageRemovedText = kConversationRemovedSnippet;
 
+/// The words of a plaintext message whose text the server deleted at the
+/// plaintext cut-over (`text_removed`, Plan 6 PR 6-5) when this device holds
+/// no copy of it. Drawn like a tombstone.
+const kMessageNoLongerStoredText = 'This message is no longer stored';
+
+/// Whether [message] is a purged plaintext message this device has no text
+/// for: `text_removed` with no cached text and no cached shared post (the
+/// store keeps both when it held them).
+bool messageNoLongerStored(pb.Message message) =>
+    message.textRemoved &&
+    !_isTombstone(message) &&
+    message.text.isEmpty &&
+    !message.hasSharedPost();
+
 /// The label of the report action on a peer's bubble (menu item and the
 /// assistive-technology action).
 const kReportMessageLabel = 'Report message';
@@ -48,7 +62,9 @@ String messageDisplayText(pb.Message message, {bool isMls = false}) =>
     switch (message.state) {
       MessageState.MESSAGE_STATE_DELETED_ACCOUNT => kMessageDeletedText,
       MessageState.MESSAGE_STATE_REMOVED => kMessageRemovedText,
-      _ => isMls ? kEncryptedPlaceholderText : message.text,
+      _ when isMls => kEncryptedPlaceholderText,
+      _ when messageNoLongerStored(message) => kMessageNoLongerStoredText,
+      _ => message.text,
     };
 
 /// The post a message shares, drawn as a card: only a visible message that
@@ -583,8 +599,10 @@ class _BubbleData {
     return _BubbleData(
       id: message.id,
       own: message.fromSelf,
-      // A placeholder is drawn like a tombstone: words, no content.
-      tombstone: _isTombstone(message) || isMls,
+      // A placeholder is drawn like a tombstone: words, no content. So is a
+      // purged message this device holds no text for.
+      tombstone:
+          _isTombstone(message) || isMls || messageNoLongerStored(message),
       text: messageCaption(message, isMls: isMls),
       at: message.hasCreatedAt() ? message.createdAt.toDateTime() : null,
       shared: shared,
