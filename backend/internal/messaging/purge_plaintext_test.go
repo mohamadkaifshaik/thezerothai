@@ -26,6 +26,9 @@ func TestPlaintextClass(t *testing.T) {
 		{"only the request digest is left", MsgDoc{State: msgVisible, RequestHash: "h"}, plainReadable},
 		{"an encrypted message is never touched", MsgDoc{State: msgVisible, Text: "stray", RequestHash: "h", MlsGen: 1, Ciphertext: []byte("ct")}, plainNone},
 		{"a swept encrypted message is never touched", MsgDoc{State: msgVisible, RequestHash: "h", CtRemoved: true}, plainNone},
+		// Belt and braces: any one encryption marker leaves the message alone, even with no mlsGen.
+		{"an mlsKey without an mlsGen", MsgDoc{State: msgVisible, Text: "stray", RequestHash: "h", MlsKey: "1:1"}, plainNone},
+		{"a ciphertext without an mlsGen", MsgDoc{State: msgVisible, Text: "stray", RequestHash: "h", Ciphertext: []byte("ct")}, plainNone},
 		{"purged before", MsgDoc{State: msgVisible, TextRemoved: true}, plainPurged},
 		{"a takedown tombstone holds nothing readable", MsgDoc{State: msgRemoved}, plainNone},
 		{"an eraser tombstone holds nothing readable", MsgDoc{State: msgDeletedAccount, SenderID: DeletedUID}, plainNone},

@@ -119,6 +119,16 @@ func TestPurgePlaintext_MixedConversation(t *testing.T) {
 		if m := e.msgs(mixed)[p1]; m.Text == "" || m.TextRemoved {
 			t.Errorf("mode %d wrote: %+v", mode, m)
 		}
+		for id, m := range e.msgs(plain) {
+			if m.Text == "" || m.RequestHash == "" || m.TextRemoved {
+				t.Errorf("mode %d wrote alice-carol message %s: %+v", mode, id[:8], m)
+			}
+		}
+		for _, side := range [][2]string{{carol, dmInboxCollection}, {alice, dmRequestsCollection}} {
+			if en, _ := e.entry(side[0], side[1], plain); en.Last.Snippet != "SECRET again" || en.Last.SharedPost != (side[0] == alice) {
+				t.Errorf("mode %d rewrote %s's preview: %+v", mode, side[0], en.Last)
+			}
+		}
 	}
 
 	got := e.purgeAll(PlaintextPurge)
@@ -311,6 +321,85 @@ func TestPurgePlaintext_AndEraserInEitherOrder(t *testing.T) {
 			if again := e.purgeAll(PlaintextPurge); again.Plaintext != 0 || again.Purged != 0 {
 				t.Errorf("a later purge = %+v, want nothing", again)
 			}
+		})
+	}
+}
+
+// A request accepted after the page read the conversation: the recipient's entry moved from dmRequests to dmInbox, and
+// the preview there is rewritten. When the request entry is gone and no dmInbox entry exists either, it is PreviewsSkipped.
+func TestPurgePlaintext_RequestAcceptedMidRun(t *testing.T) {
+	for _, moved := range []bool{true, false} {
+		t.Run(fmt.Sprintf("entry moved %v", moved), func(t *testing.T) {
+			e := newIT(t, func(e *itEnv) { e.addUser(carol, "carol", false) })
+			ctx := context.Background()
+			conv := e.seedConversation(carol, alice, stateRequest, base, [2]string{carol, "SECRET hello"})
+			last := e.newestMsg(conv)
+			for _, side := range [][2]string{{carol, dmInboxCollection}, {alice, dmRequestsCollection}} {
+				if _, err := e.fs.Collection("users").Doc(side[0]).Collection(side[1]).Doc(conv).Update(ctx, []firestore.Update{{Path: "last.messageId", Value: last}}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			reqRef := e.fs.Collection("users").Doc(alice).Collection(dmRequestsCollection).Doc(conv)
+			e.repo.hooks = &raceHooks{afterPlaintextRead: func() {
+				snap, err := reqRef.Get(ctx)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				if moved {
+					if _, err := e.fs.Collection("users").Doc(alice).Collection(dmInboxCollection).Doc(conv).Set(ctx, snap.Data()); err != nil {
+						t.Error(err)
+					}
+				}
+				if _, err := reqRef.Delete(ctx); err != nil {
+					t.Error(err)
+				}
+			}}
+			got := e.purgeAll(PlaintextPurge)
+			if moved {
+				if got.Purged != 1 || got.Previews != 2 || got.PreviewsSkipped != 0 {
+					t.Errorf("purge = %+v, want 1 purged and both previews rewritten", got)
+				}
+				if en, ok := e.entry(alice, dmInboxCollection, conv); !ok || en.Last.Snippet != noLongerStoredSnippet {
+					t.Errorf("the moved entry = %+v (found %v), want %q", en.Last, ok, noLongerStoredSnippet)
+				}
+			} else if got.Purged != 1 || got.Previews != 1 || got.PreviewsSkipped != 1 {
+				t.Errorf("purge = %+v, want 1 purged, carol's preview rewritten and alice's counted as skipped", got)
+			}
+		})
+	}
+}
+
+// A same-key retry of a purged VISIBLE message replays it (text_removed, no text) instead of answering "key reused", on
+// both replay paths: the AlreadyExists retry of an ordinary send, and replayOrRefuse behind a refusal (here the
+// FEATURE_E2EE_REQUIRED rule switched on after the message was stored). Nothing is written.
+func TestPurgePlaintext_SameKeyRetryReplays(t *testing.T) {
+	for _, required := range []bool{false, true} {
+		t.Run(fmt.Sprintf("behind a refusal %v", required), func(t *testing.T) {
+			e := newIT(t, nil)
+			e.mutual(alice, bob)
+			first := e.must(alice, toUser(skey(1), bob, "SECRET stored before"))
+			convID, msgID := first.GetConversation().GetId(), first.GetMessage().GetId()
+			if got := e.purgeAll(PlaintextPurge); got.Purged != 1 {
+				t.Fatalf("purge = %+v", got)
+			}
+			e.tick(time.Second)
+			if required {
+				e.requireFor(alice, bob)
+			}
+			before := e.snapshotState(convID)
+			resp, err := e.send(alice, toUser(skey(1), bob, "SECRET stored before"))
+			if err != nil {
+				t.Fatalf("retry err = %v, want a replay", err)
+			}
+			m := resp.GetMessage()
+			if m.GetId() != msgID || !m.GetTextRemoved() || m.GetText() != "" || m.GetState() != messagingv1.MessageState_MESSAGE_STATE_VISIBLE {
+				t.Errorf("replayed message = %v, want the stored one with text_removed and no text", m)
+			}
+			if n := len(e.msgs(convID)); n != 1 {
+				t.Errorf("%d messages stored, want 1 (no duplicate)", n)
+			}
+			before.check(t)
 		})
 	}
 }

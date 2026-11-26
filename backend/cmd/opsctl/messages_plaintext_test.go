@@ -3,7 +3,10 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -11,15 +14,21 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/messaging"
 )
 
-// fakePlaintext is a messaging.PlaintextPurger that answers from a script and records its calls.
+// fakePlaintext is a messaging.PlaintextPurger that answers from a script and records its calls. A scripted page with
+// err set is returned together with that error (a page that wrote part of its work, then failed).
 type fakePlaintext struct {
 	totals   messaging.PlaintextTotals
 	countErr error
-	pages    []messaging.PlaintextPage
+	pages    []fakePlaintextPage
 	pageErr  error
 	afters   []string
 	modes    []messaging.PlaintextMode
 	counts   int
+}
+
+type fakePlaintextPage struct {
+	page messaging.PlaintextPage
+	err  error
 }
 
 func (f *fakePlaintext) CountPlaintext(context.Context) (messaging.PlaintextTotals, error) {
@@ -35,7 +44,7 @@ func (f *fakePlaintext) PurgePlaintextPage(_ context.Context, after string, mode
 	}
 	p := f.pages[0]
 	f.pages = f.pages[1:]
-	return p, nil
+	return p.page, p.err
 }
 
 // istNoon is 2026-11-26 06:30 UTC = 12:00 IST; istLate is 2026-11-25 20:00 UTC, already 2026-11-26 01:30 in IST.
@@ -44,13 +53,15 @@ var (
 	istLate = time.Date(2026, 11, 25, 20, 0, 0, 0, time.UTC)
 )
 
-// Message ids and texts the fake pages never return but a careless line could print; testConvID is the cursor.
-const purgeCursor = "0123456789abcdef0123456789abcdef"
+var (
+	firstCursor = strings.Repeat("a", 32)
+	purgeCursor = "0123456789abcdef0123456789abcdef"
+)
 
-func plaintextPages() []messaging.PlaintextPage {
-	return []messaging.PlaintextPage{
-		{Last: strings.Repeat("a", 32), More: true, Conversations: 50, Messages: 120, Plaintext: 7, Purged: 6, Skipped: 1, Previews: 3, PreviewsSkipped: 1},
-		{Last: purgeCursor, Conversations: 3, Messages: 9, Plaintext: 2, Purged: 2, Previews: 1},
+func plaintextPages() []fakePlaintextPage {
+	return []fakePlaintextPage{
+		{page: messaging.PlaintextPage{Last: firstCursor, More: true, Conversations: 50, Messages: 120, Plaintext: 7, Purged: 6, Skipped: 1, Previews: 3, PreviewsSkipped: 1}},
+		{page: messaging.PlaintextPage{Last: purgeCursor, Conversations: 3, Messages: 9, Plaintext: 2, Purged: 2, Previews: 1}},
 	}
 }
 
@@ -62,6 +73,26 @@ func runPlaintext(p *fakePlaintext, in string, now time.Time, args ...string) (c
 	}
 	code = run(context.Background(), append([]string{"messages"}, args...), strings.NewReader(in), &out, &errOut, open, func() time.Time { return now })
 	return code, out.String(), errOut.String(), opened
+}
+
+// purgeArgs is a write run on dev with today's IST date and a checkpoint file in a fresh temp directory.
+func purgeArgs(t *testing.T, extra ...string) (args []string, checkpoint string) {
+	t.Helper()
+	checkpoint = filepath.Join(t.TempDir(), "purge.checkpoint.json")
+	return append([]string{"purge-plaintext", "--project", "dzeroth-dev", "--confirm", "2026-11-26", "--checkpoint", checkpoint}, extra...), checkpoint
+}
+
+func readPlaintextCheckpoint(t *testing.T, path string) plaintextCheckpointFile {
+	t.Helper()
+	data, err := os.ReadFile(path) //nolint:gosec // test temp file
+	if err != nil {
+		t.Fatal(err)
+	}
+	var c plaintextCheckpointFile
+	if err := json.Unmarshal(data, &c); err != nil {
+		t.Fatal(err)
+	}
+	return c
 }
 
 // The confirm date must be today in IST, read from the injected clock: no sleep, and the UTC date is not enough.
@@ -94,47 +125,87 @@ func TestCheckPurgeConfirm_TodayInIST(t *testing.T) {
 	}
 }
 
-func TestPurgePlaintext_RunsAndDryRuns(t *testing.T) {
+func TestPurgePlaintext_Runs(t *testing.T) {
 	t.Parallel()
-	for _, dry := range []bool{false, true} {
-		p := &fakePlaintext{pages: plaintextPages()}
-		args := []string{"purge-plaintext", "--project", "dzeroth-dev", "--confirm", "2026-11-26"}
-		if dry {
-			args = append(args, "--dry-run")
+	p := &fakePlaintext{pages: plaintextPages()}
+	args, cp := purgeArgs(t)
+	code, out, stderr, _ := runPlaintext(p, "", istNoon, args...)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q out=%q", code, stderr, out)
+	}
+	if len(p.afters) != 2 || p.afters[0] != "" || p.afters[1] != firstCursor {
+		t.Errorf("afters = %v, want \"\" then the first page's last id", p.afters)
+	}
+	for _, m := range p.modes {
+		if m != messaging.PlaintextPurge {
+			t.Errorf("a page ran in mode %d", m)
 		}
-		code, out, stderr, _ := runPlaintext(p, "", istNoon, args...)
-		if code != 0 {
-			t.Fatalf("dry=%v code=%d stderr=%q out=%q", dry, code, stderr, out)
-		}
-		want := messaging.PlaintextPurge
-		if dry {
-			want = messaging.PlaintextDryRun
-		}
-		if len(p.afters) != 2 || p.afters[0] != "" || p.afters[1] != strings.Repeat("a", 32) {
-			t.Errorf("dry=%v afters = %v, want \"\" then the first page's last id", dry, p.afters)
-		}
-		for _, m := range p.modes {
-			if m != want {
-				t.Errorf("dry=%v ran a page in mode %d, want %d", dry, m, want)
-			}
-		}
-		total := "conversations=53 messages=129 plaintext=9 purged=8 skipped=1 previews=4 previews_skipped=1"
-		if !strings.Contains(out, total) {
-			t.Errorf("dry=%v totals missing %q:\n%s", dry, total, out)
-		}
-		// The cursor is printed so a stopped run resumes with --after.
-		if !strings.Contains(out, "after="+purgeCursor) {
-			t.Errorf("dry=%v the cursor is not printed:\n%s", dry, out)
-		}
+	}
+	if total := "conversations=53 messages=129 plaintext=9 purged=8 skipped=1 previews=4 previews_skipped=1"; !strings.Contains(out, total) {
+		t.Errorf("totals missing %q:\n%s", total, out)
+	}
+	// The resume point is in the checkpoint file only.
+	if c := readPlaintextCheckpoint(t, cp); c.After != purgeCursor || c.State != "complete" || c.Project != "dzeroth-dev" || c.Command != plaintextCheckpointCommand {
+		t.Errorf("checkpoint = %+v", c)
+	}
+	if !strings.Contains(out, "do not share it") || !strings.Contains(out, "messages plaintext-count") {
+		t.Errorf("the header must warn about the checkpoint and the end must point at plaintext-count:\n%s", out)
 	}
 }
 
-func TestPurgePlaintext_ResumesFromAfter(t *testing.T) {
+// A clean run tells the operator to confirm with plaintext-count instead of claiming nothing is left.
+func TestPurgePlaintext_SuccessLinePointsAtTheCount(t *testing.T) {
 	t.Parallel()
+	p := &fakePlaintext{pages: []fakePlaintextPage{{page: messaging.PlaintextPage{Last: purgeCursor, Conversations: 1, Messages: 1, Plaintext: 1, Purged: 1}}}}
+	args, _ := purgeArgs(t)
+	code, out, _, _ := runPlaintext(p, "", istNoon, args...)
+	if code != 0 || !strings.Contains(out, "confirm nothing readable is left with `opsctl messages plaintext-count --project dzeroth-dev`") || strings.Contains(out, "is left\n") {
+		t.Errorf("code=%d out:\n%s", code, out)
+	}
+}
+
+func TestPurgePlaintext_DryRunWritesNoCheckpoint(t *testing.T) {
+	t.Parallel()
+	p := &fakePlaintext{pages: plaintextPages()}
+	code, out, stderr, _ := runPlaintext(p, "", istNoon, "purge-plaintext", "--project", "dzeroth-dev", "--confirm", "2026-11-26", "--dry-run")
+	if code != 0 || len(p.modes) != 2 || p.modes[0] != messaging.PlaintextDryRun || !strings.Contains(out, "dry-run: would purge 9 message(s)") {
+		t.Errorf("code=%d modes=%v stderr=%q out=%q", code, p.modes, stderr, out)
+	}
+	if _, err := os.Stat(defaultPlaintextCheckpoint); err == nil {
+		t.Errorf("a dry run wrote %s", defaultPlaintextCheckpoint)
+	}
+}
+
+// --resume continues from the checkpoint's resume point; --force starts over; neither overwrites by accident.
+func TestPurgePlaintext_ResumeAndForce(t *testing.T) {
+	t.Parallel()
+	args, cp := purgeArgs(t)
+	if err := writeCheckpointFile(cp, plaintextCheckpointFile{Version: plaintextCheckpointVersion, Command: plaintextCheckpointCommand, Project: "dzeroth-dev", After: firstCursor, State: "failed"}); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, stderr, opened := runPlaintext(&fakePlaintext{}, "", istNoon, args...); code != 2 || opened || !strings.Contains(stderr, "exists: pass --resume") {
+		t.Errorf("existing checkpoint: code=%d opened=%v stderr=%q", code, opened, stderr)
+	}
 	p := &fakePlaintext{pages: plaintextPages()[1:]}
-	code, out, stderr, _ := runPlaintext(p, "", istNoon, "purge-plaintext", "--project", "dzeroth-dev", "--confirm", "2026-11-26", "--after", strings.Repeat("a", 32))
-	if code != 0 || len(p.afters) != 1 || p.afters[0] != strings.Repeat("a", 32) {
-		t.Errorf("code=%d afters=%v stderr=%q out=%q", code, p.afters, stderr, out)
+	if code, out, stderr, _ := runPlaintext(p, "", istNoon, append(args, "--resume")...); code != 0 || len(p.afters) != 1 || p.afters[0] != firstCursor {
+		t.Errorf("--resume: code=%d afters=%v stderr=%q out=%q", code, p.afters, stderr, out)
+	}
+	p = &fakePlaintext{pages: plaintextPages()}
+	if code, _, stderr, _ := runPlaintext(p, "", istNoon, append(args, "--force")...); code != 0 || len(p.afters) != 2 || p.afters[0] != "" {
+		t.Errorf("--force: code=%d afters=%v stderr=%q", code, p.afters, stderr)
+	}
+	// A checkpoint of another project or command is refused.
+	if err := writeCheckpointFile(cp, plaintextCheckpointFile{Version: plaintextCheckpointVersion, Command: plaintextCheckpointCommand, Project: "dzeroth-other", After: firstCursor}); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, stderr, _ := runPlaintext(&fakePlaintext{}, "", istNoon, append(args, "--resume")...); code != 2 || !strings.Contains(stderr, "not \"dzeroth-dev\"") {
+		t.Errorf("other project: code=%d stderr=%q", code, stderr)
+	}
+	if err := writeCheckpointFile(cp, plaintextCheckpointFile{Version: plaintextCheckpointVersion, Command: plaintextCheckpointCommand, Project: "dzeroth-dev", After: "../x"}); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, stderr, _ := runPlaintext(&fakePlaintext{}, "", istNoon, append(args, "--resume")...); code != 2 || !strings.Contains(stderr, "not a conversation id") {
+		t.Errorf("bad resume point: code=%d stderr=%q", code, stderr)
 	}
 }
 
@@ -149,8 +220,11 @@ func TestPurgePlaintext_Refusals(t *testing.T) {
 		{"no confirm", []string{"purge-plaintext", "--project", "dzeroth-dev"}, "needs --confirm 2026-11-26"},
 		{"a pasted old date", []string{"purge-plaintext", "--project", "dzeroth-dev", "--confirm", "2026-11-12"}, "not today's date in IST"},
 		{"a prod run with an old date", []string{"purge-plaintext", "--project", "dzeroth-prod", "--confirm", "2026-11-25"}, "not today's date in IST"},
-		{"a bad cursor", []string{"purge-plaintext", "--project", "dzeroth-dev", "--confirm", "2026-11-26", "--after", "nope"}, "--after must be the conversation id"},
+		{"no --after any more", []string{"purge-plaintext", "--project", "dzeroth-dev", "--confirm", "2026-11-26", "--after", purgeCursor}, "--after is not supported"},
+		{"resume and force", []string{"purge-plaintext", "--project", "dzeroth-dev", "--confirm", "2026-11-26", "--resume", "--force"}, "exclusive"},
+		{"a dry run with a checkpoint", []string{"purge-plaintext", "--project", "dzeroth-dev", "--confirm", "2026-11-26", "--dry-run", "--resume"}, "not even a checkpoint"},
 		{"confirm on the count", []string{"plaintext-count", "--project", "dzeroth-dev", "--confirm", "2026-11-26"}, "--confirm is for messages purge-plaintext only"},
+		{"checkpoint on the count", []string{"plaintext-count", "--project", "dzeroth-dev", "--resume"}, "--resume is not supported"},
 		{"dry-run on the count", []string{"plaintext-count", "--project", "dzeroth-dev", "--dry-run"}, "read-only"},
 		{"after on the count", []string{"plaintext-count", "--project", "dzeroth-dev", "--after", purgeCursor}, "--after is not supported"},
 		{"no project", []string{"purge-plaintext", "--confirm", "2026-11-26"}, "--project is required"},
@@ -162,7 +236,6 @@ func TestPurgePlaintext_Refusals(t *testing.T) {
 			t.Errorf("%s: code=%d opened=%v stderr=%q, want exit 2 with %q and nothing opened", tt.name, code, opened, stderr, tt.want)
 		}
 	}
-	// --confirm on another command is refused too.
 	if code, _, stderr, _ := runPlaintext(&fakePlaintext{}, "", istNoon, "takedown", testMsgTarget, "--project", "dzeroth-dev", "--confirm", "2026-11-26"); code != 2 || !strings.Contains(stderr, "--confirm is for") {
 		t.Errorf("takedown --confirm: code=%d stderr=%q", code, stderr)
 	}
@@ -171,7 +244,8 @@ func TestPurgePlaintext_Refusals(t *testing.T) {
 // On prod the purge runs only with today's IST date AND the typed project id.
 func TestPurgePlaintext_ProdNeedsBothConfirmations(t *testing.T) {
 	t.Parallel()
-	args := []string{"purge-plaintext", "--project", "dzeroth-prod", "--confirm", "2026-11-26"}
+	cp := filepath.Join(t.TempDir(), "prod.checkpoint.json")
+	args := []string{"purge-plaintext", "--project", "dzeroth-prod", "--confirm", "2026-11-26", "--checkpoint", cp}
 	p := &fakePlaintext{}
 	if code, _, stderr, opened := runPlaintext(p, "dzeroth-dev\n", istNoon, args...); code != 1 || opened || !strings.Contains(stderr, "aborted") {
 		t.Errorf("wrong typed id: code=%d opened=%v stderr=%q", code, opened, stderr)
@@ -208,24 +282,19 @@ func TestPlaintextCount(t *testing.T) {
 	}
 }
 
-// No id or text in any audit line: counts only. The read-only count prints no id at all; the purge prints the
-// conversation cursor only on the driver's per-call line (needed for --after), never on an audit line.
-func TestPlaintext_NoIDOrTextInAuditLines(t *testing.T) {
+// No id or text on any output line of either command: page numbers and counts only (the resume point is in the file).
+func TestPlaintext_NoIDOrTextInOutput(t *testing.T) {
 	t.Parallel()
-	ids := []string{strings.Repeat("a", 32), purgeCursor}
-	check := func(name, out string, allowCursorLines bool) {
+	ids := []string{firstCursor, purgeCursor}
+	check := func(name, out string) {
 		t.Helper()
 		audits := 0
 		for _, line := range strings.Split(out, "\n") {
-			isAudit := strings.HasPrefix(line, "audit:")
-			if isAudit {
+			if strings.HasPrefix(line, "audit:") {
 				audits++
 				if !strings.Contains(line, "NOTICE") {
 					t.Errorf("%s: audit line without NOTICE: %q", name, line)
 				}
-			}
-			if !isAudit && allowCursorLines && strings.HasPrefix(line, "call ") {
-				continue
 			}
 			for _, id := range ids {
 				if strings.Contains(line, id) {
@@ -238,17 +307,41 @@ func TestPlaintext_NoIDOrTextInAuditLines(t *testing.T) {
 		}
 	}
 	_, out, _, _ := runPlaintext(&fakePlaintext{totals: messaging.PlaintextTotals{Conversations: 1}, pages: plaintextPages()}, "", istNoon, "plaintext-count", "--project", "dzeroth-dev")
-	check("plaintext-count", out, false)
-	_, out, _, _ = runPlaintext(&fakePlaintext{pages: plaintextPages()}, "", istNoon, "purge-plaintext", "--project", "dzeroth-dev", "--confirm", "2026-11-26")
-	check("purge-plaintext", out, true)
+	check("plaintext-count", out)
+	args, _ := purgeArgs(t)
+	_, out, _, _ = runPlaintext(&fakePlaintext{pages: plaintextPages()}, "", istNoon, args...)
+	check("purge-plaintext", out)
 }
 
-// A page that keeps failing stops the run with exit 1 after the driver's retries; the totals line still prints.
+// A page that keeps failing stops the run with exit 1 after the driver's retries; the totals line still prints and the
+// checkpoint says failed at the last good page.
 func TestPurgePlaintext_FailingPage(t *testing.T) {
 	t.Parallel()
 	p := &fakePlaintext{pageErr: errors.New("unavailable")}
-	code, out, _, _ := runPlaintext(p, "", istNoon, "purge-plaintext", "--project", "dzeroth-dev", "--confirm", "2026-11-26")
-	if code != 1 || len(p.afters) != maxConsecutiveErrors || !strings.Contains(out, "complete=false") {
-		t.Errorf("code=%d calls=%d out=%q", code, len(p.afters), out)
+	args, cp := purgeArgs(t)
+	code, out, stderr, _ := runPlaintext(p, "", istNoon, args...)
+	if code != 1 || len(p.afters) != maxConsecutiveErrors || !strings.Contains(out, "complete=false") || !strings.Contains(stderr, "rerun with --resume") {
+		t.Errorf("code=%d calls=%d out=%q stderr=%q", code, len(p.afters), out, stderr)
+	}
+	if c := readPlaintextCheckpoint(t, cp); c.State != "failed" || c.After != "" {
+		t.Errorf("checkpoint = %+v, want failed at the start", c)
+	}
+}
+
+// A page that wrote part of its work and then failed: its write counts reach the totals (those writes happened), its read
+// counts do not (the retry reads the page again), and the retry's own counts add on top.
+func TestPurgePlaintext_PartialPageWritesAreCounted(t *testing.T) {
+	t.Parallel()
+	p := &fakePlaintext{pages: []fakePlaintextPage{
+		{page: messaging.PlaintextPage{Conversations: 10, Messages: 40, Plaintext: 5, Purged: 3, Skipped: 1, Previews: 2, PreviewsSkipped: 1}, err: errors.New("deadline")},
+		{page: messaging.PlaintextPage{Last: purgeCursor, Conversations: 20, Messages: 60, Plaintext: 2, Purged: 2, Previews: 1}},
+	}}
+	args, _ := purgeArgs(t)
+	code, out, stderr, _ := runPlaintext(p, "", istNoon, args...)
+	if code != 0 || len(p.afters) != 2 || p.afters[1] != "" {
+		t.Fatalf("code=%d afters=%v stderr=%q out=%q", code, p.afters, stderr, out)
+	}
+	if want := "conversations=20 messages=60 plaintext=2 purged=5 skipped=1 previews=3 previews_skipped=1"; !strings.Contains(out, want) {
+		t.Errorf("totals missing %q:\n%s", want, out)
 	}
 }

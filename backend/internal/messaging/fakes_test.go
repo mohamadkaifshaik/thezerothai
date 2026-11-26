@@ -441,7 +441,7 @@ func (f *fakeRepo) commitReplay(p SendParams, conv ConvDoc) (SendResult, bool, e
 		if row.ID != p.MsgID {
 			continue
 		}
-		if row.State != msgRemoved && row.RequestHash != p.RequestHash {
+		if row.State != msgRemoved && !row.TextRemoved && row.RequestHash != p.RequestHash {
 			return SendResult{}, true, ErrKeyReused
 		}
 		return SendResult{Replay: true, Msg: row.MsgDoc, Conv: conv}, true, nil
@@ -651,7 +651,7 @@ func (f *fakeRepo) replayOrRefuse(p SendParams, conv ConvDoc, refusal error) (Se
 		if row.ID != p.MsgID {
 			continue
 		}
-		if row.State != msgRemoved && row.RequestHash != p.RequestHash {
+		if row.State != msgRemoved && !row.TextRemoved && row.RequestHash != p.RequestHash {
 			return SendResult{}, ErrKeyReused
 		}
 		return SendResult{Replay: true, Msg: row.MsgDoc, Conv: conv}, nil

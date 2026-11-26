@@ -37,9 +37,11 @@ const (
 	noLongerStoredSnippet = "Message no longer stored"
 )
 
-// plaintextMsgFields are the fields the walk reads (Select): the three readable ones, and what tells an encrypted or an
-// already purged message apart. Never the ciphertext.
-var plaintextMsgFields = []string{"text", "sharedPostId", "requestHash", "mlsGen", "ctRemoved", "textRemoved"}
+// plaintextMsgFields are the fields the walk reads (Select): the three readable ones, and every field that marks an
+// encrypted message (mlsGen, mlsKey, ctRemoved, ciphertext: belt and braces, any one of them is enough to leave the
+// message alone) or an already purged one. Reading ciphertext costs its bytes on encrypted messages only (a plaintext
+// message has none); that is accepted for a one-off operator run.
+var plaintextMsgFields = []string{"text", "sharedPostId", "requestHash", "mlsGen", "mlsKey", "ctRemoved", "ciphertext", "textRemoved"}
 
 // PlaintextMode is what one PurgePlaintextPage call does. The zero value is the read-only count.
 type PlaintextMode int
@@ -131,7 +133,7 @@ func aggCount(ctx context.Context, q firestore.Query) (int64, error) {
 // PurgePlaintextPage implements PlaintextPurger. Per conversation of the page (`conversations ORDER BY __name__ LIMIT 50`,
 // Select of the three fields entryFolder needs) it pages the messages by document id (Limit 500, Select of
 // plaintextMsgFields: 1 read per message, no index beyond the automatic one) and classifies each:
-//   - encrypted (mlsGen >= 1 or ctRemoved): never touched, not counted;
+//   - encrypted (mlsGen >= 1, mlsKey set, ctRemoved or a non-empty ciphertext): never touched, not counted;
 //   - already purged (textRemoved): not counted, but its id still counts for the preview check below, so a run that
 //     stopped between a message and its preview, or lost a preview to a precondition, is finished by the next run;
 //   - readable (non-empty text, sharedPostId or requestHash): Plaintext. In PlaintextPurge mode it gets one field-level
@@ -143,7 +145,10 @@ func aggCount(ctx context.Context, q firestore.Query) (int64, error) {
 // both participants' own entries (dmInbox, or dmRequests for the recipient of an open request) are read in one GetAll.
 // An entry whose VISIBLE plaintext preview names such a message gets last.snippet = noLongerStoredSnippet and
 // last.sharedPost = false, again with a LastUpdateTime precondition (a conflict is PreviewsSkipped). lastMessageAt and
-// changedAt stay: the inbox keeps its order and no device is told to refresh.
+// changedAt stay: the inbox keeps its order and no device is told to refresh. A request accepted after the page read
+// the conversation has moved the recipient's entry from dmRequests to dmInbox: a missing dmRequests entry is looked up in
+// dmInbox (one more read) and handled the same way; when neither exists it is PreviewsSkipped (the next run reads the
+// conversation again).
 //
 // Errors name no ids in the clear (redactErr). A failed call can be repeated with the same `after`: everything it did is
 // already done and is not counted again.
@@ -236,11 +241,18 @@ func (r *FirestoreRepo) plaintextMessages(ctx context.Context, convID string, mo
 // plaintextPreviews rewrites (or, in a dry run, counts) each participant's entry whose preview names a message in gone.
 func (r *FirestoreRepo) plaintextPreviews(ctx context.Context, convID string, conv ConvDoc, gone map[string]bool, mode PlaintextMode, out *PlaintextPage) error {
 	var refs []*firestore.DocumentRef
+	var requestUIDs []string // participants whose entry was looked up in dmRequests, in refs order (or "")
 	for _, uid := range conv.Participants {
 		if uid == "" || uid == DeletedUID {
 			continue
 		}
-		refs = append(refs, r.entryRef(uid, convID, entryFolder(conv, uid)))
+		folder := entryFolder(conv, uid)
+		refs = append(refs, r.entryRef(uid, convID, folder))
+		if folder == entryRequests {
+			requestUIDs = append(requestUIDs, uid)
+		} else {
+			requestUIDs = append(requestUIDs, "")
+		}
 	}
 	if len(refs) == 0 {
 		return nil
@@ -249,11 +261,34 @@ func (r *FirestoreRepo) plaintextPreviews(ctx context.Context, convID string, co
 	if err != nil {
 		return redactErr(fmt.Errorf("messaging: plaintext read entries: %w", err), convID)
 	}
-	var stale []*firestore.DocumentSnapshot
-	for _, s := range snaps {
-		if s == nil || !s.Exists() {
-			continue // the participant deleted the conversation for themselves
+	// A dmRequests entry missing at the read: the request was accepted since the page read the conversation (the entry
+	// moved to dmInbox), or the recipient deleted it. Look in dmInbox once.
+	var moved []*firestore.DocumentRef
+	present := snaps[:0:0]
+	for i, s := range snaps {
+		switch {
+		case s != nil && s.Exists():
+			present = append(present, s)
+		case requestUIDs[i] != "":
+			moved = append(moved, r.inboxRef(requestUIDs[i], convID))
 		}
+		// else: a missing dmInbox entry: the participant deleted the conversation for themselves
+	}
+	if len(moved) > 0 {
+		inbox, ierr := r.client.GetAll(ctx, moved)
+		if ierr != nil {
+			return redactErr(fmt.Errorf("messaging: plaintext read moved entries: %w", ierr), convID)
+		}
+		for _, s := range inbox {
+			if s != nil && s.Exists() {
+				present = append(present, s)
+			} else {
+				out.PreviewsSkipped++ // neither entry exists: counted, the next run reads the conversation again
+			}
+		}
+	}
+	var stale []*firestore.DocumentSnapshot
+	for _, s := range present {
 		var e EntryDoc
 		if derr := s.DataTo(&e); derr != nil {
 			return redactErr(fmt.Errorf("messaging: plaintext decode entry: %w", derr), convID)
@@ -291,7 +326,7 @@ const (
 // whatever its stored fields say: its requestHash is a digest over ciphertext, and its bytes are the retention sweep's.
 func plaintextClass(m MsgDoc) int {
 	switch {
-	case m.MlsGen >= 1 || m.CtRemoved:
+	case m.MlsGen >= 1 || m.MlsKey != "" || m.CtRemoved || len(m.Ciphertext) > 0:
 		return plainNone
 	case m.TextRemoved:
 		return plainPurged

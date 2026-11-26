@@ -224,8 +224,9 @@ func (r *FirestoreRepo) Send(ctx context.Context, p SendParams) (SendResult, err
 		}
 		// A moderator takedown clears the digest (and the text), so a retry of the same key can no longer be compared: it
 		// replays the tombstone (REMOVED) instead of answering "key reused". The message id is derived from the sender's own
-		// uid and key, so only the sender gets here.
-		if stored.State != msgRemoved && stored.RequestHash != p.RequestHash {
+		// uid and key, so only the sender gets here. The plaintext purge clears the digest too (textRemoved): its message
+		// replays as stored (text_removed, no text), never as "key reused".
+		if stored.State != msgRemoved && !stored.TextRemoved && stored.RequestHash != p.RequestHash {
 			return SendResult{}, ErrKeyReused
 		}
 		return SendResult{Replay: true, Msg: stored, Conv: res.Conv}, nil
@@ -467,7 +468,8 @@ func (r *FirestoreRepo) replayOrRefuse(ctx context.Context, tx *firestore.Transa
 		if derr := snap.DataTo(&stored); derr != nil {
 			return res, fmt.Errorf("messaging: decode message: %w", derr)
 		}
-		if stored.State != msgRemoved && stored.RequestHash != p.RequestHash { // a taken-down message replays as REMOVED
+		// A taken-down message replays as REMOVED, a purged one (textRemoved, digest cleared) as stored with text_removed.
+		if stored.State != msgRemoved && !stored.TextRemoved && stored.RequestHash != p.RequestHash {
 			return res, ErrKeyReused
 		}
 		res.Replay, res.Msg = true, stored

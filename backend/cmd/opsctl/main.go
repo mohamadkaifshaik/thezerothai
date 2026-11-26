@@ -281,7 +281,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	dryRun := fs.Bool("dry-run", false, "purge-graph, purge-posts, backfill-has-media, backfill-public-ids, backfill-media-orphans, media-orphan-sweep, suspend-user, unsuspend-user, clear-profile-fields, messages takedown|migrate-placeholder|purge-plaintext, lists hide|restore, beacon hide|restore|clear-area, community suspend|restore|archive: print counts or the plan, write nothing (other commands reject it)")
 	skipGate := fs.Bool("skip-start-gate", false, "purge-graph, purge-posts: skip the DELETING >= 120 s start gate (ADR-0008 D10)")
 	outFile := fs.String("out", "", "export-graph, export-posts: write JSON to this file instead of stdout")
-	after := fs.String("after", "", "backfill-has-media, backfill-media-orphans, recount-children, recount-list-follows --all-missing, search backfill-name-keys, messages purge-plaintext: resume after this post, media, list, community or conversation id (the checkpoint a capped run printed)")
+	after := fs.String("after", "", "backfill-has-media, backfill-media-orphans, recount-children, recount-list-follows --all-missing, search backfill-name-keys: resume after this post, media, list or community id (the checkpoint a capped run printed)")
 	confirmDate := fs.String("confirm", "", "messages purge-plaintext (required): today's date in IST (Asia/Kolkata) as YYYY-MM-DD")
 	profileRetire := fs.String("profile-retire", "", "media-orphan-sweep (required, no default): off|all, which unshown profile images the sweep may delete (the legacy banner is read as off)")
 	write := fs.Bool("write", false, "recount-shares, recount-list-follows, recount-replies, recount-quotes, recount-children, search backfill-name-keys: write (without it the command only prints the counts)")
@@ -289,9 +289,9 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 	fs.StringVar(&bulk.before, "before", "", "recount-children (required): scan only posts created before this RFC 3339 time")
 	fs.IntVar(&bulk.rate, "rate-limit", defaultBulkRate, "recount-children: posts per second")
 	fs.IntVar(&bulk.maxPosts, "max-posts", defaultBulkMaxPosts, "recount-children: most posts scanned in one run")
-	fs.StringVar(&bulk.checkpoint, "checkpoint", "", "recount-children, backfill-public-ids: checkpoint file (default ./"+defaultBulkCheckpoint+" or ./"+defaultPublicIDsCheckpoint+")")
-	fs.BoolVar(&bulk.resume, "resume", false, "recount-children, backfill-public-ids: continue the checkpoint file (recount-children: same --before and mode)")
-	fs.BoolVar(&bulk.force, "force", false, "recount-children, backfill-public-ids: start over, replacing an existing checkpoint file")
+	fs.StringVar(&bulk.checkpoint, "checkpoint", "", "recount-children, backfill-public-ids, messages purge-plaintext: checkpoint file (default ./"+defaultBulkCheckpoint+", ./"+defaultPublicIDsCheckpoint+" or ./"+defaultPlaintextCheckpoint+")")
+	fs.BoolVar(&bulk.resume, "resume", false, "recount-children, backfill-public-ids, messages purge-plaintext: continue the checkpoint file (recount-children: same --before and mode)")
+	fs.BoolVar(&bulk.force, "force", false, "recount-children, backfill-public-ids, messages purge-plaintext: start over, replacing an existing checkpoint file")
 	var ma modArgs
 	fs.StringVar(&ma.id, "id", "", "reports show|resolve: report id; public-id: the public id to resolve")
 	fs.StringVar(&ma.post, "post", "", "takedown-post, restore-post, recount-shares, recount-replies, recount-quotes: post id")
@@ -388,7 +388,8 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		return 2
 	}
 	// --after resumes a capped backfill; on any other command it would be silently ignored.
-	if *after != "" && cmd != "backfill-has-media" && cmd != "backfill-media-orphans" && cmd != "recount-children" && cmd != "recount-list-follows" && cmd != "search" && (cmd != "messages" || sub != "purge-plaintext") {
+	// (messages purge-plaintext resumes from its checkpoint file instead, so a conversation id is never typed or printed.)
+	if *after != "" && cmd != "backfill-has-media" && cmd != "backfill-media-orphans" && cmd != "recount-children" && cmd != "recount-list-follows" && cmd != "search" {
 		fmt.Fprintf(errOut, "--after is not supported by %s\n%s", cmd, usage)
 		return 2
 	}
@@ -408,13 +409,13 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		return 2
 	}
 	// The recount-children flags are rejected elsewhere (they would be silently ignored); --post is the single-post commands'.
-	// backfill-public-ids takes --checkpoint, --resume and --force too.
+	// backfill-public-ids and messages purge-plaintext take --checkpoint, --resume and --force too.
 	if cmd != "recount-children" {
 		var stray string
 		fs.Visit(func(f *flag.Flag) {
 			switch f.Name {
 			case "checkpoint", "resume", "force":
-				if cmd == "backfill-public-ids" {
+				if cmd == "backfill-public-ids" || (cmd == "messages" && sub == "purge-plaintext") {
 					return
 				}
 				fallthrough
@@ -522,13 +523,9 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 			}
 		case "purge-plaintext":
 			// Irreversible: on every project (prod included) only with --confirm equal to today's date in IST, checked
-			// before anything is opened or the prod prompt is shown; --after must be a conversation id.
+			// before anything is opened or the prod prompt is shown. The checkpoint flags are checked below, once --project is.
 			if err := checkPurgeConfirm(*confirmDate, now()); err != nil {
 				fmt.Fprintf(errOut, "%v\n%s", err, usage)
-				return 2
-			}
-			if *after != "" && !messaging.ValidID(*after) {
-				fmt.Fprintf(errOut, "--after must be the conversation id a previous run printed (32 lower-case hex characters)\n%s", usage)
 				return 2
 			}
 		default:
@@ -587,6 +584,14 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		// Printed before the prod prompt, so the operator confirms while reading the mode and the checkpoint.
 		fmt.Fprint(out, publicIDsHeader(pubArgs))
 	}
+	var purgeArgs purgePlaintextArgs
+	if cmd == "messages" && sub == "purge-plaintext" {
+		var err error
+		if purgeArgs, err = parsePurgePlaintextArgs(*project, bulk.checkpoint, bulk.resume, bulk.force, *dryRun); err != nil {
+			fmt.Fprintf(errOut, "%v\n%s", err, usage)
+			return 2
+		}
+	}
 	if isProd(*project) && !confirmed(in, out, *project) {
 		fmt.Fprintln(errOut, "aborted: confirmation did not match")
 		return 1
@@ -625,7 +630,7 @@ func run(ctx context.Context, args []string, in io.Reader, out, errOut io.Writer
 		case "plaintext-count":
 			err = plaintextCount(ctx, b, *project, out, now)
 		case "purge-plaintext":
-			err = purgePlaintext(ctx, b, *project, *after, ma.dryRun, out, now)
+			err = purgePlaintext(ctx, b, purgeArgs, out, now)
 		default:
 			err = takedownMessage(ctx, b, *project, msgConvID, msgID, ma, out, now)
 		}
