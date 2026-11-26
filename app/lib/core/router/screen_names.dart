@@ -78,6 +78,7 @@ const Map<String, String> kScreenNames = {
   '/settings/data-usage': 'data_usage',
   '/settings/encryption': 'encryption_settings',
   '/settings/encryption/reset': 'encryption_reset',
+  '/settings/encryption/about': 'encryption_about',
   '/settings/location': 'location_settings',
   '/settings/location/consent': 'location_consent',
   '/area-picker': 'area_picker',

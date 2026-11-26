@@ -46,6 +46,7 @@ class EncryptedInboxRig {
     this.withPort = true,
     this.withStatusCubit = true,
     FakeEncryptedMessaging? port,
+    this.extraFeatures = const {},
   }) : port = port ?? FakeEncryptedMessaging(),
        device = FakeEncryptionDevice(
          status: vaultStatus,
@@ -71,6 +72,9 @@ class EncryptedInboxRig {
   final bool withDevice;
   final bool withPort;
   final bool withStatusCubit;
+
+  /// More `enabled_features` entries (for example `claim_live`).
+  final Set<String> extraFeatures;
   final FakeEncryptedMessaging port;
   final FakeEncryptionDevice device;
   final MockInboxRepository repo;
@@ -90,7 +94,11 @@ class EncryptedInboxRig {
       // Sync: a flag flip reaches the tree before the next frame is built.
       StreamController<OnboardingState>.broadcast(sync: true);
 
-  Set<String> get features => {'messaging', if (_flagOn) kFeatureE2eeDm};
+  Set<String> get features => {
+    'messaging',
+    if (_flagOn) kFeatureE2eeDm,
+    ...extraFeatures,
+  };
 
   /// Flips `e2ee_dm` in `enabled_features` while the screen is open.
   void setFlagOn(bool on) {
@@ -170,6 +178,13 @@ class EncryptedInboxRig {
           builder: (context, state) {
             pushed.add(state.uri.path);
             return const Scaffold(body: Text('encryption settings'));
+          },
+        ),
+        GoRoute(
+          path: AppRouter.encryptionAboutPath,
+          builder: (context, state) {
+            pushed.add(state.uri.path);
+            return const Scaffold(body: Text('encryption about'));
           },
         ),
       ],

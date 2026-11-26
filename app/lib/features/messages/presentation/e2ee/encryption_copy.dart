@@ -86,6 +86,157 @@ const kWebStorageNote =
     "Clearing this browser's data deletes the encrypted messages stored here. "
     'Treat the web as a second device, not the place to keep your history.';
 
+/// The help lines of Settings > Encrypted messages > About, in order. [web]
+/// adds [kEncryptionHelpWeb] and [kWebStorageNote]. Also the About page's text
+/// while the claim is not live (a typed URL), so that page never says more
+/// than this list.
+List<String> encryptionHelpLines({required bool web}) => [
+  kEncryptionHelp1,
+  kEncryptionHelp2,
+  kEncryptionHelp3,
+  if (web) kEncryptionHelpWeb,
+  kEncryptionHelp4,
+  kEncryptionHelp5,
+  kEncryptionHelp6,
+  kEncryptionHelp7,
+  kEncryptionHelp8,
+  kEncryptionHelp9,
+  kEncryptionHelp10,
+  if (web) kWebStorageNote,
+];
+
+// ---------------------------------------------------------------------------------------------------------------
+// The claim (Plan 6 Task 4.A, §4.2)
+// ---------------------------------------------------------------------------------------------------------------
+//
+// COUNSEL DRAFT: quoted verbatim from Plan 6 §4.2; counsel and the owner may
+// change the words, so they live here only. Shown only while `claimVisible`
+// holds (`claim_live` and `e2ee_required` in enabled_features, a capable
+// build, a vault that opens); the headline is never drawn without
+// [kClaimCoversLink] beside it. The words of §4.5 must never appear in lib/
+// (test/guards/claim_copy_guard_test.dart).
+
+/// The headline (Messages inbox and Settings > Encrypted messages > About).
+const kClaimHeadline = 'We cannot read your messages.';
+
+/// The link that always sits next to [kClaimHeadline]; opens the About page.
+const kClaimCoversLink = 'What this covers';
+
+/// Title of the About page.
+const kClaimAboutTitle = 'About encrypted messages';
+
+/// The About page's lead, under [kClaimHeadline].
+const kClaimAboutLead =
+    'Direct messages on Android and on the web are end-to-end encrypted. Each '
+    'message is locked on your device and can only be unlocked on the devices '
+    'in that conversation. Our servers pass the locked message along and '
+    'cannot open it.';
+
+/// Section header: what the claim covers.
+const kClaimCoversHeader = 'What this covers';
+
+/// The items under [kClaimCoversHeader].
+const kClaimCoversItems = <String>[
+  'The text of your direct messages, and which post you share in one.',
+];
+
+/// Section header: what the claim does not cover.
+const kClaimNotCoveredHeader = "What this doesn't cover";
+
+/// One item of [kClaimNotCoveredHeader]: a bold [title] and its [body].
+typedef ClaimItem = ({String title, String body});
+
+/// The items under [kClaimNotCoveredHeader] before the lost-device item.
+const kClaimNotCoveredItems = <ClaimItem>[
+  (
+    title: 'Who you message and when.',
+    body:
+        'We can see who you talk to, when, how often, and the rough size of '
+        'each message. If you open a post someone shared with you, we can tell '
+        'which post you opened.',
+  ),
+  (
+    title: 'Notifications.',
+    body:
+        'A notification says only that you have a new message. It never '
+        "contains the sender or the text. It is delivered through Google's or "
+        "your browser's push service.",
+  ),
+  (
+    title: 'Reports.',
+    body:
+        'If you report a message, you send that message to us. Our reviewers '
+        'can read it, and we keep it with the report for up to 180 days, even '
+        'if an account is deleted.',
+  ),
+  (
+    title: 'The web.',
+    body:
+        "On the web, the app's code comes from our servers each time you open "
+        'it. So on the web, this protection depends on our servers not being '
+        'compromised.',
+  ),
+  (
+    title: 'iPhone and iPad.',
+    body: "Encrypted messages aren't available there yet.",
+  ),
+  (
+    title: 'Your devices.',
+    body:
+        'Messages are stored only on your devices. Anyone who can use your '
+        'unlocked phone, or your signed-in browser, can read them. If you lose '
+        'every device, the messages are gone.',
+  ),
+];
+
+/// The lost-device item of [kClaimNotCoveredHeader] (its title).
+const kClaimLostDeviceItemTitle = 'A lost or stolen device.';
+
+/// Its body with `device_sign_out` on: points to [kClaimLostDeviceHeader].
+const kClaimLostDeviceItemBody = 'See "If a device is lost or stolen" below.';
+
+/// Its body with `device_sign_out` off (Plan 6 §5.3: no stolen-device
+/// statement then; the existing [kRemovalsNote] meaning), followed on the
+/// page by [kRemovalsNote].
+const kClaimLostDeviceItemBodyNoSignOut =
+    'Remove a lost device in Settings. Until each conversation has been '
+    'updated, that device may still receive and send messages.';
+
+/// The items after the lost-device item.
+const kClaimNotCoveredItemsAfter = <ClaimItem>[
+  (
+    title: "Checking who you're talking to.",
+    body:
+        'Until you and the other person compare security codes, and each of you '
+        'recognises every device listed as your own, a compromised server could '
+        'add a device to your conversation or reset it. A comparison checks '
+        'that moment only.',
+  ),
+  (
+    title: 'Delivery.',
+    body:
+        'We can delay, drop or reorder messages, and we or the other person can '
+        'stop a conversation from sending. Messages can also be removed from '
+        'your devices when you delete a conversation on another device or when '
+        'a message is taken down.',
+  ),
+];
+
+/// Section header shown only with `device_sign_out` on (Plan 6 §5.3).
+const kClaimLostDeviceHeader = 'If a device is lost or stolen';
+
+/// The section's text, only with `device_sign_out` on (Plan 6 §5.3).
+const kClaimLostDeviceBody =
+    "Remove it in Settings → Encrypted messages. You'll be asked to sign in "
+    'again, and your other devices will be signed out. Until you remove it, '
+    'anyone using that device can read and send your messages. After you '
+    "remove it, it can't sign back in without your password, but it keeps the "
+    'messages it already had, and it may still get new messages in some '
+    'conversations until each one has been updated. That can take days, and it '
+    "doesn't happen in conversations with someone you've blocked or in "
+    "requests you haven't accepted. If someone may know your password, change "
+    'it.';
+
 // ---------------------------------------------------------------------------------------------------------------
 // Thread lines, placeholders and send states
 // ---------------------------------------------------------------------------------------------------------------

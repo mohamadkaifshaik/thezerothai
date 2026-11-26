@@ -34,6 +34,7 @@ import 'bloc/messages_badge_cubit.dart';
 import 'e2ee/encryption_access_builder.dart';
 import 'e2ee/encryption_status.dart';
 import 'e2ee/encryption_status_banner.dart';
+import 'e2ee/widgets/claim_headline.dart';
 import 'messaging_error_messages.dart';
 import 'messages_list_detail.dart';
 import 'widgets/conversation_row.dart';
@@ -450,6 +451,20 @@ class _ConversationsViewState extends State<ConversationsList>
                                 inset,
                                 const SliverToBoxAdapter(
                                   child: _InboxEncryptionBanner(),
+                                ),
+                              ),
+                            // The claim headline with its "What this covers"
+                            // link (Plan 6 Task 4.A, INBOX only): zero height
+                            // unless `claimVisible` holds.
+                            if (_isInbox)
+                              _inset(
+                                inset,
+                                const SliverToBoxAdapter(
+                                  child: ClaimHeadline(
+                                    padding: EdgeInsets.symmetric(
+                                      horizontal: AppSpacing.md,
+                                    ),
+                                  ),
                                 ),
                               ),
                             if (_isInbox && (state.requestCount ?? 0) > 0)
