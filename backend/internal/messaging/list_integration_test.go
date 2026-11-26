@@ -66,6 +66,7 @@ func TestList_PagesNewestFirst(t *testing.T) {
 	want := make([]string, 0, 25)
 	for i := range 25 {
 		peer := fmt.Sprintf("peer-%02d", i)
+		e.addUser(peer, peer, false)                                  // an ACTIVE peer: a row whose peer the directory does not list reads "Deleted account"
 		want = append([]string{ConversationID(alice, peer)}, want...) // newest first
 		e.seedConversation(alice, peer, stateAccepted, base.Add(time.Duration(i)*time.Minute), [2]string{peer, "hi " + peer})
 	}

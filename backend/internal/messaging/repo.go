@@ -16,6 +16,9 @@ import (
 type Repo interface {
 	// GetConversation reads conversations/{id}. found is false for a missing document.
 	GetConversation(ctx context.Context, id string) (conv ConvDoc, found bool, err error)
+	// GetConversations reads conversations/{id} for every id with one GetAll (at most MaxPageSize ids); a missing document
+	// is absent from the result.
+	GetConversations(ctx context.Context, ids []string) (map[string]ConvDoc, error)
 	// Send runs the SendMessage transaction.
 	Send(ctx context.Context, p SendParams) (SendResult, error)
 	// ListEntries reads one page of the caller's entries in a folder.

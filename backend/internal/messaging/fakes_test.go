@@ -25,14 +25,17 @@ import (
 
 // fakeRepo is a Repo that records its calls and answers from a script.
 type fakeRepo struct {
-	mu       sync.Mutex
-	convs    map[string]ConvDoc
-	gets     int
-	sends    []SendParams
-	sendRes  SendResult
-	lastRes  SendResult // what the fake transaction decided (Silent and Mutual from the recipient.s graph)
-	sendErr  error
-	freshErr error // what FreshRecipient returned when the fake ran it
+	mu    sync.Mutex
+	convs map[string]ConvDoc
+	gets  int
+	// batchGets records the ids of each GetConversations call; batchErr fails it.
+	batchGets [][]string
+	batchErr  error
+	sends     []SendParams
+	sendRes   SendResult
+	lastRes   SendResult // what the fake transaction decided (Silent and Mutual from the recipient.s graph)
+	sendErr   error
+	freshErr  error // what FreshRecipient returned when the fake ran it
 
 	// entries is users/{uid}/{folder} keyed "uid|folder"; lists and counts record the calls, queries the queries.
 	entries  map[string][]EntryRow
@@ -335,6 +338,23 @@ func (f *fakeRepo) GetConversation(_ context.Context, id string) (ConvDoc, bool,
 	f.gets++
 	c, ok := f.convs[id]
 	return c, ok, nil
+}
+
+// GetConversations answers from f.convs (missing ids absent) and records each call's ids in batchGets; batchErr fails it.
+func (f *fakeRepo) GetConversations(_ context.Context, ids []string) (map[string]ConvDoc, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.batchGets = append(f.batchGets, slices.Clone(ids))
+	if f.batchErr != nil {
+		return nil, f.batchErr
+	}
+	out := map[string]ConvDoc{}
+	for _, id := range ids {
+		if c, ok := f.convs[id]; ok {
+			out[id] = c
+		}
+	}
+	return out, nil
 }
 
 // Send runs the refusals of sendTx in its order: the participant / gone check of an existing conversation (before the
