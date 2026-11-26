@@ -341,6 +341,41 @@ void main() {
       expect(world.calls, isEmpty);
     });
 
+    // 5b Task 14a security read S1: the remembered flag belongs to the
+    // session. Every end of the signed-in user's session forgets it, so the
+    // next session starts from `unknown` (never the previous user's `off`).
+    test('every session end forgets the flag: the next session reads '
+        'unknown, also for another account', () async {
+      for (final reason in SessionEnd.values) {
+        for (final next in [_a, _b]) {
+          world = FakeVaultWorld();
+          final s = await signIn(_a, flag: E2eeFlag.off);
+          expect(s.flag, E2eeFlag.off);
+          await s.onSessionEnded(_a, reason);
+          final why = 'end: $reason, next: $next';
+          expect(s.flag, E2eeFlag.unknown, reason: why);
+          expect(s.mayStart, isFalse, reason: why);
+          // A late answer for the user who left changes nothing.
+          await s.onFlagChanged(E2eeFlag.off, uid: _a);
+          expect(s.flag, E2eeFlag.unknown, reason: why);
+          // The next sign-in before its flags are known: still unknown.
+          await s.onSignedIn(next, flag: E2eeFlag.unknown);
+          expect(s.flag, E2eeFlag.unknown, reason: why);
+          await s.onFlagChanged(E2eeFlag.off, uid: next);
+          expect(s.flag, E2eeFlag.off, reason: why);
+        }
+      }
+    });
+
+    test("the end of a session that is no longer current keeps the current "
+        "user's flag", () async {
+      final s = await signIn(_a, flag: E2eeFlag.on);
+      // A direct switch: _b signs in before _a's end is reported.
+      await s.onSignedIn(_b, flag: E2eeFlag.off);
+      await s.onSessionEnded(_a, SessionEnd.sessionLost);
+      expect(s.flag, E2eeFlag.off);
+    });
+
     test('flag off → on with no vault creates one', () async {
       final s = await signIn(_a, flag: E2eeFlag.off);
       expect(s.status.value, VaultStatus.off);
