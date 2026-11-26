@@ -416,6 +416,19 @@ void main() {
       await coldOpen([msg(1, secondsAgo: 9999, text: 'edited')]);
       expect((await cached(1)).text, 'edited');
     });
+
+    test('applySent of a text_removed row keeps the cached text and shared '
+        'post', () async {
+      final shared = msg(1, secondsAgo: 9999).deepCopy()
+        ..sharedPost = (posts.EmbeddedPost()..postId = 'p1');
+      await coldOpen([shared]);
+
+      await store.applySent(purged(1), null, session: store.session);
+      final row = await cached(1);
+      expect(row.text, 'hello');
+      expect(row.sharedPost.postId, 'p1');
+      expect(row.textRemoved, isTrue);
+    });
   });
 
   test(
