@@ -75,7 +75,9 @@ func clampPageSize(n int32) int {
 // the thread header (ListMessages.conversation) for the same caller (rowSources, rowPeer): a peer the directory no longer
 // lists as ACTIVE (one batched, cache-first lookup per page) is "Deleted account" and read-only unless the peer blocks the
 // caller (then the entry's frozen snapshot, so the block hides the account status), and a request whose recipient was
-// erased stays REQUEST in the INBOX for its requester. Filtering runs after
+// erased stays REQUEST in the INBOX for its requester. A failed directory (or erased-peer conversation) read fails the
+// page, closed, as the header fails on the same read: an accepted trade-off (the inbox is unavailable while the identity
+// directory is, rather than showing an inactive peer as repliable). Filtering runs after
 // the page query, so a page may be short or empty while next_page_token is set; both tokens come from the scanned rows,
 // not the shown ones. There is no refill loop and no gap token: a since refresh returns at most page_size entries.
 func (s *service) ListConversations(ctx context.Context, uid string, req *messagingv1.ListConversationsRequest) (*messagingv1.ListConversationsResponse, error) {
@@ -366,14 +368,16 @@ func (s *service) rowSources(ctx context.Context, uid, folder string, rows []Ent
 }
 
 // erasedPeerRequests answers which of ids (the caller's own INBOX rows whose peer is erased) belong to a conversation that
-// is still a REQUEST: the instance's 60 s copy when it names the caller, else one GetAll for the rest. A conversation the
-// caller is not in, or a missing one, is not a request (the row keeps ACCEPTED; the header answers NOT_FOUND there). A
-// request whose peer is gone can never be accepted, so a cached copy cannot be stale on this point.
+// is still a REQUEST: the instance's 60 s copy only when it names the caller AND already holds DeletedUID in its
+// participants (written by the eraser's rewrite, after which the state can no longer change), else one GetAll for the
+// rest. A copy cached before the erasure could predate an accept that committed just before it (security review L1), so
+// it is never trusted. A conversation the caller is not in, or a missing one, is not a request (the row keeps ACCEPTED;
+// the header answers NOT_FOUND there).
 func (s *service) erasedPeerRequests(ctx context.Context, uid string, ids []string) (map[string]bool, error) {
 	out := map[string]bool{}
 	var misses []string
 	for _, id := range ids {
-		if c, ok := s.convs.Get(id); ok && c.hasParticipant(uid) {
+		if c, ok := s.convs.Get(id); ok && c.hasParticipant(uid) && c.hasParticipant(DeletedUID) {
 			out[id] = c.State == stateRequest
 			continue
 		}

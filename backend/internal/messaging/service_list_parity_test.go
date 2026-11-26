@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
 	"google.golang.org/protobuf/proto"
 
 	messagingv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1"
@@ -32,6 +33,9 @@ type parityCase struct {
 	pending                       bool
 	// folder is the collection alice's entry is in.
 	folder string
+	// noConv: the conversation document is missing (only the entry remains). The header is then NOT_FOUND, so the row is
+	// pinned on its own (want*) rather than compared.
+	noConv bool
 
 	wantState messagingv1.ConversationState
 	wantFold  messagingv1.Folder
@@ -99,6 +103,12 @@ func parityCases() []parityCase {
 			name: "incoming request, erased requester", convPeer: DeletedUID, entryPeer: DeletedUID, state: stateRequest,
 			requestFrom: DeletedUID, requestTo: alice, folder: dmRequestsCollection, wantState: reqState, wantFold: requests, wantPlaceholder: true,
 		},
+		// An erased-peer INBOX row whose conversation document is gone: the list keeps ACCEPTED, read-only, Deleted
+		// account; the header answers NOT_FOUND (nothing to agree on).
+		{
+			name: "erased peer, conversation missing", convPeer: DeletedUID, entryPeer: DeletedUID, folder: dmInboxCollection, noConv: true,
+			wantState: accState, wantFold: inbox, wantPlaceholder: true,
+		},
 	}
 }
 
@@ -112,9 +122,11 @@ func seedParity(rg *rig, tc parityCase) (string, identity.Profile) {
 		p.Status = tc.status
 		rg.profs.profiles[dana] = p
 	}
-	rg.repo.convs[id] = ConvDoc{
-		Kind: kindDirect, Participants: sortedPair(alice, tc.convPeer), State: tc.state, RequestFrom: tc.requestFrom, RequestTo: tc.requestTo,
-		CreatedAt: rg.now.Add(-2 * time.Hour), UpdatedAt: rg.now.Add(-time.Hour),
+	if !tc.noConv {
+		rg.repo.convs[id] = ConvDoc{
+			Kind: kindDirect, Participants: sortedPair(alice, tc.convPeer), State: tc.state, RequestFrom: tc.requestFrom, RequestTo: tc.requestTo,
+			CreatedAt: rg.now.Add(-2 * time.Hour), UpdatedAt: rg.now.Add(-time.Hour),
+		}
 	}
 	e := rg.entryAt(tc.entryPeer, 1)
 	e.ID, e.RequestPending = id, tc.pending
@@ -148,12 +160,14 @@ func TestListConversations_AgreesWithThreadHeader(t *testing.T) {
 			}
 			row := list.Conversations[0]
 			msgs, err := rg.svc.ListMessages(context.Background(), alice, &messagingv1.ListMessagesRequest{ConversationId: id})
-			if err != nil {
+			if tc.noConv {
+				if code, _, _ := reasonOf(t, err); code != connect.CodeNotFound {
+					t.Fatalf("ListMessages err = %v, want NOT_FOUND for a missing conversation", err)
+				}
+			} else if err != nil {
 				t.Fatalf("ListMessages: %v", err)
 			}
-			head := msgs.Conversation
-
-			if row.Id != head.Id || row.State != head.State || row.Folder != head.Folder || row.CanReply != head.CanReply || !proto.Equal(row.Peer, head.Peer) {
+			if head := msgs.GetConversation(); !tc.noConv && (row.Id != head.Id || row.State != head.State || row.Folder != head.Folder || row.CanReply != head.CanReply || !proto.Equal(row.Peer, head.Peer)) {
 				t.Fatalf("list row and header differ:\n row:    state=%v folder=%v can_reply=%v peer=%+v\n header: state=%v folder=%v can_reply=%v peer=%+v",
 					row.State, row.Folder, row.CanReply, row.Peer, head.State, head.Folder, head.CanReply, head.Peer)
 			}
@@ -226,6 +240,37 @@ func TestListConversations_ErasedPeerConversationOfAnotherUser(t *testing.T) {
 	}
 	if _, ok := rg.svc.convs.Get(e.ID); ok {
 		t.Error("a conversation the caller is not in was cached")
+	}
+}
+
+// TestListConversations_PreErasureCacheNotTrusted (security review L1): an instance copy cached before the erasure (its
+// participants still name the peer, not DeletedUID) is never trusted for an erased-peer row: it may predate an accept that
+// committed just before the erasure. The id goes to the batch read, whose answer (ACCEPTED, rewritten) wins and is cached;
+// a copy holding DeletedUID is trusted on the next list.
+func TestListConversations_PreErasureCacheNotTrusted(t *testing.T) {
+	rg := newRig(t, nil)
+	id := ConversationID(alice, dana)
+	// Stale: the request as it was before dana accepted and was erased.
+	rg.svc.convs.Set(id, ConvDoc{Kind: kindDirect, Participants: sortedPair(alice, dana), State: stateRequest, RequestFrom: alice, RequestTo: dana})
+	// Stored: accepted, then the eraser rewrote the participants.
+	rg.repo.convs[id] = ConvDoc{Kind: kindDirect, Participants: sortedPair(alice, DeletedUID), State: stateAccepted, UpdatedAt: rg.now}
+	e := rg.entryAt(DeletedUID, 1)
+	e.ID = id
+	rg.put(alice, dmInboxCollection, e)
+
+	c := rg.list(t, alice, &messagingv1.ListConversationsRequest{Folder: inbox}).Conversations[0]
+	if c.State != messagingv1.ConversationState_CONVERSATION_STATE_ACCEPTED {
+		t.Errorf("state = %v, want ACCEPTED (the stale pre-erasure copy must not answer)", c.State)
+	}
+	if len(rg.repo.batchGets) != 1 || !slices.Equal(rg.repo.batchGets[0], []string{id}) {
+		t.Fatalf("conversation batches = %v, want one of [%s]", rg.repo.batchGets, id)
+	}
+	if cached, ok := rg.svc.convs.Get(id); !ok || !cached.hasParticipant(DeletedUID) {
+		t.Errorf("cache = %+v, %v; want the rewritten copy", cached, ok)
+	}
+	rg.list(t, alice, &messagingv1.ListConversationsRequest{Folder: inbox})
+	if len(rg.repo.batchGets) != 1 {
+		t.Errorf("conversation batches = %d, want 1 (a post-erasure copy is trusted)", len(rg.repo.batchGets))
 	}
 }
 
