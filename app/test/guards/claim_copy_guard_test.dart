@@ -1,17 +1,25 @@
-// Guard for the encryption claim's words (Plan 6 §4.5, Task 4.A).
+// Guard for the encryption claim's words (Plan 6 §4.5, Task 4.A; widened in
+// PR 6-6 fix round 1, security M2).
 //
-// The app must never say any of the phrases below, in any string, comment or
-// identifier of lib/ (generated code excluded). The scan is case-insensitive,
-// reads curly apostrophes and quotes as straight ones, and joins whitespace
-// runs, so a phrase split across lines of a string still counts when the
-// break falls on a space ('...cut off ' 'immediately' does not, which is why
-// adjacent-literal joins are removed first).
+// None of the phrases below may appear in any string, comment or identifier
+// of lib/ (generated code excluded), nor in app/web/**/*.html or *.json (the
+// static pages and the manifest). Before matching, each source is folded:
+// - lower case;
+// - curly apostrophes and quotes become straight ones;
+// - Unicode dashes (U+2010-U+2015, U+2212) become '-';
+// - zero-width characters (U+200B-U+200D, U+FEFF) are removed;
+// - adjacent Dart string literals are joined, whatever their quote types, a
+//   raw `r` prefix, or a `+` between them;
+// - whitespace runs become one space.
+// So a phrase split across literals, or hidden with a look-alike dash or an
+// invisible character, still counts.
 //
-// Limits: §4.5 also bans "verified" as a lasting state, any claim for iOS and
-// any claim that metadata is hidden. Those are meanings, not fixed words;
-// the patterns below catch their usual spellings, and `claimVisible` (hidden
+// Limits: §4.5 also bans "verified" as a lasting state, any claim for iOS
+// and any claim that metadata is hidden. Those are meanings, not fixed words.
+// The patterns below catch their usual wordings, and `claimVisible` (hidden
 // on iOS, tested in test/features/messages/domain/e2ee/encryption_claim_test
-// .dart) covers the iOS rule.
+// .dart) enforces the iOS rule. A phrase broken across `///` comment lines
+// is not caught (a self-test records this).
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -19,13 +27,19 @@ import 'package:flutter_test/flutter_test.dart';
 /// The phrases of §4.5, lower case.
 const kBannedClaimPhrases = <String>[
   'nobody can read your messages',
+  'no one can read your messages',
+  'nobody, not even',
   'not even us, ever',
   'not even us',
+  "even we can't read",
+  'even we cannot read',
   'military-grade',
   'military grade',
   'recovers after a compromise',
   'a removed device is cut off immediately',
   'cut off immediately',
+  'cut off at once',
+  'locks it out',
   "a stolen phone can't read your messages",
   'a stolen phone cannot read your messages',
   'private on every device',
@@ -42,15 +56,16 @@ const kBannedClaimPhrases = <String>[
   // Not "no metadata": a JPEG re-encode "with no metadata" (EXIF) is true.
 ];
 
-/// [source] folded for the scan: lower case, straight apostrophes and
-/// quotes, adjacent Dart string literals joined, whitespace runs as one
-/// space.
+/// [source] folded for the scan (see the header).
 String foldForClaimScan(String source) => source
     .toLowerCase()
+    .replaceAll(RegExp('[​‌‍﻿]'), '')
     .replaceAll(RegExp('[‘’ʼ]'), "'")
     .replaceAll(RegExp('[“”]'), '"')
-    // 'abc '\n    'def' and "abc " "def": the literal break goes.
-    .replaceAll(RegExp(r"""(['"])\s*\n?\s*\1"""), '')
+    .replaceAll(RegExp('[‐-―−]'), '-')
+    // A literal's end, optional `+`, an optional raw prefix, the next
+    // literal's start, with any quote types: 'a ' "b", 'a ' + r'b'.
+    .replaceAll(RegExp(r"""['"]\s*\+?\s*r?['"]"""), '')
     .replaceAll(RegExp(r'\s+'), ' ');
 
 /// The banned phrases found in each file of [sources] (path to content).
@@ -67,18 +82,32 @@ Map<String, List<String>> bannedClaimPhrases(Map<String, String> sources) {
   return found;
 }
 
-Map<String, String> _libSources() => {
-  for (final f in Directory('lib').listSync(recursive: true))
-    if (f is File &&
-        f.path.endsWith('.dart') &&
-        !f.path.replaceAll(r'\', '/').startsWith('lib/gen/'))
+Map<String, String> _sources(String dir, bool Function(String path) keep) => {
+  for (final f in Directory(dir).listSync(recursive: true))
+    if (f is File && keep(f.path.replaceAll(r'\', '/')))
       f.path.replaceAll(r'\', '/'): f.readAsStringSync(),
 };
+
+Map<String, String> _libSources() =>
+    _sources('lib', (p) => p.endsWith('.dart') && !p.startsWith('lib/gen/'));
+
+Map<String, String> _webSources() =>
+    _sources('web', (p) => p.endsWith('.html') || p.endsWith('.json'));
 
 void main() {
   test('lib/ never uses a banned claim phrase (Plan 6 §4.5)', () {
     final sources = _libSources();
     expect(sources.length, greaterThan(100), reason: 'the scan found lib/');
+    expect(bannedClaimPhrases(sources), isEmpty);
+  });
+
+  test('web/ pages and JSON never use a banned claim phrase', () {
+    final sources = _webSources();
+    expect(
+      sources.keys,
+      containsAll(['web/privacy.html', 'web/manifest.json']),
+      reason: 'the scan found web/',
+    );
     expect(bannedClaimPhrases(sources), isEmpty);
   });
 
@@ -91,55 +120,94 @@ void main() {
   });
 
   group('the scan itself', () {
+    Map<String, List<String>> scan(String text) =>
+        bannedClaimPhrases({'a.dart': text});
+
     test('finds a phrase whatever its case', () {
-      expect(bannedClaimPhrases({'a.dart': "const x = 'Military-Grade';"}), {
+      expect(scan("const x = 'Military-Grade';"), {
         'a.dart': ['military-grade'],
       });
     });
 
     test('reads a curly apostrophe as a straight one', () {
-      expect(
-        bannedClaimPhrases({
-          'a.dart': "const x = 'A stolen phone can’t read your messages';",
-        }),
-        {
-          'a.dart': ["a stolen phone can't read your messages"],
-        },
-      );
+      expect(scan("const x = 'A stolen phone can’t read your messages';"), {
+        'a.dart': ["a stolen phone can't read your messages"],
+      });
     });
 
-    test('finds a phrase split across adjacent string literals', () {
-      expect(
-        bannedClaimPhrases({
-          'a.dart': "const x = 'Nobody can read '\n    'your messages';",
-        }),
-        {
-          'a.dart': ['nobody can read your messages'],
-        },
-      );
+    test('folds Unicode dashes to a hyphen', () {
+      for (final dash in ['‐', '‑', '‒', '–', '—', '―', '−']) {
+        expect(scan("const x = 'military${dash}grade';"), {
+          'a.dart': ['military-grade'],
+        }, reason: 'U+${dash.codeUnitAt(0).toRadixString(16)}');
+      }
     });
 
-    test('finds a phrase split by a line break in a comment', () {
+    test('strips zero-width characters', () {
+      for (final zw in ['​', '‌', '‍', '﻿']) {
+        expect(scan("const x = 'locks i${zw}t out';"), {
+          'a.dart': ['locks it out'],
+        }, reason: 'U+${zw.codeUnitAt(0).toRadixString(16)}');
+      }
+    });
+
+    test('joins adjacent literals with the same quotes', () {
+      expect(scan("const x = 'Nobody can read '\n    'your messages';"), {
+        'a.dart': ['nobody can read your messages'],
+      });
+    });
+
+    test('joins adjacent literals across quote types', () {
+      expect(scan('const x = \'No one can read \' "your messages";'), {
+        'a.dart': ['no one can read your messages'],
+      });
+    });
+
+    test('joins across a raw prefix', () {
+      expect(scan("const x = 'Cut off ' r'at once';"), {
+        'a.dart': ['cut off at once'],
+      });
+    });
+
+    test('joins across + concatenation', () {
+      expect(scan("final x = 'Even we ' +\n    \"can't read\";"), {
+        'a.dart': ["even we can't read"],
+      });
+      expect(scan("final x = 'Nobody, ' + r'not even';"), {
+        'a.dart': ['nobody, not even'],
+      });
+    });
+
+    test('a phrase split by a comment line break', () {
       expect(
-        bannedClaimPhrases({'a.dart': '/// Private on every\n/// device.'}),
+        scan('/// Private on every\n/// device.'),
         isEmpty,
         reason: 'a comment break keeps its "///"; documented limit',
       );
+      expect(scan('/* Private on every\n   device. */'), {
+        'a.dart': ['private on every device'],
+      });
+    });
+
+    test('scans HTML and JSON text the same way', () {
       expect(
-        bannedClaimPhrases({'a.dart': '/* Private on every\n   device. */'}),
+        bannedClaimPhrases({
+          'web/x.html': '<p>Nobody can read your messages</p>',
+          'web/x.json': '{"d": "Military‑grade"}',
+        }),
         {
-          'a.dart': ['private on every device'],
+          'web/x.html': ['nobody can read your messages'],
+          'web/x.json': ['military-grade'],
         },
       );
     });
 
     test('accepts the shipped claim words', () {
       expect(
-        bannedClaimPhrases({
-          'a.dart':
-              "const h = 'We cannot read your messages.';\n"
-              "const l = 'What this covers';",
-        }),
+        scan(
+          "const h = 'We cannot read your messages.';\n"
+          "const l = 'What this covers';",
+        ),
         isEmpty,
       );
     });

@@ -16,6 +16,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:mocktail/mocktail.dart';
 
 import '../../../support/fake_encryption_device.dart';
 
@@ -29,6 +30,7 @@ void main() {
 
   late FakeEncryptionDevice device;
 
+  setUpAll(() => registerFallbackValue(OnboardingState()));
   setUp(() => device = FakeEncryptionDevice());
 
   Future<GoRouter> pump(
@@ -54,6 +56,9 @@ void main() {
         enabledFeatures: {kFeatureE2eeDm, ...features},
       ),
     );
+    // The signed-in user's own, known flag set (the claim's precondition).
+    when(() => onboarding.currentUid).thenReturn('uid-1');
+    when(() => onboarding.uidOf(any())).thenReturn('uid-1');
     final router = GoRouter(
       initialLocation: initial,
       routes: [
@@ -137,8 +142,26 @@ void main() {
   });
 
   group('About encrypted messages', () {
+    test('fix round 1 copy (security H1, L4): exact words and order', () {
+      expect(kClaimCoversItems, ['The text of your direct messages.']);
+      expect(kClaimNotCoveredItems[0].title, 'Who you message and when.');
+      expect(kClaimNotCoveredItems[1], (
+        title: 'Which post you share.',
+        body:
+            'When you share a post in a message, we check that it can be '
+            'shared, so we can tell which post you shared.',
+      ));
+      final ios = kClaimNotCoveredItems.singleWhere(
+        (i) => i.title.contains('iPhone'),
+      );
+      expect(ios, (
+        title: 'The iPhone and iPad app.',
+        body: "Encrypted messages aren't available there yet.",
+      ));
+    });
+
     testWidgets('claim live: the §4.2 page, in order', (tester) async {
-      await pump(tester);
+      await pump(tester, features: {...live, kFeatureDeviceSignOut});
       expect(find.text(kClaimAboutTitle), findsOneWidget);
       expect(find.text(kClaimHeadline), findsOneWidget);
       expect(find.text(kClaimAboutLead), findsOneWidget);
@@ -184,8 +207,27 @@ void main() {
       expect(find.text(kClaimLostDeviceHeader), findsNothing);
       expect(find.text(kClaimLostDeviceBody), findsNothing);
       expect(rich(kClaimLostDeviceItemBody), findsNothing);
-      expect(rich(kClaimLostDeviceItemBodyNoSignOut), findsOneWidget);
-      expect(rich(kRemovalsNote), findsOneWidget);
+      // Untitled: the line is the §5.3 sentence and the removals note only.
+      expect(
+        find.text('$kClaimLostDeviceItemBodyNoSignOut $kRemovalsNote'),
+        findsOneWidget,
+      );
+      expect(rich(kClaimLostDeviceItemTitle), findsNothing);
+      // Code review B1: no stolen-device wording anywhere on the page.
+      expect(
+        find.textContaining(
+          RegExp('stolen', caseSensitive: false),
+          findRichText: true,
+        ),
+        findsNothing,
+      );
+      // The slot keeps its place: after "Your devices.", before "Checking".
+      final slot = tester.getRect(rich(kClaimLostDeviceItemBodyNoSignOut)).top;
+      expect(slot, greaterThan(tester.getRect(rich('Your devices.')).top));
+      expect(
+        slot,
+        lessThan(tester.getRect(rich("Checking who you're talking to.")).top),
+      );
     });
 
     testWidgets('web builds add the web help and storage lines', (

@@ -136,9 +136,13 @@ const kClaimAboutLead =
 const kClaimCoversHeader = 'What this covers';
 
 /// The items under [kClaimCoversHeader].
-const kClaimCoversItems = <String>[
-  'The text of your direct messages, and which post you share in one.',
-];
+///
+/// Fix round 1 (security H1, controller ruling; flagged to the owner and
+/// counsel): §4.2 also listed "which post you share in one", but
+/// `CheckPostShare` tells the server the post id before an encrypted share
+/// (as [kEncryptionHelp7] says on the same screen), so that is listed under
+/// [kClaimNotCoveredHeader] instead.
+const kClaimCoversItems = <String>['The text of your direct messages.'];
 
 /// Section header: what the claim does not cover.
 const kClaimNotCoveredHeader = "What this doesn't cover";
@@ -154,6 +158,13 @@ const kClaimNotCoveredItems = <ClaimItem>[
         'We can see who you talk to, when, how often, and the rough size of '
         'each message. If you open a post someone shared with you, we can tell '
         'which post you opened.',
+  ),
+  // Fix round 1 (security H1): the share check sees the post id.
+  (
+    title: 'Which post you share.',
+    body:
+        'When you share a post in a message, we check that it can be shared, '
+        'so we can tell which post you shared.',
   ),
   (
     title: 'Notifications.',
@@ -176,8 +187,9 @@ const kClaimNotCoveredItems = <ClaimItem>[
         'it. So on the web, this protection depends on our servers not being '
         'compromised.',
   ),
+  // Fix round 1 (security L4): names the app, not the devices.
   (
-    title: 'iPhone and iPad.',
+    title: 'The iPhone and iPad app.',
     body: "Encrypted messages aren't available there yet.",
   ),
   (
@@ -195,9 +207,10 @@ const kClaimLostDeviceItemTitle = 'A lost or stolen device.';
 /// Its body with `device_sign_out` on: points to [kClaimLostDeviceHeader].
 const kClaimLostDeviceItemBody = 'See "If a device is lost or stolen" below.';
 
-/// Its body with `device_sign_out` off (Plan 6 §5.3: no stolen-device
-/// statement then; the existing [kRemovalsNote] meaning), followed on the
-/// page by [kRemovalsNote].
+/// With `device_sign_out` off (Plan 6 §5.3: no stolen-device statement
+/// then; the existing [kRemovalsNote] meaning): drawn in the lost-device
+/// item's slot as an UNTITLED line, followed by [kRemovalsNote] (fix round 1,
+/// code review B1: no "stolen" anywhere on the page then).
 const kClaimLostDeviceItemBodyNoSignOut =
     'Remove a lost device in Settings. Until each conversation has been '
     'updated, that device may still receive and send messages.';

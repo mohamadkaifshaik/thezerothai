@@ -18,8 +18,11 @@ import 'settings_up.dart';
 ///
 /// While `claimVisible` holds it shows the §4.2 page (counsel draft, the
 /// constants of `encryption_copy.dart`). The "If a device is lost or stolen"
-/// section shows only with `device_sign_out` on as well (§5.3); without it
-/// the lost-device item says only the §5.3 fallback and [kRemovalsNote].
+/// section shows only with `device_sign_out` on as well (§5.3). Without it,
+/// the lost-device item is an untitled line with the §5.3 fallback and
+/// [kRemovalsNote], and the word "stolen" appears nowhere. Since 3d9168f5 the
+/// server never sends `claim_live` without `device_sign_out`, so that case
+/// remains only as a safeguard.
 /// While the claim is not visible (a typed URL, iOS, a vault that cannot
 /// open, the switch off) the page shows only the existing help lines
 /// ([encryptionHelpLines]) and never the headline.
@@ -56,7 +59,7 @@ class EncryptionAboutScreen extends StatelessWidget {
             child: ClaimVisibilityBuilder(
               platform: platform,
               builder: (context, visible) {
-                final signOut = claimFeaturesOf(context)
+                final signOut = claimFlagsOf(context).features
                     .contains(kFeatureDeviceSignOut);
                 return ListView(
                   padding:
@@ -85,13 +88,10 @@ class EncryptionAboutScreen extends StatelessWidget {
 
   List<Widget> _claimPage(BuildContext context, {required bool signOut}) {
     final theme = Theme.of(context);
-    final lostDevice = (
-      title: kClaimLostDeviceItemTitle,
-      body: signOut
-          ? kClaimLostDeviceItemBody
-          : '$kClaimLostDeviceItemBodyNoSignOut $kRemovalsNote',
-    );
     return [
+      // The page header. Its headline has no "What this covers" link: this
+      // page IS what that link opens, and its "What this covers" section
+      // follows right below (fix round 1, code review m3).
       Padding(
         padding: const EdgeInsets.fromLTRB(
           AppSpacing.md,
@@ -118,7 +118,15 @@ class EncryptionAboutScreen extends StatelessWidget {
       const AppSectionHeader(title: kClaimNotCoveredHeader),
       _group(context, [
         for (final item in kClaimNotCoveredItems) _item(context, item),
-        _item(context, lostDevice),
+        // With device_sign_out off no stolen-device wording at all (§5.2,
+        // fix round 1 B1): the §5.3 sentence and kRemovalsNote, untitled.
+        if (signOut)
+          _item(context, (
+            title: kClaimLostDeviceItemTitle,
+            body: kClaimLostDeviceItemBody,
+          ))
+        else
+          _line(context, '$kClaimLostDeviceItemBodyNoSignOut $kRemovalsNote'),
         for (final item in kClaimNotCoveredItemsAfter) _item(context, item),
       ]),
       if (signOut) ...[

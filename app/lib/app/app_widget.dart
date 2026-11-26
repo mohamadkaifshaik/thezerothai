@@ -160,7 +160,13 @@ class AppWidget extends StatefulWidget {
     this.encryptionDevice,
     this.encryptedMessaging,
     this.e2eeFlagApplied,
+    this.flagsRefresh,
   });
+
+  /// The app's one [ResumeFlagsRefresh] (bootstrap's), provided so a shown
+  /// encryption claim can keep `GetMe` fresh (Plan 6 PR 6-6 fix round 1).
+  /// Null in tests that do not need it: the claim then only shows.
+  final ResumeFlagsRefresh? flagsRefresh;
 
   /// Ticks after the vault session applied an `e2ee_dm` answer (the flag
   /// wiring's completion): the status re-reads the session's plain getters
@@ -1024,6 +1030,8 @@ class _AppWidgetState extends State<AppWidget> with WidgetsBindingObserver {
         ),
         if (_resetHolder case final holder?)
           RepositoryProvider<ResetEncryptionHolder>.value(value: holder),
+        if (widget.flagsRefresh case final refresh?)
+          RepositoryProvider<ResumeFlagsRefresh>.value(value: refresh),
         RepositoryProvider<HomeRetapSignal>.value(value: _homeRetap),
         RepositoryProvider<ExploreRetapSignal>.value(value: _exploreRetap),
       ],

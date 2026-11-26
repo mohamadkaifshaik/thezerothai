@@ -100,6 +100,13 @@ MessagingFeatureGate buildMessagingGate(
 /// foreground before it is asked again ([ResumeFlagsRefresh]).
 const kResumeFlagsMaxAge = Duration(minutes: 15);
 
+/// How often a shown encryption claim checks [ResumeFlagsRefresh.
+/// refreshIfStale] while the app is in the foreground (Plan 6 PR 6-6 fix
+/// round 1, security M1). The check itself makes no call unless the last
+/// `GetMe` is [kResumeFlagsMaxAge] old. A short tick keeps the stale window at
+/// about 16 minutes; a 15-minute tick could leave it near 30.
+const kClaimFlagsCheckEvery = Duration(minutes: 1);
+
 /// Plan 6 Task 1.B (security review H1): an app left open keeps the flag set
 /// of its last `GetMe`, so `e2ee_required` turned on for this user would not
 /// reach it until something else refreshed. On resume, when the last answered
@@ -132,7 +139,15 @@ class ResumeFlagsRefresh {
   late final StreamSubscription<OnboardingState> _sub;
 
   /// The app came back to the foreground.
-  void onResume() {
+  void onResume() => refreshIfStale();
+
+  /// One [OnboardingRefreshRequested] when the last answered `GetMe` (or the
+  /// last refresh this asked for) is [kResumeFlagsMaxAge] old or older;
+  /// nothing otherwise, and nothing while signed out. Also called while the
+  /// encryption claim is shown (Plan 6 PR 6-6 fix round 1, security M1): on
+  /// a foreground tick and when the Messages inbox opens, so a claim the
+  /// server withdrew is gone within about [kResumeFlagsMaxAge].
+  void refreshIfStale() {
     if (_onboarding.currentUid == null) return;
     final now = _now();
     if (now.difference(_last) < kResumeFlagsMaxAge) return;

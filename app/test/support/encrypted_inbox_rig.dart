@@ -47,6 +47,7 @@ class EncryptedInboxRig {
     this.withStatusCubit = true,
     FakeEncryptedMessaging? port,
     this.extraFeatures = const {},
+    this.signedInAs,
   }) : port = port ?? FakeEncryptedMessaging(),
        device = FakeEncryptionDevice(
          status: vaultStatus,
@@ -65,7 +66,31 @@ class EncryptedInboxRig {
     when(() => repo.refreshConversations(any())).thenAnswer(
       (_) async => const ConversationsResult(ConversationsSnapshot()),
     );
+    if (signedInAs case final uid?) {
+      registerFallbackValue(OnboardingState());
+      when(() => onboarding.currentUid).thenReturn(uid);
+      when(() => onboarding.uidOf(any())).thenAnswer((_) => stateUid);
+      when(() => onboarding.flagsGeneration).thenReturn(0);
+    }
   }
+
+  /// With [signedInAs] set, the onboarding states are `ready` (the flag set
+  /// is known) and belong to [stateUid] (default: the signed-in user), as the
+  /// real bloc reports them. Null: today's states (status `unknown`, no uid).
+  final String? signedInAs;
+
+  /// The user the onboarding states belong to ([OnboardingBloc.uidOf]).
+  late String? stateUid = signedInAs;
+
+  /// Provided to the tree when set (the claim's GetMe refresh).
+  ResumeFlagsRefresh? flagsRefresh;
+
+  OnboardingState _state() => OnboardingState(
+    status: signedInAs == null
+        ? OnboardingStatus.unknown
+        : OnboardingStatus.ready,
+    enabledFeatures: features,
+  );
 
   /// `unknown` and `off` both leave `e2ee_dm` out of `enabled_features`.
   final E2eeFlag flag;
@@ -103,7 +128,7 @@ class EncryptedInboxRig {
   /// Flips `e2ee_dm` in `enabled_features` while the screen is open.
   void setFlagOn(bool on) {
     _flagOn = on;
-    _flagChanges.add(OnboardingState(enabledFeatures: features));
+    _flagChanges.add(_state());
   }
 
   static ConversationsSnapshot snap(
@@ -143,11 +168,7 @@ class EncryptedInboxRig {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    whenListen(
-      onboarding,
-      _flagChanges.stream,
-      initialState: OnboardingState(enabledFeatures: features),
-    );
+    whenListen(onboarding, _flagChanges.stream, initialState: _state());
     addTearDown(_flagChanges.close);
     final status = statusCubit = withStatusCubit && withDevice
         ? EncryptionStatusCubit(
@@ -201,6 +222,8 @@ class EncryptedInboxRig {
             RepositoryProvider<EncryptionDevice>.value(value: device),
           if (withPort)
             RepositoryProvider<EncryptedMessaging?>.value(value: port),
+          if (flagsRefresh case final refresh?)
+            RepositoryProvider<ResumeFlagsRefresh>.value(value: refresh),
         ],
         child: MultiBlocProvider(
           providers: [
