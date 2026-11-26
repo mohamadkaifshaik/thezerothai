@@ -11,6 +11,7 @@ import '../../../features/media/domain/media_feature_flag.dart'
     show kMaxPostImages;
 import '../../../features/media/domain/image_processor.dart'
     show kPostThumbEdge;
+import '../../../features/media/domain/unusual_aspect.dart';
 import '../../../features/media/domain/processed_image.dart'
     show kGifContentType, kVideoContentType;
 import '../../../features/settings/presentation/bloc/data_usage_cubit.dart';
@@ -51,7 +52,8 @@ import 'post_media_navigation.dart';
 /// review #110 M2). The one exception is [thumbSuffices] saying the thumbnail
 /// is too small for the frame (a 400 px legacy thumb stretched over a
 /// high-density column, or a frame wider than the 1080 px thumb): then the
-/// full `url` loads with the thumbnail as its placeholder. The detail view
+/// full `url` loads. Most tiles show the thumbnail while waiting. Thin strips
+/// request it only if the original fails, to avoid competing downloads. The detail view
 /// passes [useFullImage] to show `url` instead. Data saver, or High-quality
 /// images set to Never (or Wi-Fi only on mobile data), turns that exception
 /// off in the feed: the thumbnail only (Settings > Data usage); the detail
@@ -722,12 +724,15 @@ Widget _feedImage(common.MediaRef media, ColorScheme colors) {
       if (!useFull) {
         return _cached(media.thumbUrl, colors, needed);
       }
-      return _cached(
-        media.url,
-        colors,
-        needed,
-        placeholder: _cached(media.thumbUrl, colors, needed),
-      );
+      // A row of narrow originals is already small. Fetching a second image
+      // per strip competes with the pictures the feed is trying to display.
+      final thumbnail = _cached(media.thumbUrl, colors, needed);
+      if (constraints.maxWidth < AppSpacing.minTapTarget &&
+          unusualShapeOf(width: media.width, height: media.height) ==
+              UnusualShape.narrow) {
+        return _cached(media.url, colors, needed, fallback: thumbnail);
+      }
+      return _cached(media.url, colors, needed, placeholder: thumbnail);
     },
   );
 }
@@ -739,6 +744,7 @@ Widget _cached(
   ColorScheme colors,
   int width, {
   Widget? placeholder,
+  Widget? fallback,
 }) {
   final blank = ColoredBox(color: colors.surfaceContainerHigh);
   return ColoredBox(
@@ -753,13 +759,15 @@ Widget _cached(
       height: double.infinity,
       memCacheWidth: width > 0 ? width : null,
       placeholder: (_, _) => placeholder ?? blank,
-      errorWidget: (_, _, _) => ColoredBox(
-        color: colors.surfaceContainerHigh,
-        child: Icon(
-          Icons.broken_image_outlined,
-          color: colors.onSurfaceVariant,
-        ),
-      ),
+      errorWidget: (_, _, _) =>
+          fallback ??
+          ColoredBox(
+            color: colors.surfaceContainerHigh,
+            child: Icon(
+              Icons.broken_image_outlined,
+              color: colors.onSurfaceVariant,
+            ),
+          ),
     ),
   );
 }

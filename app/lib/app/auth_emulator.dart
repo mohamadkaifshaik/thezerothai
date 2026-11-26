@@ -11,8 +11,9 @@ import 'app_config.dart';
 /// here; [AppConfig.resolveAuthEmulatorHost] already settled the host.
 Future<void> configureAuthEmulator(
   fb_auth.FirebaseAuth auth,
-  AppConfig config,
-) async {
+  AppConfig config, {
+  bool automaticHostMapping = true,
+}) async {
   if (!config.useEmulators) return;
   final parts = config.authEmulatorHost.split(':');
   final port = parts.length == 2 ? int.tryParse(parts[1]) : null;
@@ -23,7 +24,11 @@ Future<void> configureAuthEmulator(
     );
   }
   try {
-    await auth.useAuthEmulator(parts.first, port);
+    await auth.useAuthEmulator(
+      parts.first,
+      port,
+      automaticHostMapping: automaticHostMapping,
+    );
   } catch (e) {
     throw AppConfigError(
       'Could not switch Auth to the emulator ($e); '
