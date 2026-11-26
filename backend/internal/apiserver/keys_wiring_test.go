@@ -3,6 +3,7 @@ package apiserver
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -93,6 +94,47 @@ type stubCutter struct{}
 
 func (stubCutter) EndSessionsBefore(context.Context, string, time.Time) error { return nil }
 func (stubCutter) RevokeSessionsAt(context.Context, string, time.Time) error  { return nil }
+
+// stubRevokes is identity.SessionRevokes answering err.
+type stubRevokes struct{ err error }
+
+func (r stubRevokes) RevokeSessionsAt(context.Context, string, time.Time) error { return r.err }
+
+// TestIdentityKeysSessions_MapsNoCut (H1 fix round 1): identity's "no cut to revoke for" reaches keys as its own
+// sentinel, so the removal finishes; every other revoke error stays an error keys retries.
+func TestIdentityKeysSessions_MapsNoCut(t *testing.T) {
+	refused := fmt.Errorf("%w: %w", identity.ErrNoSessionCut, identity.ErrAuthAdminRefused)
+	down := errors.New("auth down")
+	for _, tc := range []struct {
+		name      string
+		err       error
+		wantNoCut bool
+		wantErr   bool
+	}{
+		{"revoked", nil, false, false},
+		{"no profile", identity.ErrNoSessionCut, true, true},
+		{"cut cleared (a C1 refusal that is also no cut)", refused, true, true},
+		{"any other refusal stays a plain error", identity.ErrAuthAdminRefused, false, true},
+		{"an Auth failure stays a plain error", down, false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := identityKeysSessions{revokes: stubRevokes{err: tc.err}}.RevokeSessionsAt(context.Background(), "u", time.Now())
+			if (err != nil) != tc.wantErr || errors.Is(err, keys.ErrNoCutToRevoke) != tc.wantNoCut {
+				t.Fatalf("err = %v; want error %v, ErrNoCutToRevoke %v", err, tc.wantErr, tc.wantNoCut)
+			}
+		})
+	}
+	if _, err := newIdentityKeysSessions(nil); err == nil {
+		t.Error("a missing identity service was accepted")
+	}
+}
+
+// TestSessionRevokeCutAgeMatchesMarkTTL: identity refuses to revoke for a cut older than keys' removal mark can live.
+func TestSessionRevokeCutAgeMatchesMarkTTL(t *testing.T) {
+	if identity.MaxSessionRevokeCutAge != keys.RemovalMarkTTL {
+		t.Fatalf("identity.MaxSessionRevokeCutAge = %v, keys.RemovalMarkTTL = %v; want equal", identity.MaxSessionRevokeCutAge, keys.RemovalMarkTTL)
+	}
+}
 
 // TestNewKeysModule_RequiresSessionCutter: a nil session cutter fails the wiring (a REMOTE removal with device_sign_out on
 // could not cut, keys never imports identity).

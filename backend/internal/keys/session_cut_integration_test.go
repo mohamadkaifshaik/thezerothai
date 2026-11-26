@@ -196,6 +196,20 @@ func TestRemoval_SessionRevokeOnTheMark(t *testing.T) {
 		}
 	})
 
+	t.Run("no cut to revoke for (cleared by an operator): the removal finishes without revokeDone", func(t *testing.T) {
+		e.mustRegister(t, uid, dvc(4), skey(4), it0)
+		rv := &recordingRevoker{err: ErrNoCutToRevoke}
+		if res, err := newSvc(rv).RemoveDevice(signedInAt(uid, authAt), uid, dvc(4), RemoveRemote); err != nil || !res.OtherSessionsEnded {
+			t.Fatalf("= %+v, %v; want the removal to finish", res, err)
+		}
+		if _, err := e.repo.deviceRef(uid, dvc(4)).Get(ctx); err == nil {
+			t.Fatal("the device was not swept")
+		}
+		if data, _ := e.markData(t, uid, dvc(4)); data["revokeDone"] == true {
+			t.Fatalf("mark = %v, want no revokeDone (nothing was revoked)", data)
+		}
+	})
+
 	t.Run("MarkRevokeDone on a missing mark is an error and creates nothing", func(t *testing.T) {
 		if err := e.repo.MarkRevokeDone(ctx, uid, dvc(3)); err == nil {
 			t.Fatal("want an error")

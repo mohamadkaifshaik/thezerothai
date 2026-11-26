@@ -65,8 +65,9 @@ type keysModule struct {
 // push is notifications' push registrations (keys.PushRegistrations, the notifications repository), dropped by a REMOTE
 // removal that carries a session cut (lane D PR 5); required, like the session cutter.
 //
-// sessions is identity's session cut and, from the same value, its refresh-token revoke (security audit H1): a REMOTE
-// removal writes the cut, then revokes. One value, so the revoke can never be wired to a different identity than the cut.
+// sessions is identity's session cut and its refresh-token revoke (security audit H1), one value (Build passes
+// newIdentityKeysSessions): a REMOTE removal writes the cut, then revokes. One value, so the revoke can never be wired
+// to a different identity than the cut.
 //
 // serverOpts configure the handler (Build passes the app version floor, keys.WithClientFloor).
 func newKeysModule(repo keys.Repo, fc keys.FlagChecker, perm messaging.Permission, convID func(a, b string) string, claimCap *ratelimit.DailyCap, chargeLookups func(context.Context, string, int) error, reauthMaxAge time.Duration, sessions sessionCutRevoker, push keys.PushRegistrations, log *slog.Logger, serverOpts ...keys.ServerOption) (keysModule, error) {
@@ -81,10 +82,42 @@ func newKeysModule(repo keys.Repo, fc keys.FlagChecker, perm messaging.Permissio
 	return keysModule{svc: svc, server: keys.NewServer(fc, svc, serverOpts...)}, nil
 }
 
-// sessionCutRevoker is what keys needs from identity.SessionCuts: the cut write and the H1 revoke.
+// sessionCutRevoker is what keys needs from identity: the cut write and the H1 revoke.
 type sessionCutRevoker interface {
 	keys.SessionCutter
 	keys.SessionRevoker
+}
+
+// identityKeysSessions is keys' view of identity's session cut (identity.SessionCuts) and refresh-token revoke
+// (identity.SessionRevokes). This file is the only place outside identity that holds an identity.SessionRevokes
+// (identity's TestSessionRevokes_OnlyKeysWiring): the revoke is not on identity.Service, so no other module can reach it.
+// It maps identity.ErrNoSessionCut to keys.ErrNoCutToRevoke (keys never imports identity).
+type identityKeysSessions struct {
+	cuts    identity.SessionCuts
+	revokes identity.SessionRevokes
+}
+
+var _ sessionCutRevoker = identityKeysSessions{}
+
+// newIdentityKeysSessions builds the seam from the identity service; it fails when the service has no revoke.
+func newIdentityKeysSessions(svc identity.Service) (identityKeysSessions, error) {
+	revokes, ok := svc.(identity.SessionRevokes)
+	if svc == nil || !ok {
+		return identityKeysSessions{}, errors.New("keys: the identity service does not implement identity.SessionRevokes")
+	}
+	return identityKeysSessions{cuts: svc, revokes: revokes}, nil
+}
+
+func (s identityKeysSessions) EndSessionsBefore(ctx context.Context, uid string, t time.Time) error {
+	return s.cuts.EndSessionsBefore(ctx, uid, t)
+}
+
+func (s identityKeysSessions) RevokeSessionsAt(ctx context.Context, uid string, cut time.Time) error {
+	err := s.revokes.RevokeSessionsAt(ctx, uid, cut)
+	if errors.Is(err, identity.ErrNoSessionCut) {
+		return fmt.Errorf("%w: %w", keys.ErrNoCutToRevoke, err)
+	}
+	return err
 }
 
 func keysLookupCap(established, newAccount int64, isNew func(string) bool) func(context.Context, string, int) error {

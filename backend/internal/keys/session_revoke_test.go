@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
 	"strings"
@@ -18,17 +19,21 @@ import (
 // sweep. Once per mark: a retry after a done revoke does not revoke again; a retry after a failed revoke does. A failure
 // is the plain retryable UNAVAILABLE before the sweep.
 
-// fakeRevoker is the identity seam: it records every revoke (appending "RevokeSessionsAt" to the repo's ops) and can fail.
+// fakeRevoker is the identity seam: it records every revoke (appending "RevokeSessionsAt" to the repo's ops) and can fail:
+// with err on every call, or, when failN > 0, with err on the first failN calls only.
 type fakeRevoker struct {
-	repo *fakeRepo
-	uids []string
-	cuts []time.Time
-	err  error
+	repo  *fakeRepo
+	uids  []string
+	cuts  []time.Time
+	err   error
+	failN int
+	calls int
 }
 
 func (r *fakeRevoker) RevokeSessionsAt(_ context.Context, uid string, cut time.Time) error {
 	r.repo.ops = append(r.repo.ops, "RevokeSessionsAt")
-	if r.err != nil {
+	r.calls++
+	if r.err != nil && (r.failN == 0 || r.calls <= r.failN) {
 		return r.err
 	}
 	r.uids, r.cuts = append(r.uids, uid), append(r.cuts, cut)
@@ -71,11 +76,13 @@ func TestRemoveDevice_SessionRevoke(t *testing.T) {
 		pre       *MarkState // the mark's state before the call (nil = no mark); the device document is then gone (a retry)
 		cutErr    error
 		revokeErr error
+		failN     int // with revokeErr: fail only the first failN revokes (0 = every one)
 		markErr   error
 		wantErr   bool
 		wantOps   []string
 		wantCut   time.Time // the cut revoked at (zero = no revoke)
 		wantState MarkState
+		wantSkip  bool // sessions_revoked=false with reason no_cut
 	}{
 		{name: "a new cut: cut, then revoke at the remover's auth_time, both noted, then the sweep", flagOn: true, reason: RemoveRemote,
 			authTime: recent, wantOps: []string{"MarkRemoved", "EndSessionsBefore", "MarkCutDone", "RevokeSessionsAt", "MarkRevokeDone", "Remove"},
@@ -92,9 +99,17 @@ func TestRemoveDevice_SessionRevoke(t *testing.T) {
 			wantCut: earlierCut, wantState: MarkState{CutAt: earlierCut, CutDone: true, RevokeDone: true}},
 		{name: "a failed cut never revokes", flagOn: true, reason: RemoveRemote, authTime: recent, cutErr: errors.New("identity down"),
 			wantErr: true, wantOps: []string{"MarkRemoved", "EndSessionsBefore"}, wantState: MarkState{CutAt: recent}},
-		{name: "a failed revoke is UNAVAILABLE before the sweep; revokeDone stays unset", flagOn: true, reason: RemoveRemote,
-			authTime: recent, revokeErr: errors.New("auth down"), wantErr: true,
-			wantOps:   []string{"MarkRemoved", "EndSessionsBefore", "MarkCutDone", "RevokeSessionsAt"},
+		{name: "a revoke failing twice (the inline retry too) is UNAVAILABLE before the sweep; revokeDone stays unset", flagOn: true,
+			reason: RemoveRemote, authTime: recent, revokeErr: errors.New("auth down"), wantErr: true,
+			wantOps:   []string{"MarkRemoved", "EndSessionsBefore", "MarkCutDone", "RevokeSessionsAt", "RevokeSessionsAt"},
+			wantState: MarkState{CutAt: recent, CutDone: true}},
+		{name: "a revoke failing once is retried inline and the removal finishes", flagOn: true, reason: RemoveRemote,
+			authTime: recent, revokeErr: errors.New("auth down"), failN: 1,
+			wantOps: []string{"MarkRemoved", "EndSessionsBefore", "MarkCutDone", "RevokeSessionsAt", "RevokeSessionsAt", "MarkRevokeDone", "Remove"},
+			wantCut: recent, wantState: MarkState{CutAt: recent, CutDone: true, RevokeDone: true}},
+		{name: "no cut to revoke for (cleared, or no profile): skipped, not retried, the removal finishes", flagOn: true,
+			reason: RemoveRemote, authTime: recent, revokeErr: fmt.Errorf("adapter: %w", ErrNoCutToRevoke), wantSkip: true,
+			wantOps:   []string{"MarkRemoved", "EndSessionsBefore", "MarkCutDone", "RevokeSessionsAt", "Remove"},
 			wantState: MarkState{CutAt: recent, CutDone: true}},
 		{name: "a failed revokeDone note is UNAVAILABLE before the sweep", flagOn: true, reason: RemoveRemote,
 			authTime: recent, markErr: errors.New("firestore down"), wantErr: true,
@@ -112,7 +127,7 @@ func TestRemoveDevice_SessionRevoke(t *testing.T) {
 				repo.cuts[k] = *tc.pre
 				repo.devices[uidA] = nil
 			}
-			cutter.err, revoker.err, repo.revokeDoneErr = tc.cutErr, tc.revokeErr, tc.markErr
+			cutter.err, revoker.err, revoker.failN, repo.revokeDoneErr = tc.cutErr, tc.revokeErr, tc.failN, tc.markErr
 			repo.ops = nil
 			ctx, info := signedIn(tc.authTime)
 			_, err := s.RemoveDevice(ctx, uidA, devID, tc.reason)
@@ -140,9 +155,15 @@ func TestRemoveDevice_SessionRevoke(t *testing.T) {
 			if wantRevoked := tc.wantState.RevokeDone && !tc.wantErr && !tc.wantCut.IsZero(); (v == true) != wantRevoked {
 				t.Errorf("%s = %v, want %v", fieldSessionsRevoked, v, wantRevoked)
 			}
+			if reason, _ := info.Get(fieldRevokeSkipped); tc.wantSkip != (v == false && reason == revokeSkippedNoCut) {
+				t.Errorf("%s = %v, %s = %v; want the skip %v", fieldSessionsRevoked, v, fieldRevokeSkipped, reason, tc.wantSkip)
+			}
 			out := logs.String()
-			if (tc.revokeErr != nil || tc.markErr != nil) != strings.Contains(out, "keys_session_revoke_failed") {
+			if wantFailed := tc.wantErr && (tc.revokeErr != nil || tc.markErr != nil); wantFailed != strings.Contains(out, "keys_session_revoke_failed") {
 				t.Errorf("revoke failure WARN presence wrong: %s", out)
+			}
+			if tc.wantSkip != strings.Contains(out, "keys_session_revoke_skipped") {
+				t.Errorf("revoke skip WARN presence wrong: %s", out)
 			}
 			if strings.Contains(out, uidA) || strings.Contains(out, devID) || strings.Contains(out, "auth down") || strings.Contains(out, "firestore down") {
 				t.Errorf("the log names the uid, the device or the error text: %s", out)
@@ -179,5 +200,35 @@ func TestRemoveDevice_RevokeRetryRevokesOnce(t *testing.T) {
 	}
 	if repo.find(uidA, devID) >= 0 {
 		t.Error("the device is still there")
+	}
+}
+
+// TestRemoveDevice_RevokeInlineRetryNeedsBudget (security review M2): the inline retry runs only with at least
+// revokeRetryBudget left on the request deadline; with less, one attempt, then the retryable UNAVAILABLE.
+func TestRemoveDevice_RevokeInlineRetryNeedsBudget(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		left      time.Duration
+		wantCalls int
+	}{
+		{"enough time left: one inline retry", rpcDeadline, 2},
+		{"too little time left: no inline retry", revokeRetryBudget - time.Second, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, repo, _, revoker, _ := newRevokeService(t, true)
+			mustRegister(t, s, devID, sigKey(1))
+			revoker.err = errors.New("auth down")
+			signed, _ := signedIn(t0.Add(-time.Minute).Truncate(time.Second))
+			ctx, cancel := context.WithTimeout(signed, tc.left)
+			defer cancel()
+			_, err := s.RemoveDevice(ctx, uidA, devID, RemoveRemote)
+			plainUnavailable(t, err)
+			if revoker.calls != tc.wantCalls {
+				t.Errorf("revoke attempts = %d, want %d", revoker.calls, tc.wantCalls)
+			}
+			if repo.find(uidA, devID) < 0 {
+				t.Error("the sweep ran after a failed revoke")
+			}
+		})
 	}
 }

@@ -27,7 +27,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -86,15 +88,42 @@ func (v unrevokedVerifier) VerifyIDToken(ctx context.Context, idToken string) (a
 		EmailVerified bool    `json:"email_verified"`
 		AuthTime      float64 `json:"auth_time"`
 		Firebase      struct {
-			SignInProvider string              `json:"sign_in_provider"`
-			Identities     map[string][]string `json:"identities"`
+			SignInProvider string         `json:"sign_in_provider"`
+			Identities     map[string]any `json:"identities"`
 		} `json:"firebase"`
 	}
 	if json.Unmarshal(raw, &p) != nil || p.UserID == "" {
 		return authn.Claims{}, err
 	}
 	return authn.Claims{UID: p.UserID, EmailVerified: p.EmailVerified, SignInProvider: p.Firebase.SignInProvider,
-		AuthTime: time.Unix(int64(p.AuthTime), 0), Identities: p.Firebase.Identities}, nil
+		AuthTime: time.Unix(int64(p.AuthTime), 0), Identities: testNormalizeIdentities(p.Firebase.Identities)}, nil
+}
+
+// testNormalizeIdentities is authn's normalizeIdentities (pkg/platform/authn/firebase.go, unexported), copied so the
+// relaxed path yields the same Claims.Identities as the real one: entries that are not lists of strings are dropped,
+// empty subjects too, and an empty result is nil.
+func testNormalizeIdentities(raw map[string]any) map[string][]string {
+	var out map[string][]string
+	for provider, v := range raw {
+		list, ok := v.([]any)
+		if !ok {
+			continue
+		}
+		var subjects []string
+		for _, item := range list {
+			if s, ok := item.(string); ok && s != "" {
+				subjects = append(subjects, s)
+			}
+		}
+		if len(subjects) == 0 {
+			continue
+		}
+		if out == nil {
+			out = map[string][]string{}
+		}
+		out[provider] = subjects
+	}
+	return out
 }
 
 // newDMChainUnrevoked is newDMChain over unrevokedVerifier: the session-cut chain tests, whose tokens predate a revoke.
@@ -175,6 +204,16 @@ func TestSessionRevokeChain_RemoteRemovalRevokes(t *testing.T) {
 	accountUpdate := func(idToken string) (int, string) {
 		return authEmulatorTry(t, "/identitytoolkit.googleapis.com/v1/accounts:update?key=fake-api-key", map[string]any{"idToken": idToken, "displayName": "changed by a session"})
 	}
+	// linkGoogle is the H1 attack step: link a (fake) Google identity to the account with a session's ID token
+	// (accounts:signInWithIdp with idToken; the emulator takes strict-JSON claims as the Google id_token).
+	linkGoogle := func(idToken string) (int, string) {
+		sub := fmt.Sprintf("h1-link-%d", rand.Int63())
+		claims, _ := json.Marshal(map[string]any{"sub": sub, "email": sub + "@google.test", "email_verified": true})
+		return authEmulatorTry(t, "/identitytoolkit.googleapis.com/v1/accounts:signInWithIdp?key=fake-api-key", map[string]any{
+			"idToken": idToken, "requestUri": "http://localhost", "returnSecureToken": true,
+			"postBody": url.Values{"id_token": {string(claims)}, "providerId": {"google.com"}}.Encode(),
+		})
+	}
 	// Before the removal the thief's ID token may change the Auth account (what linking a provider needs).
 	if code, body := accountUpdate(thief.idToken); code != http.StatusOK {
 		t.Fatalf("the thief's account change before the removal = %d %s, want 200 (the precondition of H1)", code, body)
@@ -202,6 +241,10 @@ func TestSessionRevokeChain_RemoteRemovalRevokes(t *testing.T) {
 	if code, body := accountUpdate(thief.idToken); code != http.StatusBadRequest || !strings.Contains(body, "TOKEN_EXPIRED") {
 		t.Fatalf("the thief's account change after the revoke = %d %s, want 400 TOKEN_EXPIRED", code, body)
 	}
+	// ...nor link a Google identity to it (the H1 attack): the emulator applies validSince to signInWithIdp's idToken.
+	if code, body := linkGoogle(thief.idToken); code != http.StatusBadRequest || !strings.Contains(body, "TOKEN_EXPIRED") {
+		t.Fatalf("the thief's link after the revoke = %d %s, want 400 TOKEN_EXPIRED", code, body)
+	}
 	// Our API refuses the thief by the cut (production keeps the ID token valid until it expires).
 	_, err = e.identity.GetMe(ctx, authed(thief.idToken, &identityv1.GetMeRequest{}))
 	wantSessionEnded(t, "the thief's call after the removal", err)
@@ -216,6 +259,11 @@ func TestSessionRevokeChain_RemoteRemovalRevokes(t *testing.T) {
 	}
 	if code, body := accountUpdate(again.idToken); code != http.StatusOK {
 		t.Fatalf("the remover's account change after a fresh sign-in = %d %s, want 200", code, body)
+	}
+	// Control for the link refusal above: the same link with a post-revoke token goes through, so the refusal was the
+	// revoke and not a malformed request.
+	if code, body := linkGoogle(again.idToken); code != http.StatusOK {
+		t.Fatalf("a link with a fresh post-revoke token = %d %s, want 200 (control)", code, body)
 	}
 	if owner.authTime < after {
 		_, err := strict.identity.GetMe(ctx, authed(owner.idToken, &identityv1.GetMeRequest{}))

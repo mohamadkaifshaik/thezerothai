@@ -68,7 +68,6 @@ func (f *fakeService) AccountStatus(context.Context, string) (bool, AccountStatu
 	return true, AccountStatusActive, f.err
 }
 func (f *fakeService) EndSessionsBefore(context.Context, string, time.Time) error { return f.err }
-func (f *fakeService) RevokeSessionsAt(context.Context, string, time.Time) error  { return f.err }
 func (f *fakeService) SessionsValidAfter(context.Context, string) (time.Time, error) {
 	return time.Time{}, f.err
 }

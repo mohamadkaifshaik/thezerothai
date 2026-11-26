@@ -132,8 +132,11 @@ func (a *authAdmin) refuseAs(ctx context.Context, actor, op, job, why, uid strin
 }
 
 // sessionRevokeTarget applies C1 (H1 amendment) to a freshly read profile and the cut the caller is applying: the
-// document must carry a session cut at or after it. Zero state on any refusal.
-func (a *authAdmin) sessionRevokeTarget(ctx context.Context, p Profile, cut time.Time) (sessionRevokeTarget, error) {
+// document must carry a session cut at or after it, and the cut asked must be at most MaxSessionRevokeCutAge old at now
+// (a removal mark lives that long, so an older cut can only come from a bug). Zero state on any refusal. A document
+// without a cut (cleared by `opsctl identity sessions clear-cut`) is still a refusal, logged at ERROR like every other,
+// but also ErrNoSessionCut, so the removal can finish without the revoke.
+func (a *authAdmin) sessionRevokeTarget(ctx context.Context, p Profile, cut, now time.Time) (sessionRevokeTarget, error) {
 	refuse := func(why string) (sessionRevokeTarget, error) {
 		return sessionRevokeTarget{}, a.refuseAs(ctx, actorCaller, authOpRevokeSessions, jobSessionCut, why, p.UserID, 0)
 	}
@@ -142,8 +145,11 @@ func (a *authAdmin) sessionRevokeTarget(ctx context.Context, p Profile, cut time
 		return refuse("no uid")
 	case cut.IsZero():
 		return refuse("no session cut asked")
+	case cut.Before(now.Add(-MaxSessionRevokeCutAge)):
+		return refuse("the session cut asked is older than a removal mark lives")
 	case p.SessionsValidAfter.IsZero():
-		return refuse("the account has no session cut")
+		_, err := refuse("the account has no session cut")
+		return sessionRevokeTarget{}, fmt.Errorf("%w: %w", ErrNoSessionCut, err)
 	case p.SessionsValidAfter.Before(cut):
 		return refuse("the account's session cut is older than the one asked")
 	}

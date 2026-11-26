@@ -17,8 +17,10 @@ const identitySessionsUsage = `  opsctl identity sessions clear-cut --project P 
                           WARNING: this lets EVERY session that signed in before the cut back in, the removed device's
                           (the thief's) included. Use it only for a confirmed lockout bug, and have the user redo the
                           removal afterwards. A REMOTE removal the client is still retrying may write the cut again;
-                          turn device_sign_out globally off if that matters. The audit line goes to stdout only: paste
-                          it into the incident record.
+                          turn device_sign_out globally off if that matters. A removal whose refresh-token revoke has
+                          not finished yet then skips the revoke (sessions_revoked=false, reason no_cut) and completes;
+                          the removed device's refresh token is NOT revoked in that case. The audit line goes to stdout
+                          only: paste it into the incident record.
 `
 
 // sessionCutClearer is identity.FirestoreRepo's ClearSessionCut (the identity module owns users/{uid}; opsctl never writes

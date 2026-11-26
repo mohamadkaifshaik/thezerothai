@@ -300,14 +300,36 @@ func (s *service) cutSessions(ctx context.Context, uid, deviceID string, at time
 	return removalRetryable()
 }
 
-// fieldSessionsRevoked is the request-line bool of a REMOTE removal that revoked the account's refresh tokens (H1).
-const fieldSessionsRevoked = "sessions_revoked"
+// fieldSessionsRevoked is the request-line bool of a REMOTE removal's refresh-token revoke (H1): true when it revoked,
+// false when it skipped (fieldRevokeSkipped says why). fieldRevokeSkipped is a fixed reason, never a uid or a time.
+const (
+	fieldSessionsRevoked = "sessions_revoked"
+	fieldRevokeSkipped   = "sessions_revoke_skipped"
+	revokeSkippedNoCut   = "no_cut"
+)
 
 // The fixed stages of keys_session_revoke_failed (never the error text: an Auth SDK error may quote the response).
 const (
 	revokeStageRevoke = "revoke"
 	revokeStageMark   = "mark"
 )
+
+// revokeRetryBudget is the time a failed revoke needs left on the request deadline (rpcDeadline, 8 s) for its one inline
+// retry: identity's Auth call has a 3 s timeout, and the push drop (3 s) and the sweep still follow.
+const revokeRetryBudget = 4 * time.Second
+
+// revokeOnce calls the revoke with one inline retry (security review M2) when the first attempt failed with a retryable
+// error and the request still has revokeRetryBudget left. ErrNoCutToRevoke is never retried.
+func (s *service) revokeOnce(ctx context.Context, uid string, cut time.Time) error {
+	err := s.revoke.RevokeSessionsAt(ctx, uid, cut)
+	if err == nil || errors.Is(err, ErrNoCutToRevoke) || ctx.Err() != nil {
+		return err
+	}
+	if d, ok := ctx.Deadline(); ok && time.Until(d) < revokeRetryBudget {
+		return err
+	}
+	return s.revoke.RevokeSessionsAt(ctx, uid, cut)
+}
 
 // revokeSessions revokes the account's Firebase refresh tokens for the mark's cut (security audit H1) and notes it done
 // on the mark (revokeDone). Cut first, then revoke: identity's C1 check needs the cut on the account, and the cut is what
@@ -316,14 +338,23 @@ const (
 // signs out the remover's own other sessions and, at its next token refresh, the remover's current one (it must sign in
 // again; the cut is the remover's auth_time, so the new sign-in passes it). It runs once per mark: a retry after a done
 // revoke does not revoke again; a retry after a failed revoke or a failed note does (revoking twice only moves Firebase's
-// validSince forward). A failure is a WARN with the uid hashed and a fixed stage, and the plain retryable UNAVAILABLE
-// before the sweep (removalRetryable). Nil revoke (unit rigs) does nothing; newKeysModule requires it.
+// validSince forward). A failed revoke is retried once inline (revokeOnce). A failure after that is a WARN with the uid
+// hashed and a fixed stage, and the plain retryable UNAVAILABLE before the sweep (removalRetryable). ErrNoCutToRevoke
+// (the cut was cleared by an operator, or the profile is gone) skips the revoke: sessions_revoked=false with the fixed
+// reason no_cut, a WARN, nothing noted on the mark (a later retry asks again, and skips again), and the removal goes on
+// to the push drop and the sweep. Nil revoke (unit rigs) does nothing; newKeysModule requires it.
 func (s *service) revokeSessions(ctx context.Context, uid, deviceID string, cut time.Time) error {
 	if s.revoke == nil {
 		return nil
 	}
 	stage := revokeStageRevoke
-	err := s.revoke.RevokeSessionsAt(ctx, uid, cut)
+	err := s.revokeOnce(ctx, uid, cut)
+	if errors.Is(err, ErrNoCutToRevoke) {
+		logger.SetRequestField(ctx, fieldSessionsRevoked, false)
+		logger.SetRequestField(ctx, fieldRevokeSkipped, revokeSkippedNoCut)
+		s.log.WarnContext(ctx, "keys_session_revoke_skipped", "uid_hash", logger.HashUID(uid), "reason", revokeSkippedNoCut)
+		return nil
+	}
 	if err == nil {
 		stage = revokeStageMark
 		err = s.repo.MarkRevokeDone(ctx, uid, deviceID)

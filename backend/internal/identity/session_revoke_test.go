@@ -16,6 +16,9 @@ import (
 
 const revokeUID = "raw-uid-revoke-31"
 
+// revokeNow is the harness clock, shortly after the test cuts.
+var revokeNow = cutT2.Add(time.Hour)
+
 type revokeHarness struct {
 	svc  *service
 	repo *fakeRepo
@@ -33,32 +36,39 @@ func newRevokeHarness(t *testing.T, withAuth bool) *revokeHarness {
 		opts = append(opts, WithSignupAuth(h.auth, slog.New(slog.NewJSONHandler(h.logs, &slog.HandlerOptions{Level: slog.LevelDebug}))))
 	}
 	h.svc = New(h.repo, NewCache(time.Minute), time.Hour, opts...).(*service)
+	h.svc.now = func() time.Time { return revokeNow } // a fixed clock: the cut-age check must not depend on the date
 	if h.svc.sessionAuth != nil {
 		h.svc.sessionAuth.notFound = func(err error) bool { return errors.Is(err, errFakeUserNotFound) }
 	}
 	return h
 }
 
-// TestAuthAdmin_SessionRevokeTarget: a target exists only for a profile whose stored cut is at or after the cut asked;
-// every other state is an ERROR refusal (actor caller) with no Auth call and the zero target.
+// TestAuthAdmin_SessionRevokeTarget: a target exists only for a profile whose stored cut is at or after the cut asked,
+// with the cut asked at most MaxSessionRevokeCutAge old; every other state is an ERROR refusal (actor caller) with no Auth
+// call and the zero target. Only the cleared cut is also ErrNoSessionCut.
 func TestAuthAdmin_SessionRevokeTarget(t *testing.T) {
+	ancient := revokeNow.Add(-MaxSessionRevokeCutAge - time.Second)
+	edge := revokeNow.Add(-MaxSessionRevokeCutAge)
 	tests := []struct {
-		name   string
-		p      Profile
-		cut    time.Time
-		wantOK bool
+		name      string
+		p         Profile
+		cut       time.Time
+		wantOK    bool
+		wantNoCut bool
 	}{
-		{"stored cut equals the cut asked", Profile{UserID: "u1", SessionsValidAfter: cutT1}, cutT1, true},
-		{"stored cut is later (another removal moved it)", Profile{UserID: "u1", SessionsValidAfter: cutT2}, cutT1, true},
-		{"no stored cut", Profile{UserID: "u1"}, cutT1, false},
-		{"stored cut is older than the cut asked", Profile{UserID: "u1", SessionsValidAfter: cutT0}, cutT1, false},
-		{"no cut asked", Profile{UserID: "u1", SessionsValidAfter: cutT1}, time.Time{}, false},
-		{"no uid", Profile{SessionsValidAfter: cutT1}, cutT1, false},
+		{name: "stored cut equals the cut asked", p: Profile{UserID: "u1", SessionsValidAfter: cutT1}, cut: cutT1, wantOK: true},
+		{name: "stored cut is later (another removal moved it)", p: Profile{UserID: "u1", SessionsValidAfter: cutT2}, cut: cutT1, wantOK: true},
+		{name: "a cut asked exactly MaxSessionRevokeCutAge ago", p: Profile{UserID: "u1", SessionsValidAfter: edge}, cut: edge, wantOK: true},
+		{name: "no stored cut (cleared)", p: Profile{UserID: "u1"}, cut: cutT1, wantNoCut: true},
+		{name: "stored cut is older than the cut asked", p: Profile{UserID: "u1", SessionsValidAfter: cutT0}, cut: cutT1},
+		{name: "a cut asked longer ago than a removal mark lives", p: Profile{UserID: "u1", SessionsValidAfter: ancient}, cut: ancient},
+		{name: "no cut asked", p: Profile{UserID: "u1", SessionsValidAfter: cutT1}},
+		{name: "no uid", p: Profile{SessionsValidAfter: cutT1}, cut: cutT1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			h := newRevokeHarness(t, true)
-			target, err := h.svc.sessionAuth.sessionRevokeTarget(context.Background(), tt.p, tt.cut)
+			target, err := h.svc.sessionAuth.sessionRevokeTarget(context.Background(), tt.p, tt.cut, revokeNow)
 			if tt.wantOK {
 				if err != nil || target.uid != "u1" {
 					t.Fatalf("target = %+v, err = %v", target, err)
@@ -67,6 +77,9 @@ func TestAuthAdmin_SessionRevokeTarget(t *testing.T) {
 			}
 			if !errors.Is(err, ErrAuthAdminRefused) || target != (sessionRevokeTarget{}) {
 				t.Fatalf("err = %v, target = %+v; want a refusal and the zero target", err, target)
+			}
+			if errors.Is(err, ErrNoSessionCut) != tt.wantNoCut {
+				t.Errorf("ErrNoSessionCut = %v, want %v (only a cleared cut lets the removal finish)", errors.Is(err, ErrNoSessionCut), tt.wantNoCut)
 			}
 			if h.ops.count("auth.") != 0 {
 				t.Error("a refusal made an Auth call")
@@ -94,9 +107,9 @@ func TestRevokeSessionsAt(t *testing.T) {
 	}{
 		{name: "a cut on the account: one revoke", stored: cutT1, cut: cutT1, wantCalls: 1, wantOut: "ok"},
 		{name: "a later cut on the account still revokes", stored: cutT2, cut: cutT1, wantCalls: 1, wantOut: "ok"},
-		{name: "no cut on the account is a C1 refusal", cut: cutT1, wantErr: ErrAuthAdminRefused, wantOut: "refused"},
+		{name: "a cleared cut is a C1 refusal and ErrNoSessionCut", cut: cutT1, wantErr: ErrNoSessionCut, wantOut: "refused"},
 		{name: "an older cut on the account is a C1 refusal", stored: cutT0, cut: cutT1, wantErr: ErrAuthAdminRefused, wantOut: "refused"},
-		{name: "no profile: success with no Auth call", noProfile: true, cut: cutT1, wantOut: "not_found"},
+		{name: "no profile: ErrNoSessionCut with no Auth call", noProfile: true, cut: cutT1, wantErr: ErrNoSessionCut, wantOut: "not_found"},
 		{name: "the Auth user is gone: success", stored: cutT1, cut: cutT1, setup: func(c *fakeAuthClient) { c.missing = true },
 			wantCalls: 1, wantOut: "not_found"},
 		{name: "the Auth call fails: an error to retry", stored: cutT1, cut: cutT1,

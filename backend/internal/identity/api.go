@@ -89,16 +89,30 @@ type SessionCuts interface {
 	// cached profile of uid (other instances serve theirs for up to the 60 s cache TTL). A missing users/{uid} is
 	// success with nothing written (no session passes account status without a profile). A zero t is an error.
 	EndSessionsBefore(ctx context.Context, uid string, t time.Time) error
-	// RevokeSessionsAt revokes every Firebase refresh token of uid (security audit H1), the caller's own included, once
-	// users/{uid} carries a cut at or after `cut` (read fresh; the C1 precondition in authadmin.go). Call it only after
-	// EndSessionsBefore(uid, cut) succeeded. A missing users/{uid} is success with no Auth call; a document without such
-	// a cut is ErrAuthAdminRefused; any other failure is an error to retry. keys' REMOTE removal calls it once per
-	// removal mark (revokeDone).
-	RevokeSessionsAt(ctx context.Context, uid string, cut time.Time) error
 	// SessionsValidAfter is uid's cut from the cached profile (the same 60 s cache and 10 s negative cache account status
 	// uses, so it adds no read to a request): zero when there is none or uid has no profile. A failed read is an error.
 	SessionsValidAfter(ctx context.Context, uid string) (time.Time, error)
 }
+
+// SessionRevokes is the H1 refresh-token revoke (security audit H1). It is deliberately NOT part of SessionCuts or
+// Service: the only holder outside this package is apiserver/keys_wiring.go, which hands it to keys' REMOTE removal
+// (TestSessionRevokes_OnlyKeysWiring enforces that). *service implements it.
+type SessionRevokes interface {
+	// RevokeSessionsAt revokes every Firebase refresh token of uid, the caller's own included, once users/{uid} carries a
+	// cut at or after `cut` (read fresh; the C1 precondition in authadmin.go). Call it only after EndSessionsBefore(uid,
+	// cut) succeeded. ErrNoSessionCut (no Auth call) when users/{uid} is missing or carries no cut (cleared by `opsctl
+	// identity sessions clear-cut`): there is nothing to revoke for. Any other C1 refusal (a cut older than asked, a cut
+	// asked more than MaxSessionRevokeCutAge ago, no uid) is ErrAuthAdminRefused; any other failure is an error to retry.
+	RevokeSessionsAt(ctx context.Context, uid string, cut time.Time) error
+}
+
+// MaxSessionRevokeCutAge is how old a cut RevokeSessionsAt still revokes for: keys' removal mark lives this long
+// (keys.RemovalMarkTTL, 90 days; apiserver's wiring test pins the two equal), so an older cut can only come from a bug.
+const MaxSessionRevokeCutAge = 90 * 24 * time.Hour
+
+// ErrNoSessionCut is RevokeSessionsAt's answer when there is no cut to revoke for (no users/{uid}, or its cut was
+// cleared). No Auth call was made.
+var ErrNoSessionCut = errors.New("identity: no session cut to revoke for")
 
 // ReadReceiptsFlag is the wire name of FEATURE_READ_RECEIPTS (F3). It gates SETTING read_receipts=true through UpdateProfile
 // (false is never gated, the undo rule), the receipt stamp of MarkConversationRead and the peer_read_at of ListMessages. While
