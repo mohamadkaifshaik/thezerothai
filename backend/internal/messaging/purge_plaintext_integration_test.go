@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"cloud.google.com/go/firestore"
+	"connectrpc.com/connect"
 
+	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	messagingv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1"
 )
 
@@ -403,4 +405,43 @@ func TestPurgePlaintext_SameKeyRetryReplays(t *testing.T) {
 			before.check(t)
 		})
 	}
+}
+
+// The replay exception covers a purged VISIBLE message only. A purged message the eraser then tombstoned
+// (DELETED_ACCOUNT) is never replayed by a same-key send: after the real eraser the send is refused, and on a document that
+// reaches the replay check (the tombstone state with the sender kept, so the check is what decides) it is "key reused".
+func TestPurgePlaintext_PurgedThenErasedIsNotAReplay(t *testing.T) {
+	t.Run("after the eraser", func(t *testing.T) {
+		e := newIT(t, nil)
+		e.mutual(alice, bob)
+		first := e.must(alice, toUser(skey(1), bob, "SECRET stored before"))
+		convID := first.GetConversation().GetId()
+		if got := e.purgeAll(PlaintextPurge); got.Purged != 1 {
+			t.Fatalf("purge = %+v", got)
+		}
+		e.runEraserFor(alice)
+		e.tick(time.Second)
+		resp, err := e.send(alice, toUser(skey(1), bob, "SECRET stored before"))
+		if err == nil {
+			t.Fatalf("a same-key send after purge and eraser answered %v, want a refusal (not a replay)", resp.GetMessage())
+		}
+		if n := len(e.msgs(convID)); n != 1 {
+			t.Errorf("%d messages stored, want 1", n)
+		}
+	})
+	t.Run("the replay check itself", func(t *testing.T) {
+		e := newIT(t, nil)
+		e.mutual(alice, bob)
+		first := e.must(alice, toUser(skey(1), bob, "SECRET stored before"))
+		convID, msgID := first.GetConversation().GetId(), first.GetMessage().GetId()
+		if got := e.purgeAll(PlaintextPurge); got.Purged != 1 {
+			t.Fatalf("purge = %+v", got)
+		}
+		if _, err := e.fs.Collection("conversations").Doc(convID).Collection("messages").Doc(msgID).Update(context.Background(), []firestore.Update{{Path: "state", Value: msgDeletedAccount}}); err != nil {
+			t.Fatal(err)
+		}
+		e.tick(time.Second)
+		_, err := e.send(alice, toUser(skey(1), bob, "SECRET stored before"))
+		wantAPI(t, err, connect.CodeInvalidArgument, commonv1.ErrorReason_ERROR_REASON_VALIDATION, map[string]string{"field": "idempotency_key"})
+	})
 }

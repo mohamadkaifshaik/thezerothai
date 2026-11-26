@@ -183,11 +183,18 @@ func purgePlaintext(ctx context.Context, b *backends, a purgePlaintextArgs, out 
 	if err != nil {
 		state = "failed"
 	}
-	serr := save(last, state)
+	var serr error
+	saveFailed := errors.Is(err, errCheckpointNotSaved)
+	if !saveFailed {
+		serr = save(last, state)
+	}
 	// The totals line is printed even after a failure: what was written is written.
 	fmt.Fprintf(out, "audit: NOTICE messages purge-plaintext project=%s at=%s conversations=%d messages=%d plaintext=%d purged=%d skipped=%d previews=%d previews_skipped=%d dry_run=%t complete=%t\n",
 		a.project, now().UTC().Format(time.RFC3339), sum.Conversations, sum.Messages, sum.Plaintext, sum.Purged, sum.Skipped, sum.Previews, sum.PreviewsSkipped, a.dryRun, err == nil)
 	switch {
+	case saveFailed:
+		// Fatal: the run stopped after the page whose resume point could not be written; nothing further was purged.
+		return fmt.Errorf("stopped: checkpoint %s could not be saved, no further page was purged (fix the file's location, then rerun with --force): %w", a.checkpoint, err)
 	case err != nil && serr != nil:
 		return fmt.Errorf("stopped, and the checkpoint %s was not saved (%v): %w", a.checkpoint, serr, err)
 	case err != nil && !a.dryRun:
@@ -220,14 +227,24 @@ func walkPlaintext(ctx context.Context, b *backends, project, after string, mode
 	}
 	last := after
 	page := 0
-	err := driveLoop(ctx, out, page,
+	// A checkpoint that cannot be saved stops the run at once: no retry and no further page, since a later crash could
+	// not resume where the writes stopped. cancel ends driveLoop before its next call; saveErr is what the run returns.
+	lctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var saveErr error
+	err := driveLoop(lctx, out, page,
 		func(ctx context.Context, n int) (int, bool, error) {
 			p, err := b.plaintext.PurgePlaintextPage(ctx, last, mode)
 			if err != nil {
-				sum.Purged += p.Purged
-				sum.Skipped += p.Skipped
-				sum.Previews += p.Previews
-				sum.PreviewsSkipped += p.PreviewsSkipped
+				if mode == messaging.PlaintextPurge {
+					// The failed attempt's writes happened and the retry does not redo them. Skipped and PreviewsSkipped are
+					// upper bounds after a retry: a document skipped in the failed attempt may be skipped (or purged) again.
+					// A dry run's counts are "would" counts the retry recounts, so they are not added.
+					sum.Purged += p.Purged
+					sum.Skipped += p.Skipped
+					sum.Previews += p.Previews
+					sum.PreviewsSkipped += p.PreviewsSkipped
+				}
 				return n, false, err
 			}
 			sum.Add(p)
@@ -238,10 +255,18 @@ func walkPlaintext(ctx context.Context, b *backends, project, after string, mode
 				label, project, n+1, p.Conversations, p.Messages, p.Plaintext, p.Purged, p.Skipped, p.Previews, p.PreviewsSkipped, mode == messaging.PlaintextDryRun)
 			if saved != nil {
 				if serr := saved(last); serr != nil {
-					return n + 1, false, fmt.Errorf("checkpoint not saved: %w", serr)
+					saveErr = serr
+					cancel()
+					return n + 1, false, errCheckpointNotSaved
 				}
 			}
 			return n + 1, !p.More, nil
 		}, func(n int) string { return fmt.Sprintf("page=%d", n) }, label)
+	if saveErr != nil {
+		return last, fmt.Errorf("%w: %w", errCheckpointNotSaved, saveErr)
+	}
 	return last, err
 }
+
+// errCheckpointNotSaved marks a run stopped because its checkpoint could not be written.
+var errCheckpointNotSaved = errors.New("checkpoint not saved")

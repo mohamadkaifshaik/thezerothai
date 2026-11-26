@@ -24,6 +24,8 @@ type fakePlaintext struct {
 	afters   []string
 	modes    []messaging.PlaintextMode
 	counts   int
+	// onCall runs at the start of each PurgePlaintextPage call (n = 1 for the first).
+	onCall func(n int)
 }
 
 type fakePlaintextPage struct {
@@ -39,6 +41,9 @@ func (f *fakePlaintext) CountPlaintext(context.Context) (messaging.PlaintextTota
 func (f *fakePlaintext) PurgePlaintextPage(_ context.Context, after string, mode messaging.PlaintextMode) (messaging.PlaintextPage, error) {
 	f.afters = append(f.afters, after)
 	f.modes = append(f.modes, mode)
+	if f.onCall != nil {
+		f.onCall(len(f.afters))
+	}
 	if f.pageErr != nil {
 		return messaging.PlaintextPage{}, f.pageErr
 	}
@@ -343,5 +348,52 @@ func TestPurgePlaintext_PartialPageWritesAreCounted(t *testing.T) {
 	}
 	if want := "conversations=20 messages=60 plaintext=2 purged=5 skipped=1 previews=3 previews_skipped=1"; !strings.Contains(out, want) {
 		t.Errorf("totals missing %q:\n%s", want, out)
+	}
+}
+
+// A dry run's failed attempt adds nothing: its "would rewrite" counts are recounted by the retry.
+func TestPurgePlaintext_DryRunPartialPageIsNotCounted(t *testing.T) {
+	t.Parallel()
+	p := &fakePlaintext{pages: []fakePlaintextPage{
+		{page: messaging.PlaintextPage{Conversations: 10, Messages: 40, Plaintext: 5, Previews: 2}, err: errors.New("deadline")},
+		{page: messaging.PlaintextPage{Last: purgeCursor, Conversations: 20, Messages: 60, Plaintext: 5, Previews: 2}},
+	}}
+	code, out, stderr, _ := runPlaintext(p, "", istNoon, "purge-plaintext", "--project", "dzeroth-dev", "--confirm", "2026-11-26", "--dry-run")
+	if code != 0 || len(p.afters) != 2 {
+		t.Fatalf("code=%d afters=%v stderr=%q out=%q", code, p.afters, stderr, out)
+	}
+	if want := "conversations=20 messages=60 plaintext=5 purged=0 skipped=0 previews=2 previews_skipped=0"; !strings.Contains(out, want) {
+		t.Errorf("totals missing %q:\n%s", want, out)
+	}
+}
+
+// A checkpoint that cannot be saved after a page stops the run at once: no retry, no further page, exit 1, and the
+// message names the checkpoint path (no id).
+func TestPurgePlaintext_CheckpointSaveFailureIsFatal(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join(t.TempDir(), "cp")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cp := filepath.Join(dir, "purge.checkpoint.json")
+	p := &fakePlaintext{pages: plaintextPages(), onCall: func(n int) {
+		if n == 1 {
+			// The run saved its first checkpoint; the directory goes away, so the save after this page fails.
+			if err := os.RemoveAll(dir); err != nil {
+				t.Error(err)
+			}
+		}
+	}}
+	code, out, stderr, _ := runPlaintext(p, "", istNoon, "purge-plaintext", "--project", "dzeroth-dev", "--confirm", "2026-11-26", "--checkpoint", cp)
+	if code != 1 || len(p.afters) != 1 {
+		t.Fatalf("code=%d page calls=%d, want exit 1 after the one page (no retry, no next page)\nstdout=%s\nstderr=%s", code, len(p.afters), out, stderr)
+	}
+	if !strings.Contains(stderr, "checkpoint "+cp+" could not be saved") || !strings.Contains(out, "complete=false") {
+		t.Errorf("stderr=%q out=%q", stderr, out)
+	}
+	for _, id := range []string{firstCursor, purgeCursor} {
+		if strings.Contains(stderr, id) || strings.Contains(out, id) {
+			t.Errorf("output holds an id:\nstdout=%s\nstderr=%s", out, stderr)
+		}
 	}
 }
