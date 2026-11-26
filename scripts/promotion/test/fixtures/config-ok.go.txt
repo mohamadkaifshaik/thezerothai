@@ -57,6 +57,7 @@
 	featureDMSuggestions, err := flags.LoadSpec("DM_SUGGESTIONS", "dm_suggestions", flags.Off)
 	featureE2EEDM, err := flags.LoadSpec("E2EE_DM", "e2ee_dm", flags.Off)
 	featureE2EERequired, err := flags.LoadSpec("E2EE_REQUIRED", "e2ee_required", flags.Off)
+	featureE2EEClaim, err := flags.LoadSpec("E2EE_CLAIM", "claim_live", flags.Off)
 	featureDeviceSignOut, err := flags.LoadSpec("DEVICE_SIGN_OUT", "device_sign_out", flags.Off)
 	featurePostViews, err := flags.LoadSpec("POST_VIEWS", "post_views", flags.Off)
 	featureCreatorInsights, err := flags.LoadSpec("CREATOR_INSIGHTS", "creator_insights", flags.Off)
