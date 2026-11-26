@@ -7,11 +7,13 @@ import (
 
 // messagingFamily is every GetMe.enabled_features name a build below the client floor must not see (plan 6 section 3.1):
 // direct messages, the key directory and the settings and extras that only make sense with them. "e2ee_required" is
-// listed ahead of its flag (Plan 6 Task 1.A); a name that is not registered is simply never in the list.
+// listed ahead of its flag (Plan 6 Task 1.A); a name that is not registered is simply never in the list. "claim_live"
+// (FEATURE_E2EE_CLAIM, Plan 6 §4.7) is the encryption headline: a build below the floor shows no messages at all, so
+// it must not see the claim either.
 // "chat_shared_plans" (BeaconService.ListSharedBeacons) is the "Shared plan" box of the DM thread: the client reads it
 // only on the thread screen, so it goes with messaging. The RPC itself stays a beacons RPC and is not floor-gated.
 var messagingFamily = []string{
-	MessagingFlag, "e2ee_dm", "e2ee_required", "dm_share_check", "dm_post_share",
+	MessagingFlag, "e2ee_dm", "e2ee_required", "claim_live", "dm_share_check", "dm_post_share",
 	"message_search", "read_receipts", "dm_suggestions", "dm_policy", "chat_shared_plans",
 }
 

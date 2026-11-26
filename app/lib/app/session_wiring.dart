@@ -100,6 +100,18 @@ MessagingFeatureGate buildMessagingGate(
 /// foreground before it is asked again ([ResumeFlagsRefresh]).
 const kResumeFlagsMaxAge = Duration(minutes: 15);
 
+/// How often a shown encryption claim checks [ResumeFlagsRefresh.
+/// refreshIfStale] while the app is in the foreground (Plan 6 PR 6-6 fix
+/// round 1, security M1). The check itself makes no call unless the last
+/// `GetMe` is [kResumeFlagsMaxAge] old. A short tick keeps the stale window at
+/// about 16 minutes; a 15-minute tick could leave it near 30.
+const kClaimFlagsCheckEvery = Duration(minutes: 1);
+
+/// The encryption claim is hidden while the last SUCCESSFUL `GetMe` is older
+/// than this (Plan 6 PR 6-6, security L2: twice [kResumeFlagsMaxAge], so one
+/// missed refresh while offline is tolerated, two are not).
+const kClaimFlagsMaxAge = Duration(minutes: 30);
+
 /// Plan 6 Task 1.B (security review H1): an app left open keeps the flag set
 /// of its last `GetMe`, so `e2ee_required` turned on for this user would not
 /// reach it until something else refreshed. On resume, when the last answered
@@ -113,6 +125,7 @@ class ResumeFlagsRefresh {
   }) : _onboarding = onboardingBloc,
        _now = now,
        _last = now(),
+       _lastAnswer = now(),
        _seen = onboardingBloc.flagsGeneration {
     // Only a GetMe answer restarts the clock ([OnboardingBloc.
     // flagsGeneration] moved); any other state change does not (security
@@ -121,7 +134,7 @@ class ResumeFlagsRefresh {
       final generation = _onboarding.flagsGeneration;
       if (generation == _seen) return;
       _seen = generation;
-      _last = _now();
+      _last = _lastAnswer = _now();
     });
   }
 
@@ -129,10 +142,29 @@ class ResumeFlagsRefresh {
   final DateTime Function() _now;
   DateTime _last;
   int _seen;
+
+  /// When the last GetMe ANSWER was applied (an ask that failed, for example
+  /// offline, does not move it); construction counts as one, since the
+  /// claim needs a known flag set of this session anyway.
+  DateTime _lastAnswer;
+
+  /// Whether the last successful `GetMe` is older than [maxAge] (Plan 6 PR
+  /// 6-6, security L2: a claim kept on while offline is hidden after
+  /// [kClaimFlagsMaxAge]).
+  bool answerOlderThan(Duration maxAge) =>
+      _now().difference(_lastAnswer) > maxAge;
   late final StreamSubscription<OnboardingState> _sub;
 
   /// The app came back to the foreground.
-  void onResume() {
+  void onResume() => refreshIfStale();
+
+  /// One [OnboardingRefreshRequested] when the last answered `GetMe` (or the
+  /// last refresh this asked for) is [kResumeFlagsMaxAge] old or older;
+  /// nothing otherwise, and nothing while signed out. Also called while the
+  /// encryption claim is shown (Plan 6 PR 6-6 fix round 1, security M1): on
+  /// a foreground tick and when the Messages inbox opens, so a claim the
+  /// server withdrew is gone within about [kResumeFlagsMaxAge].
+  void refreshIfStale() {
     if (_onboarding.currentUid == null) return;
     final now = _now();
     if (now.difference(_last) < kResumeFlagsMaxAge) return;

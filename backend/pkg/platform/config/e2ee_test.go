@@ -73,6 +73,42 @@ func TestConfig_E2EERequired_DefaultsOff(t *testing.T) {
 	}
 }
 
+// TestConfig_E2EEClaim_DefaultsOff: FEATURE_E2EE_CLAIM (E2EE Plan 6 §4.7, the "We cannot read your messages." switch) is
+// globally off when unset, reports the wire name claim_live, an allowlist turns it on for the listed uid only, and an
+// invalid mode fails startup.
+func TestConfig_E2EEClaim_DefaultsOff(t *testing.T) {
+	clearEnv(t)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.FeatureE2EEClaim.Name != "claim_live" || cfg.FeatureE2EEClaim.Mode != flags.Off {
+		t.Errorf("FeatureE2EEClaim = %+v, want name claim_live, mode off", cfg.FeatureE2EEClaim)
+	}
+	reg := flags.NewRegistry(cfg.FeatureE2EEClaim)
+	if reg.Enabled("u1", "claim_live") || !reg.GloballyOff("claim_live") {
+		t.Error("unset FEATURE_E2EE_CLAIM must be globally off")
+	}
+
+	clearEnv(t)
+	t.Setenv("FEATURE_E2EE_CLAIM", "allowlist")
+	t.Setenv("FEATURE_E2EE_CLAIM_ALLOWLIST", "u1")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatalf("Load() with allowlist error = %v", err)
+	}
+	reg = flags.NewRegistry(cfg.FeatureE2EEClaim)
+	if !reg.Enabled("u1", "claim_live") || reg.Enabled("u2", "claim_live") {
+		t.Error("allowlist: want on for u1 only")
+	}
+
+	clearEnv(t)
+	t.Setenv("FEATURE_E2EE_CLAIM", "always")
+	if _, err := Load(); err == nil {
+		t.Error("an invalid FEATURE_E2EE_CLAIM mode must fail startup")
+	}
+}
+
 // TestConfig_DeviceSignOut_DefaultsOff: FEATURE_DEVICE_SIGN_OUT (the session cut, security audit H2) is globally off when
 // unset (the cut check reads nothing), and an allowlist turns it on for the listed uid only while making it not globally
 // off for everyone (the check then enforces a stored cut for every account).

@@ -20,7 +20,7 @@ const reasonRequiredFailsClosed = "required_without_e2ee_dm"
 // featureRegistry is the registry over every cfg.Feature* spec, coupled by coupleE2EE. It is a function of cfg alone so
 // a test can check exactly what Build wires.
 func featureRegistry(cfg config.Config) *flags.Registry {
-	return coupleE2EE(flags.NewRegistry(cfg.FeatureGraph, cfg.FeaturePosts, cfg.FeatureAccountLifecycle, cfg.FeatureReplies, cfg.FeatureProfileSnapshot, cfg.FeatureMedia, cfg.FeatureNotifications, cfg.FeatureReports, cfg.FeatureEngagement, cfg.FeatureQuotes, cfg.FeatureContentDisclosure, cfg.FeatureReplyAudience, cfg.FeatureScheduledPosts, cfg.FeatureBookmarks, cfg.FeatureMessaging, cfg.FeatureLists, cfg.FeatureCommunities, cfg.FeatureProfileExtras, cfg.FeatureProfileTabs, cfg.FeatureLikesList, cfg.FeatureFollowSuggestions, cfg.FeaturePrivateAccounts, cfg.FeatureUIShell, cfg.FeatureUITablet, cfg.FeatureShells, cfg.FeatureCrashReporting, cfg.FeatureAnalytics, cfg.FeatureRemovedIDs, cfg.FeatureSearch, cfg.FeatureTrends, cfg.FeaturePolls, cfg.FeatureDrafts, cfg.FeatureGif, cfg.FeatureBeacons, cfg.FeatureNotificationPrefs, cfg.FeatureDMPolicy, cfg.FeatureReadReceipts, cfg.FeatureChatSharedPlans, cfg.FeatureBeaconQuickJoin, cfg.FeaturePostBeaconEmbed, cfg.FeatureCommunityMemberSearch, cfg.FeatureDMPostShare, cfg.FeatureDMShareCheck, cfg.FeatureShareCount, cfg.FeatureHandleSuggestions, cfg.FeatureListFollows, cfg.FeatureListSuggestions, cfg.FeatureBookmarkHistory, cfg.FeatureArticleImages, cfg.FeatureExportZip, cfg.FeatureMessageSearch, cfg.FeatureSearchLists, cfg.FeatureSearchFilters, cfg.FeatureDMSuggestions, cfg.FeaturePostViews, cfg.FeatureCreatorInsights, cfg.FeatureLocation, cfg.FeatureTrendingMedia, cfg.FeatureTrendingPosts, cfg.FeaturePublicIDs, cfg.FeatureE2EEDM, cfg.FeatureDeviceSignOut, cfg.FeatureE2EERequired))
+	return coupleE2EE(flags.NewRegistry(cfg.FeatureGraph, cfg.FeaturePosts, cfg.FeatureAccountLifecycle, cfg.FeatureReplies, cfg.FeatureProfileSnapshot, cfg.FeatureMedia, cfg.FeatureNotifications, cfg.FeatureReports, cfg.FeatureEngagement, cfg.FeatureQuotes, cfg.FeatureContentDisclosure, cfg.FeatureReplyAudience, cfg.FeatureScheduledPosts, cfg.FeatureBookmarks, cfg.FeatureMessaging, cfg.FeatureLists, cfg.FeatureCommunities, cfg.FeatureProfileExtras, cfg.FeatureProfileTabs, cfg.FeatureLikesList, cfg.FeatureFollowSuggestions, cfg.FeaturePrivateAccounts, cfg.FeatureUIShell, cfg.FeatureUITablet, cfg.FeatureShells, cfg.FeatureCrashReporting, cfg.FeatureAnalytics, cfg.FeatureRemovedIDs, cfg.FeatureSearch, cfg.FeatureTrends, cfg.FeaturePolls, cfg.FeatureDrafts, cfg.FeatureGif, cfg.FeatureBeacons, cfg.FeatureNotificationPrefs, cfg.FeatureDMPolicy, cfg.FeatureReadReceipts, cfg.FeatureChatSharedPlans, cfg.FeatureBeaconQuickJoin, cfg.FeaturePostBeaconEmbed, cfg.FeatureCommunityMemberSearch, cfg.FeatureDMPostShare, cfg.FeatureDMShareCheck, cfg.FeatureShareCount, cfg.FeatureHandleSuggestions, cfg.FeatureListFollows, cfg.FeatureListSuggestions, cfg.FeatureBookmarkHistory, cfg.FeatureArticleImages, cfg.FeatureExportZip, cfg.FeatureMessageSearch, cfg.FeatureSearchLists, cfg.FeatureSearchFilters, cfg.FeatureDMSuggestions, cfg.FeaturePostViews, cfg.FeatureCreatorInsights, cfg.FeatureLocation, cfg.FeatureTrendingMedia, cfg.FeatureTrendingPosts, cfg.FeaturePublicIDs, cfg.FeatureE2EEDM, cfg.FeatureDeviceSignOut, cfg.FeatureE2EERequired, cfg.FeatureE2EEClaim))
 }
 
 // coupleE2EE is the end-to-end-encryption coupling (E2EE Plan 6 §1.3, as ruled in the 6-1 security review):
@@ -31,11 +31,19 @@ func featureRegistry(cfg config.Config) *flags.Registry {
 //     no readable DM is stored for a required user. Killing or narrowing e2ee_dm must not reopen plaintext for them: they
 //     then can exchange nothing (plaintext refused, mls_init refused by e2ee_dm), visibly, and the startup warning says
 //     so. The one lever that reopens plaintext is E2EE_REQUIRED itself.
+//   - effective claim_live = claim_live && effective e2ee_required && device_sign_out (P6 §4.1 items 1 and 5, §7.2 c;
+//     6-6 security review L1): the headline "We cannot read your messages." is never reported where plaintext is still
+//     accepted, nor where removing a lost device does not sign the others out (the "If a device is lost or stolen"
+//     wording the claim links to). It fails closed rather than warning. Switching E2EE_REQUIRED, MESSAGING (through the
+//     chain) or DEVICE_SIGN_OUT off withdraws it on the server at once: Enabled and every later GetMe answer without
+//     it. A client keeps what it last read until its next GetMe, so the headline it shows can lag by that long (the
+//     app bounds the lag with its own refresh). Requiring device_sign_out changes nothing for device_sign_out itself.
 //
 // Enabled (every module's gate) and EnabledFeatures (GetMe.enabled_features) report the effective values; GloballyOff
 // (the kill switch K1 and RemoveKeyDevice read) keeps reading each raw flag.
 func coupleE2EE(reg *flags.Registry) *flags.Registry {
-	return reg.Require(keys.FlagName, messaging.FlagName).Require(messaging.E2EERequiredFlag, messaging.FlagName)
+	return reg.Require(keys.FlagName, messaging.FlagName).Require(messaging.E2EERequiredFlag, messaging.FlagName).
+		Require(messaging.E2EEClaimFlag, messaging.E2EERequiredFlag, keys.DeviceSignOutFlag)
 }
 
 // reasonMessagingWithoutRequired is the startup warning for messaging reaching users e2ee_required does not cover: their
@@ -65,7 +73,8 @@ func featureCouplingWarnings(reg *flags.Registry) []flags.CouplingWarning {
 // couplingLevel is a feature_flag_coupling line's level: INFO for a parent_narrower finding under messaging with nothing
 // uncovered (e2ee_dm or e2ee_required on while MESSAGING alone ramps: the planned rollout, which must not WARN on every
 // start); WARN for everything else (required_without_e2ee_dm, messaging_without_required, a cycle, an unknown parent, a
-// parent other than messaging, and any uncovered count above 0). One event name, so an alert keys on level and reason.
+// parent other than messaging such as claim_live under e2ee_required or device_sign_out, and any uncovered count above
+// 0). One event name, so an alert keys on level and reason.
 func couplingLevel(w flags.CouplingWarning) slog.Level {
 	if w.Reason == flags.ReasonParentNarrower && w.Parent == messaging.FlagName && w.Uncovered == 0 {
 		return slog.LevelInfo

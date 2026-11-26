@@ -38,6 +38,13 @@ const kFeatureE2eeDm = 'e2ee_dm';
 /// known (fails closed).
 const kFeatureE2eeRequired = 'e2ee_required';
 
+/// Server switch of the public claim (Plan 6 Task 4.A, `FEATURE_E2EE_CLAIM`,
+/// default off): the server lists `claim_live` only while the flag is on AND
+/// [kFeatureE2eeRequired] is on for the caller, and strips it below the
+/// client floor. The client still checks both itself (`claimVisible`), so the
+/// owner turns the claim on and off without a release.
+const kFeatureClaimLive = 'claim_live';
+
 /// Plan 6 Task 1.B (security review L1): whether a plaintext send must be
 /// refused under `e2ee_required` for the onboarding state [state], emitted
 /// for [stateUid], while [signedInUid] is signed in. Fails closed: the answer

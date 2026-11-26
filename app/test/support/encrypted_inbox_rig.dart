@@ -46,6 +46,8 @@ class EncryptedInboxRig {
     this.withPort = true,
     this.withStatusCubit = true,
     FakeEncryptedMessaging? port,
+    this.extraFeatures = const {},
+    this.signedInAs,
   }) : port = port ?? FakeEncryptedMessaging(),
        device = FakeEncryptionDevice(
          status: vaultStatus,
@@ -64,13 +66,44 @@ class EncryptedInboxRig {
     when(() => repo.refreshConversations(any())).thenAnswer(
       (_) async => const ConversationsResult(ConversationsSnapshot()),
     );
+    if (signedInAs case final uid?) {
+      registerFallbackValue(OnboardingState());
+      when(() => onboarding.currentUid).thenReturn(uid);
+      when(() => onboarding.uidOf(any())).thenAnswer((_) => stateUid);
+      when(() => onboarding.flagsGeneration).thenReturn(0);
+    }
   }
+
+  /// With [signedInAs] set, the onboarding states are `ready` (the flag set
+  /// is known) and belong to [stateUid] (default: the signed-in user), as the
+  /// real bloc reports them. Null: today's states (status `unknown`, no uid).
+  final String? signedInAs;
+
+  /// The user the onboarding states belong to ([OnboardingBloc.uidOf]).
+  late String? stateUid = signedInAs;
+
+  /// Builds the claim's GetMe refresher in [open], once the bloc's stream is
+  /// stubbed (it listens to it); null: none in the tree.
+  ResumeFlagsRefresh Function(OnboardingBloc bloc)? flagsRefreshFactory;
+
+  /// The refresher [open] built and provided, if any.
+  ResumeFlagsRefresh? flagsRefresh;
+
+  OnboardingState _state() => OnboardingState(
+    status: signedInAs == null
+        ? OnboardingStatus.unknown
+        : OnboardingStatus.ready,
+    enabledFeatures: features,
+  );
 
   /// `unknown` and `off` both leave `e2ee_dm` out of `enabled_features`.
   final E2eeFlag flag;
   final bool withDevice;
   final bool withPort;
   final bool withStatusCubit;
+
+  /// More `enabled_features` entries (for example `claim_live`).
+  final Set<String> extraFeatures;
   final FakeEncryptedMessaging port;
   final FakeEncryptionDevice device;
   final MockInboxRepository repo;
@@ -90,12 +123,16 @@ class EncryptedInboxRig {
       // Sync: a flag flip reaches the tree before the next frame is built.
       StreamController<OnboardingState>.broadcast(sync: true);
 
-  Set<String> get features => {'messaging', if (_flagOn) kFeatureE2eeDm};
+  Set<String> get features => {
+    'messaging',
+    if (_flagOn) kFeatureE2eeDm,
+    ...extraFeatures,
+  };
 
   /// Flips `e2ee_dm` in `enabled_features` while the screen is open.
   void setFlagOn(bool on) {
     _flagOn = on;
-    _flagChanges.add(OnboardingState(enabledFeatures: features));
+    _flagChanges.add(_state());
   }
 
   static ConversationsSnapshot snap(
@@ -135,11 +172,7 @@ class EncryptedInboxRig {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    whenListen(
-      onboarding,
-      _flagChanges.stream,
-      initialState: OnboardingState(enabledFeatures: features),
-    );
+    whenListen(onboarding, _flagChanges.stream, initialState: _state());
     addTearDown(_flagChanges.close);
     final status = statusCubit = withStatusCubit && withDevice
         ? EncryptionStatusCubit(
@@ -149,6 +182,9 @@ class EncryptedInboxRig {
           )
         : null;
     if (status != null) addTearDown(status.close);
+    // After whenListen: the refresher listens to the stubbed stream.
+    final refresh = flagsRefresh = flagsRefreshFactory?.call(onboarding);
+    if (refresh != null) addTearDown(refresh.dispose);
     final router = GoRouter(
       routes: [
         GoRoute(
@@ -172,6 +208,13 @@ class EncryptedInboxRig {
             return const Scaffold(body: Text('encryption settings'));
           },
         ),
+        GoRoute(
+          path: AppRouter.encryptionAboutPath,
+          builder: (context, state) {
+            pushed.add(state.uri.path);
+            return const Scaffold(body: Text('encryption about'));
+          },
+        ),
       ],
     );
     addTearDown(router.dispose);
@@ -186,6 +229,8 @@ class EncryptedInboxRig {
             RepositoryProvider<EncryptionDevice>.value(value: device),
           if (withPort)
             RepositoryProvider<EncryptedMessaging?>.value(value: port),
+          if (flagsRefresh case final refresh?)
+            RepositoryProvider<ResumeFlagsRefresh>.value(value: refresh),
         ],
         child: MultiBlocProvider(
           providers: [

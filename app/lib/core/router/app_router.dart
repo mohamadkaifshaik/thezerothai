@@ -154,6 +154,11 @@ class AppRouter {
   static const encryptionSettingsPath = '/settings/encryption';
   static const resetEncryptionPath = '/settings/encryption/reset';
 
+  /// "About encrypted messages" (Plan 6 Task 4.A): opened by the "What this
+  /// covers" link beside the claim headline. While the claim is not live it
+  /// shows only the existing help lines.
+  static const encryptionAboutPath = '/settings/encryption/about';
+
   /// Settings > Location (the chosen area). Reachable in every flag mode so a
   /// stored area can always be cleared; its consent leaf and the picker need
   /// `location`.

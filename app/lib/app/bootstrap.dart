@@ -819,6 +819,7 @@ Future<void> bootstrap() async {
       vaultSession: vaultSession,
       encryptionDevice: encryptionDevice,
       e2eeFlagApplied: e2eeFlagApplied,
+      flagsRefresh: resumeFlags,
       encryptedMessaging: encryptedMessaging,
     ),
   );

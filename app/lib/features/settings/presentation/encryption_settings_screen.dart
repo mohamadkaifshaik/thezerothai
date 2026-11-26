@@ -25,6 +25,7 @@ import '../../messages/presentation/e2ee/connected_encryption_status_card.dart';
 import '../../messages/presentation/e2ee/encryption_access_builder.dart';
 import '../../messages/presentation/e2ee/encryption_copy.dart';
 import '../../messages/presentation/e2ee/encryption_status.dart';
+import '../../messages/presentation/e2ee/widgets/claim_headline.dart';
 import '../../auth/data/auth_repository.dart';
 import 'bloc/encryption_devices_cubit.dart';
 import 'settings_up.dart';
@@ -556,37 +557,37 @@ class _AboutGroup extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final lines = <String>[
-      kEncryptionHelp1,
-      kEncryptionHelp2,
-      kEncryptionHelp3,
-      if (kIsWeb) kEncryptionHelpWeb,
-      kEncryptionHelp4,
-      kEncryptionHelp5,
-      kEncryptionHelp6,
-      kEncryptionHelp7,
-      kEncryptionHelp8,
-      kEncryptionHelp9,
-      kEncryptionHelp10,
-      if (kIsWeb) kWebStorageNote,
-    ];
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const AppSectionHeader(title: kDevicesAboutHeader),
-        SettingsGroup(
-          rows: [
-            for (final line in lines)
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.md,
-                  vertical: AppSpacing.sm,
+    final lines = encryptionHelpLines(web: kIsWeb);
+    // Plan 6 Task 4.A: the claim headline with its "What this covers" link
+    // leads the group only while `claimVisible` holds; otherwise the group
+    // is exactly today's lines.
+    return ClaimVisibilityBuilder(
+      builder: (context, claim) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const AppSectionHeader(title: kDevicesAboutHeader),
+          SettingsGroup(
+            rows: [
+              if (claim)
+                const Padding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: AppSpacing.md,
+                    vertical: AppSpacing.xs,
+                  ),
+                  child: ClaimHeadlineBody(),
                 ),
-                child: Text(line, style: theme.textTheme.bodyMedium),
-              ),
-          ],
-        ),
-      ],
+              for (final line in lines)
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.md,
+                    vertical: AppSpacing.sm,
+                  ),
+                  child: Text(line, style: theme.textTheme.bodyMedium),
+                ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }

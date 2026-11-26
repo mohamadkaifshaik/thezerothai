@@ -58,6 +58,7 @@ SettingsCategory? settingsCategoryOfLeaf(String path) => switch (path) {
   '/settings/messages' ||
   '/settings/encryption' ||
   '/settings/encryption/reset' ||
+  '/settings/encryption/about' ||
   '/settings/location' ||
   '/settings/location/consent' => SettingsCategory.privacy,
   '/settings/notifications' => SettingsCategory.notifications,
