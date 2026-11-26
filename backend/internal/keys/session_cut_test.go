@@ -11,7 +11,6 @@ import (
 
 	"connectrpc.com/connect"
 
-	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	keysv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/keys/v1"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
 )
@@ -131,6 +130,8 @@ func TestRemoveDevice_SessionCut(t *testing.T) {
 				var code connect.Code
 				if ae := new(apierr.Error); errors.As(err, &ae) {
 					code = ae.Code
+				} else if ce := new(connect.Error); errors.As(err, &ce) {
+					code = ce.Code() // the plain UNAVAILABLE of a stopped removal (removalRetryable)
 				}
 				if code != tc.wantCode {
 					t.Fatalf("err = %v (code %v), want %v", err, code, tc.wantCode)
@@ -207,7 +208,7 @@ func TestRemoveDevice_CutDoneFailureIsRetryable(t *testing.T) {
 	repo.cutDoneErr = errUnavailableForTest()
 	ctx, _ := signedIn(t0.Add(-time.Minute))
 	_, err := s.RemoveDevice(ctx, uidA, devID, RemoveRemote)
-	wantErr(t, err, connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED)
+	wantPlainUnavailable(t, err)
 	repo.cutDoneErr = nil
 	res, err := s.RemoveDevice(ctx, uidA, devID, RemoveRemote)
 	if err != nil || !res.OtherSessionsEnded || len(cutter.cuts) != 2 {
@@ -228,6 +229,48 @@ func TestRemoveDevice_UnwiredCutterFailsClosed(t *testing.T) {
 	}
 	if repo.cuts[devKey(uidA, devID)].CutDone {
 		t.Error("the cut was noted done without a cutter")
+	}
+}
+
+// wantPlainUnavailable: err reaches the client as UNAVAILABLE with no ErrorDetail (so no reason and no retry_after),
+// through the same conversion every handler error takes (apierr.ToConnect, mw.ErrorMapping).
+func wantPlainUnavailable(t *testing.T, err error) {
+	t.Helper()
+	ce := apierr.ToConnect(err)
+	if ce == nil || ce.Code() != connect.CodeUnavailable || len(ce.Details()) != 0 {
+		t.Fatalf("= %v; want a plain UNAVAILABLE with no ErrorDetail", err)
+	}
+}
+
+// TestRemoveDevice_StoppedRemovalShape (fix round 1, item 10): both ways a REMOTE removal stops after its mark (a failed
+// session cut and a failed push drop) answer the same wire shape, a plain UNAVAILABLE with no ErrorDetail, which the app
+// maps to NetworkException and retries; the key device stays for that retry, which finishes the removal.
+func TestRemoveDevice_StoppedRemovalShape(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		set  func(*fakeCutter, *fakePush)
+	}{
+		{"session cut failed", func(c *fakeCutter, _ *fakePush) { c.err = errors.New("identity down") }},
+		{"push drop failed", func(_ *fakeCutter, p *fakePush) { p.err = errors.New("notifications down") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, repo, cutter, push := newPushService(t, true, nil)
+			mustRegister(t, s, devID, sigKey(1))
+			tc.set(cutter, push)
+			ctx, _ := signedIn(t0.Add(-time.Minute))
+			_, err := s.RemoveDevice(ctx, uidA, devID, RemoveRemote)
+			wantPlainUnavailable(t, err)
+			if repo.find(uidA, devID) < 0 {
+				t.Fatal("the sweep ran: nothing would be left for the retry")
+			}
+			cutter.err, push.err = nil, nil
+			if res, err := s.RemoveDevice(context.Background(), uidA, devID, RemoveRemote); err != nil || !res.OtherSessionsEnded {
+				t.Fatalf("retry = %+v, %v; want ended", res, err)
+			}
+			if repo.find(uidA, devID) >= 0 {
+				t.Error("the retry left the device")
+			}
+		})
 	}
 }
 

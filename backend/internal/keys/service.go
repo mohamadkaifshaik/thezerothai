@@ -269,8 +269,8 @@ func (s *service) RemoveDevice(ctx context.Context, uid, deviceID string, reason
 	return res, nil
 }
 
-// cutSessions writes the mark's cut on the account and notes it done on the mark. Either failure is a retryable
-// UNAVAILABLE (outcome session_cut_failed, a WARN with the uid hashed and the ids redacted): the retry writes the same cut
+// cutSessions writes the mark's cut on the account and notes it done on the mark. Either failure is a retryable plain
+// UNAVAILABLE (removalRetryable; outcome session_cut_failed, a WARN with the uid hashed and the ids redacted): the retry writes the same cut
 // again (identity keeps the maximum) and needs no sign-in, the id being marked.
 func (s *service) cutSessions(ctx context.Context, uid, deviceID string, at time.Time) error {
 	var err error
@@ -285,8 +285,18 @@ func (s *service) cutSessions(ctx context.Context, uid, deviceID string, at time
 	logger.SetRequestField(ctx, fieldOutcome, "session_cut_failed")
 	slog.WarnContext(ctx, "keys_session_cut_failed", "uid_hash", logger.HashUID(uid),
 		"err", logger.RedactErr(err, uid, deviceID).Error())
-	return apierr.New(connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "temporarily busy, please retry").
-		WithRetryAfter(time.Second)
+	return removalRetryable()
+}
+
+// removalRetryable is the answer of a REMOTE removal that stopped after its mark (a failed session cut or push drop):
+// a plain UNAVAILABLE with no ErrorDetail and no retry_after (lane D PR 5 fix round 1, items 5 and 10). The shape is
+// what makes the app retry: its connect_error_mapper maps UNAVAILABLE with an ErrorDetail and a retry_after to
+// ScreeningUnavailableException, which the removal queue's _definiteRefusal treats as a refusal and settles from the own
+// list (no longer showing the stamped device: "removed", never resent); a plain UNAVAILABLE maps to NetworkException, so
+// the stored intent stays and the next pass sends it again. The retry needs no sign-in (the id is marked) and finishes the
+// cut, the drop and the sweep.
+func removalRetryable() error {
+	return connect.NewError(connect.CodeUnavailable, errors.New("temporarily busy, please retry"))
 }
 
 // fieldPushDropped is the request-line count of push registrations a REMOTE removal with a session cut deleted;
@@ -342,7 +352,7 @@ func (s *service) dropPush(ctx context.Context, uid string) error {
 	logger.SetRequestField(ctx, fieldPushDropFailed, true)
 	logger.SetRequestField(ctx, fieldOutcome, "push_drop_failed")
 	s.log.WarnContext(ctx, "keys_push_drop_failed", "reason", reason, "grpc_code", grpcCode(err).String())
-	return connect.NewError(connect.CodeUnavailable, errors.New("temporarily busy, please retry"))
+	return removalRetryable()
 }
 
 // grpcCode is the gRPC code anywhere in err's chain (a Firestore error wrapped by notifications), else Unknown.
