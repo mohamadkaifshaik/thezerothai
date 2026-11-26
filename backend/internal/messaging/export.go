@@ -43,7 +43,8 @@ type exportConversation struct {
 
 // exportItem is one message: the user's own with its text (F5), a received one as its time and the word "received" only.
 // An end-to-end encrypted message, sent or received, is its direction, time, state and encrypted = true: no text and no
-// post id (the server holds only ciphertext it cannot read).
+// post id (the server holds only ciphertext it cannot read). An own message whose text the plaintext purge deleted is its
+// direction, time, state and textRemoved = true; a received one stays time and "received" only.
 type exportItem struct {
 	Direction string    `json:"direction"` // "sent" | "received"
 	At        time.Time `json:"at"`
@@ -52,6 +53,9 @@ type exportItem struct {
 	// SharedPostID is the post a sent message shares (the id only, as stored); never on a received message.
 	SharedPostID string `json:"sharedPostId,omitempty"`
 	Encrypted    bool   `json:"encrypted,omitempty"`
+	// TextRemoved marks an own sent plaintext message whose text the server deleted at the plaintext cut-over
+	// (`opsctl messages purge-plaintext`): direction, time, state and textRemoved = true, no text and no post id.
+	TextRemoved bool `json:"textRemoved,omitempty"`
 }
 
 // exportNote is the section's top-level "note": user-visible copy in the export file, written only when the export holds
@@ -150,6 +154,8 @@ func (x *exporter) writeConversation(ctx context.Context, uid string, enc *json.
 				}
 				row.State, row.Encrypted = m.State, true
 				encrypted = true
+			case m.FromSelf && m.TextRemoved:
+				row = exportItem{Direction: "sent", At: m.CreatedAt, State: m.State, TextRemoved: true}
 			case m.FromSelf:
 				text := m.Text
 				row = exportItem{Direction: "sent", At: m.CreatedAt, State: m.State, Text: &text, SharedPostID: m.SharedPostID}

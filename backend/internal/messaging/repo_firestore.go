@@ -44,6 +44,8 @@ type raceHooks struct {
 	afterTombstoneRead func()
 	// afterCiphertextSweepRead runs between the retention sweep's query and its updates.
 	afterCiphertextSweepRead func()
+	// afterPlaintextRead runs between the plaintext purge's read of a message page and its updates (purge mode only).
+	afterPlaintextRead func()
 	// commitThenFail runs after a send, accept or delete transaction COMMITTED and returns the error the caller then sees
 	// (a deadline that expires while the commit is in flight; the write is applied, the client is told it failed).
 	commitThenFail func() error
@@ -76,6 +78,12 @@ func (h *raceHooks) tombstoneRead() {
 func (h *raceHooks) ciphertextSweepRead() {
 	if h != nil && h.afterCiphertextSweepRead != nil {
 		h.afterCiphertextSweepRead()
+	}
+}
+
+func (h *raceHooks) plaintextRead() {
+	if h != nil && h.afterPlaintextRead != nil {
+		h.afterPlaintextRead()
 	}
 }
 

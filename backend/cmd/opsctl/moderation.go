@@ -79,6 +79,11 @@ const modUsage = `  opsctl reports list     --project P [--status OPEN|RESOLVED]
   opsctl messages loghash CONVERSATION_ID   (no --project, no Firestore: prints the keyed conversation_hash of the request logs; needs CURSOR_HMAC_KEY in the environment)
   opsctl polls loghash POST_ID   (no --project, no Firestore: prints the keyed post_hash of the VotePoll request line and the poll_vote_contention WARN; needs CURSOR_HMAC_KEY in the environment)
   opsctl messages migrate-placeholder --project P [--dry-run]   (DEV ONLY, one-off: placeholder "deleted" -> "_deleted" in conversations, messages and entries; refuses *-prod)
+  opsctl messages plaintext-count --project P   (read-only, allowed on prod: counts the plaintext DMs that still hold readable text)
+  opsctl messages purge-plaintext --project P --confirm YYYY-MM-DD [--dry-run] [--after CONVERSATION_ID]
+                          (IRREVERSIBLE: deletes the text, request digest and shared post id of every plaintext DM and
+                          rewrites the inbox previews that showed them; --confirm must be today's date in IST, so a
+                          pasted old command fails; resume a stopped run with the printed --after)
 `
 
 // reportsCommand dispatches `opsctl reports <list|show|resolve>`. sub is the first positional argument.

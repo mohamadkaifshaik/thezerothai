@@ -18,6 +18,16 @@
       "createdAt": "2026-01-04T03:04:05Z",
       "messages": [
         {
+          "direction": "received",
+          "at": "2026-01-04T03:06:05Z"
+        },
+        {
+          "direction": "sent",
+          "at": "2026-01-04T03:05:05Z",
+          "state": "VISIBLE",
+          "textRemoved": true
+        },
+        {
           "direction": "sent",
           "at": "2026-01-04T03:04:05Z",
           "state": "VISIBLE",
