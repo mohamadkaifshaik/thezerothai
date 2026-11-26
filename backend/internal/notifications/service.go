@@ -16,6 +16,7 @@ import (
 	"github.com/dzeroth/dzeroth/backend/internal/graph"
 	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
+	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/cursor"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/idempotency"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/logger"
@@ -67,7 +68,11 @@ type Deps struct {
 	Seen   SeenStore
 	// Validator checks a FCM token with a dry-run send before RegisterDevice stores it (N-5). Nil accepts every token.
 	Validator TokenValidator
-	CursorKey []byte
+	// SessionCuts and SessionCutOn are RegisterDevice's session-cut check (checkSessionCut): the uncached cut, and whether
+	// device_sign_out is not globally off (asked per call). Either nil skips the check (unit rigs).
+	SessionCuts  FreshSessionCuts
+	SessionCutOn func() bool
+	CursorKey    []byte
 	// TokenTTL is the lifetime of a persisted since/gap token (RefreshTokenTTL when zero).
 	TokenTTL time.Duration
 	Now      func() time.Time
@@ -544,6 +549,41 @@ func (s *service) checkToken(ctx context.Context, uid, token string) error {
 	return nil
 }
 
+// fieldSessionCutRefused is the request-line field of a refusal by checkSessionCut (the interceptor's own name). A bool,
+// never a time or a uid.
+const fieldSessionCutRefused = "session_cut_refused"
+
+// checkSessionCut refuses a RegisterDevice from a session that signed in before the account's session cut (lane D PR 5
+// fix round 1, code M4 / security M3). The session cut interceptor already refuses such a session, but from identity's
+// 60 s profile cache: inside that window on another instance a cut thief could register push again right after the REMOTE
+// removal dropped every registration. Here the cut is read fresh, with the interceptor's rule and answer:
+//   - device_sign_out globally off (SessionCutOn false, the emergency lever): no check, no read;
+//   - no cut, or claims.AuthTime >= cut: pass;
+//   - no claims, a zero AuthTime or an earlier one with a cut set: UNAUTHENTICATED + SESSION_ENDED, session_cut_refused=true;
+//   - a failed read: INTERNAL with the cause (never a silent pass).
+//
+// Cost: one uncached users/{uid} read per RegisterPushDevice call. The app calls it once per app start (a fresh
+// registration writes nothing, see refreshInterval), so the read is negligible next to the transaction it precedes.
+func (s *service) checkSessionCut(ctx context.Context, uid string) error {
+	if s.d.SessionCuts == nil || s.d.SessionCutOn == nil || !s.d.SessionCutOn() {
+		return nil
+	}
+	cut, err := s.d.SessionCuts.FreshSessionsValidAfter(ctx, uid)
+	if err != nil {
+		return apierr.New(connect.CodeInternal, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "internal error").
+			WithCause(logger.RedactErr(fmt.Errorf("notifications: register device: %w", err), uid))
+	}
+	if cut.IsZero() {
+		return nil
+	}
+	if claims, ok := authn.ClaimsFromContext(ctx); ok && !claims.AuthTime.IsZero() && !claims.AuthTime.Before(cut) {
+		return nil
+	}
+	logger.SetRequestField(ctx, fieldSessionCutRefused, true)
+	return apierr.New(connect.CodeUnauthenticated, commonv1.ErrorReason_ERROR_REASON_SESSION_ENDED,
+		"you were signed out on this device, please sign in again")
+}
+
 // RegisterDevice: see FirestoreRepo.RegisterDevice for what is read and written (a fresh registration writes nothing).
 // The FCM dry-run validation (N-5) is a Google API call, not a Firestore operation, and a token it rejects returns
 // INVALID_ARGUMENT before the repo is touched.
@@ -559,6 +599,9 @@ func (s *service) RegisterDevice(ctx context.Context, uid string, in DeviceInput
 	}
 	if in.Platform != PlatformIOS && in.Platform != PlatformAndroid {
 		return apierr.Validation("platform", "platform must be ios or android")
+	}
+	if err := s.checkSessionCut(ctx, uid); err != nil {
+		return err
 	}
 	if err := s.checkToken(ctx, uid, in.Token); err != nil {
 		return err

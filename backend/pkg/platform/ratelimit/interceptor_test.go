@@ -217,6 +217,17 @@ func TestInterceptor_DailyCapKey(t *testing.T) {
 			t.Fatalf("a new key must start a fresh counter: %v", err)
 		}
 	})
+	t.Run("an empty key falls back to the uid", func(t *testing.T) {
+		c := ratelimit.NewDailyCap(1)
+		named := ratelimit.NamedDailyCap{Name: "x_daily", Cap: c, Key: func(context.Context, string) string { return "" }}
+		srv := newServer(t, "uid-1", ratelimit.Config{DailyCaps: map[string]ratelimit.NamedDailyCap{procedure: named}})
+		if err := call(t, srv, ""); err != nil {
+			t.Fatalf("first call: %v", err)
+		}
+		if c.Spent("uid-1") != 1 || c.Spent("") != 0 {
+			t.Fatalf("spent uid=%d empty=%d, want 1 and 0", c.Spent("uid-1"), c.Spent(""))
+		}
+	})
 }
 
 func assertResourceExhausted(t *testing.T, err error) {

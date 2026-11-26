@@ -334,6 +334,10 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	notifService := notifications.NewService(notifications.Deps{
 		Repo: notifRepo, Directory: identitySvc.(identity.Directory), Social: graphSvc, Seen: identityRepo, Validator: tokenValidator, CursorKey: cfg.CursorHMACKey,
 		Blocks: graphSvc, // F-04: read-time blocked-by check for a caller whose blockedBy overflowed
+		// Lane D PR 5 fix round 1: RegisterPushDevice refuses a session from before the account's session cut, read fresh
+		// (never the 60 s cache) unless device_sign_out is globally off, so a cut thief cannot re-register push inside
+		// the other instances' stale-cache window.
+		SessionCuts: freshSessionCuts{repo: identityRepo}, SessionCutOn: sessionCutEnforced(featureFlags),
 	})
 	notifServer := notifications.NewServer(notifService, featureFlags, notifications.WithPrefs(notifPrefs))
 
@@ -430,8 +434,9 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 		audienceSvc = bo.audienceSource(postsSvc)
 	}
 	engAudience := rowAudience(posts.AudienceOf(audienceSvc))
-	// messages_commits_daily is keyed by the caller's session cut as well (lane D PR 5), read from identity's cached profile.
-	rlCfg := withCommitCapCutKey(RateLimitConfig(cfg), identitySvc)
+	// messages_commits_daily is keyed by the caller's session cut as well (lane D PR 5), peeked from identity's profile
+	// cache (never a read on a miss).
+	rlCfg := withCommitCapCutKey(RateLimitConfig(cfg), identityCutPeek(identityCache.GetProfile))
 	// F-03: ListBookmarks and ListLikedPosts drop rows whose author is not ACTIVE through identity's Directory (the page
 	// fails closed without it), so a wiring regression refuses to start instead.
 	engagementDir := identitySvc.(identity.Directory)

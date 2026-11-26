@@ -64,8 +64,9 @@ type NamedDailyCap struct {
 	Name string
 	Cap  *DailyCap
 	// Key, when set, builds the counter key from the verified uid (the call site owns the key's form, for example a
-	// messaging commit cap that starts fresh after a session cut). Nil keys the counter by the uid itself. It must not
-	// do I/O beyond a cache and must never return a key that is logged.
+	// messaging commit cap that starts fresh after a session cut). Nil keys the counter by the uid itself, and so does an
+	// empty result (a key func can never merge callers into one shared "" counter). It must do no I/O (a cache peek at
+	// most) and its key is never logged.
 	Key func(ctx context.Context, uid string) string
 }
 
@@ -74,7 +75,10 @@ func (n NamedDailyCap) key(ctx context.Context, uid string) string {
 	if n.Key == nil {
 		return uid
 	}
-	return n.Key(ctx, uid)
+	if k := n.Key(ctx, uid); k != "" {
+		return k
+	}
+	return uid
 }
 
 // Interceptor enforces per-uid and per-IP token buckets. Must run after authn.IDTokenInterceptor so a

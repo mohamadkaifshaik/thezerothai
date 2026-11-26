@@ -42,6 +42,13 @@ type PushRegistrations interface {
 	DropPushRegistrations(ctx context.Context, uid string) (int, error)
 }
 
+// PushDropReasoner is implemented by a DropPushRegistrations error that names the stage that failed (notifications'
+// DropError: "query", "token_index", "commit" or "raced"). keys logs that fixed word, never the error text; an error
+// without it logs "unknown", and a drop that ran out of its deadline logs "deadline".
+type PushDropReasoner interface {
+	PushDropReason() string
+}
+
 // Permission is the seam to the messaging send rules; the composition root fills it.
 type Permission interface {
 	// CanMessage answers whether caller may message target by the messaging send rules. A refusal is

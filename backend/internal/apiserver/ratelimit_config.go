@@ -21,6 +21,7 @@ import (
 	searchv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/search/v1/searchv1connect"
 	timelinev1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1/timelinev1connect"
 	"github.com/dzeroth/dzeroth/backend/internal/communities"
+	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/messaging"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
@@ -399,18 +400,41 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	}
 }
 
+// cutPeek answers uid's session cut from identity's profile cache only (ok=false on a miss): never a Firestore read.
+type cutPeek func(uid string) (cut time.Time, ok bool)
+
+// identityCutPeek adapts identity's cache peek (identity.Cache.GetProfile) to cutPeek.
+func identityCutPeek(peek func(uid string) (identity.Profile, bool)) cutPeek {
+	return func(uid string) (time.Time, bool) {
+		p, ok := peek(uid)
+		if !ok {
+			return time.Time{}, false
+		}
+		return p.SessionsValidAfter, true
+	}
+}
+
 // withCommitCapCutKey keys CommitConversation's daily call cap "messages_commits_daily" by the caller's session cut as
-// well (removal-server design Q8, lane D PR 5): messaging.CommitCapKey reads the cut from identity's cached profile (no
-// extra read; a uid without a cut keeps the bare-uid key byte for byte). The session cut interceptor runs before the rate
-// limiter, so only a session that passed the cut draws here, and it draws on the counter of the current cut: a drain from
-// before the cut cannot block the removal commits that follow. Applied in Build; RateLimitConfig stays a function of cfg.
-func withCommitCapCutKey(rl ratelimit.Config, cuts messaging.SessionCutReader) ratelimit.Config {
+// well (removal-server design Q8, lane D PR 5): messaging.CommitCapKeyFor tags the uid with the cut's IST day for a session
+// that signed in at or after the cut, and a uid without a cut keeps the bare-uid key byte for byte.
+//
+// Zero reads (fix round 1, code M1): the cut comes from a peek at identity's profile cache, never a read on a miss. With
+// device_sign_out enforced the cut interceptor just ran and filled the cache, so the peek hits; a miss (globally off, or
+// an evicted entry) keys by the bare uid, the pre-cut counter. The session cut interceptor runs before the rate limiter,
+// so only a session that passed the cut draws here. Applied in Build; RateLimitConfig stays a function of cfg.
+func withCommitCapCutKey(rl ratelimit.Config, peek cutPeek) ratelimit.Config {
 	proc := messagingv1connect.MessagingServiceCommitConversationProcedure
 	named, ok := rl.DailyCaps[proc]
-	if !ok || cuts == nil {
+	if !ok || peek == nil {
 		return rl
 	}
-	named.Key = func(ctx context.Context, uid string) string { return messaging.CommitCapKey(ctx, cuts, uid, uid) }
+	named.Key = func(ctx context.Context, uid string) string {
+		cut, hit := peek(uid)
+		if !hit {
+			return uid
+		}
+		return messaging.CommitCapKeyFor(ctx, uid, cut)
+	}
 	rl.DailyCaps[proc] = named
 	return rl
 }

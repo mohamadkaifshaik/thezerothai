@@ -20,6 +20,30 @@ const dropPage = 50
 // errDropRaced reports a drop batch whose preconditions lost a race with a concurrent registration.
 var errDropRaced = errors.New("notifications: drop push registrations: a registration changed during the drop")
 
+// The stages a DropError names (keys.PushDropReasoner): fixed words a log line may carry instead of the error text.
+const (
+	DropStageQuery      = "query"
+	DropStageTokenIndex = "token_index"
+	DropStageCommit     = "commit"
+	DropStageRaced      = "raced"
+)
+
+// DropError is a DropPushRegistrations failure with the stage it failed at. Its text names no uid, token or device id;
+// the cause (a Firestore error, with its gRPC status) stays in the chain.
+type DropError struct {
+	Stage string
+	Err   error
+}
+
+func (e *DropError) Error() string {
+	return "notifications: drop push registrations: " + e.Stage + ": " + e.Err.Error()
+}
+
+func (e *DropError) Unwrap() error { return e.Err }
+
+// PushDropReason implements keys.PushDropReasoner (keys never imports this package; the method is matched by shape).
+func (e *DropError) PushDropReason() string { return e.Stage }
+
 // DropPushRegistrations implements keys.PushRegistrations: it deletes every users/{uid}/devices document and the
 // deviceTokens entries that still name uid (a token another account took over is theirs and is kept), page by page, and
 // answers how many devices it deleted. The push preferences (users/{uid}/settings/notifications) are kept: they are the
@@ -37,6 +61,9 @@ func (r *FirestoreRepo) DropPushRegistrations(ctx context.Context, uid string) (
 			n, more, err = r.dropDevicePage(ctx, uid)
 		}
 		total += n
+		if errors.Is(err, errDropRaced) {
+			return total, &DropError{Stage: DropStageRaced, Err: err}
+		}
 		if err != nil {
 			return total, err
 		}
@@ -50,14 +77,14 @@ func (r *FirestoreRepo) DropPushRegistrations(ctx context.Context, uid string) (
 func (r *FirestoreRepo) dropDevicePage(ctx context.Context, uid string) (int, bool, error) {
 	docs, err := r.devices(uid).Limit(dropPage).Documents(ctx).GetAll()
 	if err != nil {
-		return 0, false, fmt.Errorf("notifications: drop push registrations: query: %w", err)
+		return 0, false, &DropError{Stage: DropStageQuery, Err: err}
 	}
 	if len(docs) == 0 {
 		return 0, false, nil
 	}
 	owned, err := r.ownedTokenIndex(ctx, uid, docs)
 	if err != nil {
-		return 0, false, fmt.Errorf("notifications: drop push registrations: %w", err)
+		return 0, false, &DropError{Stage: DropStageTokenIndex, Err: err}
 	}
 	committed, err := r.commitPurge(ctx, func(b store.Batch) {
 		for _, s := range owned {
@@ -68,7 +95,7 @@ func (r *FirestoreRepo) dropDevicePage(ctx context.Context, uid string) (int, bo
 		}
 	})
 	if err != nil {
-		return 0, false, fmt.Errorf("notifications: drop push registrations: commit: %w", err)
+		return 0, false, &DropError{Stage: DropStageCommit, Err: err}
 	}
 	if !committed {
 		return 0, false, errDropRaced

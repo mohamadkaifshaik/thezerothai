@@ -10,6 +10,7 @@ import (
 	"connectrpc.com/connect"
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
+	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/keys"
 	"github.com/dzeroth/dzeroth/backend/internal/messaging"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/apierr"
@@ -98,6 +99,30 @@ func TestNewKeysModule_RequiresSessionCutter(t *testing.T) {
 	lookup := keysLookupCap(4, 3, func(string) bool { return false })
 	if _, err := newKeysModule(unusedKeysRepo{}, nil, stubMessagingPermission{}, messaging.ConversationID, ratelimit.NewDailyCap(2), lookup, testKeysReauth, nil, stubPush{}, nil); err == nil {
 		t.Fatal("a nil session cutter was accepted")
+	}
+}
+
+// profileGetter is a GetProfile stub for freshSessionCuts.
+type profileGetter struct {
+	p   identity.Profile
+	err error
+}
+
+func (g profileGetter) GetProfile(context.Context, string) (identity.Profile, error) {
+	return g.p, g.err
+}
+
+// TestFreshSessionCuts: the stored cut; a missing profile is no cut; any other failure is an error, never "no cut".
+func TestFreshSessionCuts(t *testing.T) {
+	cut := time.Date(2026, 11, 26, 9, 0, 0, 0, time.UTC)
+	if got, err := (freshSessionCuts{repo: profileGetter{p: identity.Profile{SessionsValidAfter: cut}}}).FreshSessionsValidAfter(context.Background(), "u"); err != nil || !got.Equal(cut) {
+		t.Errorf("stored cut = %v, %v", got, err)
+	}
+	if got, err := (freshSessionCuts{repo: profileGetter{err: identity.ErrNotFound}}).FreshSessionsValidAfter(context.Background(), "u"); err != nil || !got.IsZero() {
+		t.Errorf("missing profile = %v, %v; want no cut", got, err)
+	}
+	if _, err := (freshSessionCuts{repo: profileGetter{err: errors.New("down")}}).FreshSessionsValidAfter(context.Background(), "u"); err == nil {
+		t.Error("a failed read answered no cut")
 	}
 }
 

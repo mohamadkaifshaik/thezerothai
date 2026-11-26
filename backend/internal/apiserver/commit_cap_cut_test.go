@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 
 	commonv1 "github.com/dzeroth/dzeroth/backend/gen/dzeroth/common/v1"
 	messagingv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/messaging/v1/messagingv1connect"
+	"github.com/dzeroth/dzeroth/backend/internal/identity"
 	"github.com/dzeroth/dzeroth/backend/internal/messaging"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
@@ -43,18 +45,56 @@ func (c *lockedCuts) set(uid string, t time.Time) {
 	c.cut[uid] = t
 }
 
-// TestWithCommitCapCutKey_OnlyTheCommitCap: the key is set on CommitConversation's cap alone; a nil reader leaves the
-// config as RateLimitConfig built it.
-func TestWithCommitCapCutKey_OnlyTheCommitCap(t *testing.T) {
+// peek is the cache peek the cap key uses: a miss when the uid has no entry at all.
+func (c *lockedCuts) peek(uid string) (time.Time, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	t, ok := c.cut[uid]
+	return t, ok
+}
+
+// TestWithCommitCapCutKey: the key is set on CommitConversation's cap alone; a nil peek leaves the config as
+// RateLimitConfig built it; a cache miss keys by the bare uid (no read); a hit tags a post-cut session only.
+func TestWithCommitCapCutKey(t *testing.T) {
 	commit := messagingv1connect.MessagingServiceCommitConversationProcedure
-	rl := withCommitCapCutKey(RateLimitConfig(defaultRateLimitCfg()), &lockedCuts{cut: map[string]time.Time{}})
+	cut := time.Date(2026, 11, 26, 9, 0, 0, 0, time.UTC)
+	cuts := &lockedCuts{cut: map[string]time.Time{"uid-cut": cut, "uid-none": {}}}
+	rl := withCommitCapCutKey(RateLimitConfig(defaultRateLimitCfg()), cuts.peek)
 	for p, named := range rl.DailyCaps {
 		if (named.Key != nil) != (p == commit) {
 			t.Errorf("%s: key set = %v, want it on CommitConversation only", p, named.Key != nil)
 		}
 	}
 	if withCommitCapCutKey(RateLimitConfig(defaultRateLimitCfg()), nil).DailyCaps[commit].Key != nil {
-		t.Error("a nil reader set a key")
+		t.Error("a nil peek set a key")
+	}
+	key := rl.DailyCaps[commit].Key
+	at := func(authTime time.Time) context.Context {
+		return authn.WithClaims(context.Background(), authn.Claims{UID: "x", AuthTime: authTime})
+	}
+	for _, tc := range []struct {
+		name string
+		uid  string
+		ctx  context.Context
+		want string
+	}{
+		{"cache miss: the bare uid", "uid-missing", at(cut), "uid-missing"},
+		{"no cut", "uid-none", at(cut), "uid-none"},
+		{"post-cut session", "uid-cut", at(cut), "uid-cut|c20261126"},
+		{"pre-cut session (globally off)", "uid-cut", at(cut.Add(-time.Minute)), "uid-cut"},
+	} {
+		if got := key(tc.ctx, tc.uid); got != tc.want {
+			t.Errorf("%s: key = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+	p := identityCutPeek(func(uid string) (identity.Profile, bool) {
+		return identity.Profile{SessionsValidAfter: cut}, uid == "hit"
+	})
+	if c, ok := p("hit"); !ok || !c.Equal(cut) {
+		t.Errorf("identityCutPeek hit = %v, %v", c, ok)
+	}
+	if _, ok := p("miss"); ok {
+		t.Error("identityCutPeek turned a miss into a hit")
 	}
 }
 
@@ -72,7 +112,9 @@ func TestChain_CommitDailyCapFreshAfterCut(t *testing.T) {
 	cfg.RateLimit.MessagesCommitPerUserPerMinute = 1_000_000
 	cfg.RateLimit.MessagesCommitsPerDay = daily
 	cuts := &lockedCuts{cut: map[string]time.Time{}}
-	rl := withCommitCapCutKey(RateLimitConfig(cfg), cuts)
+	rl := withCommitCapCutKey(RateLimitConfig(cfg), cuts.peek)
+	var cutOn atomic.Bool
+	cutOn.Store(true)
 	ics := chainInterceptors(chainDeps{
 		log: slog.New(slog.NewTextHandler(io.Discard, nil)), projectID: "demo-dzeroth-local",
 		appCheck: chainAppCheck{}, appCheckMode: authn.ModeMonitor,
@@ -81,7 +123,7 @@ func TestChain_CommitDailyCapFreshAfterCut(t *testing.T) {
 			"owner": {UID: uid, SignInProvider: authn.SignInProviderGoogle, EmailVerified: true, AuthTime: cut},
 		},
 		profileExempt: profileExemptProcedures(),
-		sessionCuts:   cuts, sessionCutOn: func() bool { return true },
+		sessionCuts:   cuts, sessionCutOn: cutOn.Load,
 		rateLimit: rl, degradedMode: config.DegradedMode(""), media: degraded.ProcedureSet{},
 		accountStatus: chainActive{}, publicIDs: passThrough,
 	})
@@ -143,5 +185,13 @@ func TestChain_CommitDailyCapFreshAfterCut(t *testing.T) {
 	}
 	if got := rl.DailyCaps[commit].Cap.Spent(uid); got != daily {
 		t.Errorf("the pre-cut counter moved to %d, want %d", got, daily)
+	}
+
+	// device_sign_out globally off (the emergency lever): the thief's session passes the cut check but stays on the
+	// drained pre-cut counter; it never gets the remover's fresh one.
+	cutOn.Store(false)
+	wantLimit(invoke("thief"))
+	if got := rl.DailyCaps[commit].Cap.Spent(messaging.CapKeyAfterCut(uid, cut)); got != daily {
+		t.Errorf("a pre-cut session drew on the post-cut counter: %d", got)
 	}
 }
