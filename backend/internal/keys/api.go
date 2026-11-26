@@ -33,6 +33,15 @@ type SessionCutter interface {
 	EndSessionsBefore(ctx context.Context, uid string, t time.Time) error
 }
 
+// PushRegistrations is the seam to notifications' push registrations (users/{uid}/devices and their deviceTokens
+// entries); the composition root fills it, keys never imports notifications (removal-server design Q9, lane D PR 5).
+// DropPushRegistrations deletes every push registration of uid and answers how many it deleted. It is idempotent (an
+// account without registrations is 0, nil) and keeps the user's push preferences. Honest devices register again on their
+// next app start, after their sign-in.
+type PushRegistrations interface {
+	DropPushRegistrations(ctx context.Context, uid string) (int, error)
+}
+
 // Permission is the seam to the messaging send rules; the composition root fills it.
 type Permission interface {
 	// CanMessage answers whether caller may message target by the messaging send rules. A refusal is

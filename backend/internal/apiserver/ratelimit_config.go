@@ -1,6 +1,7 @@
 package apiserver
 
 import (
+	"context"
 	"time"
 
 	articlesv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/articles/v1/articlesv1connect"
@@ -20,6 +21,7 @@ import (
 	searchv1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/search/v1/searchv1connect"
 	timelinev1connect "github.com/dzeroth/dzeroth/backend/gen/dzeroth/timeline/v1/timelinev1connect"
 	"github.com/dzeroth/dzeroth/backend/internal/communities"
+	"github.com/dzeroth/dzeroth/backend/internal/messaging"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/authn"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/config"
 	"github.com/dzeroth/dzeroth/backend/pkg/platform/ratelimit"
@@ -395,6 +397,22 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 		IP:               rlIP,
 		TrustedProxyHops: cfg.TrustedProxyHops,
 	}
+}
+
+// withCommitCapCutKey keys CommitConversation's daily call cap "messages_commits_daily" by the caller's session cut as
+// well (removal-server design Q8, lane D PR 5): messaging.CommitCapKey reads the cut from identity's cached profile (no
+// extra read; a uid without a cut keeps the bare-uid key byte for byte). The session cut interceptor runs before the rate
+// limiter, so only a session that passed the cut draws here, and it draws on the counter of the current cut: a drain from
+// before the cut cannot block the removal commits that follow. Applied in Build; RateLimitConfig stays a function of cfg.
+func withCommitCapCutKey(rl ratelimit.Config, cuts messaging.SessionCutReader) ratelimit.Config {
+	proc := messagingv1connect.MessagingServiceCommitConversationProcedure
+	named, ok := rl.DailyCaps[proc]
+	if !ok || cuts == nil {
+		return rl
+	}
+	named.Key = func(ctx context.Context, uid string) string { return messaging.CommitCapKey(ctx, cuts, uid, uid) }
+	rl.DailyCaps[proc] = named
+	return rl
 }
 
 // RestrictedAllowedProcedures is the exact set of procedures a SUSPENDED or DELETING caller may still reach:

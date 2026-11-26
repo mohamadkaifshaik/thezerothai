@@ -63,6 +63,18 @@ func IPBudgetKey(ip string) (key string, ok bool) {
 type NamedDailyCap struct {
 	Name string
 	Cap  *DailyCap
+	// Key, when set, builds the counter key from the verified uid (the call site owns the key's form, for example a
+	// messaging commit cap that starts fresh after a session cut). Nil keys the counter by the uid itself. It must not
+	// do I/O beyond a cache and must never return a key that is logged.
+	Key func(ctx context.Context, uid string) string
+}
+
+// key is the counter key of uid for this cap.
+func (n NamedDailyCap) key(ctx context.Context, uid string) string {
+	if n.Key == nil {
+		return uid
+	}
+	return n.Key(ctx, uid)
 }
 
 // Interceptor enforces per-uid and per-IP token buckets. Must run after authn.IDTokenInterceptor so a
@@ -111,7 +123,7 @@ func Interceptor(cfg Config) connect.UnaryInterceptorFunc {
 
 			if cfg.DailyCaps != nil && hasUID {
 				if named, ok := cfg.DailyCaps[procedure]; ok && named.Cap != nil {
-					if !named.Cap.Allow(uid) {
+					if !named.Cap.Allow(named.key(ctx, uid)) {
 						return nil, rejectDaily(ctx, named.Name, named.Cap)
 					}
 				}

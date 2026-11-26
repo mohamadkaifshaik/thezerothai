@@ -74,6 +74,9 @@ type Deps struct {
 	// Devices answers the welcome-device check of an mls_init (the key directory); required for a send carrying mls_init
 	// (without it such a send is an internal error), unused otherwise.
 	Devices Devices
+	// SessionCuts is identity's cached session cut: CommitConversation's two service caps are keyed by it as well, so a
+	// session after a cut starts fresh (caps_after_cut.go). Nil = no cut (unit rigs).
+	SessionCuts SessionCutReader
 	// AllowAnonymous is config.AuthEmulator only: the verified-email gate of Send and Accept lets emulator callers through.
 	AllowAnonymous bool
 	// CursorKey seals the list tokens (CURSOR_HMAC_KEY, like every other module); required for ListConversations.

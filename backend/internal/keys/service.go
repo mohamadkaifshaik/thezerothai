@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -74,6 +75,9 @@ type Deps struct {
 	// Sessions is identity's session cut (SessionCutter), injected by the composition root; newKeysModule fails when nil.
 	// A cut that is due with no Sessions wired is an error, never a silent success.
 	Sessions SessionCutter
+	// Push is notifications' push registrations (PushRegistrations), dropped when a REMOTE removal carries a session cut;
+	// newKeysModule fails when nil. Nil here drops nothing (unit rigs).
+	Push PushRegistrations
 }
 
 type service struct {
@@ -87,6 +91,7 @@ type service struct {
 	log           *slog.Logger
 	reauthMaxAge  time.Duration
 	sessions      SessionCutter
+	push          PushRegistrations
 }
 
 // New builds the service.
@@ -100,7 +105,7 @@ func New(d Deps) Service {
 		log = slog.Default()
 	}
 	return &service{repo: d.Repo, now: now, perm: d.Permission, flags: d.Flags, claimCap: d.ClaimCap, chargeLookups: d.ChargeLookups,
-		convID: d.ConversationID, log: log, reauthMaxAge: d.ReauthMaxAge, sessions: d.Sessions}
+		convID: d.ConversationID, log: log, reauthMaxAge: d.ReauthMaxAge, sessions: d.Sessions, push: d.Push}
 }
 
 var _ Service = (*service)(nil)
@@ -211,7 +216,8 @@ const fieldSessionsEnded = "other_sessions_ended"
 // the caller's own session passes the cut; a retry without a recent sign-in never asks for one, it only finishes a cut
 // already on the mark); (4) a cut on the mark that is not done is written through SessionCutter, then noted done on the
 // mark; both before the sweep, so a failure leaves the device for the retry, which needs no sign-in and writes the same
-// cut; (5) the sweep and delete.
+// cut; (4b) with the cut done, the account's push registrations are dropped (dropPush, best effort); (5) the sweep and
+// delete.
 func (s *service) RemoveDevice(ctx context.Context, uid, deviceID string, reason RemoveReason) (RemoveResult, error) {
 	begin(ctx, "remove")
 	if err := validDeviceID(ctx, deviceID); err != nil {
@@ -251,6 +257,9 @@ func (s *service) RemoveDevice(ctx context.Context, uid, deviceID string, reason
 		}
 		res.OtherSessionsEnded = st.CutDone
 		logger.SetRequestField(ctx, fieldSessionsEnded, res.OtherSessionsEnded)
+		if st.CutDone {
+			s.dropPush(ctx, uid)
+		}
 	}
 	if err := s.repo.Remove(ctx, uid, deviceID); err != nil {
 		return RemoveResult{}, s.mapErr(ctx, "remove", uid, err)
@@ -277,6 +286,33 @@ func (s *service) cutSessions(ctx context.Context, uid, deviceID string, at time
 		"err", logger.RedactErr(err, uid, deviceID).Error())
 	return apierr.New(connect.CodeUnavailable, commonv1.ErrorReason_ERROR_REASON_UNSPECIFIED, "temporarily busy, please retry").
 		WithRetryAfter(time.Second)
+}
+
+// fieldPushDropped is the request-line count of push registrations a REMOTE removal with a session cut deleted;
+// fieldPushDropFailed is set when that drop failed. Counts and bools only, never a uid, a time or a token.
+const (
+	fieldPushDropped    = "push_registrations_dropped"
+	fieldPushDropFailed = "push_drop_failed"
+)
+
+// dropPush deletes the account's push registrations after a session cut (removal-server design Q9, lane D PR 5), so the
+// lost phone stops receiving notifications; honest devices register again on their next app start. It runs on every
+// REMOTE call whose mark carries a done cut, so the first removal drops them and a retry of the same removal tries again
+// (the drop is idempotent). It is gated like the cut write: a cut is only recorded with device_sign_out on for the
+// remover. A failure never fails the removal: a WARN with no uid, time or token, and push_drop_failed on the request line.
+func (s *service) dropPush(ctx context.Context, uid string) {
+	if s.push == nil {
+		return
+	}
+	n, err := s.push.DropPushRegistrations(ctx, uid)
+	if err != nil {
+		logger.SetRequestField(ctx, fieldPushDropFailed, true)
+		// No uid_hash either: the line is counts-only. The notifications errors name no uid or token; a uid that reaches
+		// the text anyway is replaced, not hashed.
+		s.log.WarnContext(ctx, "keys_push_drop_failed", "err", strings.ReplaceAll(err.Error(), uid, "[uid]"))
+		return
+	}
+	logger.SetRequestField(ctx, fieldPushDropped, n)
 }
 
 // fieldReauthRequired is the request-line field authn.RequireRecentSignIn sets on its refusal.
