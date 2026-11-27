@@ -1,3 +1,6 @@
+import 'dart:ui' as ui;
+
+import 'package:flutter/rendering.dart' show RenderRepaintBoundary;
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
@@ -105,15 +108,77 @@ void main() {
         expect(r.width / r.height, closeTo(_strip, 0.002));
       }
       expect(rects.last.right, lessThan(column));
-      final position = tester
-          .state<ScrollableState>(find.byType(Scrollable).first)
-          .position;
-      expect(position.maxScrollExtent, 0);
+      expect(
+        find.descendant(
+          of: find.byType(PostMedia),
+          matching: find.byType(Scrollable),
+        ),
+        findsNothing,
+      );
       for (final image in tester.widgetList<CachedNetworkImage>(
         find.byType(CachedNetworkImage),
       )) {
         expect(image.memCacheWidth, greaterThanOrEqualTo(1));
       }
+    });
+  }
+
+  for (final count in [4, 7, 16]) {
+    testWidgets('desktop fitted row of $count strips leaves unused space '
+        'to the feed card', (tester) async {
+      final opened = <int>[];
+      var cardTaps = 0;
+      final capture = GlobalKey();
+      const cardColor = Color(0xff306090);
+      await pumpThemed(
+        tester,
+        Align(
+          alignment: Alignment.topLeft,
+          child: RepaintBoundary(
+            key: capture,
+            child: Material(
+              color: cardColor,
+              child: SizedBox(
+                width: 706,
+                child: InkWell(
+                  onTap: () => cardTaps++,
+                  child: PostMedia(
+                    media: [
+                      for (var i = 0; i < count; i++) _photo(54, 1440, n: i),
+                    ],
+                    onOpenImage: opened.add,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        size: const Size(1440, 1000),
+      );
+      final rects = tiles(tester);
+      expect(rects, hasLength(count));
+      expect(find.byType(Scrollable), findsNothing);
+      // Even while the image providers have no usable response, the row
+      // must leave the actual card color visible between and beyond tiles.
+      final boundary = tester.renderObject<RenderRepaintBoundary>(
+        find.byKey(capture),
+      );
+      final image = boundary.toImageSync();
+      final pixels = await tester.runAsync(
+        () => image.toByteData(format: ui.ImageByteFormat.rawRgba),
+      );
+      try {
+        for (final x in [(rects.first.right + 2).floor(), 700]) {
+          final offset = (image.width * 300 + x) * 4;
+          expect(pixels!.getUint32(offset), 0x306090ff);
+        }
+      } finally {
+        image.dispose();
+      }
+      await tester.tapAt(rects.last.center);
+      await tester.tapAt(Offset(700, rects.last.center.dy));
+      expect(opened, [count - 1]);
+      expect(cardTaps, 1);
     });
   }
 

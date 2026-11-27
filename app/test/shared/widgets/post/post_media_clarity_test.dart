@@ -127,6 +127,44 @@ void main() {
     expect((thumb! as CachedNetworkImage).imageUrl, 'https://cdn/t.jpg');
   });
 
+  testWidgets(
+    'a narrow feed row fetches each original once and keeps a thumbnail fallback',
+    (tester) async {
+      final refs = List.generate(
+        16,
+        (i) =>
+            _ref(54, 1440, thumb: 'https://cdn/thumb-$i.jpg')
+              ..url = 'https://cdn/full-$i.jpg',
+      );
+      await pumpThemed(
+        tester,
+        Align(
+          alignment: Alignment.topLeft,
+          child: MediaQuery(
+            data: const MediaQueryData(devicePixelRatio: 2.75),
+            child: SizedBox(width: 320, child: PostMedia(media: refs)),
+          ),
+        ),
+      );
+      final images = tester.widgetList<CachedNetworkImage>(
+        find.byType(CachedNetworkImage),
+      );
+      final context = tester.element(find.byType(PostMedia));
+      expect(images.map((image) => image.imageUrl), refs.map((ref) => ref.url));
+      for (final (i, image) in images.indexed) {
+        final loading =
+            image.placeholder!(context, image.imageUrl) as ColoredBox;
+        expect(loading.child, isNull);
+        final error = image.errorWidget!(
+          context,
+          image.imageUrl,
+          Exception(),
+        ) as ColoredBox;
+        expect((error.child! as CachedNetworkImage).imageUrl, refs[i].thumbUrl);
+      }
+    },
+  );
+
   testWidgets('a panorama decodes at the width its crop needs', (tester) async {
     // 4:1 stored, the frame is 3:1 at most: the image is drawn 4/3 wider
     // than the frame.

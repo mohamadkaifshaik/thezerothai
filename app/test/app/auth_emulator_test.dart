@@ -28,6 +28,23 @@ void main() {
     verify(() => auth.useAuthEmulator('127.0.0.1', 9099)).called(1);
   });
 
+  test('a physical device uses the requested adb reverse address', () async {
+    final auth = _MockAuth();
+    when(
+      () =>
+          auth.useAuthEmulator('127.0.0.1', 9099, automaticHostMapping: false),
+    ).thenAnswer((_) async {});
+    await configureAuthEmulator(
+      auth,
+      _config(emulators: true),
+      automaticHostMapping: false,
+    );
+    verify(
+      () =>
+          auth.useAuthEmulator('127.0.0.1', 9099, automaticHostMapping: false),
+    ).called(1);
+  });
+
   test('does nothing when emulators are off', () async {
     final auth = _MockAuth();
     await configureAuthEmulator(auth, _config(emulators: false));

@@ -144,7 +144,13 @@ Future<void> bootstrap() async {
   );
   final firebaseAuth = fb_auth.FirebaseAuth.instanceFor(app: firebaseApp);
   try {
-    await configureAuthEmulator(firebaseAuth, config);
+    await configureAuthEmulator(
+      firebaseAuth,
+      config,
+      // A physical Android device reaches explicit loopback hosts via adb reverse.
+      automaticHostMapping: const String.fromEnvironment('AUTH_EMULATOR_HOST')
+          .isEmpty,
+    );
   } on AppConfigError catch (e) {
     runApp(_ConfigErrorApp(message: e.message));
     return;

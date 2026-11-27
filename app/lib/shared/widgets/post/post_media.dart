@@ -11,6 +11,7 @@ import '../../../features/media/domain/media_feature_flag.dart'
     show kMaxPostImages;
 import '../../../features/media/domain/image_processor.dart'
     show kPostThumbEdge;
+import '../../../features/media/domain/unusual_aspect.dart';
 import '../../../features/media/domain/processed_image.dart'
     show kGifContentType, kVideoContentType;
 import '../../../features/settings/presentation/bloc/data_usage_cubit.dart';
@@ -51,7 +52,8 @@ import 'post_media_navigation.dart';
 /// review #110 M2). The one exception is [thumbSuffices] saying the thumbnail
 /// is too small for the frame (a 400 px legacy thumb stretched over a
 /// high-density column, or a frame wider than the 1080 px thumb): then the
-/// full `url` loads with the thumbnail as its placeholder. The detail view
+/// full `url` loads. Most tiles show the thumbnail while waiting. Thin strips
+/// request it only if the original fails, to avoid competing downloads. The detail view
 /// passes [useFullImage] to show `url` instead. Data saver, or High-quality
 /// images set to Never (or Wi-Fi only on mobile data), turns that exception
 /// off in the feed: the thumbnail only (Settings > Data usage); the detail
@@ -289,6 +291,7 @@ class PostMedia extends StatelessWidget {
         }
         final height = rowHeight(items, column: column);
         return _MediaStrip(
+          column: column,
           sizes: [for (final m in items) tileSize(m, height: height)],
           showIndicator: showPageIndicator,
           insetStart: insetStart,
@@ -377,6 +380,7 @@ class _RefreshPostMediaState extends State<_RefreshPostMedia> {
 /// edges. Optionally the dots below (on the column).
 class _MediaStrip extends StatefulWidget {
   const _MediaStrip({
+    required this.column,
     required this.sizes,
     required this.showIndicator,
     required this.insetStart,
@@ -388,6 +392,7 @@ class _MediaStrip extends StatefulWidget {
   /// Opens the viewer at an index; with it, a tile narrower than the 48 dp
   /// target gets a padded hit area (see [_MediaStripState]).
   final ValueChanged<int>? onOpen;
+  final double column;
   final List<Size> sizes;
   final bool showIndicator;
   final double insetStart;
@@ -479,44 +484,61 @@ class _MediaStripState extends State<_MediaStrip> {
   Widget build(BuildContext context) {
     final count = widget.sizes.length;
     final height = widget.sizes.first.height;
-    final list = ListView.builder(
-      controller: _scroll,
-      scrollDirection: Axis.horizontal,
-      primary: false,
-      itemCount: count,
-      padding: EdgeInsetsDirectional.only(
-        start: widget.insetStart,
-        end: widget.insetEnd,
-      ),
-      itemBuilder: (context, index) => Padding(
-        padding: EdgeInsetsDirectional.only(
-          end: index == count - 1 ? 0 : AppSize.postMediaRowGap,
-        ),
-        child: widget.tile(index, widget.sizes[index]),
-      ),
+    final narrow = widget.sizes.any((s) => s.width < AppSpacing.minTapTarget);
+    final contentWidth = widget.sizes.fold<double>(
+      (count - 1) * AppSize.postMediaRowGap,
+      (sum, size) => sum + size.width,
     );
-    final thin =
-        widget.onOpen != null &&
-        widget.sizes.any((s) => s.width < AppSpacing.minTapTarget);
+    final fits = narrow && contentWidth <= widget.column;
+    Widget tile(int index) => Padding(
+      padding: EdgeInsetsDirectional.only(
+        end: index == count - 1 ? 0 : AppSize.postMediaRowGap,
+      ),
+      child: widget.tile(index, widget.sizes[index]),
+    );
+    final insets = EdgeInsetsDirectional.only(
+      start: widget.insetStart,
+      end: widget.insetEnd,
+    );
+    // A group of thin slices often fits with room to spare. Paint those
+    // pictures directly, without a composited scrolling viewport across the
+    // empty part of the card. Keep the lazy list for rows that can scroll.
+    final pictures = fits
+        ? Padding(
+            padding: insets,
+            child: Row(children: [for (var i = 0; i < count; i++) tile(i)]),
+          )
+        : ListView.builder(
+            controller: _scroll,
+            scrollDirection: Axis.horizontal,
+            primary: false,
+            itemCount: count,
+            padding: insets,
+            itemBuilder: (context, index) => tile(index),
+          );
     final strip = SizedBox(
       height: height,
-      child: thin
-          ? Stack(
+      child: !narrow || widget.onOpen == null
+          ? pictures
+          : Stack(
+              fit: StackFit.expand,
               children: [
-                list,
-                ListenableBuilder(
-                  listenable: _scroll,
-                  builder: (context, _) => Stack(
-                    clipBehavior: Clip.none,
-                    children: _hitAreas(
-                      _scroll.hasClients ? _scroll.offset : 0,
-                      height,
+                pictures,
+                if (fits)
+                  ..._hitAreas(0, height)
+                else
+                  ListenableBuilder(
+                    listenable: _scroll,
+                    builder: (context, _) => Stack(
+                      clipBehavior: Clip.none,
+                      children: _hitAreas(
+                        _scroll.hasClients ? _scroll.offset : 0,
+                        height,
+                      ),
                     ),
                   ),
-                ),
               ],
-            )
-          : list,
+            ),
     );
     if (!widget.showIndicator) return strip;
     return Column(
@@ -532,7 +554,7 @@ class _MediaStripState extends State<_MediaStrip> {
             start: widget.insetStart,
             end: widget.insetEnd,
           ),
-          child: _PageDots(count: count, page: _page),
+          child: _PageDots(count: count, page: fits ? 0 : _page),
         ),
       ],
     );
@@ -722,12 +744,15 @@ Widget _feedImage(common.MediaRef media, ColorScheme colors) {
       if (!useFull) {
         return _cached(media.thumbUrl, colors, needed);
       }
-      return _cached(
-        media.url,
-        colors,
-        needed,
-        placeholder: _cached(media.thumbUrl, colors, needed),
-      );
+      // A row of narrow originals is already small. Fetching a second image
+      // per strip competes with the pictures the feed is trying to display.
+      final thumbnail = _cached(media.thumbUrl, colors, needed);
+      if (constraints.maxWidth < AppSpacing.minTapTarget &&
+          unusualShapeOf(width: media.width, height: media.height) ==
+              UnusualShape.narrow) {
+        return _cached(media.url, colors, needed, fallback: thumbnail);
+      }
+      return _cached(media.url, colors, needed, placeholder: thumbnail);
     },
   );
 }
@@ -739,6 +764,7 @@ Widget _cached(
   ColorScheme colors,
   int width, {
   Widget? placeholder,
+  Widget? fallback,
 }) {
   final blank = ColoredBox(color: colors.surfaceContainerHigh);
   return ColoredBox(
@@ -753,13 +779,15 @@ Widget _cached(
       height: double.infinity,
       memCacheWidth: width > 0 ? width : null,
       placeholder: (_, _) => placeholder ?? blank,
-      errorWidget: (_, _, _) => ColoredBox(
-        color: colors.surfaceContainerHigh,
-        child: Icon(
-          Icons.broken_image_outlined,
-          color: colors.onSurfaceVariant,
-        ),
-      ),
+      errorWidget: (_, _, _) =>
+          fallback ??
+          ColoredBox(
+            color: colors.surfaceContainerHigh,
+            child: Icon(
+              Icons.broken_image_outlined,
+              color: colors.onSurfaceVariant,
+            ),
+          ),
     ),
   );
 }
