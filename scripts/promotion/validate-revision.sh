@@ -2,7 +2,8 @@
 # Usage: validate-revision.sh <revision.json> <flag-ceiling.json> <env>
 # <revision.json> is `gcloud run revisions describe <rev> --format=json`. Pure: no network, no credentials.
 # Fails closed on: unknown FEATURE_* names, FEATURE_* from valueFrom, bad modes/percents, effective mode above
-# the env ceiling, allowlist larger than its ceiling, and max/min instance mismatch. Prints names and counts only.
+# the env ceiling, allowlist larger than its ceiling, max/min instance mismatch, and a flag stage that breaks an E2EE
+# coupling (section 2b). Prints names and counts only.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=lib.sh
@@ -60,6 +61,67 @@ while read -r flag; do
   [ "$count" -le "$maxal" ] || fail "$flag allowlist has $count entries, ceiling is $maxal"
   note "$flag mode=$mode (ceiling $cmode) allowlist=$count/$maxal percent=$pct/$maxpct"
 done <<<"$known"
+
+# 2b. E2EE couplings (E2EE Plan 6 §1.4, owner decision 2026-11-25, PR 6-1 security review L4). "A covers B" means:
+# wherever B can be on for a uid, A is on for that uid, judged on this revision's own FEATURE_* values (unset = the
+# ceiling's unset_default, as above):
+#   B off, or B allowlist with an empty list  -> covered
+#   A on, or A percent 100                    -> covers anything
+#   B on or percent                           -> A must be on (or percent 100): percent buckets are salted per flag
+#                                                name, fnv32a(name:uid)%100 (flags.go), so two cohorts never line up
+#   B allowlist                               -> A allowlist or percent, and A's allowlist holds every B uid (the
+#                                                allowlist applies in percent mode too)
+# Uids are compared in memory only; output carries names, modes and counts, never a uid.
+fmode() {
+  local m
+  m=$(envval "FEATURE_$1")
+  [ -n "$m" ] || m=$(jqr --arg e "$env" --arg f "$1" '.unset_default[$e][$f] // "off"' "$ceil")
+  printf '%s' "$m"
+}
+fpct() { local v; v=$(envval "FEATURE_${1}_PERCENT"); printf '%s' "${v:-0}"; }
+fuids() { envval "FEATURE_${1}_ALLOWLIST" | tr ',' '\n' | tr -d '\r\t ' | grep . | LC_ALL=C sort -u || true; }
+everyone() { local m; m=$(fmode "$1"); [ "$m" = on ] || { [ "$m" = percent ] && [ "$(fpct "$1")" = 100 ]; }; }
+
+# covers <A> <B> <fail|warn> <why>
+covers() {
+  local a=$1 b=$2 sev=$3 why=$4 f m ma mb n missing msg=""
+  for f in "$a" "$b"; do
+    if ! grep -qxF "$f" <<<"$known"; then fail "E2EE coupling ($why) names $f, which the ceiling does not list"; return; fi
+    m=$(fmode "$f")
+    case $m in off | allowlist | percent | on) ;; *) fail "E2EE coupling ($why): cannot judge $f mode '$m'"; return ;; esac
+  done
+  ma=$(fmode "$a")
+  mb=$(fmode "$b")
+  if [ "$mb" != off ] && ! everyone "$a"; then
+    case $mb in
+      on | percent) msg="$b is $mb, so $a must be on (a percent cohort cannot be covered by an allowlist or another percent); $a is $ma" ;;
+      allowlist)
+        n=$(fuids "$b" | grep -c . || true)
+        if [ "$n" -gt 0 ] && [ "$ma" = off ]; then
+          msg="$b allowlist has $n uid(s) but $a is off"
+        elif [ "$n" -gt 0 ]; then
+          missing=$(LC_ALL=C comm -23 <(fuids "$b") <(fuids "$a") | grep -c . || true)
+          [ "$missing" -eq 0 ] || msg="$missing of $n $b allowlist uid(s) are not in the $a allowlist ($a is $ma)"
+        fi
+        ;;
+    esac
+  fi
+  if [ -z "$msg" ]; then note "E2EE coupling: $a covers $b ($a=$ma, $b=$mb)"; return; fi
+  if [ "$sev" = warn ]; then warn "E2EE coupling ($why): $msg"; else fail "E2EE coupling ($why): $msg"; fi
+}
+
+# 1. Owner decision 2026-11-25: the share check is on wherever encrypted DMs are (wider than E2EE_REQUIRED alone).
+covers DM_SHARE_CHECK E2EE_DM fail "dm_share_check must be on wherever e2ee_dm is"
+# 2. Plan §1.4: prod MESSAGING never leaves off before E2EE_REQUIRED is in the same cohort. Dev holds old plaintext test
+#    data by design, so dev only warns; every other env fails closed.
+if [ "$env" = dev ]; then req_sev=warn; else req_sev=fail; fi
+covers E2EE_REQUIRED MESSAGING "$req_sev" "e2ee_required must be on wherever messaging is"
+# 3. Plan §1.4: the share check is on wherever plaintext is refused (checked directly, not only through rule 1).
+covers DM_SHARE_CHECK E2EE_REQUIRED fail "dm_share_check must be on wherever e2ee_required is"
+# 4. The server narrows claim_live to e2ee_required && device_sign_out (apiserver.coupleE2EE); refuse a claim cohort the
+#    server would silently narrow.
+covers E2EE_REQUIRED E2EE_CLAIM fail "e2ee_required must be on wherever claim_live is"
+covers DEVICE_SIGN_OUT E2EE_CLAIM fail "device_sign_out must be on wherever claim_live is"
 
 # 3. Shape: instance caps are cost caps (the cost-caps-are-code rule).
 want_max=$(jqr --arg e "$env" '.envs[$e].max_instances' "$ceil")
