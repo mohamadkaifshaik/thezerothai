@@ -227,12 +227,18 @@ void main() {
     late StreamController<AppUser?> users;
 
     setUp(() {
-      users = StreamController<AppUser?>();
+      // Fix round 3, m2: stubs that add to the stream use this test's own
+      // controller, so a late call left over from an earlier test can never
+      // push into the next test's stream. `authStateChanges` reads [users]
+      // when the bloc subscribes, inside the test that built it (one test
+      // below swaps [users] per bloc).
+      final controller = StreamController<AppUser?>();
+      users = controller;
       when(() => authRepository.authStateChanges())
           .thenAnswer((_) => users.stream);
       // Firebase emits the null user once sign-out completes.
       when(() => authRepository.signOut()).thenAnswer((_) async {
-        users.add(null);
+        if (!controller.isClosed) controller.add(null);
       });
     });
     tearDown(() => users.close());
@@ -240,6 +246,7 @@ void main() {
     Future<AuthBloc> signedIn() async {
       final bloc = AuthBloc(authRepository: authRepository)
         ..add(const AuthSubscriptionRequested());
+      addTearDown(bloc.close);
       users.add(verifiedUser);
       await pumpEventQueue();
       expect(bloc.state.user, verifiedUser);
@@ -326,8 +333,9 @@ void main() {
 
     test('a PARTIAL sign-out failure (Firebase signed out, Google failed) '
         'keeps the intent: the end is still userSignedOut', () async {
+      final controller = users;
       when(() => authRepository.signOut()).thenAnswer((_) async {
-        users.add(null);
+        controller.add(null);
         throw StateError('google sign-out failed');
       });
       when(() => authRepository.currentUser).thenReturn(null);
@@ -362,6 +370,7 @@ void main() {
         beforeSignOut: () async => before++,
         beforeExplicitSignOut: (uid) async => explicit.add(uid),
       )..add(const AuthSubscriptionRequested());
+      addTearDown(bloc.close);
       users.add(verifiedUser);
       await pumpEventQueue();
       // Expressed for another account (e.g. the tab switched users).
@@ -388,6 +397,7 @@ void main() {
         beforeSignOut: () async => before++,
         beforeExplicitSignOut: (uid) async => explicit.add(uid),
       )..add(const AuthSubscriptionRequested());
+      addTearDown(bloc.close);
       users.add(null);
       await pumpEventQueue();
       expect(bloc.state.user, isNull);
@@ -446,6 +456,7 @@ void main() {
           authRepository: authRepository,
           beforeExplicitSignOut: (uid) async => explicit.add(uid),
         )..add(const AuthSubscriptionRequested());
+        addTearDown(bloc.close);
         users.add(verifiedUser);
         await pumpEventQueue();
         bloc.add(const AuthSignOutRequested(arm: false));
@@ -467,6 +478,7 @@ void main() {
         authRepository: authRepository,
         beforeExplicitSignOut: (uid) async => explicit.add(uid),
       )..add(const AuthSubscriptionRequested());
+      addTearDown(bloc.close);
       users.add(verifiedUser);
       await pumpEventQueue();
       bloc.add(const AuthSignOutRequested(uid: 'uid-1'));
@@ -518,6 +530,7 @@ void main() {
       when(() => authRepository.signOut()).thenAnswer((_) async {});
       final bloc = AuthBloc(authRepository: authRepository)
         ..add(const AuthSubscriptionRequested());
+      addTearDown(bloc.close);
       users.add(null);
       await pumpEventQueue();
       bloc.add(const AuthSignOutRequested());
@@ -559,12 +572,14 @@ void main() {
     setUp(() {
       beforeSignOut = 0;
       beforeExplicit = 0;
-      users = StreamController<AppUser?>();
+      // Fix round 3, m2: this test's own controller (see 'lastSessionEnd').
+      final controller = StreamController<AppUser?>();
+      users = controller;
       when(() => authRepository.authStateChanges())
-          .thenAnswer((_) => users.stream);
+          .thenAnswer((_) => controller.stream);
       when(() => authRepository.signOut()).thenAnswer((_) async {
         await Future<void>.delayed(Duration.zero);
-        users.add(null);
+        if (!controller.isClosed) controller.add(null);
       });
     });
     tearDown(() => users.close());
@@ -582,6 +597,7 @@ void main() {
         beforeSignOut: () async => beforeSignOut++,
         beforeExplicitSignOut: (_) async => beforeExplicit++,
       )..add(const AuthSubscriptionRequested());
+      addTearDown(bloc.close);
       users.add(verifiedUser);
       await pumpEventQueue();
       expect(bloc.state.user, verifiedUser);
@@ -796,12 +812,14 @@ void main() {
       // Fix round 1, R2: by default the probe finds this sign-in revoked.
       probe = SignInProbe.dead;
       probes = 0;
-      users = StreamController<AppUser?>();
+      // Fix round 3, m2: this test's own controller (see 'lastSessionEnd').
+      final controller = StreamController<AppUser?>();
+      users = controller;
       when(() => authRepository.authStateChanges())
-          .thenAnswer((_) => users.stream);
+          .thenAnswer((_) => controller.stream);
       when(() => authRepository.signOut()).thenAnswer((_) async {
         await Future<void>.delayed(Duration.zero);
-        users.add(null);
+        if (!controller.isClosed) controller.add(null);
       });
       when(() => authRepository.probeSignIn()).thenAnswer((_) async {
         probes++;
@@ -840,6 +858,7 @@ void main() {
         beforeSignOut: () async => beforeSignOut++,
         beforeExplicitSignOut: (uid) async => beforeExplicit.add(uid),
       )..add(const AuthSubscriptionRequested());
+      addTearDown(bloc.close);
       users.add(verifiedUser);
       await pumpEventQueue();
       expect(bloc.state.user, verifiedUser);
@@ -922,8 +941,9 @@ void main() {
 
     test('the SDK signing out during the probe still reads as the remover\'s '
         'end', () async {
+      final controller = users;
       when(() => authRepository.probeSignIn()).thenAnswer((_) async {
-        users.add(null);
+        controller.add(null);
         await pumpEventQueue();
         return SignInProbe.dead;
       });
@@ -1046,10 +1066,11 @@ void main() {
       setUp: () {
         calls = 0;
         when(() => authRepository.currentUser).thenReturn(verifiedUser);
+        final controller = users;
         when(() => authRepository.signOut()).thenAnswer((_) async {
           calls++;
           if (calls == 1) throw StateError('platform');
-          users.add(null);
+          if (!controller.isClosed) controller.add(null);
         });
       },
       build: () => AuthBloc(authRepository: authRepository),
@@ -1086,9 +1107,10 @@ void main() {
     group('checkOwnRemoval (the Settings check)', () {
       test('the SDK signing out during the probe lands with the remover '
           'notice; the report then signs out nobody twice', () async {
+        final controller = users;
         when(() => authRepository.probeSignIn()).thenAnswer((_) async {
           probes++;
-          users.add(null);
+          controller.add(null);
           await pumpEventQueue();
           return SignInProbe.dead;
         });
@@ -1117,6 +1139,24 @@ void main() {
         verify(() => authRepository.signOut()).called(1);
         expect(probes, 1);
         expect(bloc.state.signedOutAfterOwnRemoval, isTrue);
+        await bloc.close();
+      });
+
+      // Fix round 3, m1: an armed reason alone (the dialog open, no remover
+      // sign-out running) does not hold a real cut back.
+      test('dead, the dialog still open: a SESSION_ENDED report for that uid '
+          'signs out now, and the cut\'s notice wins', () async {
+        final bloc = await signedIn();
+        expect(await checkHookOf()('uid-1'), SignInProbe.dead);
+        expect(bloc.state.user, verifiedUser);
+        cutHookOf()('uid-1');
+        await pumpEventQueue();
+        verify(() => authRepository.signOut()).called(1);
+        expect(bloc.state.user, isNull);
+        expect(bloc.state.lastSessionEnd, SessionEnd.sessionLost);
+        expect(bloc.state.signedOutByDeviceRemoval, isTrue);
+        expect(bloc.state.signedOutAfterOwnRemoval, isFalse);
+        expect(beforeSignOut, 0, reason: 'the cut path, not the remover\'s');
         await bloc.close();
       });
 
