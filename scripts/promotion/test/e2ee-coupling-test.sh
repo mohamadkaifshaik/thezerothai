@@ -5,7 +5,7 @@
 #   rule 1  DM_SHARE_CHECK covers E2EE_DM                    (owner decision 2026-11-25)
 #   rule 2  E2EE_REQUIRED covers MESSAGING: prod fails, dev warns (plan §1.4)
 #   rule 3  DM_SHARE_CHECK covers E2EE_REQUIRED              (plan §1.4)
-#   rule 4  E2EE_REQUIRED and DEVICE_SIGN_OUT cover E2EE_CLAIM (apiserver.coupleE2EE)
+#   rule 4  E2EE_REQUIRED, DEVICE_SIGN_OUT and MESSAGING cover E2EE_CLAIM (apiserver.coupleE2EE)
 # Most cases use a test ceiling that lets the six flags reach "on" with any percent in both envs (and gives prod dev's
 # scaling), so only the coupling rules decide; a few use the committed ceiling for today's dev stage.
 set -uo pipefail
@@ -94,7 +94,7 @@ rv "$(fl E2EE_DM allowlist "$A,$B")" "$(fl DM_SHARE_CHECK allowlist "$A,$B")"
 expect "r1 equal allowlists" 0 "$V" "$tmp/r" "$tc" dev
 rv "$(fl E2EE_DM allowlist "$A,$B")" "$(fl DM_SHARE_CHECK allowlist "$A")"
 expect_msg "r1 allowlist not a superset (dev fails too)" 1 "1 of 2 E2EE_DM allowlist uid(s) are not in the DM_SHARE_CHECK allowlist" "$V" "$tmp/r" "$tc" dev
-expect "r1 allowlist not a superset, prod" 1 "$V" "$tmp/r" "$tc" prod
+expect_msg "r1 allowlist not a superset, prod" 1 "1 of 2 E2EE_DM allowlist uid(s) are not in the DM_SHARE_CHECK allowlist" "$V" "$tmp/r" "$tc" prod
 rv "$(fl E2EE_DM allowlist "$A,$B")" "$(fl DM_SHARE_CHECK allowlist "$C")"
 expect_msg "r1 disjoint allowlists" 1 "2 of 2 E2EE_DM" "$V" "$tmp/r" "$tc" dev
 rv "$(fl E2EE_DM allowlist "$A")"
@@ -103,6 +103,16 @@ rv "$(fl E2EE_DM allowlist "")"
 expect "r1 empty allowlist is on for nobody" 0 "$V" "$tmp/r" "$tc" dev
 rv "$(fl E2EE_DM allowlist " $A , $A,")" "$(fl DM_SHARE_CHECK allowlist "$A")"
 expect "r1 spaces, duplicates and empty entries are ignored" 0 "$V" "$tmp/r" "$tc" dev
+# an explicit allowlist of only blanks and commas is on for nobody (flags.splitCSV drops empty entries); fl would leave
+# it unset, so append it with jq
+rv "$(fl E2EE_DM allowlist)"
+jq '.spec.containers[0].env += [{"name": "FEATURE_E2EE_DM_ALLOWLIST", "value": " , ,"}]' "$tmp/r" | tr -d '\r' >"$tmp/r2"
+expect_msg "r1 a blank allowlist is covered" 0 "E2EE_DM mode=allowlist (ceiling on) allowlist=0/6" "$V" "$tmp/r2" "$tc" dev
+# section 2's count uses the same parser: trimmed entries, split on "," only, unique
+rv "$(fl DM_SHARE_CHECK allowlist " $A , $B ,$C, fake-uid-D,fake-uid-E , fake-uid-F,	fake-uid-G	")"
+expect_msg "count: seven spaced entries exceed a ceiling of six" 1 "DM_SHARE_CHECK allowlist has 7 entries, ceiling is 6" "$V" "$tmp/r" "$tc" dev
+rv "$(fl DM_SHARE_CHECK allowlist " $A , $B ,$C, , $A ")"
+expect_msg "count: blanks and duplicates are not entries" 0 "DM_SHARE_CHECK mode=allowlist (ceiling on) allowlist=3/6" "$V" "$tmp/r" "$tc" dev
 rv "$(fl E2EE_DM allowlist "$A")" "$(fl DM_SHARE_CHECK on)"
 expect "r1 share check on covers an allowlist" 0 "$V" "$tmp/r" "$tc" dev
 rv "$(fl E2EE_DM allowlist "$A")" "$(fl DM_SHARE_CHECK percent "$A" 10)"
@@ -112,7 +122,10 @@ expect_msg "r1 a percent without the uid does not cover an allowlist" 1 "1 of 1 
 rv "$(fl E2EE_DM percent "" 10)" "$(fl DM_SHARE_CHECK allowlist "$A,$B")"
 expect_msg "r1 percent is not covered by an allowlist" 1 "E2EE_DM is percent, so DM_SHARE_CHECK must be on" "$V" "$tmp/r" "$tc" dev
 rv "$(fl E2EE_DM percent "" 10)" "$(fl DM_SHARE_CHECK percent "" 10)"
-expect "r1 percent is not covered by another percent" 1 "$V" "$tmp/r" "$tc" dev
+expect_msg "r1 percent is not covered by another percent" 1 "E2EE_DM is percent, so DM_SHARE_CHECK must be on" "$V" "$tmp/r" "$tc" dev
+# percent 0 is on for nobody at runtime but is still judged as percent (strict on purpose, validate-revision.sh 2b)
+rv "$(fl E2EE_DM percent "" 0)" "$(fl DM_SHARE_CHECK allowlist "$A")"
+expect_msg "r1 percent 0 still needs the share check on" 1 "E2EE_DM is percent, so DM_SHARE_CHECK must be on" "$V" "$tmp/r" "$tc" dev
 rv "$(fl E2EE_DM percent "" 10)" "$(fl DM_SHARE_CHECK percent "" 100)"
 expect "r1 percent 100 covers a percent" 0 "$V" "$tmp/r" "$tc" dev
 rv "$(fl E2EE_DM percent "" 10)" "$(fl DM_SHARE_CHECK on)"
@@ -136,8 +149,9 @@ expect "r2 prod same cohort passes" 0 "$V" "$tmp/r" "$tc" prod
 expect_no_msg "r2 dev same cohort, no warning" 0 "WARN" "$V" "$tmp/r" "$tc" dev
 rv "$(fl MESSAGING allowlist "$A,$B")" "$(fl E2EE_REQUIRED allowlist "$A")" "$(fl DM_SHARE_CHECK allowlist "$A,$B")"
 expect_msg "r2 prod messaging allowlist wider than required" 1 "1 of 2 MESSAGING allowlist uid(s) are not in the E2EE_REQUIRED allowlist" "$V" "$tmp/r" "$tc" prod
+expect_msg "r2 dev messaging allowlist wider than required warns and passes" 0 "WARN: E2EE coupling (e2ee_required must be on wherever messaging is): 1 of 2 MESSAGING allowlist uid(s) are not in the E2EE_REQUIRED allowlist" "$V" "$tmp/r" "$tc" dev
 rv "$(fl MESSAGING percent "" 5)" "$(fl E2EE_REQUIRED allowlist "$A")" "$(fl DM_SHARE_CHECK on)"
-expect "r2 prod messaging percent, required allowlist" 1 "$V" "$tmp/r" "$tc" prod
+expect_msg "r2 prod messaging percent, required allowlist" 1 "MESSAGING is percent, so E2EE_REQUIRED must be on" "$V" "$tmp/r" "$tc" prod
 rv "$(fl MESSAGING percent "" 5)" "$(fl E2EE_REQUIRED on)" "$(fl DM_SHARE_CHECK on)"
 expect "r2 prod messaging percent, required on" 0 "$V" "$tmp/r" "$tc" prod
 rv "$(fl MESSAGING on)" "$(fl E2EE_REQUIRED percent "" 100)" "$(fl DM_SHARE_CHECK on)"
@@ -150,21 +164,31 @@ rv "$(fl E2EE_REQUIRED allowlist "$A")" "$(fl DM_SHARE_CHECK allowlist "$A")"
 expect "r3 required inside the share check" 0 "$V" "$tmp/r" "$tc" dev
 rv "$(fl E2EE_REQUIRED on)" "$(fl DM_SHARE_CHECK allowlist "$A")"
 expect_msg "r3 required on, share check allowlist" 1 "E2EE_REQUIRED is on, so DM_SHARE_CHECK must be on" "$V" "$tmp/r" "$tc" prod
+rv "$(fl E2EE_REQUIRED percent "" 10)" "$(fl DM_SHARE_CHECK allowlist "$A")"
+expect_msg "r3 required percent, share check allowlist" 1 "E2EE_REQUIRED is percent, so DM_SHARE_CHECK must be on" "$V" "$tmp/r" "$tc" dev
+rv "$(fl E2EE_REQUIRED percent "" 10)" "$(fl DM_SHARE_CHECK on)"
+expect "r3 required percent, share check on" 0 "$V" "$tmp/r" "$tc" dev
 
-# --- rule 4: E2EE_REQUIRED and DEVICE_SIGN_OUT cover E2EE_CLAIM
+# --- rule 4: E2EE_REQUIRED, DEVICE_SIGN_OUT and MESSAGING cover E2EE_CLAIM (the share check covers required throughout)
 base4=("$(fl DM_SHARE_CHECK allowlist "$A,$B")")
-rv "${base4[@]}" "$(fl E2EE_CLAIM allowlist "$A")" "$(fl E2EE_REQUIRED allowlist "$A")" "$(fl DEVICE_SIGN_OUT allowlist "$A")"
-expect "r4 claim inside both parents" 0 "$V" "$tmp/r" "$tc" prod
-rv "${base4[@]}" "$(fl E2EE_CLAIM allowlist "$A")" "$(fl E2EE_REQUIRED allowlist "$A")"
+rv "${base4[@]}" "$(fl E2EE_CLAIM allowlist "$A")" "$(fl E2EE_REQUIRED allowlist "$A")" "$(fl DEVICE_SIGN_OUT allowlist "$A")" "$(fl MESSAGING allowlist "$A")"
+expect "r4 claim inside all three parents" 0 "$V" "$tmp/r" "$tc" prod
+rv "${base4[@]}" "$(fl E2EE_CLAIM allowlist "$A")" "$(fl E2EE_REQUIRED allowlist "$A")" "$(fl MESSAGING allowlist "$A")"
 expect_msg "r4 device sign-out off" 1 "E2EE_CLAIM allowlist has 1 uid(s) but DEVICE_SIGN_OUT is off" "$V" "$tmp/r" "$tc" dev
-rv "${base4[@]}" "$(fl E2EE_CLAIM allowlist "$A")" "$(fl DEVICE_SIGN_OUT allowlist "$A")"
+rv "${base4[@]}" "$(fl E2EE_CLAIM allowlist "$A")" "$(fl DEVICE_SIGN_OUT allowlist "$A")" "$(fl MESSAGING allowlist "$A")"
 expect_msg "r4 required off" 1 "E2EE_CLAIM allowlist has 1 uid(s) but E2EE_REQUIRED is off" "$V" "$tmp/r" "$tc" dev
-rv "${base4[@]}" "$(fl E2EE_CLAIM allowlist "$A,$B")" "$(fl E2EE_REQUIRED allowlist "$A,$B")" "$(fl DEVICE_SIGN_OUT allowlist "$A")"
+rv "${base4[@]}" "$(fl E2EE_CLAIM allowlist "$A,$B")" "$(fl E2EE_REQUIRED allowlist "$A,$B")" "$(fl DEVICE_SIGN_OUT allowlist "$A")" "$(fl MESSAGING allowlist "$A,$B")"
 expect_msg "r4 claim wider than device sign-out" 1 "1 of 2 E2EE_CLAIM allowlist uid(s) are not in the DEVICE_SIGN_OUT allowlist" "$V" "$tmp/r" "$tc" dev
-rv "$(fl DM_SHARE_CHECK on)" "$(fl E2EE_CLAIM percent "" 5)" "$(fl E2EE_REQUIRED on)" "$(fl DEVICE_SIGN_OUT on)"
-expect "r4 claim percent, both parents on" 0 "$V" "$tmp/r" "$tc" prod
-rv "$(fl DM_SHARE_CHECK on)" "$(fl E2EE_CLAIM percent "" 5)" "$(fl E2EE_REQUIRED on)" "$(fl DEVICE_SIGN_OUT allowlist "$A")"
+rv "${base4[@]}" "$(fl E2EE_CLAIM allowlist "$A")" "$(fl E2EE_REQUIRED allowlist "$A")" "$(fl DEVICE_SIGN_OUT allowlist "$A")"
+expect_msg "r4 messaging off" 1 "FAIL: E2EE coupling (messaging must be on wherever claim_live is): E2EE_CLAIM allowlist has 1 uid(s) but MESSAGING is off" "$V" "$tmp/r" "$tc" dev
+rv "${base4[@]}" "$(fl E2EE_CLAIM allowlist "$A,$B")" "$(fl E2EE_REQUIRED allowlist "$A,$B")" "$(fl DEVICE_SIGN_OUT allowlist "$A,$B")" "$(fl MESSAGING allowlist "$A")"
+expect_msg "r4 claim wider than messaging (dev fails too)" 1 "1 of 2 E2EE_CLAIM allowlist uid(s) are not in the MESSAGING allowlist" "$V" "$tmp/r" "$tc" dev
+rv "$(fl DM_SHARE_CHECK on)" "$(fl E2EE_CLAIM percent "" 5)" "$(fl E2EE_REQUIRED on)" "$(fl DEVICE_SIGN_OUT on)" "$(fl MESSAGING on)"
+expect "r4 claim percent, all three parents on" 0 "$V" "$tmp/r" "$tc" prod
+rv "$(fl DM_SHARE_CHECK on)" "$(fl E2EE_CLAIM percent "" 5)" "$(fl E2EE_REQUIRED on)" "$(fl DEVICE_SIGN_OUT allowlist "$A")" "$(fl MESSAGING on)"
 expect_msg "r4 claim percent, device sign-out allowlist" 1 "E2EE_CLAIM is percent, so DEVICE_SIGN_OUT must be on" "$V" "$tmp/r" "$tc" prod
+rv "$(fl DM_SHARE_CHECK on)" "$(fl E2EE_CLAIM percent "" 5)" "$(fl E2EE_REQUIRED on)" "$(fl DEVICE_SIGN_OUT on)" "$(fl MESSAGING allowlist "$A")"
+expect_msg "r4 claim percent, messaging allowlist" 1 "E2EE_CLAIM is percent, so MESSAGING must be on" "$V" "$tmp/r" "$tc" prod
 
 # --- fail closed
 jq '.flags -= ["E2EE_CLAIM"] | del(.envs[].flags.E2EE_CLAIM)' "$tc" | tr -d '\r' >"$tmp/ceil-noclaim"

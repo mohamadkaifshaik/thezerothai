@@ -37,6 +37,15 @@ dups=$(jqr '[.spec.containers[0].env // [] | .[] | select(.name | startswith("FE
 # 2. Effective mode per known flag against the ceiling.
 rank() { case $1 in off) echo 0 ;; allowlist) echo 1 ;; percent) echo 2 ;; on) echo 3 ;; *) echo 99 ;; esac; }
 envval() { jqr --arg n "$1" '(.spec.containers[0].env // [] | map(select(.name == $n)) | last | .value) // empty' "$rev"; }
+# fuids <FLAG>: the flag's allowlist entries the way flags.splitCSV reads them (split on "," only, trim each entry's
+# ends, drop empty entries), sorted and unique (the runtime keeps a set). One per line; nothing for an unset or empty
+# list. The one parser for the section 2 count and the section 2b uid comparison. [[:space:]] rather than \s: the
+# Windows jq build mangles the backslash.
+fuids() {
+  envval "FEATURE_${1}_ALLOWLIST" |
+    jqr -Rs 'split(",") | map(gsub("^[[:space:]]+|[[:space:]]+$"; "")) | map(select(. != "")) | .[]' |
+    LC_ALL=C sort -u
+}
 
 while read -r flag; do
   [ -n "$flag" ] || continue
@@ -55,8 +64,7 @@ while read -r flag; do
   # Percent only takes effect in percent mode, but a stray value is still a config we did not approve.
   [ "$pct" -le "$maxpct" ] || fail "$flag percent $pct exceeds ceiling $maxpct"
 
-  list=$(envval "FEATURE_${flag}_ALLOWLIST")
-  count=$(printf '%s' "$list" | tr ',' '\n' | tr -d '\r ' | grep -c . || true)
+  count=$(fuids "$flag" | { grep -c . || true; })
   maxal=$(jqr --arg e "$env" --arg f "$flag" '.envs[$e].flags[$f].max_allowlist // 0' "$ceil")
   [ "$count" -le "$maxal" ] || fail "$flag allowlist has $count entries, ceiling is $maxal"
   note "$flag mode=$mode (ceiling $cmode) allowlist=$count/$maxal percent=$pct/$maxpct"
@@ -71,7 +79,15 @@ done <<<"$known"
 #                                                name, fnv32a(name:uid)%100 (flags.go), so two cohorts never line up
 #   B allowlist                               -> A allowlist or percent, and A's allowlist holds every B uid (the
 #                                                allowlist applies in percent mode too)
+# B percent with percent 0 (and no allowlist) is on for nobody at runtime, but it is still judged as percent, so A must
+# be on: kept strict on purpose, since such a stage is one percent edit away from a live cohort.
+# The rules judge each flag's RAW cohort, not the effective one the server computes (apiserver.coupleE2EE narrows a
+# flag to its parents). Raw over-approximates effective, so this can only be stricter, never unsafe, and it does not
+# depend on mirroring coupleE2EE in bash. Cost if that is too strict: DM_SHARE_CHECK has to be on more widely than the
+# server needs while MESSAGING ramps (one stage change).
 # Uids are compared in memory only; output carries names, modes and counts, never a uid.
+# These helpers call envval without guarding it: section 2 has already run envval for every known flag under set -e,
+# so a revision JSON that jq cannot read has stopped the script before here.
 fmode() {
   local m
   m=$(envval "FEATURE_$1")
@@ -79,8 +95,7 @@ fmode() {
   printf '%s' "$m"
 }
 fpct() { local v; v=$(envval "FEATURE_${1}_PERCENT"); printf '%s' "${v:-0}"; }
-fuids() { envval "FEATURE_${1}_ALLOWLIST" | tr ',' '\n' | tr -d '\r\t ' | grep . | LC_ALL=C sort -u || true; }
-everyone() { local m; m=$(fmode "$1"); [ "$m" = on ] || { [ "$m" = percent ] && [ "$(fpct "$1")" = 100 ]; }; }
+everyone() { local m; m=$(fmode "$1"); [ "$m" = on ] || { [ "$m" = percent ] && [ "$(fpct "$1")" -eq 100 ]; }; }
 
 # covers <A> <B> <fail|warn> <why>
 covers() {
@@ -96,11 +111,11 @@ covers() {
     case $mb in
       on | percent) msg="$b is $mb, so $a must be on (a percent cohort cannot be covered by an allowlist or another percent); $a is $ma" ;;
       allowlist)
-        n=$(fuids "$b" | grep -c . || true)
+        n=$(fuids "$b" | { grep -c . || true; })
         if [ "$n" -gt 0 ] && [ "$ma" = off ]; then
           msg="$b allowlist has $n uid(s) but $a is off"
         elif [ "$n" -gt 0 ]; then
-          missing=$(LC_ALL=C comm -23 <(fuids "$b") <(fuids "$a") | grep -c . || true)
+          missing=$(LC_ALL=C comm -23 <(fuids "$b") <(fuids "$a") | { grep -c . || true; })
           [ "$missing" -eq 0 ] || msg="$missing of $n $b allowlist uid(s) are not in the $a allowlist ($a is $ma)"
         fi
         ;;
@@ -118,10 +133,12 @@ if [ "$env" = dev ]; then req_sev=warn; else req_sev=fail; fi
 covers E2EE_REQUIRED MESSAGING "$req_sev" "e2ee_required must be on wherever messaging is"
 # 3. Plan §1.4: the share check is on wherever plaintext is refused (checked directly, not only through rule 1).
 covers DM_SHARE_CHECK E2EE_REQUIRED fail "dm_share_check must be on wherever e2ee_required is"
-# 4. The server narrows claim_live to e2ee_required && device_sign_out (apiserver.coupleE2EE); refuse a claim cohort the
-#    server would silently narrow.
+# 4. The server narrows claim_live to e2ee_required && device_sign_out, and e2ee_required itself needs messaging
+#    (apiserver.coupleE2EE), so the claim is live only where all three are; refuse a claim cohort the server would
+#    silently narrow.
 covers E2EE_REQUIRED E2EE_CLAIM fail "e2ee_required must be on wherever claim_live is"
 covers DEVICE_SIGN_OUT E2EE_CLAIM fail "device_sign_out must be on wherever claim_live is"
+covers MESSAGING E2EE_CLAIM fail "messaging must be on wherever claim_live is"
 
 # 3. Shape: instance caps are cost caps (the cost-caps-are-code rule).
 want_max=$(jqr --arg e "$env" '.envs[$e].max_instances' "$ceil")
