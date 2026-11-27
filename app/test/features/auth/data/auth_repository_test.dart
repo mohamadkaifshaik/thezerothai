@@ -412,11 +412,32 @@ void main() {
         googleSignIn: googleSignIn,
       );
       repo.reportRemovalSignedOutAll('uid-1');
-      final seen = <String>[];
-      repo.onRemovalSignedOutAll = seen.add;
+      final seen = <(String, SignInProbe?)>[];
+      repo.onRemovalSignedOutAll = (uid, probed) => seen.add((uid, probed));
       repo.reportRemovalSignedOutAll('uid-1');
-      expect(seen, ['uid-1']);
+      repo.reportRemovalSignedOutAll('uid-1', probed: SignInProbe.unknown);
+      expect(seen, [('uid-1', null), ('uid-1', SignInProbe.unknown)]);
     });
+
+    // Fix round 2, F1: the Settings check goes through the bloc's hook.
+    test(
+      'checkOwnRemoval uses onCheckOwnRemoval, else a plain probe',
+      () async {
+        when(() => firebaseAuth.currentUser).thenReturn(null);
+        final repo = AuthRepository(
+          firebaseAuth: firebaseAuth,
+          googleSignIn: googleSignIn,
+        );
+        expect(await repo.checkOwnRemoval('uid-1'), SignInProbe.unknown);
+        final asked = <String>[];
+        repo.onCheckOwnRemoval = (uid) async {
+          asked.add(uid);
+          return SignInProbe.alive;
+        };
+        expect(await repo.checkOwnRemoval('uid-1'), SignInProbe.alive);
+        expect(asked, ['uid-1']);
+      },
+    );
 
     test('reportSessionEnded tells onServerEndedSession, and is a no-op '
         'without '

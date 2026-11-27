@@ -50,8 +50,8 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
   EncryptionDevicesCubit({
     required EncryptedMessaging messaging,
     this.onUnexpectedError,
-    Future<SignInProbe> Function()? probeSignIn,
-  }) : _probeSignIn = probeSignIn,
+    Future<SignInProbe> Function()? checkSignIn,
+  }) : _checkSignIn = checkSignIn,
        _messaging = messaging,
        super(
          EncryptionDevicesState(
@@ -64,33 +64,46 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
   final EncryptedMessaging _messaging;
   final void Function(Object error, StackTrace stack)? onUnexpectedError;
 
-  /// Fix round 1, R2: `AuthRepository.probeSignIn` (one forced refresh that
-  /// never signs out). Null (tests of other things): nothing is probed and a
-  /// true answer counts as this sign-in ended.
-  final Future<SignInProbe> Function()? _probeSignIn;
+  /// Fix round 2, F1: `AuthRepository.checkOwnRemoval` for the signed-in uid
+  /// (the auth bloc records the remover's reason, then probes with one
+  /// forced refresh that never signs out). Null (tests of other things):
+  /// nothing is probed and a true answer counts as this sign-in ended.
+  final Future<SignInProbe> Function()? _checkSignIn;
+
+  /// The answer of the check after a run with [sessionsEnded], or null when
+  /// no check ran (no [_checkSignIn], or the run stopped before its end, as
+  /// at a second "Confirm it's you"). Cleared when a new user action starts.
+  SignInProbe? get probed => _probed;
+  SignInProbe? _probed;
 
   /// After a run with [sessionsEnded], whether THIS device's sign-in ended
-  /// too: the probe found it dead or could not tell. False when the probe
-  /// found it alive (a replay after a re-sign-in, or the same second as the
-  /// cut), and false after every new run starts. The screen signs out only
-  /// when it is true.
-  bool get thisSignInEnded => _thisSignInEnded;
-  bool _thisSignInEnded = false;
+  /// too: true unless a check actually ran and found it alive (fix round 2,
+  /// F2: a true answer is never treated as alive without a probe). The
+  /// screen signs out only when it is true.
+  bool get thisSignInEnded => _sessionsEnded && _probed != SignInProbe.alive;
 
-  /// Probes once when [sessionsEnded] (fix round 1, R2), while the row still
+  /// Checks once when [sessionsEnded] (fix round 1, R2), while the row still
   /// shows its spinner (the existing busy state).
   Future<void> _probeIfEnded() async {
     if (!_sessionsEnded) return;
-    final probe = _probeSignIn;
-    var result = SignInProbe.unknown;
-    if (probe != null) {
-      try {
-        result = await probe();
-      } catch (_) {
-        result = SignInProbe.unknown;
-      }
+    final check = _checkSignIn;
+    if (check == null) return;
+    try {
+      _probed = await check();
+    } catch (_) {
+      _probed = SignInProbe.unknown;
     }
-    _thisSignInEnded = result != SignInProbe.alive;
+  }
+
+  /// Starts a user action's bookkeeping. [continued] (fix round 2, F2): the
+  /// second "Confirm it's you" of the same action keeps what the first run
+  /// learned (a true answer before a REAUTH_REQUIRED stays known).
+  void _startRun({required bool continued}) {
+    if (continued) return;
+    _otherSessionsEnded = null;
+    _sessionsEnded = false;
+    _probed = null;
+    _removedCount = 0;
   }
 
   /// A re-sign-in for a removal is open: no second removal starts.
@@ -187,14 +200,12 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
     String ref, {
     bool retrySetup = false,
     required Future<bool> Function() confirmItsYou,
+    bool continued = false,
   }) async {
     if (isClosed || state.removing != null || _confirming) {
       return RemoveOutcome.notAttempted;
     }
-    _otherSessionsEnded = null;
-    _sessionsEnded = false;
-    _thisSignInEnded = false;
-    _removedCount = 0;
+    _startRun(continued: continued);
     if (!await _confirm(confirmItsYou)) return RemoveOutcome.cancelled;
     if (isClosed || state.removing != null) return RemoveOutcome.notAttempted;
     final before = state;
@@ -209,7 +220,7 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
     try {
       final removal = await _messaging.removeDevice(ref);
       _otherSessionsEnded = removal.otherSessionsEnded;
-      _sessionsEnded = removal.otherSessionsEnded == true;
+      _sessionsEnded = _sessionsEnded || removal.otherSessionsEnded == true;
       _removedCount = 1;
     } on ReauthRequiredException {
       // The call missed the window: the queue parked the removal (never
@@ -311,16 +322,14 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
   /// Refs are opaque: never shown or logged.
   Future<RemoveOutcome> resumeParked({
     required Future<bool> Function() confirmItsYou,
+    bool continued = false,
   }) async {
     if (isClosed || state.removing != null || _confirming) {
       return RemoveOutcome.notAttempted;
     }
     final asked = List<String>.of(_messaging.parkedRemovals.value);
     if (asked.isEmpty) return RemoveOutcome.notAttempted;
-    _otherSessionsEnded = null;
-    _sessionsEnded = false;
-    _thisSignInEnded = false;
-    _removedCount = 0;
+    _startRun(continued: continued);
     if (!await _confirm(confirmItsYou)) return RemoveOutcome.cancelled;
     if (isClosed || state.removing != null) return RemoveOutcome.notAttempted;
     // Only what the user was asked about AND is still parked now: a removal

@@ -154,6 +154,8 @@ class AuthRepository implements AuthTokenProvider {
   /// Every event bumps the sign-in generation (fix round 1, R3).
   Stream<AppUser?> authStateChanges() {
     return _firebaseAuth.userChanges().map((user) {
+      // Bumped once per event per subscriber (n2): two listeners bump twice,
+      // which only makes the stale-fetch guard stricter, never looser.
       _signInGeneration++;
       return _toAppUser(user);
     });
@@ -671,13 +673,32 @@ class AuthRepository implements AuthTokenProvider {
   /// sign-in of the account, this one included). The auth bloc sets it in its
   /// constructor and signs that uid out at once, the vault kept, with the
   /// remover's sign-in notice (controller ruling 2026-11-27, options a + b).
-  void Function(String uid)? onRemovalSignedOutAll;
+  ///
+  /// Fix round 2, F1: [SignInProbe] is the answer of a probe the caller
+  /// already ran through [checkOwnRemoval] (the Settings dialog), or null
+  /// when none ran (the removal queue): the bloc then probes itself.
+  void Function(String uid, SignInProbe? probed)? onRemovalSignedOutAll;
 
   /// Reports [uid]'s own removal that signed every session out: from the
-  /// Settings removal once its dialog closes, and from the removal queue
-  /// when a stored removal's retry answers later. A no-op without a hook.
-  void reportRemovalSignedOutAll(String uid) =>
-      onRemovalSignedOutAll?.call(uid);
+  /// Settings removal once its dialog closes ([probed]: the answer of its
+  /// [checkOwnRemoval]), and from the removal queue when a stored removal's
+  /// retry answers later (no [probed]). A no-op without a hook.
+  void reportRemovalSignedOutAll(String uid, {SignInProbe? probed}) =>
+      onRemovalSignedOutAll?.call(uid, probed);
+
+  /// Fix round 2, F1 (re-review M1, m2): set by the auth bloc. It records
+  /// the remover's reason for [uid] BEFORE probing, so a sign-out that
+  /// happens during the probe (the SDK signing out on its own) still lands
+  /// with the remover's notice; it disarms the reason on [SignInProbe.alive].
+  Future<SignInProbe> Function(String uid)? onCheckOwnRemoval;
+
+  /// After a removal answered `other_sessions_ended` true: whether [uid]'s
+  /// sign-in on this device ended too. Through the auth bloc
+  /// ([onCheckOwnRemoval]); without one, a plain [probeSignIn].
+  Future<SignInProbe> checkOwnRemoval(String uid) {
+    final check = onCheckOwnRemoval;
+    return check != null ? check(uid) : probeSignIn();
+  }
 
   static String _generateNonce([int length = 32]) {
     const charset =

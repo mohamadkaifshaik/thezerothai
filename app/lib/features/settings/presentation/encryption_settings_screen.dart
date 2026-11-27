@@ -158,11 +158,19 @@ class _DevicesSection extends StatelessWidget {
       create: (context) => EncryptionDevicesCubit(
         messaging: port,
         onUnexpectedError: context.read<UnexpectedErrorReporter?>(),
-        // Fix round 1, R2: a true answer is probed before anything is shown.
-        // Read when needed (a Remove tap reads the same repository), so a
-        // page opened without one still builds; a failed read is an unknown
-        // probe (the screen then signs out as the server said).
-        probeSignIn: () => context.read<AuthRepository>().probeSignIn(),
+        // Fix round 1, R2 / round 2, F1: a true answer is checked before
+        // anything is shown, through the auth bloc (it records the remover's
+        // reason first). Read when needed (a Remove tap reads the same
+        // repository), so a page opened without one still builds; a failed
+        // read is an unknown answer (the screen then signs out as the
+        // server said).
+        checkSignIn: () {
+          final auth = context.read<AuthRepository>();
+          final uid = auth.currentUser?.uid;
+          return uid == null
+              ? Future.value(SignInProbe.unknown)
+              : auth.checkOwnRemoval(uid);
+        },
       )..load(),
       child: _DevicesView(port: port, now: now ?? DateTime.now),
     );
@@ -274,6 +282,8 @@ class _DevicesView extends StatelessWidget {
         device.ref,
         retrySetup: atLimit,
         confirmItsYou: confirm(true),
+        // Fix round 2, F2: the same user action.
+        continued: true,
       );
     }
     await _finish(
@@ -289,15 +299,20 @@ class _DevicesView extends StatelessWidget {
   /// After a removal run. Remover copy (controller ruling 2026-11-27, H1
   /// options a + b): when any answer said `other_sessions_ended`, H1 revoked
   /// every sign-in of the account, normally this device's too. Fix round 1,
-  /// R2: the cubit has already probed this device's sign-in with one forced
-  /// refresh, under the row's spinner, BEFORE anything is shown:
-  /// - alive (a replay after a re-sign-in, the same second as the cut): the
-  ///   snackbar [kDeviceRemovedSessionsEnded] ("Your other devices were
-  ///   signed out"), no sign-out;
-  /// - dead, or unknown: the user first reads [kDeviceRemovedThisDeviceToo]
-  ///   in a one-action dialog, then this device signs out on purpose (the
-  ///   auth bloc probes once more, records the remover's notice; the vault
-  ///   is kept), instead of failing at a token refresh within the hour.
+  /// R2 / round 2, F1: the cubit has already checked this device's sign-in
+  /// through the auth bloc (the remover's reason recorded first, then one
+  /// forced refresh), under the row's spinner, BEFORE anything is shown:
+  /// - alive, and only when a check actually ran (F2): the snackbar
+  ///   [kDeviceRemovedSessionsEnded] ("Your other devices were signed out"),
+  ///   no sign-out;
+  /// - dead, unknown, or no check ran: the user first reads
+  ///   [kDeviceRemovedThisDeviceToo] in a one-action dialog, then this
+  ///   device signs out on purpose (the report carries the check's answer,
+  ///   so the bloc signs out at once without a second probe; it probes only
+  ///   when no check ran), instead of failing at a token refresh within the
+  ///   hour. If the session already ended during the check (the SDK signed
+  ///   out on its own), no dialog is shown: the sign-in screen's remover
+  ///   notice explains it.
   /// Why a dialog and not the snackbar: the sign-out leaves this screen at
   /// once, so a snackbar would be read (if at all) on the sign-in screen
   /// beside its notice; the dialog keeps the order "result, then sign-out"
@@ -317,8 +332,9 @@ class _DevicesView extends StatelessWidget {
     required AuthRepository auth,
     required String? uid,
   }) async {
-    if (cubit.sessionsEnded && !cubit.thisSignInEnded) {
-      // The probe found this sign-in alive: only the others were signed out.
+    if (cubit.sessionsEnded && cubit.probed == SignInProbe.alive) {
+      // A check ran and found this sign-in alive: only the others were
+      // signed out (F2: never assumed without a check).
       if (!messenger.mounted) return;
       if (outcome == RemoveOutcome.removed) {
         messenger
@@ -332,28 +348,31 @@ class _DevicesView extends StatelessWidget {
       return;
     }
     if (cubit.thisSignInEnded && uid != null) {
+      final probed = cubit.probed;
       if (outcome == RemoveOutcome.removed &&
           context != null &&
-          context.mounted) {
+          context.mounted &&
+          auth.currentUser?.uid == uid) {
         messenger.hideCurrentSnackBar();
-        // Fix round 1, m2: reported once, when the dialog closes OR when its
-        // route goes without closing (the router removed the page under it:
-        // a removed pageless route never completes its future).
+        // Fix round 1, m2 / round 2, F4: reported once, when the dialog
+        // closes OR when its content leaves the tree without closing (a
+        // navigator disposed under it never completes its future).
         var reported = false;
         void report() {
           if (reported) return;
           reported = true;
-          auth.reportRemovalSignedOutAll(uid);
+          auth.reportRemovalSignedOutAll(uid, probed: probed);
         }
 
         await _showSignedOutAll(context, onGone: report);
         report();
         return;
       }
-      // No dialog: the screen is gone (the sign-in notice explains), or the
-      // run failed after an earlier removal ended the sessions. The sign-out
-      // comes first, so nothing below can keep a revoked session in.
-      auth.reportRemovalSignedOutAll(uid);
+      // No dialog: the screen is gone or the session already ended (the
+      // sign-in notice explains), or the run failed after an earlier
+      // removal ended the sessions. The sign-out comes first, so nothing
+      // below can keep a revoked session in.
+      auth.reportRemovalSignedOutAll(uid, probed: probed);
       if (outcome != RemoveOutcome.removed && messenger.mounted) {
         _sayOutcome(messenger, cubit, outcome, signOutOn: false);
       }
@@ -372,8 +391,8 @@ class _DevicesView extends StatelessWidget {
 
   /// The removed result when this sign-in ended too: one action, not
   /// dismissible by the barrier or Escape; resolves when it closes. [onGone]
-  /// runs when its content leaves the tree, also when the route is removed
-  /// without closing.
+  /// runs when its content leaves the tree, also when the navigator is
+  /// disposed under it (its future then never completes).
   Future<void> _showSignedOutAll(
     BuildContext context, {
     required VoidCallback onGone,
@@ -414,7 +433,12 @@ class _DevicesView extends StatelessWidget {
         : Future.value(false);
     var outcome = await cubit.resumeParked(confirmItsYou: confirm(false));
     if (outcome == RemoveOutcome.needsReauth && context.mounted) {
-      outcome = await cubit.resumeParked(confirmItsYou: confirm(true));
+      // Fix round 2, F2: the same user action keeps a true answer the first
+      // run got before its REAUTH_REQUIRED.
+      outcome = await cubit.resumeParked(
+        confirmItsYou: confirm(true),
+        continued: true,
+      );
     }
     await _finish(
       context.mounted ? context : null,
@@ -715,7 +739,11 @@ class _AboutGroup extends StatelessWidget {
   }
 }
 
-/// Runs [onGone] when it leaves the tree (fix round 1, m2).
+/// Runs [onGone] when it leaves the tree (fix round 1, m2). Fix round 2, F4:
+/// a pageless route removed with its page is normally completed, so the
+/// dialog's future resolves; only a navigator that is disposed under it
+/// leaves that future incomplete, and this covers that case. A rebuild (a
+/// resize, a rotation) keeps the same state, so it never runs then.
 class _OnGone extends StatefulWidget {
   const _OnGone({required this.onGone, required this.child});
 

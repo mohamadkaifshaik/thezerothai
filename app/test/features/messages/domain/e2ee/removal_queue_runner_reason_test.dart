@@ -516,6 +516,53 @@ void main() {
       expect(seen, hasLength(1));
     });
 
+    // Fix round 2, F3 (re-review m3): only a save whose image no longer
+    // holds the intent fires the owed report. Here another save (a new
+    // removal's intent write) runs while the pass is inside `_queueRemoved`,
+    // before it drops the owed intent: that save must not fire it.
+    test('a concurrent save whose image still holds the intent does not '
+        'fire the report', () async {
+      final sibling = await RigPeer.create('sibling');
+      final third = await RigPeer.create('third');
+      await setUpRig(ownListed: [sibling, third]);
+      final seen = <String>[];
+      runner = build(onRemovalSignedOutAll: seen.add);
+      await join(_c1, others: [sibling]);
+      await synced();
+      rig.keys.otherSessionsEnded = true;
+      rig.keys.removeError = const NetworkException('rig: offline');
+      await expectLater(
+        runner.removeDevice(sibling.idString),
+        throwsA(isA<NetworkException>()),
+      );
+      await runner.idle();
+      rig.keys.removeError = null;
+
+      var hooked = false;
+      final thirdSent = Completer<void>();
+      List<String>? seenAtThirdSend;
+      Future<bool?>? thirdRemoval;
+      rig.device.onMessages = () async {
+        if (hooked) return;
+        hooked = true;
+        // The third's intent write (a save) happens before its send.
+        rig.keys.onRemoved = () async {
+          rig.keys.onRemoved = null;
+          seenAtThirdSend = List.of(seen);
+          thirdSent.complete();
+        };
+        thirdRemoval = runner.removeDevice(third.idString);
+        await thirdSent.future.timeout(const Duration(seconds: 5));
+      };
+
+      await runner.runPass();
+      await thirdRemoval;
+      await runner.idle();
+      expect(hooked, isTrue);
+      expect(seenAtThirdSend, isEmpty);
+      expect(seen, [rig.device.session.vault!.uid]);
+    });
+
     test('a removeDevice answer is the caller\'s: it is never reported '
         '(the screen shows the result, then signs out)', () async {
       final sibling = await RigPeer.create('sibling');

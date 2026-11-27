@@ -93,6 +93,10 @@ final class SessionEndedInterceptor {
         // sign-in is dead (H1 revoked its refresh token with the cut) is the
         // cut itself: it is reported (the bloc signs out with the removed
         // device's notice) and the refusal is rethrown, with no retry.
+        // Stale-token race (n1): a call sent before a dead refresh finished
+        // (seen != _refreshes) skips this and retries once with the SDK's
+        // token; that retry is refused again and reports, so it costs one
+        // extra request, never a missed end.
         if (seen == _refreshes && await _refresh()) {
           _report(uid);
           rethrow;

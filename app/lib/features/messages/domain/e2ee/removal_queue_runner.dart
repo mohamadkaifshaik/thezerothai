@@ -244,13 +244,13 @@ class RemovalQueueRunner {
   /// first, then signs out), so it is never reported here.
   final void Function(String uid)? _onRemovalSignedOutAll;
 
-  /// Fix round 1, R2 (security M1): the vault uid of a stored intent whose
-  /// resend answered `other_sessions_ended` true, owed to
-  /// [_onRemovalSignedOutAll] until a [_save] for that vault succeeds (the
-  /// intent is then gone from storage, so it fires at most once per stored
-  /// intent; a failed save keeps it owed for the next one). Cleared by
-  /// [reset].
-  String? _owedSignedOutReport;
+  /// Fix round 1, R2 (security M1): the vault uid and device id of a stored
+  /// intent whose resend answered `other_sessions_ended` true, owed to
+  /// [_onRemovalSignedOutAll] until a [_save] for that vault succeeds whose
+  /// image no longer holds that intent (fix round 2, F3: the intent is then
+  /// gone from storage, so it fires at most once per stored intent; a failed
+  /// save keeps it owed for the next one). Cleared by [reset].
+  ({String uid, String deviceId})? _owedSignedOutReport;
 
   /// The image of the stored queue, valid for [_loadedFor] only.
   final List<RemovalQueueEntry> _entries = [];

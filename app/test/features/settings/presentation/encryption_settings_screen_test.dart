@@ -114,6 +114,7 @@ void main() {
   setUpAll(() {
     Future<String?> noPassword() async => null;
     registerFallbackValue(noPassword);
+    registerFallbackValue(SignInProbe.unknown);
   });
 
   setUp(() {
@@ -154,7 +155,9 @@ void main() {
         .thenReturn(passwordOnly ?? user?.isPasswordProvider ?? false);
     when(() => defaultAuth.currentUser).thenReturn(user);
     // Fix round 1, R2: the probe before a sessions-ended result.
-    when(() => defaultAuth.probeSignIn()).thenAnswer((_) => probeAnswer());
+    // Fix round 2, F1: the screen's check goes through checkOwnRemoval.
+    when(() => defaultAuth.checkOwnRemoval(any()))
+        .thenAnswer((_) => probeAnswer());
     tester.view.devicePixelRatio = 1;
     tester.view.physicalSize = Size(width, 2400);
     addTearDown(tester.view.reset);
@@ -802,7 +805,12 @@ void main() {
         expect(find.text(kDeviceRemovedSignInAgainTitle), findsOneWidget);
         expect(find.text(kDeviceRemovedThisDeviceToo), findsOneWidget);
         expect(find.byType(SnackBar), findsNothing);
-        verifyNever(() => defaultAuth.reportRemovalSignedOutAll(any()));
+        verifyNever(
+          () => defaultAuth.reportRemovalSignedOutAll(
+            any(),
+            probed: any(named: 'probed'),
+          ),
+        );
 
         // Neither the barrier nor Escape closes it (fix round 1, m1).
         await tester.tapAt(const Offset(5, 5));
@@ -810,12 +818,22 @@ void main() {
         await tester.sendKeyEvent(LogicalKeyboardKey.escape);
         await tester.pumpAndSettle();
         expect(signInAgain(), findsOneWidget);
-        verifyNever(() => defaultAuth.reportRemovalSignedOutAll(any()));
+        verifyNever(
+          () => defaultAuth.reportRemovalSignedOutAll(
+            any(),
+            probed: any(named: 'probed'),
+          ),
+        );
 
         await tester.tap(signInAgain());
         await tester.pumpAndSettle();
         expect(find.text(kDeviceRemovedThisDeviceToo), findsNothing);
-        verify(() => defaultAuth.reportRemovalSignedOutAll('uid-1')).called(1);
+        verify(
+          () => defaultAuth.reportRemovalSignedOutAll(
+            'uid-1',
+            probed: any(named: 'probed'),
+          ),
+        ).called(1);
       });
 
       // Fix round 1, R2: the probe runs BEFORE anything is shown.
@@ -832,7 +850,7 @@ void main() {
         await tester.pump();
         expect(find.byType(CircularProgressIndicator), findsWidgets);
         expect(signInAgain(), findsNothing);
-        verify(() => defaultAuth.probeSignIn()).called(1);
+        verify(() => defaultAuth.checkOwnRemoval('uid-1')).called(1);
         gate.complete(SignInProbe.dead);
         await tester.pumpAndSettle();
         expect(signInAgain(), findsOneWidget);
@@ -847,7 +865,12 @@ void main() {
         expect(signInAgain(), findsNothing);
         expect(find.text(kDeviceRemovedSessionsEnded), findsOneWidget);
         expect(find.text(kDeviceRemovedThisDeviceToo), findsNothing);
-        verifyNever(() => defaultAuth.reportRemovalSignedOutAll(any()));
+        verifyNever(
+          () => defaultAuth.reportRemovalSignedOutAll(
+            any(),
+            probed: any(named: 'probed'),
+          ),
+        );
       });
 
       testWidgets('probe unknown (offline): the dialog, then sign-out', (
@@ -859,7 +882,83 @@ void main() {
         await openAndConfirmRemove(tester);
         await tester.tap(signInAgain());
         await tester.pumpAndSettle();
-        verify(() => defaultAuth.reportRemovalSignedOutAll('uid-1')).called(1);
+        // Fix round 2, F1: the report carries the answer it already has,
+        // so the bloc does not probe a second time.
+        verify(
+          () => defaultAuth.reportRemovalSignedOutAll(
+            'uid-1',
+            probed: SignInProbe.unknown,
+          ),
+        ).called(1);
+      });
+
+      testWidgets('probe dead: the report carries probed: dead', (
+        tester,
+      ) async {
+        await pump(tester, deviceSignOut: true);
+        port.nextRemoval = const DeviceRemoval(otherSessionsEnded: true);
+        await openAndConfirmRemove(tester);
+        await tester.tap(signInAgain());
+        await tester.pumpAndSettle();
+        verify(
+          () => defaultAuth.reportRemovalSignedOutAll(
+            'uid-1',
+            probed: SignInProbe.dead,
+          ),
+        ).called(1);
+      });
+
+      // Fix round 2, F1: the session ended during the check (the SDK
+      // signed out on its own; the bloc already holds the remover's
+      // reason): no dialog, the report still lands.
+      testWidgets('the session ending during the check shows no dialog and '
+          'still reports', (tester) async {
+        AppUser? current = _passwordUser;
+        probeAnswer = () async {
+          current = null;
+          return SignInProbe.dead;
+        };
+        await pump(tester, deviceSignOut: true);
+        when(() => defaultAuth.currentUser).thenAnswer((_) => current);
+        port.nextRemoval = const DeviceRemoval(otherSessionsEnded: true);
+        await openAndConfirmRemove(tester);
+        expect(signInAgain(), findsNothing);
+        verify(
+          () => defaultAuth.reportRemovalSignedOutAll(
+            'uid-1',
+            probed: SignInProbe.dead,
+          ),
+        ).called(1);
+      });
+
+      // Fix round 2, F4: a rebuild of the open dialog (a resize or a
+      // rotation) never reports.
+      testWidgets('resizing while the dialog is open does not report', (
+        tester,
+      ) async {
+        await pump(tester, deviceSignOut: true);
+        port.nextRemoval = const DeviceRemoval(otherSessionsEnded: true);
+        await openAndConfirmRemove(tester);
+        expect(signInAgain(), findsOneWidget);
+        tester.view.physicalSize = const Size(2400, 900);
+        await tester.pumpAndSettle();
+        tester.view.physicalSize = const Size(400, 2400);
+        await tester.pumpAndSettle();
+        expect(signInAgain(), findsOneWidget);
+        verifyNever(
+          () => defaultAuth.reportRemovalSignedOutAll(
+            any(),
+            probed: any(named: 'probed'),
+          ),
+        );
+        await tester.tap(signInAgain());
+        await tester.pumpAndSettle();
+        verify(
+          () => defaultAuth.reportRemovalSignedOutAll(
+            'uid-1',
+            probed: any(named: 'probed'),
+          ),
+        ).called(1);
       });
 
       // Fix round 1, m2: the router removes the page while the dialog is
@@ -888,7 +987,12 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.text('elsewhere'), findsOneWidget);
         expect(signInAgain(), findsNothing);
-        verify(() => defaultAuth.reportRemovalSignedOutAll('uid-1')).called(1);
+        verify(
+          () => defaultAuth.reportRemovalSignedOutAll(
+            'uid-1',
+            probed: any(named: 'probed'),
+          ),
+        ).called(1);
       });
 
       testWidgets('closing it with back signs out too', (tester) async {
@@ -899,7 +1003,12 @@ void main() {
         await tester.binding.handlePopRoute();
         await tester.pumpAndSettle();
         expect(signInAgain(), findsNothing);
-        verify(() => defaultAuth.reportRemovalSignedOutAll('uid-1')).called(1);
+        verify(
+          () => defaultAuth.reportRemovalSignedOutAll(
+            'uid-1',
+            probed: any(named: 'probed'),
+          ),
+        ).called(1);
       });
 
       for (final ended in <bool?>[false, null]) {
@@ -915,7 +1024,12 @@ void main() {
             ),
             findsOneWidget,
           );
-          verifyNever(() => defaultAuth.reportRemovalSignedOutAll(any()));
+          verifyNever(
+            () => defaultAuth.reportRemovalSignedOutAll(
+              any(),
+              probed: any(named: 'probed'),
+            ),
+          );
         });
       }
 
@@ -926,7 +1040,12 @@ void main() {
         await openAndConfirmRemove(tester);
         expect(find.text(kDeviceRemoveFailedText), findsOneWidget);
         expect(signInAgain(), findsNothing);
-        verifyNever(() => defaultAuth.reportRemovalSignedOutAll(any()));
+        verifyNever(
+          () => defaultAuth.reportRemovalSignedOutAll(
+            any(),
+            probed: any(named: 'probed'),
+          ),
+        );
       });
 
       testWidgets('a screen gone before the answer still signs out (no '
@@ -943,7 +1062,12 @@ void main() {
         gate.complete();
         await tester.pumpAndSettle();
         expect(signInAgain(), findsNothing);
-        verify(() => defaultAuth.reportRemovalSignedOutAll('uid-1')).called(1);
+        verify(
+          () => defaultAuth.reportRemovalSignedOutAll(
+            'uid-1',
+            probed: any(named: 'probed'),
+          ),
+        ).called(1);
       });
     });
   });
@@ -1272,10 +1396,20 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text(kDeviceRemovedThisDeviceToo), findsOneWidget);
       // Remover copy (ruling 2026-11-27): the same dialog, then sign-out.
-      verifyNever(() => defaultAuth.reportRemovalSignedOutAll(any()));
+      verifyNever(
+        () => defaultAuth.reportRemovalSignedOutAll(
+          any(),
+          probed: any(named: 'probed'),
+        ),
+      );
       await tester.tap(find.text(kDeviceRemovedSignInAgainAction));
       await tester.pumpAndSettle();
-      verify(() => defaultAuth.reportRemovalSignedOutAll('uid-1')).called(1);
+      verify(
+        () => defaultAuth.reportRemovalSignedOutAll(
+          'uid-1',
+          probed: any(named: 'probed'),
+        ),
+      ).called(1);
     });
 
     testWidgets('several removals where any answer ended the sessions: the '
@@ -1291,7 +1425,43 @@ void main() {
       expect(find.text(kDeviceRemovedThisDeviceToo), findsOneWidget);
       await tester.tap(find.text(kDeviceRemovedSignInAgainAction));
       await tester.pumpAndSettle();
-      verify(() => defaultAuth.reportRemovalSignedOutAll('uid-1')).called(1);
+      verify(
+        () => defaultAuth.reportRemovalSignedOutAll(
+          'uid-1',
+          probed: any(named: 'probed'),
+        ),
+      ).called(1);
+    });
+
+    // Fix round 2, F2: a true answer before a REAUTH_REQUIRED is kept by the
+    // second ask of the same action, and never read as alive without a
+    // probe.
+    testWidgets('a true answer, then REAUTH_REQUIRED, then the second ask '
+        'cancelled: signed out (no probe ran), never the alive snackbar', (
+      tester,
+    ) async {
+      probeAnswer = () async => SignInProbe.alive;
+      port.park(['ref-older', 'ref-newer']);
+      port.nextRemoval = const DeviceRemoval(otherSessionsEnded: true);
+      port.failRemovalOf(
+        'ref-newer',
+        const ReauthRequiredException('Please sign in again.'),
+      );
+      await pump(tester, deviceSignOut: true, user: _googleUser);
+      await tester.tap(confirmAction());
+      await tester.pumpAndSettle();
+      // The first "Confirm it's you".
+      await tester.tap(find.text(kConfirmItsYouAction));
+      await tester.pumpAndSettle();
+      // REAUTH_REQUIRED: asked again; declined.
+      expect(find.text(kConfirmItsYouAgainBody), findsOneWidget);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(port.removedDevices, ['ref-older', 'ref-newer']);
+      verifyNever(() => defaultAuth.checkOwnRemoval(any()));
+      expect(find.text(kDeviceRemovedSessionsEnded), findsNothing);
+      verify(() => defaultAuth.reportRemovalSignedOutAll('uid-1', probed: null))
+          .called(1);
     });
 
     testWidgets('parked run, probe alive: the "other devices" snackbar and '
@@ -1304,7 +1474,12 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text(kDeviceRemovedSessionsEnded), findsOneWidget);
       expect(find.text(kDeviceRemovedSignInAgainAction), findsNothing);
-      verifyNever(() => defaultAuth.reportRemovalSignedOutAll(any()));
+      verifyNever(
+        () => defaultAuth.reportRemovalSignedOutAll(
+          any(),
+          probed: any(named: 'probed'),
+        ),
+      );
     });
 
     testWidgets('a run that fails after a removal ended the sessions says '
@@ -1317,7 +1492,12 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text(kDeviceRemoveFailedText), findsOneWidget);
       expect(find.text(kDeviceRemovedSignInAgainAction), findsNothing);
-      verify(() => defaultAuth.reportRemovalSignedOutAll('uid-1')).called(1);
+      verify(
+        () => defaultAuth.reportRemovalSignedOutAll(
+          'uid-1',
+          probed: any(named: 'probed'),
+        ),
+      ).called(1);
     });
 
     testWidgets('several removals finished in one run get the plain line, '

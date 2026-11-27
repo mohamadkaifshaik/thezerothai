@@ -193,7 +193,9 @@ extension _RemovalStore on RemovalQueueRunner {
       // (security M1): owed, and reported only once a save has stored the
       // removal ([_save]), so a stored intent fires it at most once; a
       // failing save keeps it owed until the next one succeeds.
-      if (ended) _owedSignedOutReport = vault.uid;
+      if (ended) {
+        _owedSignedOutReport = (uid: vault.uid, deviceId: intent.deviceId);
+      }
       await _queueRemoved(
         vault,
         intent.deviceId,
@@ -468,6 +470,15 @@ extension _RemovalStore on RemovalQueueRunner {
       intents: List.of(_intents),
       removed: List.of(_removed),
     ).encode();
+    // Fix round 2, F3 (re-review m3): the owed report this image covers,
+    // taken now: only when the image no longer holds that intent (a save
+    // whose image was built before `_queueRemoved` dropped it covers
+    // nothing).
+    final owed = _owedSignedOutReport;
+    final covered =
+        owed != null &&
+        owed.uid == vault.uid &&
+        !_intents.any((i) => i.deviceId == owed.deviceId);
     await _session.runWrite((v) async {
       if (!identical(v, vault) || !identical(_loadedFor, vault)) {
         throw StateError('The vault changed.');
@@ -479,11 +490,10 @@ extension _RemovalStore on RemovalQueueRunner {
         await tx.putSetting(kVaultSettingRemovalRecord, record);
       });
     });
-    // Stored: an owed report fires now, once (fix round 1, R2).
-    final owed = _owedSignedOutReport;
-    if (owed != null && owed == vault.uid) {
+    // Stored: the covered owed report fires now, once (fix round 1, R2).
+    if (covered && _owedSignedOutReport == owed) {
       _owedSignedOutReport = null;
-      _onRemovalSignedOutAll?.call(owed);
+      _onRemovalSignedOutAll?.call(owed.uid);
     }
   }
 

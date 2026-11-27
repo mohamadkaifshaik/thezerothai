@@ -575,7 +575,7 @@ void main() {
           EncryptionDevicesCubit(
             messaging: port,
             onUnexpectedError: (e, _) => reported.add(e),
-            probeSignIn: () async {
+            checkSignIn: () async {
               // Still busy: the row shows its spinner while it runs.
               log.add('probe');
               return answer;
@@ -617,7 +617,7 @@ void main() {
         String? removingDuringProbe;
         c = EncryptionDevicesCubit(
           messaging: port,
-          probeSignIn: () async {
+          checkSignIn: () async {
             removingDuringProbe = c.state.removing;
             return SignInProbe.dead;
           },
@@ -633,12 +633,88 @@ void main() {
         port.nextRemoval = const DeviceRemoval(otherSessionsEnded: true);
         final c = EncryptionDevicesCubit(
           messaging: port,
-          probeSignIn: () async => throw StateError('x'),
+          checkSignIn: () async => throw StateError('x'),
         );
         addTearDown(c.close);
         await c.load();
         await c.remove('ref-other', confirmItsYou: _yes);
         expect(c.thisSignInEnded, isTrue);
+        expect(c.probed, SignInProbe.unknown);
+      });
+
+      // Fix round 2, F2 (re-review m1): a true answer is never treated as
+      // alive unless a probe ran, and one user action keeps what it learned.
+      test('resumeParked: a true answer, then REAUTH_REQUIRED, then the '
+          'continued run is cancelled: ended, no probe, never alive', () async {
+        port = FakeEncryptedMessaging()
+          ..setOwnDevices(const OwnDeviceList(devices: [_mine, _other]))
+          ..park(['ref-other', 'ref-third'])
+          ..nextRemoval = const DeviceRemoval(otherSessionsEnded: true)
+          ..failRemovalOf(
+            'ref-third',
+            const ReauthRequiredException('sign in'),
+          );
+        final log = <String>[];
+        final c = probing(SignInProbe.alive, log);
+        addTearDown(c.close);
+        await c.load();
+        expect(
+          await c.resumeParked(confirmItsYou: confirm(true)),
+          RemoveOutcome.needsReauth,
+        );
+        expect(c.sessionsEnded, isTrue);
+        expect(c.probed, isNull);
+        expect(c.thisSignInEnded, isTrue);
+        // The second "Confirm it's you" of the same action is declined.
+        expect(
+          await c.resumeParked(confirmItsYou: confirm(false), continued: true),
+          RemoveOutcome.cancelled,
+        );
+        expect(log, isEmpty);
+        expect(c.sessionsEnded, isTrue);
+        expect(c.thisSignInEnded, isTrue);
+      });
+
+      test('resumeParked: the continued run that finishes probes, and an '
+          'alive answer then counts', () async {
+        port = FakeEncryptedMessaging()
+          ..setOwnDevices(const OwnDeviceList(devices: [_mine, _other]))
+          ..park(['ref-other', 'ref-third'])
+          ..nextRemoval = const DeviceRemoval(otherSessionsEnded: true)
+          ..failRemovalOf(
+            'ref-third',
+            const ReauthRequiredException('sign in'),
+          );
+        final log = <String>[];
+        final c = probing(SignInProbe.alive, log);
+        addTearDown(c.close);
+        await c.load();
+        await c.resumeParked(confirmItsYou: confirm(true));
+        // ref-third answers this time, with no sessions-ended bit of its own.
+        port.nextRemoval = const DeviceRemoval(otherSessionsEnded: false);
+        expect(
+          await c.resumeParked(confirmItsYou: confirm(true), continued: true),
+          RemoveOutcome.removed,
+        );
+        expect(c.sessionsEnded, isTrue);
+        expect(log, ['probe']);
+        expect(c.probed, SignInProbe.alive);
+        expect(c.thisSignInEnded, isFalse);
+      });
+
+      test('a new user action starts clean', () async {
+        port.nextRemoval = const DeviceRemoval(otherSessionsEnded: true);
+        final log = <String>[];
+        final c = probing(SignInProbe.dead, log);
+        addTearDown(c.close);
+        await c.load();
+        await c.remove('ref-other', confirmItsYou: _yes);
+        expect(c.thisSignInEnded, isTrue);
+        port.nextRemoval = const DeviceRemoval(otherSessionsEnded: false);
+        await c.remove('ref-other', confirmItsYou: _yes);
+        expect(c.sessionsEnded, isFalse);
+        expect(c.probed, isNull);
+        expect(c.thisSignInEnded, isFalse);
       });
     });
 

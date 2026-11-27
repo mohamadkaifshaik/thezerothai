@@ -810,11 +810,23 @@ void main() {
     });
     tearDown(() => users.close());
 
-    void Function(String) removalHookOf() =>
+    void Function(String, SignInProbe?) rawRemovalHookOf() =>
         verify(() => authRepository.onRemovalSignedOutAll = captureAny())
                 .captured
                 .last
-            as void Function(String);
+            as void Function(String, SignInProbe?);
+
+    /// The outbox's report: no answer of a probe.
+    void Function(String) removalHookOf() {
+      final hook = rawRemovalHookOf();
+      return (uid) => hook(uid, null);
+    }
+
+    Future<SignInProbe> Function(String) checkHookOf() =>
+        verify(() => authRepository.onCheckOwnRemoval = captureAny())
+                .captured
+                .last
+            as Future<SignInProbe> Function(String);
 
     void Function(String) cutHookOf() =>
         verify(() => authRepository.onServerEndedSession = captureAny())
@@ -1061,10 +1073,120 @@ void main() {
 
     test('closing the bloc unhooks it from the repository', () async {
       final bloc = await signedIn();
-      final hook = removalHookOf();
+      final hook = rawRemovalHookOf();
+      final check = checkHookOf();
       when(() => authRepository.onRemovalSignedOutAll).thenReturn(hook);
+      when(() => authRepository.onCheckOwnRemoval).thenReturn(check);
       await bloc.close();
       verify(() => authRepository.onRemovalSignedOutAll = null).called(1);
+      verify(() => authRepository.onCheckOwnRemoval = null).called(1);
+    });
+
+    // Fix round 2, F1: the Settings check records the reason first.
+    group('checkOwnRemoval (the Settings check)', () {
+      test('the SDK signing out during the probe lands with the remover '
+          'notice; the report then signs out nobody twice', () async {
+        when(() => authRepository.probeSignIn()).thenAnswer((_) async {
+          probes++;
+          users.add(null);
+          await pumpEventQueue();
+          return SignInProbe.dead;
+        });
+        final bloc = await signedIn();
+        final answer = await checkHookOf()('uid-1');
+        expect(answer, SignInProbe.dead);
+        expect(bloc.state.user, isNull);
+        expect(bloc.state.signedOutAfterOwnRemoval, isTrue);
+        // The dialog is skipped; the report still lands (backstop no-op).
+        rawRemovalHookOf()('uid-1', answer);
+        await pumpEventQueue();
+        verifyNever(() => authRepository.signOut());
+        expect(probes, 1);
+        expect(bloc.state.signedOutAfterOwnRemoval, isTrue);
+        await bloc.close();
+      });
+
+      test('dead: the reason stays armed and the dialog\'s report signs out '
+          'once, with no second probe', () async {
+        final bloc = await signedIn();
+        final answer = await checkHookOf()('uid-1');
+        expect(answer, SignInProbe.dead);
+        expect(bloc.state.user, verifiedUser);
+        rawRemovalHookOf()('uid-1', answer);
+        await pumpEventQueue();
+        verify(() => authRepository.signOut()).called(1);
+        expect(probes, 1);
+        expect(bloc.state.signedOutAfterOwnRemoval, isTrue);
+        await bloc.close();
+      });
+
+      test('alive: no sign-out, and the reason is disarmed (a later lost '
+          'session shows no remover notice)', () async {
+        probe = SignInProbe.alive;
+        final bloc = await signedIn();
+        expect(await checkHookOf()('uid-1'), SignInProbe.alive);
+        verifyNever(() => authRepository.signOut());
+        users.add(null);
+        await pumpEventQueue();
+        expect(bloc.state.lastSessionEnd, SessionEnd.sessionLost);
+        expect(bloc.state.signedOutAfterOwnRemoval, isFalse);
+        await bloc.close();
+      });
+
+      test(
+        'a probed: unknown report signs out without a second probe',
+        () async {
+          final bloc = await signedIn();
+          rawRemovalHookOf()('uid-1', SignInProbe.unknown);
+          await pumpEventQueue();
+          expect(probes, 0);
+          verify(() => authRepository.signOut()).called(1);
+          expect(bloc.state.signedOutAfterOwnRemoval, isTrue);
+          await bloc.close();
+        },
+      );
+
+      test(
+        'another uid, or nobody signed in: unknown, nothing armed',
+        () async {
+          final bloc = await signedIn();
+          expect(await checkHookOf()('uid-2'), SignInProbe.unknown);
+          expect(probes, 0);
+          users.add(null);
+          await pumpEventQueue();
+          expect(bloc.state.signedOutAfterOwnRemoval, isFalse);
+          await bloc.close();
+        },
+      );
+
+      test('backstop: a remover report after the user is already null '
+          'upgrades that uid\'s lost session', () async {
+        final bloc = await signedIn();
+        users.add(null);
+        await pumpEventQueue();
+        expect(bloc.state.signedOutAfterOwnRemoval, isFalse);
+        final hook = rawRemovalHookOf();
+        hook('uid-2', null);
+        await pumpEventQueue();
+        expect(bloc.state.signedOutAfterOwnRemoval, isFalse);
+        hook('uid-1', null);
+        await pumpEventQueue();
+        expect(bloc.state.signedOutAfterOwnRemoval, isTrue);
+        expect(bloc.state.signedOutByDeviceRemoval, isFalse);
+        verifyNever(() => authRepository.signOut());
+        await bloc.close();
+      });
+
+      test('backstop: an explicit sign-out is never upgraded', () async {
+        final bloc = await signedIn();
+        bloc.add(const AuthSignOutRequested(uid: 'uid-1'));
+        await pumpEventQueue();
+        rawRemovalHookOf()('uid-1', null);
+        await pumpEventQueue();
+        expect(bloc.state.lastSessionEnd, SessionEnd.userSignedOut);
+        expect(bloc.state.signedOutAfterOwnRemoval, isFalse);
+        await bloc.close();
+      });
     });
   });
 }
