@@ -118,13 +118,16 @@ void main() {
       ));
     });
 
-    test('a stale flag: the previous session ended with the flag off and the '
+    test('no stale flag: the previous session ended with the flag off and the '
         'next sign-in step has not run: refused retryable', () async {
       final session = world.launch();
       await session.start(restoredUid: 'user-a', restoreDefinitive: true);
       await session.onSignedIn('user-a', flag: E2eeFlag.off);
       await session.onSessionEnded('user-a', SessionEnd.sessionLost);
-      expect(session.flag, E2eeFlag.off);
+      // 5b Task 14a S1: the session forgets the flag at its end, so the
+      // previous session's `off` is no longer there to be read; the
+      // sign-in-step guard still answers "try again".
+      expect(session.flag, E2eeFlag.unknown);
       expect(session.signInStepDone, isFalse);
       final p = portOver(session);
       expect(await sendRecipient(p), (

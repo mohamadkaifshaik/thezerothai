@@ -84,6 +84,15 @@ abstract class OnboardingState with _$OnboardingState {
     // (never persisted), so a warm start never shows it; cleared by finishing
     // or skipping the step and by sign-out.
     @Default(false) bool photoStepPending,
+    // `OnboardingBloc.flagsGeneration` at the last successful GetMe this
+    // state carries (0: none since sign-out). Part of equality on purpose: a
+    // GetMe that answers exactly what the state already holds must still
+    // emit (bloc drops a state equal to the last one), or listeners that
+    // reset on a fresh answer (remembered FEATURE_DISABLED in the service
+    // gates, the claim clock) never hear of it. Only a successful GetMe moves
+    // it; a failed one keeps it (fail closed). Listeners compare the bloc's
+    // getter, which never goes back on sign-out.
+    @Default(0) int flagsGeneration,
   }) = _OnboardingState;
 
   const OnboardingState._();

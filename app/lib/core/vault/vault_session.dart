@@ -224,7 +224,8 @@ class VaultSession {
   ValueListenable<VaultStatus> get status => _status;
 
   /// The last `e2ee_dm` answer for the signed-in user; [E2eeFlag.unknown]
-  /// before any.
+  /// before any, and again from the end of that user's session
+  /// ([onSessionEnded]) until the next sign-in or flag answer.
   E2eeFlag get flag => _flag;
 
   /// Whether this device may START encryption now (create a vault or a
@@ -370,6 +371,14 @@ class VaultSession {
         if (wasCurrent) {
           _uid = null;
           _signInStepDone = false;
+          // 5b Task 14a security read S1: the flag answer belongs to this
+          // session. Forgotten at its end (every reason, before any await),
+          // so the next session, whoever signs in, starts from `unknown`
+          // (fail closed: unknown is never read as off) and learns the flag
+          // fresh from its own sign-in or flag answer. Only the current
+          // user's end resets it: a late end for a user who already left
+          // must not erase the new user's answer.
+          _flag = E2eeFlag.unknown;
         }
         if (!_supported) return;
         if (reason == SessionEnd.sessionLost) {
