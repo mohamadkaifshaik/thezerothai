@@ -3,7 +3,26 @@
 Base commit `d96c2904`. ADB and Flutter detected the physical Redmi K20 Pro running Android 11 (API 30). The checkboxes below track device verification.
 
 
-## Session checkpoint
+## November 27 device results
+
+The allowlisted account published one [16-strip QA post on dev](https://dev.dzeroth.com/post/0119719063282896896) from Chrome on the Redmi. This is a different post from the [original report](https://dev.dzeroth.com/post/0118586290563739648). Hosted measurements use the version deployed to dev. The controlled release-mode benchmark below uses this worktree.
+
+| Workflow | Observed on the Redmi |
+|---|---|
+| Android composer with local emulators | The Android picker returned 16 JPEGs. Applied the 9:16 crop to the first attachment, saved its alt text, and verified the composer offered to edit the saved description. |
+| Local failure and retry | Loss of USB port forwarding interrupted posting. The pending row kept Edit and Retry available. Restoring the connection and tapping Retry reached CreateUpload. Local signing failed because the Storage client lacked a signing identity. No local post was published. |
+| Hosted dev composer and publication | Entered the QA caption, attached 16 synthetic strips, saved alt text for the first, and tapped Post once. Four upload reservations succeeded. One finalization returned HTTP 503 and recovered on retry. CreatePost succeeded about 91 seconds after the tap. This is time to publish, not time to render an existing post. |
+| Following, detail and photo viewer | A screenshot check found all 16 expected colors in order in Following. Tapping the first tile opened photo 1 of the QA post. Back returned to Following and tapping the row opened the correct detail route. All 16 colors appeared in detail. |
+| Cold hosted page loads | With Chrome HTTP caching disabled, all 16 colors first appeared in Following at the 8.1-second sample after reloading the page. On a separate detail reload they appeared between 7.142 and 7.557 seconds after navigation. These timings include page startup and RPCs. |
+| Offline and retry | An already-painted Following row retained all 16 colors when Chrome went offline. Opening detail showed a connection error with Retry. After reconnecting, one Retry restored all 16 colors within 2.59 seconds. |
+| Rapid tab switching and scrolling | Sent six Following/Hello round trips and four vertical scroll gestures on hosted dev. Following still displayed all 16 fixture colors afterward. During this five-second run, Chrome recorded 169 animation-frame intervals, 21 above 50 ms, with a 100 ms p95 and 182 ms maximum. These are frame scheduling intervals for the page as a whole. The trace does not attribute a stall to a particular widget. |
+| Local privacy and data settings | Opened the blocked and muted lists. Switched Data saver on, reopened Data usage, confirmed it persisted, and restored its original off setting. |
+| Local message receipt and reply | A disposable peer sent a request through the emulator-backed API. On the Redmi, the recipient opened the request, saw the message, accepted, and replied. The peer read the reply through ListMessages. |
+| Android release configuration | Gradle merged the release manifest successfully on this checkout. It sets allowBackup to false and contains neither the debug network configuration nor a cleartext override. No release upload key was configured in this worktree. |
+
+The local signer failure was confirmed in the API log at CreateUpload. The debug emulator signup fix works independently. The dev browser used the existing signed-in account and feature access. Verification of the original post against a deployed copy of the patch remains open. The controlled benchmark covers the patch locally. The deployed dev run covers the complete upload and read paths. No production deployment, access-list edit, Firebase rules change or release signing was performed.
+
+## November 26 checkpoint
 
 Paused at the user's request on November 26, 2026. Worktree and branch are both named `redmi-feed-audit` (branch prefix `qa/`). The reported dev post is `0118586290563739648`. The affected client is Chrome on the Redmi K20 Pro.
 
@@ -86,7 +105,7 @@ Dart declarations and named sheet files under each feature. Cross-feature naviga
 
 ## Firebase and release checks
 
-Firestore and Storage rules both deny all direct client reads and writes. Authenticated operations go through the Go API. Production media uses bucket IAM and signed URLs.
+The media bucket Terraform module sets uniform bucket-level access and enforces public access prevention on the upload, serving and export buckets. Firestore and Storage rules both deny all direct client reads and writes. Authenticated operations go through the Go API. Production media uses bucket IAM and signed URLs.
 
 - [ ] Verify the deployed rules match `firebase/firestore.rules` and `firebase/storage.rules`.
 - [ ] Check resource ownership and audience restrictions in Go services, including posts, profiles, bookmarks and messages. Review upload size, type and content validation at slot creation and finalization.
@@ -95,7 +114,7 @@ Firestore and Storage rules both deny all direct client reads and writes. Authen
 
 ## Data access inventory
 
-Literal Firestore collection names used by the Go backend (includes subcollections). Dynamic names and nested ownership paths require service-level review.
+The original scan matched literal arguments to Collection. Several repositories also use constants. Confirmed examples include the top-level posts and media collections in their respective Firestore repositories and the likes and reposts collections in engagement. The following names are examples from the literal-only scan.
 
 articles, billingCustomerOwners, billingCustomers, users
 
