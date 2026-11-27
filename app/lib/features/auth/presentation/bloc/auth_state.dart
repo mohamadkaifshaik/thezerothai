@@ -39,6 +39,15 @@ abstract class AuthState with _$AuthState {
     /// [SessionEndedException.userMessage]. Set in the state that drops the
     /// user, only for that cause; cleared when a user signs in.
     @Default(false) bool signedOutByDeviceRemoval,
+
+    /// The last session ended because THIS device removed another device
+    /// and the server signed every session out (`other_sessions_ended`; H1
+    /// revokes this device's sign-in too): the app signed out on purpose
+    /// ([AuthSignedOutAfterOwnRemoval]) and the sign-in screens show the
+    /// remover's notice. The end is [SessionEnd.sessionLost] (the vault is
+    /// closed and kept). Never set together with [signedOutByDeviceRemoval];
+    /// cleared when a user signs in.
+    @Default(false) bool signedOutAfterOwnRemoval,
   }) = _AuthState;
 
   const AuthState._();

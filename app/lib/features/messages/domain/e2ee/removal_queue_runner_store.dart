@@ -157,8 +157,9 @@ extension _RemovalStore on RemovalQueueRunner {
       // Brief amendment 3: parked until the user signs in again and asks.
       if (_reauthParked.contains(intent.deviceId)) continue;
       if (!_current(vault, resets)) return;
+      bool ended;
       try {
-        await _sendRemove(intent.deviceId);
+        ended = await _sendRemove(intent.deviceId);
       } on ReauthRequiredException {
         // Never settled by a list: the refusal says nothing about the
         // device, only about this sign-in. Kept and parked (stored so).
@@ -187,6 +188,14 @@ extension _RemovalStore on RemovalQueueRunner {
         continue;
       }
       if (!_current(vault, resets)) return;
+      // The answer arrived: every other session ended, and probably this
+      // one (the auth bloc probes before it signs out). Fix round 1, R2
+      // (security M1): owed, and reported only once a save has stored the
+      // removal ([_save]), so a stored intent fires it at most once; a
+      // failing save keeps it owed until the next one succeeds.
+      if (ended) {
+        _owedSignedOutReport = (uid: vault.uid, deviceId: intent.deviceId);
+      }
       await _queueRemoved(
         vault,
         intent.deviceId,
@@ -461,6 +470,15 @@ extension _RemovalStore on RemovalQueueRunner {
       intents: List.of(_intents),
       removed: List.of(_removed),
     ).encode();
+    // Fix round 2, F3 (re-review m3): the owed report this image covers,
+    // taken now: only when the image no longer holds that intent (a save
+    // whose image was built before `_queueRemoved` dropped it covers
+    // nothing).
+    final owed = _owedSignedOutReport;
+    final covered =
+        owed != null &&
+        owed.uid == vault.uid &&
+        !_intents.any((i) => i.deviceId == owed.deviceId);
     await _session.runWrite((v) async {
       if (!identical(v, vault) || !identical(_loadedFor, vault)) {
         throw StateError('The vault changed.');
@@ -472,6 +490,11 @@ extension _RemovalStore on RemovalQueueRunner {
         await tx.putSetting(kVaultSettingRemovalRecord, record);
       });
     });
+    // Stored: the covered owed report fires now, once (fix round 1, R2).
+    if (covered && _owedSignedOutReport == owed) {
+      _owedSignedOutReport = null;
+      _onRemovalSignedOutAll?.call(owed.uid);
+    }
   }
 
   /// Fix round 5, ruling 2 (R1): [list] was fetched before the last

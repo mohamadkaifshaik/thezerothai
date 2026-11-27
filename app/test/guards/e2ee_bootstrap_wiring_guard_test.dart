@@ -112,6 +112,14 @@ final _required = <String, RegExp>{
     r'E2eePipeline\([^;]*?\bpublicIdsOff:\s*\(\)\s*=>\s*'
     r'publicIdsKnownOff\(\s*onboardingBloc\.state\s*\)',
   ),
+  // Remover copy (controller ruling 2026-11-27, H1 option b): a stored
+  // removal that, sent again by the queue, ended every session reaches the
+  // auth bloc through the one AuthRepository, which signs this device out.
+  'onRemovalSignedOutAll: authRepository.reportRemovalSignedOutAll (in '
+      'E2eePipeline)': RegExp(
+    r'E2eePipeline\([^;]*?\bonRemovalSignedOutAll:\s*'
+    r'authRepository\.reportRemovalSignedOutAll\b',
+  ),
   'onSessionEnd: (end) => e2eePipeline?.forgetNotes(end)': RegExp(
     r'onSessionEnd:\s*\((\w+)\)\s*=>\s*e2eePipeline\?\.forgetNotes\(\s*\1\s*\)',
   ),

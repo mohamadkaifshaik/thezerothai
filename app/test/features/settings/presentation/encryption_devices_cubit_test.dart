@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
+import 'package:dzeroth/features/auth/data/auth_repository.dart'
+    show SignInProbe;
 import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging.dart';
 import 'package:dzeroth/features/settings/presentation/bloc/encryption_devices_cubit.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -334,6 +336,7 @@ void main() {
           await c.load();
           await c.remove('ref-other', confirmItsYou: _yes);
           expect(c.otherSessionsEnded, answer);
+          expect(c.sessionsEnded, answer == true);
         }
       },
     );
@@ -344,9 +347,11 @@ void main() {
       addTearDown(c.close);
       await c.load();
       await c.remove('ref-other', confirmItsYou: _yes);
+      expect(c.sessionsEnded, isTrue);
       port.failNextOn('removeDevice', const NetworkException('x'));
       await c.remove('ref-other', confirmItsYou: _yes);
       expect(c.otherSessionsEnded, isNull);
+      expect(c.sessionsEnded, isFalse);
     });
 
     // Item 1 of the last round: `confirmItsYou` is a required parameter, so a
@@ -553,7 +558,179 @@ void main() {
         await c.load();
         await c.resumeParked(confirmItsYou: confirm(true));
         expect(c.otherSessionsEnded, want, reason: '$first $second');
+        // Remover copy (ruling 2026-11-27): any true is a cut, which ended
+        // every session (this device's too).
+        expect(
+          c.sessionsEnded,
+          first == true || second == true,
+          reason: '$first $second',
+        );
       }
+    });
+
+    // Fix round 1, R2: a true answer is probed (one forced refresh) before
+    // anything is shown; only a sign-in that is not alive has ended.
+    group('the sign-in probe', () {
+      EncryptionDevicesCubit probing(SignInProbe answer, List<String> log) =>
+          EncryptionDevicesCubit(
+            messaging: port,
+            onUnexpectedError: (e, _) => reported.add(e),
+            checkSignIn: () async {
+              // Still busy: the row shows its spinner while it runs.
+              log.add('probe');
+              return answer;
+            },
+          );
+
+      for (final (answer, ended) in [
+        (SignInProbe.alive, false),
+        (SignInProbe.dead, true),
+        (SignInProbe.unknown, true),
+      ]) {
+        test('$answer: thisSignInEnded $ended', () async {
+          port.nextRemoval = const DeviceRemoval(otherSessionsEnded: true);
+          final log = <String>[];
+          final c = probing(answer, log);
+          addTearDown(c.close);
+          await c.load();
+          await c.remove('ref-other', confirmItsYou: _yes);
+          expect(log, ['probe']);
+          expect(c.sessionsEnded, isTrue);
+          expect(c.thisSignInEnded, ended);
+        });
+      }
+
+      test('no true answer: no probe, nothing ended', () async {
+        port.nextRemoval = const DeviceRemoval(otherSessionsEnded: false);
+        final log = <String>[];
+        final c = probing(SignInProbe.dead, log);
+        addTearDown(c.close);
+        await c.load();
+        await c.remove('ref-other', confirmItsYou: _yes);
+        expect(log, isEmpty);
+        expect(c.thisSignInEnded, isFalse);
+      });
+
+      test('the probe runs while the row is still busy', () async {
+        port.nextRemoval = const DeviceRemoval(otherSessionsEnded: true);
+        late EncryptionDevicesCubit c;
+        String? removingDuringProbe;
+        c = EncryptionDevicesCubit(
+          messaging: port,
+          checkSignIn: () async {
+            removingDuringProbe = c.state.removing;
+            return SignInProbe.dead;
+          },
+        );
+        addTearDown(c.close);
+        await c.load();
+        await c.remove('ref-other', confirmItsYou: _yes);
+        expect(removingDuringProbe, 'ref-other');
+        expect(c.state.removing, isNull);
+      });
+
+      test('a throwing probe is unknown: ended', () async {
+        port.nextRemoval = const DeviceRemoval(otherSessionsEnded: true);
+        final c = EncryptionDevicesCubit(
+          messaging: port,
+          checkSignIn: () async => throw StateError('x'),
+        );
+        addTearDown(c.close);
+        await c.load();
+        await c.remove('ref-other', confirmItsYou: _yes);
+        expect(c.thisSignInEnded, isTrue);
+        expect(c.probed, SignInProbe.unknown);
+      });
+
+      // Fix round 2, F2 (re-review m1): a true answer is never treated as
+      // alive unless a probe ran, and one user action keeps what it learned.
+      test('resumeParked: a true answer, then REAUTH_REQUIRED, then the '
+          'continued run is cancelled: ended, no probe, never alive', () async {
+        port = FakeEncryptedMessaging()
+          ..setOwnDevices(const OwnDeviceList(devices: [_mine, _other]))
+          ..park(['ref-other', 'ref-third'])
+          ..nextRemoval = const DeviceRemoval(otherSessionsEnded: true)
+          ..failRemovalOf(
+            'ref-third',
+            const ReauthRequiredException('sign in'),
+          );
+        final log = <String>[];
+        final c = probing(SignInProbe.alive, log);
+        addTearDown(c.close);
+        await c.load();
+        expect(
+          await c.resumeParked(confirmItsYou: confirm(true)),
+          RemoveOutcome.needsReauth,
+        );
+        expect(c.sessionsEnded, isTrue);
+        expect(c.probed, isNull);
+        expect(c.thisSignInEnded, isTrue);
+        // The second "Confirm it's you" of the same action is declined.
+        expect(
+          await c.resumeParked(confirmItsYou: confirm(false), continued: true),
+          RemoveOutcome.cancelled,
+        );
+        expect(log, isEmpty);
+        expect(c.sessionsEnded, isTrue);
+        expect(c.thisSignInEnded, isTrue);
+      });
+
+      test('resumeParked: the continued run that finishes probes, and an '
+          'alive answer then counts', () async {
+        port = FakeEncryptedMessaging()
+          ..setOwnDevices(const OwnDeviceList(devices: [_mine, _other]))
+          ..park(['ref-other', 'ref-third'])
+          ..nextRemoval = const DeviceRemoval(otherSessionsEnded: true)
+          ..failRemovalOf(
+            'ref-third',
+            const ReauthRequiredException('sign in'),
+          );
+        final log = <String>[];
+        final c = probing(SignInProbe.alive, log);
+        addTearDown(c.close);
+        await c.load();
+        await c.resumeParked(confirmItsYou: confirm(true));
+        // ref-third answers this time, with no sessions-ended bit of its own.
+        port.nextRemoval = const DeviceRemoval(otherSessionsEnded: false);
+        expect(
+          await c.resumeParked(confirmItsYou: confirm(true), continued: true),
+          RemoveOutcome.removed,
+        );
+        expect(c.sessionsEnded, isTrue);
+        expect(log, ['probe']);
+        expect(c.probed, SignInProbe.alive);
+        expect(c.thisSignInEnded, isFalse);
+      });
+
+      test('a new user action starts clean', () async {
+        port.nextRemoval = const DeviceRemoval(otherSessionsEnded: true);
+        final log = <String>[];
+        final c = probing(SignInProbe.dead, log);
+        addTearDown(c.close);
+        await c.load();
+        await c.remove('ref-other', confirmItsYou: _yes);
+        expect(c.thisSignInEnded, isTrue);
+        port.nextRemoval = const DeviceRemoval(otherSessionsEnded: false);
+        await c.remove('ref-other', confirmItsYou: _yes);
+        expect(c.sessionsEnded, isFalse);
+        expect(c.probed, isNull);
+        expect(c.thisSignInEnded, isFalse);
+      });
+    });
+
+    test('sessionsEnded holds a true answer even when a later removal of '
+        'the run fails', () async {
+      port = FakeEncryptedMessaging()
+        ..setOwnDevices(const OwnDeviceList(devices: [_mine, _other]))
+        ..park(['ref-other', 'ref-third'])
+        ..nextRemoval = const DeviceRemoval(otherSessionsEnded: true)
+        ..failRemovalOf('ref-third', const NetworkException('x'));
+      final c = make();
+      addTearDown(c.close);
+      await c.load();
+      final outcome = await c.resumeParked(confirmItsYou: confirm(true));
+      expect(outcome, RemoveOutcome.failed);
+      expect(c.sessionsEnded, isTrue);
     });
 
     test('dropParked drops every parked ref with no removal call', () async {

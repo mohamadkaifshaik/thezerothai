@@ -179,6 +179,7 @@ class _Parts {
       removedDefinitely: () => deviceKeys.removedElsewhere,
       schedule: _p._scheduleCancellable,
       onUnexpectedError: report,
+      onRemovalSignedOutAll: _p._onRemovalSignedOutAll,
     );
     // Gate item 3: one starter per session (its constructor sets the
     // crypto's single callbacks).

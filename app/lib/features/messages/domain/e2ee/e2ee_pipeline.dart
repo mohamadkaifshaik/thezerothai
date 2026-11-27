@@ -132,8 +132,10 @@ class E2eePipeline {
     SyncSchedule? schedule,
     @visibleForTesting int budgetScale = 1,
     void Function(Object error, StackTrace stack)? onUnexpectedError,
+    void Function(String uid)? onRemovalSignedOutAll,
   }) : assert(budgetScale >= 1, 'Only tests raise the budgets.'),
        _budgetScale = budgetScale,
+       _onRemovalSignedOutAll = onRemovalSignedOutAll,
        _session = session,
        _deviceKeys = deviceKeys,
        _engine = engine,
@@ -183,6 +185,11 @@ class E2eePipeline {
   final DateTime Function() _now;
   final SyncSchedule _schedule;
   final void Function(Object error, StackTrace stack)? _onUnexpectedError;
+
+  /// The removal queue's report of a stored removal that, sent again later,
+  /// signed every session out (`RemovalQueueRunner`'s seam; production:
+  /// `AuthRepository.reportRemovalSignedOutAll`). Null: not reported.
+  final void Function(String uid)? _onRemovalSignedOutAll;
 
   /// Multiplies every budget's calls per minute: 1 in production; a test
   /// whose clock stands still raises it so no call waits for a real minute.

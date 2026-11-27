@@ -13,6 +13,11 @@ abstract interface class AuthTokenProvider {
   /// Forces a new ID token from the auth SDK (`getIdToken(true)`), so the
   /// next [getIdToken] answers it. Used once per burst of SESSION_ENDED
   /// answers (`SessionEndedInterceptor`, removal design SA L1).
+  ///
+  /// Remover copy fix round 1 (R1): never signs out. A refresh the SDK
+  /// refuses because the sign-in is dead (revoked, disabled or deleted)
+  /// throws [DeadSignInException], so the caller can tell it from a network
+  /// failure.
   Future<String?> refreshIdToken();
 
   /// The server refused [uid]'s session with SESSION_ENDED, and again after a
@@ -20,6 +25,13 @@ abstract interface class AuthTokenProvider {
   /// device. The implementation signs [uid] out as a lost session (the vault
   /// is kept). Called at most once per burst.
   void reportSessionEnded(String uid);
+}
+
+/// What [AuthTokenProvider.refreshIdToken] throws when the auth SDK says the
+/// sign-in can never be refreshed again (its refresh token was revoked, or
+/// the user was disabled or deleted). Carries no detail on purpose.
+final class DeadSignInException implements Exception {
+  const DeadSignInException();
 }
 
 /// Supplies a fresh App Check token for each request.

@@ -2,7 +2,11 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:bloc_test/bloc_test.dart';
+import 'package:dzeroth/core/network/app_exception.dart'
+    show SessionEndedException;
 import 'package:dzeroth/core/router/app_router.dart';
+import 'package:dzeroth/features/messages/presentation/e2ee/encryption_copy.dart'
+    show kSignedOutAfterOwnRemovalNotice;
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/core/widgets/privacy_policy_link.dart';
 import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
@@ -352,6 +356,55 @@ void main() {
       await pump(tester, state: lost, realForms: true);
       expect(find.text(copy), findsNothing);
       router.go(AppRouter.signInPath);
+      await tester.pumpAndSettle();
+      expect(find.text(copy), findsNothing);
+    });
+  });
+
+  // Remover copy (controller ruling 2026-11-27, H1 option b): THIS device
+  // removed another one and so signed itself out. Its notice is not the
+  // removed device's.
+  group('signed out after removing a device', () {
+    const remover = AuthState(
+      status: AuthStatus.unauthenticated,
+      lastSessionEnd: SessionEnd.sessionLost,
+      signedOutAfterOwnRemoval: true,
+    );
+    const copy =
+        'You removed a device, so every device was signed out. Sign in again.';
+    const removedCopy =
+        'You were signed out because a device was removed from your '
+        'account. Sign in again to continue.';
+
+    test('the notice is the copy file\'s, and differs from the removed '
+        'device\'s', () {
+      expect(kSignedOutAfterOwnRemovalNotice, copy);
+      expect(copy, isNot(SessionEndedException.userMessage));
+    });
+
+    for (final (name, size) in [
+      ('phone', phone),
+      ('tablet', tablet),
+      ('desktop', desktop),
+    ]) {
+      testWidgets('$name: Welcome shows the remover notice only', (
+        tester,
+      ) async {
+        await pump(tester, size: size, state: remover);
+        expect(find.text(copy), findsOneWidget);
+        expect(find.text(removedCopy), findsNothing);
+      });
+    }
+
+    testWidgets('the sign-in form shows it too, the sign-up form does not', (
+      tester,
+    ) async {
+      await pump(tester, state: remover, realForms: true);
+      router.go(AppRouter.signInPath);
+      await tester.pumpAndSettle();
+      expect(find.text(copy), findsOneWidget);
+      expect(find.text(removedCopy), findsNothing);
+      router.go(AppRouter.signUpPath);
       await tester.pumpAndSettle();
       expect(find.text(copy), findsNothing);
     });

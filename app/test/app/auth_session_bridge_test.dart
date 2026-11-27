@@ -273,6 +273,39 @@ void main() {
       expect(ends, [SessionEnd.userSignedOut, SessionEnd.sessionLost]);
     });
 
+    // Remover copy (controller ruling 2026-11-27, H1 option b): the state
+    // the auth bloc emits after this device's own removal signed every
+    // session out closes the vault and keeps it; the same uid signing back
+    // in finds its keys again.
+    //
+    // Fix round 1, m4: a regression pin only. It feeds a hand-built state;
+    // the proof that the auth bloc emits `sessionLost` with no explicit
+    // hook for this end is the bloc test ("signed out after removing a
+    // device" in auth_bloc_test.dart).
+    test('signed out after removing a device: the vault is closed and kept, '
+        'and reopens for the same uid', () async {
+      wireVault();
+      auth.add(signedIn('a'));
+      await settle();
+      expect(vault.status.value, VaultStatus.ready);
+
+      auth.add(
+        const AuthState(
+          status: AuthStatus.unauthenticated,
+          lastSessionEnd: SessionEnd.sessionLost,
+          signedOutAfterOwnRemoval: true,
+        ),
+      );
+      await settle();
+      expect(vault.status.value, VaultStatus.off);
+      expect(world.files['a']?.empty ?? true, isFalse);
+      expect(world.keys.containsKey('a'), isTrue);
+
+      auth.add(signedIn('a'));
+      await settle();
+      expect(vault.status.value, VaultStatus.ready);
+    });
+
     test('a state without a reason (older emitter) is a lost session: '
         'nothing wiped', () async {
       wireVault();
