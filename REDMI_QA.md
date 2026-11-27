@@ -22,6 +22,12 @@ The allowlisted account published one [16-strip QA post on dev](https://dev.dzer
 
 The local signer failure was confirmed in the API log at CreateUpload. The debug emulator signup fix works independently. The dev browser used the existing signed-in account and feature access. Verification of the original post against a deployed copy of the patch remains open. The controlled benchmark covers the patch locally. The deployed dev run covers the complete upload and read paths. No production deployment, access-list edit, Firebase rules change or release signing was performed.
 
+### Desktop Chrome screenshots on November 28
+
+Screenshots 476, 477 and 478 show the hosted dev Following feed. In 476, the footballer's face, kit and stadium are visible across 16 rounded strips under a gray cast. In 477 and 478, four and seven strips are visible respectively. In each capture the gray rectangle extends past the last visible strip to the same right edge of the media area. The post headers differ, so these images establish the symptom across rows but do not time one row clearing.
+
+The full-width rectangle and visible image detail are relevant to the desktop reproduction. The existing controlled Redmi benchmark measures strip colors in the tiles. Desktop verification also needs to sample the gaps and unused area to the right, and to compare the same post in Following and detail after image loading completes. The cause of the rectangle is unresolved.
+
 ### Hosted Data saver comparison
 
 In Chrome on the Redmi, Data saver was initially off. With HTTP caching disabled, the 16-color QA post requested 16 originals and 16 thumbnails. After enabling Data saver, the same post requested 16 thumbnails and zero originals. All 16 strip colors painted in the expected order in each state. The original off setting was restored and checked. This comparison measures request selection on the deployed dev build.
