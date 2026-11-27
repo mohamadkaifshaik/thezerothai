@@ -28,6 +28,10 @@ Screenshots 476, 477 and 478 show the hosted dev Following feed. In 476, the foo
 
 The full-width rectangle and visible image detail are relevant to the desktop reproduction. The existing controlled Redmi benchmark measures strip colors in the tiles. Desktop verification also needs to sample the gaps and unused area to the right, and to compare the same post in Following and detail after image loading completes. The cause of the rectangle is unresolved.
 
+The QA branch now paints fitted groups of thin photos directly in a row. Previously those groups used a horizontal scroll viewport even when its scroll extent was zero. Overflowing groups retain their lazy scrolling layout. Regression tests exercise 4, 7 and 16 strips, check the actual card-color pixels between tiles and in the unused area, and verify that tapping a strip opens that image while tapping the unused area reaches the post.
+
+A local release build ran both layouts in desktop Chrome with a 706-pixel feed card and synthetic 54 ? 1440 photos. In all six runs the expected colors appeared in every strip. Both the gap and the trailing area sampled white at rest and RGB (245, 245, 245) while the pointer hovered over the card. The earlier layout also passed this isolated browser check, so the change is a mitigation. The gray cast in the hosted screenshots remains unverified against a deployed patch.
+
 ### Hosted Data saver comparison
 
 In Chrome on the Redmi, Data saver was initially off. With HTTP caching disabled, the 16-color QA post requested 16 originals and 16 thumbnails. After enabling Data saver, the same post requested 16 thumbnails and zero originals. All 16 strip colors painted in the expected order in each state. The original off setting was restored and checked. This comparison measures request selection on the deployed dev build.
