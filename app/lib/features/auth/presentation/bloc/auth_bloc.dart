@@ -96,6 +96,14 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   ///    and reports with this answer, and the bloc then signs out at once.
   /// [uid] not signed in (or a cut sign-out running for it): unknown, with
   /// nothing armed.
+  ///
+  /// Fix round 3, n1: this is not an event handler. It is called through
+  /// `AuthRepository.onCheckOwnRemoval` and runs alongside the bloc's
+  /// events (its probe awaits while they are handled). That is safe in one
+  /// isolate: every step between awaits is synchronous, and the uid checks
+  /// before and after the probe (the signed-in uid, `_endingForOwnRemoval`,
+  /// `_signingOutForOwnRemoval`) make a change of user or an end that ran
+  /// meanwhile win.
   Future<SignInProbe> checkOwnRemoval(String uid) async {
     if (isClosed || state.user?.uid != uid || _endingForCut == uid) {
       return SignInProbe.unknown;
@@ -243,9 +251,13 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       _upgradeEndedToCut(event.uid, emit);
       return;
     }
+    // Fix round 3, m1: only a remover sign-out that is RUNNING holds a cut
+    // back. A reason armed by [checkOwnRemoval] while the remover's dialog
+    // is open (no sign-out yet) does not: a real cut signs out now, and its
+    // notice wins in [_onUserChanged].
     if (uid != event.uid ||
         _endingForCut == uid ||
-        _endingForOwnRemoval == uid) {
+        _signingOutForOwnRemoval == uid) {
       return;
     }
     _endingForCut = uid;
