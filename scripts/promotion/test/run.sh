@@ -93,6 +93,8 @@ mut '.spec.containers[0].env += [{"name":"FEATURE_BEACONS","value":"allowlist"},
 expect "beacons pilot allowlist" 0 "$V" "$tmp/r" "$ceil" dev
 mut '.spec.containers[0].env += [{"name":"FEATURE_BEACONS","value":"on"},{"name":"FEATURE_BEACONS_ALLOWLIST","value":"fake-uid-A,fake-uid-B,fake-uid-C,fake-uid-D,fake-uid-E,fake-uid-F,fake-uid-G"}]' revision-ok.json r
 expect "beacons allowlist too big" 1 "$V" "$tmp/r" "$ceil" dev
+# E2EE couplings (validate-revision.sh section 2b): every rule in pass and fail shapes, in its own file
+expect_msg "e2ee coupling tests" 0 "e2ee coupling tests: [0-9][0-9]* passed, 0 failed" "$here/e2ee-coupling-test.sh"
 expect "not a revision" 2 "$V" "$fx/service-ok.json" "$ceil" dev
 expect "unknown env" 2 "$V" "$fx/revision-ok.json" "$ceil" staging
 
