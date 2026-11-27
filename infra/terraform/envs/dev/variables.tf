@@ -1568,6 +1568,95 @@ variable "feature_device_sign_out_percent" {
   }
 }
 
+variable "feature_e2ee_required" {
+  description = "FEATURE_E2EE_REQUIRED rollout mode (wire name e2ee_required, E2EE Plan 6 section 1.1): refuses every plaintext SendMessage (ENCRYPTION_REQUIRED) when it is effective for the sender or the recipient, into a conversation that is not encrypted yet: off | allowlist | percent | on. Default off in every environment. Effective = this flag && FEATURE_MESSAGING; it is NOT gated by FEATURE_E2EE_DM and fails closed, so a required user outside the e2ee_dm cohort can send nothing (startup logs a WARN). Switching this flag off is the one lever that reopens plaintext; nothing stored changes. Ceiling in scripts/promotion/flag-ceiling.json: dev off (allowlist cap 6, percent 0), prod off; staging any mode other than off in dev first needs a dev ceiling raise to allowlist (an owner gate-file change). Promotion rules (validate-revision.sh section 2b): FEATURE_DM_SHARE_CHECK must cover this cohort (fails), and this flag must cover FEATURE_MESSAGING (prod fails, dev warns)."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_e2ee_required)
+    error_message = "feature_e2ee_required must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_e2ee_required_allowlist" {
+  description = "FEATURE_E2EE_REQUIRED_ALLOWLIST: comma-separated Firebase uids (not a secret), at most 6 under the dev ceiling. Applies in allowlist and percent modes. Every uid must also be in feature_dm_share_check_allowlist (or the share check on), and should hold every feature_messaging_allowlist uid."
+  type        = string
+  default     = ""
+}
+
+variable "feature_e2ee_required_percent" {
+  description = "FEATURE_E2EE_REQUIRED_PERCENT: 0-100, only meaningful when feature_e2ee_required = percent. The dev ceiling allows no percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_e2ee_required_percent >= 0 && var.feature_e2ee_required_percent <= 100 && floor(var.feature_e2ee_required_percent) == var.feature_e2ee_required_percent
+    error_message = "feature_e2ee_required_percent must be an integer 0-100."
+  }
+}
+
+variable "feature_e2ee_claim" {
+  description = "FEATURE_E2EE_CLAIM rollout mode (wire name claim_live, E2EE Plan 6 section 4.7): tells the app the public claim \"We cannot read your messages.\" is live, so the owner turns the headline on and off without a release. No RPC reads it; it only appears in GetMe.enabled_features: off | allowlist | percent | on. Default off in every environment. Couplings: effective = this flag && effective e2ee_required (itself needs FEATURE_MESSAGING) && FEATURE_DEVICE_SIGN_OUT, so the server never reports it where plaintext is still accepted or a removed device does not sign the others out; switching either parent off withdraws it at once (a client sees that at its next GetMe). Ceiling in scripts/promotion/flag-ceiling.json: dev off (allowlist cap 6, percent 0), prod off; staging any mode other than off in dev first needs a dev ceiling raise to allowlist (an owner gate-file change). Promotion rules (validate-revision.sh section 2b, all fail closed): FEATURE_E2EE_REQUIRED, FEATURE_DEVICE_SIGN_OUT and FEATURE_MESSAGING must each cover this cohort; those sit on top of FEATURE_DM_SHARE_CHECK covering FEATURE_E2EE_REQUIRED and FEATURE_E2EE_REQUIRED covering FEATURE_MESSAGING (prod fails, dev warns)."
+  type        = string
+  default     = "off"
+
+  validation {
+    condition     = contains(["off", "allowlist", "percent", "on"], var.feature_e2ee_claim)
+    error_message = "feature_e2ee_claim must be one of: off, allowlist, percent, on."
+  }
+}
+
+variable "feature_e2ee_claim_allowlist" {
+  description = "FEATURE_E2EE_CLAIM_ALLOWLIST: comma-separated Firebase uids (not a secret), at most 6 under the dev ceiling. Applies in allowlist and percent modes. Every uid must also be in the feature_e2ee_required, feature_device_sign_out and feature_messaging allowlists (or those flags on)."
+  type        = string
+  default     = ""
+}
+
+variable "feature_e2ee_claim_percent" {
+  description = "FEATURE_E2EE_CLAIM_PERCENT: 0-100, only meaningful when feature_e2ee_claim = percent. The dev ceiling allows no percent."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.feature_e2ee_claim_percent >= 0 && var.feature_e2ee_claim_percent <= 100 && floor(var.feature_e2ee_claim_percent) == var.feature_e2ee_claim_percent
+    error_message = "feature_e2ee_claim_percent must be an integer 0-100."
+  }
+}
+
+variable "client_floor_android" {
+  description = "CLIENT_FLOOR_ANDROID (E2EE Plan 6 section 3.1): the lowest app capability level (the x-dz-client header, app/lib/core/app_build.dart kClientLevel) an Android build must send to use direct messages and the key directory. Below it, GetMe hides the messaging family and lists messaging in features_needing_update, and every MessagingService and KeyService RPC answers FEATURE_DISABLED with update_required. Applies to every user, not a flag cohort; a request with no header or an unknown platform is held to the highest of the three floors. Not a feature flag (no ceiling entry). Integer 0..1000 (config.go fails startup outside it); default 0 = no floor."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.client_floor_android >= 0 && var.client_floor_android <= 1000 && floor(var.client_floor_android) == var.client_floor_android
+    error_message = "client_floor_android must be an integer 0-1000."
+  }
+}
+
+variable "client_floor_web" {
+  description = "CLIENT_FLOOR_WEB (E2EE Plan 6 section 3.1): the lowest app capability level a web build must send in x-dz-client to use direct messages and the key directory; same effect and scope as client_floor_android. Integer 0..1000; default 0 = no floor."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.client_floor_web >= 0 && var.client_floor_web <= 1000 && floor(var.client_floor_web) == var.client_floor_web
+    error_message = "client_floor_web must be an integer 0-1000."
+  }
+}
+
+variable "client_floor_ios" {
+  description = "CLIENT_FLOOR_IOS (E2EE Plan 6 section 3.1): the lowest app capability level an iOS build must send in x-dz-client to use direct messages and the key directory; same effect and scope as client_floor_android. iOS builds report level 0 today (no crypto engine), so any value above 0 takes messaging away from every iOS user. Integer 0..1000; default 0 = no floor."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.client_floor_ios >= 0 && var.client_floor_ios <= 1000 && floor(var.client_floor_ios) == var.client_floor_ios
+    error_message = "client_floor_ios must be an integer 0-1000."
+  }
+}
+
 variable "feature_share_count" {
   description = "FEATURE_SHARE_COUNT rollout mode for EngagementService.RecordPostShare (on for the caller) and the direct-message share record of Post.share_count (while not globally off); clients show the count only when it is on for the viewer: off | allowlist | percent | on. Default off in every environment; ramp deliberately."
   type        = string
