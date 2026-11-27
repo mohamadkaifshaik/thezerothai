@@ -1,7 +1,9 @@
 // One dashboard (5 charts from free-tier-budget §5), one uptime check, and a
 // small handful of alert policies. Free at Stage 0 volumes, with approved exceptions: the auth-admin log-based metric +
 // alert policy (~$0.40/month), and the prod ops alerts for dead-lettered messages, failing Scheduler jobs and the
-// daily-maintenance heartbeat (founder-approved 2026-11-04). Each billable resource carries a cost-approved marker.
+// daily-maintenance heartbeat (founder-approved 2026-11-04). Pending the owner's cost approval: the session-revoke failure
+// alert (prod) and the E2EE epoch order fallback alert (dev and prod), sections 10 and 11. Each billable resource carries
+// a cost-approved marker.
 
 resource "google_monitoring_notification_channel" "email" {
   for_each = toset(var.founder_emails)
@@ -291,6 +293,10 @@ resource "google_monitoring_alert_policy" "firestore_reads_near_quota" {
 // 4. Control C4: unexpected Firebase Auth mutation volume. The runtime SA holds a custom role that can
 // disable/delete ANY Auth user (IAM cannot scope it to one uid); code controls C1-C3 limit it to the caller's own
 // uid, and this alert detects misuse after the fact. Expected ~9 deletions/month; the metric counts successful deletes (op=delete, outcome=ok: one per deletion) plus ERROR refusals. The read-only `get` op (export, M2 sign-up check) never matches.
+// Since H1 (security review L3) it also counts session revokes: op=revoke_sessions with outcome=ok (one per REMOTE device
+// removal that cut sessions; RevokeRefreshTokens on the caller's own uid) and outcome=capped (WARN, a revoke skipped by the
+// per-uid daily cap KEYS_SESSION_REVOKES_PER_DAY). A revoke that fails (outcome=error) has its own alert below
+// (keys_session_revoke_failed). not_found never matches. See auth_admin_alert_per_hour for why the threshold moved.
 // Response: set FEATURE_ACCOUNT_LIFECYCLE=off, remove the accountLifecycleAuth binding, investigate.
 // Cost: the only recurring charge of account lifecycle, ~$0.40/month TOTAL, prod only (var.enable_auth_admin_alert; dev has no
 // alert and relies on log inspection). The label-free log-based counter is inside the free metric ingestion
@@ -298,8 +304,8 @@ resource "google_monitoring_alert_policy" "firestore_reads_near_quota" {
 resource "google_logging_metric" "auth_admin_mutations" { # cost-approved: ADR-0011
   project     = var.project_id
   name        = "auth_admin_mutations"
-  description = "Successful Firebase Auth delete calls (one per deletion) plus C1 refusals (ERROR auth_admin_refused) made by the api (ADR-0011 C3/C1)."
-  filter      = "resource.type=\"cloud_run_revision\" AND ((jsonPayload.auth_admin_op=\"delete\" AND jsonPayload.outcome=\"ok\") OR (severity=ERROR AND jsonPayload.outcome=\"refused\"))"
+  description = "Successful Firebase Auth delete calls (one per deletion), session revokes (revoke_sessions ok, plus capped by the daily cap) and C1 refusals (ERROR auth_admin_refused) made by the api (ADR-0011 C3/C1, H1)."
+  filter      = "resource.type=\"cloud_run_revision\" AND ((jsonPayload.auth_admin_op=\"delete\" AND jsonPayload.outcome=\"ok\") OR (jsonPayload.auth_admin_op=\"revoke_sessions\" AND (jsonPayload.outcome=\"ok\" OR jsonPayload.outcome=\"capped\")) OR (severity=ERROR AND jsonPayload.outcome=\"refused\"))"
 
   metric_descriptor {
     metric_kind = "DELTA"
@@ -334,7 +340,7 @@ resource "google_monitoring_alert_policy" "auth_admin_mutations" { # cost-approv
 
   documentation {
     mime_type = "text/markdown"
-    content   = "Unexpected volume of Firebase Auth disable/delete calls (ADR-0011 C4). Set FEATURE_ACCOUNT_LIFECYCLE=off, remove the accountLifecycleAuth IAM binding on the api runtime SA, then investigate. (account lifecycle)."
+    content   = "Unexpected volume of Firebase Auth disable/delete/revoke calls (ADR-0011 C4, H1). Logs Explorer: jsonPayload.auth_admin_op:* shows op, outcome and uid_hash; many revoke_sessions lines or any outcome=\"capped\" point at device-removal abuse or a client retry loop, many deletes at account lifecycle. Set FEATURE_ACCOUNT_LIFECYCLE=off, remove the accountLifecycleAuth IAM binding on the api runtime SA, then investigate. (account lifecycle)."
   }
 
   alert_strategy {
@@ -587,6 +593,118 @@ resource "google_monitoring_alert_policy" "outbox_item_stuck" { # cost-approved:
   documentation {
     mime_type = "text/markdown"
     content   = "An outbox item used up its retries and is stuck; the incident names its kind. Logs Explorer: resource.type=\"cloud_run_revision\" jsonPayload.message=\"outbox_item_stuck\" shows kind, uid_hash and the scrubbed cause, and the api's Error Reporting has a matching entry (outbox sweep). Find and fix the cause in the logged cause field, then check the item is processed or replay it. A privacy-relevant kind such as post_delete cleanup should not be left stuck."
+  }
+
+  alert_strategy {
+    auto_close = "3600s"
+  }
+}
+
+// 10. Session revokes that keep failing (H1). A REMOTE device removal revokes the account's Firebase refresh tokens after
+// the session cut; when the revoke (stage=revoke) or its note on the removal mark (stage=mark) fails after the one inline
+// retry, keys writes one WARN `keys_session_revoke_failed` line (uid_hash, fixed stage, gRPC code; never the error text)
+// and answers a retryable UNAVAILABLE before the sweep. The removal stays pending and the lost device's refresh token is
+// not revoked until a retry succeeds. The logger renames slog's msg key to `message` (pkg/platform/logger, replaceAttr),
+// as in outbox_item_stuck. Label-free counter, free like the metrics above; it exists in both envs.
+resource "google_logging_metric" "keys_session_revoke_failed" { # cost-approved: <owner, date> (free log-based metric)
+  project     = var.project_id
+  name        = "keys_session_revoke_failed"
+  description = "REMOTE device removals whose Firebase refresh-token revoke or revokeDone note failed after the inline retry (WARN keys_session_revoke_failed from the api, H1)."
+  filter      = "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"api\" AND jsonPayload.message=\"keys_session_revoke_failed\""
+
+  metric_descriptor {
+    metric_kind = "DELTA"
+    value_type  = "INT64"
+    unit        = "1"
+  }
+}
+
+// More than 3 in an hour: one failed removal is retried by the client, so a single Auth blip writes one or two lines and
+// stays quiet; a steady stream means Auth or the accountLifecycleAuth binding is broken for everyone. Prod only, with the
+// C4 alert (enable_auth_admin_alert); dev keeps the metric for Logs Explorer and the metric explorer.
+resource "google_monitoring_alert_policy" "keys_session_revoke_failed" { # cost-approved: <owner, date> (~$0.20/month, prod only)
+  count        = var.enable_auth_admin_alert ? 1 : 0
+  project      = var.project_id
+  display_name = "Session revoke failures (${var.env})"
+  combiner     = "OR"
+
+  conditions {
+    display_name = "keys_session_revoke_failed, 1 h sum > 3"
+    condition_threshold {
+      filter          = "metric.type=\"logging.googleapis.com/user/${google_logging_metric.keys_session_revoke_failed.name}\" resource.type=\"cloud_run_revision\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 3
+      duration        = "0s"
+
+      aggregations {
+        alignment_period     = "3600s"
+        per_series_aligner   = "ALIGN_SUM"
+        cross_series_reducer = "REDUCE_SUM"
+      }
+    }
+  }
+
+  notification_channels = [for c in google_monitoring_notification_channel.email : c.id]
+
+  documentation {
+    mime_type = "text/markdown"
+    content   = "REMOTE device removals cannot revoke Firebase refresh tokens (H1): the lost device can keep minting ID tokens until a retry succeeds. Logs Explorer: resource.type=\"cloud_run_revision\" jsonPayload.message=\"keys_session_revoke_failed\" shows uid_hash, stage (revoke or mark) and grpc_code. stage=revoke: check the accountLifecycleAuth binding on the api runtime SA and Firebase Auth status. stage=mark: check Firestore. The removals stay pending and the client retries."
+  }
+
+  alert_strategy {
+    auto_close = "1800s"
+  }
+}
+
+// 11. The ordered epoch listing fell back (E2EE receive walks). ListEpochMessages orders by (mlsKey ASC, createdAt ASC),
+// which needs a composite index. When Firestore answers FAILED_PRECONDITION (index missing or not READY), messaging fails
+// closed with an empty page and writes one ERROR `messaging_epoch_order_fallback` line per request (epoch_order_fallback=true,
+// conversation hash, kind; no uid). The request line also carries epoch_order_fallback=true, so the filter matches the
+// message, not the field, to count each request once. Any line means the index is not serving: E2EE DM receivers see no
+// new messages. The 5a ledger asks for this alert in dev and prod before any prod E2EE_DM change. Free label-free metric.
+resource "google_logging_metric" "epoch_order_fallback" { # cost-approved: <owner, date> (free log-based metric)
+  project     = var.project_id
+  name        = "epoch_order_fallback"
+  description = "ListEpochMessages requests that fell back because the messages (mlsKey, createdAt) index is missing or not READY (ERROR messaging_epoch_order_fallback from the api)."
+  filter      = "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"api\" AND severity>=ERROR AND jsonPayload.message=\"messaging_epoch_order_fallback\""
+
+  metric_descriptor {
+    metric_kind = "DELTA"
+    value_type  = "INT64"
+    unit        = "1"
+  }
+}
+
+// Any occurrence in a rolling hour opens it (sum > 0). The window is a sliding one, so the incident opens within minutes
+// of the first line; the hour only keeps it open while fallbacks continue. Dev and prod (enable_epoch_order_fallback_alert):
+// dev is where a new index lands first, and a dev index that never became READY is the regression this catches.
+resource "google_monitoring_alert_policy" "epoch_order_fallback" { # cost-approved: <owner, date> (~$0.20/month per env, dev and prod)
+  count        = var.enable_epoch_order_fallback_alert ? 1 : 0
+  project      = var.project_id
+  display_name = "E2EE epoch order index fallback (${var.env})"
+  combiner     = "OR"
+
+  conditions {
+    display_name = "epoch_order_fallback, 1 h sum > 0"
+    condition_threshold {
+      filter          = "metric.type=\"logging.googleapis.com/user/${google_logging_metric.epoch_order_fallback.name}\" resource.type=\"cloud_run_revision\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 0
+      duration        = "0s"
+
+      aggregations {
+        alignment_period     = "3600s"
+        per_series_aligner   = "ALIGN_SUM"
+        cross_series_reducer = "REDUCE_SUM"
+      }
+    }
+  }
+
+  notification_channels = [for c in google_monitoring_notification_channel.email : c.id]
+
+  documentation {
+    mime_type = "text/markdown"
+    content   = "ListEpochMessages fell back: the Firestore composite index on messages (mlsKey ASC, createdAt ASC) is missing or not READY, so E2EE DM receivers get empty pages. Check the index in the Firestore console (or gcloud firestore indexes composite list) and deploy firebase/firestore.indexes.json if it is absent. Logs Explorer: resource.type=\"cloud_run_revision\" jsonPayload.message=\"messaging_epoch_order_fallback\" shows the conversation hash and kind. It closes an hour after the last fallback."
   }
 
   alert_strategy {

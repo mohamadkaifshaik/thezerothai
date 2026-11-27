@@ -637,6 +637,9 @@ module "monitoring" {
   # R4 (founder 2026-10-10): ops alert policies are billable, so prod only. Dev relies on the dashboard.
   enable_ops_alerts = false
 
+  # E2EE: dev is where the messages (mlsKey, createdAt) index lands first, so the fallback alert runs here too (5a ledger).
+  enable_epoch_order_fallback_alert = true # cost-approved: <owner, date>
+
   depends_on = [module.cloud_run_api]
 }
 
