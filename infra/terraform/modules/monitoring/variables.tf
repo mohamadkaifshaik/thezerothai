@@ -17,15 +17,27 @@ variable "api_hostname" {
 }
 
 variable "enable_auth_admin_alert" {
-  description = "ADR-0011 C4: create the (billable, ~$0.40/month) Auth-mutation alert policy. Prod only; the free log-based metric exists regardless."
+  description = "ADR-0011 C4: create the (billable, ~$0.40/month) Auth-mutation alert policy, and with it the H1 session-revoke failure alert (~$0.20/month, cost approval pending). Prod only; the free log-based metrics exist regardless."
   type        = bool
   default     = false
 }
 
+# 20, raised from 5 when C4 started counting session revokes (H1). Why 20: deletions stay rare (~9/month), but every
+# REMOTE device removal that cuts sessions now adds one revoke_sessions event, and one honest user tidying up old phones
+# can remove several devices in a row. The per-uid daily revoke cap (KEYS_SESSION_REVOKES_PER_DAY = 10) bounds one user
+# at 10 ok events, then capped events. 20 lets one user use the whole cap in an hour, plus a few deletions and refusals,
+# without paging; it still pages on two users at the cap in one hour, on a client retry loop past the cap, or on a burst
+# of deletions or C1 refusals that no normal hour produces. Lower it again if revokes move to their own alert.
 variable "auth_admin_alert_per_hour" {
-  description = "ADR-0011 control C4: alert when Firebase Auth disable/delete mutations in a rolling hour exceed this. Counts one event per deletion (op=delete) plus refusals. Expected ~9 deletions/month, so 5 in an hour is abnormal."
+  description = "ADR-0011 control C4: alert when Firebase Auth mutations in a rolling hour exceed this. Counts one event per deletion (op=delete ok), per session revoke (op=revoke_sessions ok or capped, H1) and per C1 refusal. Deletions are ~9/month; one user can revoke up to 10 times a day (the daily cap), so 20 in an hour is abnormal."
   type        = number
-  default     = 5
+  default     = 20
+}
+
+variable "enable_epoch_order_fallback_alert" {
+  description = "Create the E2EE epoch order fallback alert (any messaging_epoch_order_fallback line in a rolling hour: the messages (mlsKey, createdAt) index is missing or not READY). Billable like the other alert policies, so it needs the owner's cost approval; meant for dev and prod before any prod E2EE_DM change. The free log-based metric exists regardless."
+  type        = bool
+  default     = false
 }
 
 variable "enable_ops_alerts" {

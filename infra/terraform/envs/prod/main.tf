@@ -577,6 +577,9 @@ module "monitoring" {
   enable_auth_admin_alert = true # cost-approved: ADR-0011
   enable_ops_alerts       = true # R4: prod keeps uptime, 5xx and Firestore-reads alerts, plus DLQ, Scheduler and heartbeat alerts
 
+  # E2EE: alert on the epoch order fallback before any prod E2EE_DM change (5a ledger).
+  enable_epoch_order_fallback_alert = true # cost-approved: <owner, date>
+
   # Credit-mode detectors. Stage 0 values by default (flood alert off, reads threshold 40k).
   enable_request_flood_alert    = var.enable_request_flood_alert    # ADR-0022 until:2026-12-26
   request_flood_per_hour        = var.request_flood_per_hour        # ADR-0022 until:2026-12-26
