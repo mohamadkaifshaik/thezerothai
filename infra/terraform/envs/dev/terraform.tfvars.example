@@ -95,3 +95,18 @@ ios_key_uid     = "00000000-0000-0000-0000-000000000000" # iOS key (auto created
 # feature_drafts_allowlist = "<uid-1>,<uid-2>,<uid-3>"
 # feature_gif           = "allowlist"
 # feature_gif_allowlist = "<uid-1>,<uid-2>,<uid-3>"
+
+# E2EE Plan 6: plaintext refusal, the public claim and the app version floor. OPT-IN: leave commented out and nothing
+# changes (flags off, floors 0). Dev ceiling (scripts/promotion/flag-ceiling.json) is OFF for E2EE_REQUIRED and
+# E2EE_CLAIM today: raise it to allowlist (an owner gate-file PR) before uncommenting either. Promotion couplings
+# (validate-revision.sh section 2b): the dm_share_check list holds every e2ee_required uid; the e2ee_required list
+# should hold every messaging uid (dev warns, prod fails); the e2ee_required, device_sign_out and messaging lists each
+# hold every e2ee_claim uid. Floors apply to every user, not a cohort; iOS builds report level 0 today, and a request
+# with no header is held to the highest floor.
+# feature_e2ee_required           = "allowlist"
+# feature_e2ee_required_allowlist = "<uid-1>,<uid-2>,<uid-3>"
+# feature_e2ee_claim              = "allowlist"
+# feature_e2ee_claim_allowlist    = "<uid-1>,<uid-2>"
+# client_floor_android            = 1
+# client_floor_web                = 1
+# client_floor_ios                = 0
