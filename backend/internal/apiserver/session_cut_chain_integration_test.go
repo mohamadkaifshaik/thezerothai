@@ -168,7 +168,9 @@ func TestSessionCutChain_TwoSessions(t *testing.T) {
 	offUID, offEmail, offA := passwordAccount(t, cfg.ProjectID)
 	listed := map[string]struct{}{uid: {}}
 	const dailyCommits = 3
-	e := newDMChain(t, func(c *config.Config) {
+	// The removal below also revokes the account's refresh tokens (H1); unrevokedVerifier keeps the pre-revoke ID tokens
+	// valid as production does, so A's refusal is the cut's SESSION_ENDED (session_revoke_chain_integration_test.go).
+	e := newDMChainUnrevoked(t, func(c *config.Config) {
 		c.FeatureE2EEDM = flags.Spec{Name: "e2ee_dm", Mode: flags.Allowlist, Allowlist: map[string]struct{}{uid: {}, offUID: {}}}
 		// device_sign_out on for uid only: offUID is "allowlist off" (not globally off), so a cut on it is still enforced.
 		c.FeatureDeviceSignOut = flags.Spec{Name: "device_sign_out", Mode: flags.Allowlist, Allowlist: listed}
