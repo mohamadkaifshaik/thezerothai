@@ -62,7 +62,10 @@ export ROLLBACK_REPO=$fr
 # Ceilings: one PRIVATE_ACCOUNTS floor at c_floor, with the dev ceiling raised so percent and on are legal on the target.
 # The flag list is cut to the flags the fixture revision sets plus the two floor flags: validate-revision.sh (the last
 # step of every passing rollback) spawns jq per listed flag, which takes minutes per case on Windows with the full list.
-base='.flags = ["ACCOUNT_LIFECYCLE", "GRAPH", "LOCATION", "NOTIFICATIONS", "POSTS", "PRIVATE_ACCOUNTS", "REMOVED_IDS", "REPORTS"]
+# The six E2EE-coupled flags stay listed (all off here): validate-revision.sh section 2b fails closed when a coupled
+# flag is missing from the ceiling.
+base='.flags = ["ACCOUNT_LIFECYCLE", "GRAPH", "LOCATION", "NOTIFICATIONS", "POSTS", "PRIVATE_ACCOUNTS", "REMOVED_IDS", "REPORTS",
+    "DEVICE_SIGN_OUT", "DM_SHARE_CHECK", "E2EE_CLAIM", "E2EE_DM", "E2EE_REQUIRED", "MESSAGING"]
   | .envs.dev.flags.PRIVATE_ACCOUNTS = {"mode": "on", "max_allowlist": 6, "max_percent": 100}'
 jq --arg c "$c_floor" "$base"' | .rollback_floors = {"_comment": "test", "PRIVATE_ACCOUNTS": {"commit": $c, "pr": 1, "reason": "test"}}' "$p/flag-ceiling.json" | tr -d '\r' >"$tmp/ceil-plain"
 # sticky_ceil <out-name> <json value>: the same ceiling with "sticky" set to that JSON value
