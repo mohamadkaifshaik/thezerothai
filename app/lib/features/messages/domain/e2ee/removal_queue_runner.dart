@@ -189,7 +189,9 @@ class RemovalQueueRunner {
     required bool Function() removedDefinitely,
     void Function() Function(Duration delay, void Function() run)? schedule,
     void Function(Object error, StackTrace stack)? onUnexpectedError,
-  }) : _keys = keys,
+    void Function(String uid)? onRemovalSignedOutAll,
+  }) : _onRemovalSignedOutAll = onRemovalSignedOutAll,
+       _keys = keys,
        _directory = directory,
        _commits = commits,
        _receiver = receiver,
@@ -228,6 +230,27 @@ class RemovalQueueRunner {
   final bool Function() _removedDefinitely;
   final void Function() Function(Duration delay, void Function() run) _schedule;
   final void Function(Object error, StackTrace stack)? _onUnexpectedError;
+
+  /// Remover copy (controller ruling 2026-11-27, H1 option b): told with the
+  /// vault's uid when a STORED removal intent, sent again by a pass (the
+  /// outbox: a removal whose first answer was lost, or one sent after a
+  /// restart), answers `other_sessions_ended` true, once its removal is
+  /// stored (fix round 1, R2: at most once per stored intent). H1 then
+  /// normally revoked this sign-in too, and no screen is waiting for that
+  /// answer, so the auth bloc probes the sign-in and signs this device out
+  /// unless it is alive (production:
+  /// `AuthRepository.reportRemovalSignedOutAll`). A [removeDevice] answer
+  /// goes back to its caller instead (the Settings screen shows the result
+  /// first, then signs out), so it is never reported here.
+  final void Function(String uid)? _onRemovalSignedOutAll;
+
+  /// Fix round 1, R2 (security M1): the vault uid and device id of a stored
+  /// intent whose resend answered `other_sessions_ended` true, owed to
+  /// [_onRemovalSignedOutAll] until a [_save] for that vault succeeds whose
+  /// image no longer holds that intent (fix round 2, F3: the intent is then
+  /// gone from storage, so it fires at most once per stored intent; a failed
+  /// save keeps it owed for the next one). Cleared by [reset].
+  ({String uid, String deviceId})? _owedSignedOutReport;
 
   /// The image of the stored queue, valid for [_loadedFor] only.
   final List<RemovalQueueEntry> _entries = [];
@@ -506,6 +529,7 @@ class RemovalQueueRunner {
     _intentsNotBefore = null;
     _recordPruned = false;
     _lastRemovedAt = null;
+    _owedSignedOutReport = null;
     // Fix round 5, ruling 5 (m5): a removal of the old run is not joined
     // by the next run's call for the same id (its own call, sent again).
     _removing.clear();

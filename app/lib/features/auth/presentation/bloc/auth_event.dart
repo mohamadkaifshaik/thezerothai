@@ -1,4 +1,5 @@
 import '../../../../core/session/session_end.dart';
+import '../../data/auth_repository.dart' show SignInProbe;
 import '../../domain/app_user.dart';
 
 export '../../../../core/session/session_end.dart' show SessionEnd;
@@ -98,6 +99,21 @@ final class AuthSignOutRequested extends AuthEvent {
 final class AuthSessionEndedByServer extends AuthEvent {
   const AuthSessionEndedByServer(this.uid);
   final String uid;
+}
+
+/// Internal: THIS device removed another device of [uid]'s account and the
+/// server answered `other_sessions_ended` (H1 revoked every sign-in, this
+/// one included). Dispatched through `AuthRepository.onRemovalSignedOutAll`.
+/// Signs [uid] out at once as [SessionEnd.sessionLost] (the vault is kept)
+/// with the remover's notice, once per burst; ignored when another account
+/// (or nobody) is signed in.
+final class AuthSignedOutAfterOwnRemoval extends AuthEvent {
+  const AuthSignedOutAfterOwnRemoval(this.uid, {this.probed});
+  final String uid;
+
+  /// Fix round 2, F1: the answer of the probe the caller already ran
+  /// (`AuthRepository.checkOwnRemoval`); null: the bloc probes itself.
+  final SignInProbe? probed;
 }
 
 /// Clears a transient [AuthState.failure] after the UI has shown it.

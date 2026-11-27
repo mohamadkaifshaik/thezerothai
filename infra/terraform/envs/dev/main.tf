@@ -409,6 +409,18 @@ locals {
     { name = "FEATURE_DEVICE_SIGN_OUT", value = var.feature_device_sign_out },
     { name = "FEATURE_DEVICE_SIGN_OUT_ALLOWLIST", value = var.feature_device_sign_out_allowlist },
     { name = "FEATURE_DEVICE_SIGN_OUT_PERCENT", value = tostring(var.feature_device_sign_out_percent) },
+    // E2EE Plan 6: plaintext refusal and the public claim. Default off; the dev ceiling is off for both today, so
+    // staging either one needs a ceiling raise first. validate-revision.sh section 2b judges the couplings.
+    { name = "FEATURE_E2EE_REQUIRED", value = var.feature_e2ee_required },
+    { name = "FEATURE_E2EE_REQUIRED_ALLOWLIST", value = var.feature_e2ee_required_allowlist },
+    { name = "FEATURE_E2EE_REQUIRED_PERCENT", value = tostring(var.feature_e2ee_required_percent) },
+    { name = "FEATURE_E2EE_CLAIM", value = var.feature_e2ee_claim },
+    { name = "FEATURE_E2EE_CLAIM_ALLOWLIST", value = var.feature_e2ee_claim_allowlist },
+    { name = "FEATURE_E2EE_CLAIM_PERCENT", value = tostring(var.feature_e2ee_claim_percent) },
+    // App version floor for messaging (plan 6 section 3.1). Not feature flags: plain ints 0..1000, 0 = no floor.
+    { name = "CLIENT_FLOOR_ANDROID", value = tostring(var.client_floor_android) },
+    { name = "CLIENT_FLOOR_WEB", value = tostring(var.client_floor_web) },
+    { name = "CLIENT_FLOOR_IOS", value = tostring(var.client_floor_ios) },
     { name = "FEATURE_SHARE_COUNT", value = var.feature_share_count },
     { name = "FEATURE_SHARE_COUNT_ALLOWLIST", value = var.feature_share_count_allowlist },
     { name = "FEATURE_SHARE_COUNT_PERCENT", value = tostring(var.feature_share_count_percent) },

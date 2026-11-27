@@ -1,3 +1,5 @@
+import 'package:dzeroth/core/session/user_ids.dart'
+    show kUnavailableAccountName;
 import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging.dart';
 import 'package:dzeroth/features/messages/presentation/e2ee/encryption_copy.dart';
 import 'package:dzeroth/features/messages/presentation/widgets/conversation_row.dart';
@@ -165,6 +167,44 @@ void main() {
       ),
     );
     handle.dispose();
+  });
+
+  // FU1 review nit (#1133): an empty handle never reads as "@".
+  group('a peer with no handle', () {
+    for (final (displayName, shown) in [
+      ('Deleted account', 'Deleted account'),
+      ('', kUnavailableAccountName),
+    ]) {
+      testWidgets('display name "$displayName": shown and spoken as "$shown", '
+          'with no "@"', (tester) async {
+        final handle = tester.ensureSemantics();
+        final c = conv('a', snippet: 'hello')
+          ..peer.handle = ''
+          ..peer.displayName = displayName;
+        await pumpRow(tester, ConversationRow(conversation: c, now: now));
+
+        expect(find.text(shown), findsOneWidget);
+        expect(find.text('@'), findsNothing);
+        final label = tester.getSemantics(find.byType(ConversationRow)).label;
+        expect(label, '$shown, hello, 5 minutes ago');
+        expect(label, isNot(contains('@')));
+        handle.dispose();
+      });
+    }
+
+    testWidgets('a handle without a display name is the name, once', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      final c = conv('a', snippet: 'hello')..peer.displayName = '';
+      await pumpRow(tester, ConversationRow(conversation: c, now: now));
+      expect(find.text('@peera'), findsOneWidget);
+      expect(
+        tester.getSemantics(find.byType(ConversationRow)).label,
+        '@peera, hello, 5 minutes ago',
+      );
+      handle.dispose();
+    });
   });
 
   testWidgets('a read row is not bold and says nothing of unread', (

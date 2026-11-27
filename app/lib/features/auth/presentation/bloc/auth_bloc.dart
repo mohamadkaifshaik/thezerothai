@@ -41,6 +41,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     on<AuthEmailVerificationCheckRequested>(_onVerificationCheckRequested);
     on<AuthSignOutRequested>(_onSignOutRequested);
     on<AuthSessionEndedByServer>(_onSessionEndedByServer);
+    on<AuthSignedOutAfterOwnRemoval>(_onSignedOutAfterOwnRemoval);
     on<AuthFailureDismissed>((event, emit) {
       emit(state.copyWith(failure: null));
     });
@@ -48,15 +49,195 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     // and again after one forced refresh) through the repository: the one
     // place both already share, so bootstrap needs no new wiring.
     authRepository.onServerEndedSession = _sessionEndedHook;
+    // The same seam for this device's own removal that signed every session
+    // out (the Settings removal and the removal queue report it).
+    authRepository.onRemovalSignedOutAll = _ownRemovalHook;
+    // Fix round 2, F1: the Settings check runs here, so the reason is
+    // recorded before its probe.
+    authRepository.onCheckOwnRemoval = checkOwnRemoval;
   }
 
   void _sessionEndedHook(String uid) {
     if (!isClosed) add(AuthSessionEndedByServer(uid));
   }
 
+  void _ownRemovalHook(String uid, SignInProbe? probed) {
+    if (!isClosed) add(AuthSignedOutAfterOwnRemoval(uid, probed: probed));
+  }
+
+  /// The remover's reason: [uid]'s session is ending because this device's
+  /// own removal ended every session. Consumed by the end of that session
+  /// (the remover's notice); disarmed by an alive probe or a failed
+  /// sign-out. Fix round 2, F1: armed BEFORE any probe.
+  String? _endingForOwnRemoval;
+
+  /// The uid whose remover sign-out is running (probe included): dedupes a
+  /// burst of reports. Cleared by the end of that session, an alive probe
+  /// or a failed sign-out.
+  String? _signingOutForOwnRemoval;
+
+  Future<SignInProbe> _probe() async {
+    try {
+      return await _authRepository.probeSignIn();
+    } catch (_) {
+      return SignInProbe.unknown;
+    }
+  }
+
+  /// Fix round 2, F1 (re-review M1, m2): the Settings check after a removal
+  /// answered `other_sessions_ended` true (`AuthRepository.checkOwnRemoval`).
+  /// 1. The remover's reason is armed for [uid] first, so a sign-out during
+  ///    the probe (the SDK signing out on its own) lands with the remover's
+  ///    notice.
+  /// 2. One probe ([AuthRepository.probeSignIn], never signs out).
+  /// 3. [SignInProbe.alive]: the reason is disarmed (when this call armed
+  ///    it and no sign-out runs for it).
+  /// 4. Dead or unknown: the reason stays armed; the caller shows its result
+  ///    and reports with this answer, and the bloc then signs out at once.
+  /// [uid] not signed in (or a cut sign-out running for it): unknown, with
+  /// nothing armed.
+  ///
+  /// Fix round 3, n1: this is not an event handler. It is called through
+  /// `AuthRepository.onCheckOwnRemoval` and runs alongside the bloc's
+  /// events (its probe awaits while they are handled). That is safe in one
+  /// isolate: every step between awaits is synchronous, and the uid checks
+  /// before and after the probe (the signed-in uid, `_endingForOwnRemoval`,
+  /// `_signingOutForOwnRemoval`) make a change of user or an end that ran
+  /// meanwhile win.
+  Future<SignInProbe> checkOwnRemoval(String uid) async {
+    if (isClosed || state.user?.uid != uid || _endingForCut == uid) {
+      return SignInProbe.unknown;
+    }
+    final armedHere = _endingForOwnRemoval != uid;
+    _endingForOwnRemoval = uid;
+    final probe = await _probe();
+    if (probe == SignInProbe.alive &&
+        armedHere &&
+        _endingForOwnRemoval == uid &&
+        _signingOutForOwnRemoval != uid) {
+      _endingForOwnRemoval = null;
+    }
+    return probe;
+  }
+
+  /// Fix round 2, F1 backstop (mirrors [_upgradeEndedToCut]): a remover
+  /// report for [uid] that lands after the user is already null upgrades
+  /// that uid's lost session to the remover's notice, when nobody signed in
+  /// since and neither notice is set. The vault needs nothing more (the
+  /// same [SessionEnd.sessionLost]).
+  void _upgradeEndedToOwnRemoval(String uid, Emitter<AuthState> emit) {
+    final s = state;
+    if (_lastEndedUid != uid ||
+        s.status != AuthStatus.unauthenticated ||
+        s.lastSessionEnd != SessionEnd.sessionLost ||
+        s.signedOutAfterOwnRemoval ||
+        s.signedOutByDeviceRemoval) {
+      return;
+    }
+    emit(s.copyWith(signedOutAfterOwnRemoval: true));
+  }
+
+  /// Remover copy (controller ruling 2026-11-27, H1 option b): signs
+  /// [AuthSignedOutAfterOwnRemoval.uid] out at once, without waiting for the
+  /// token refresh H1 makes fail. No vault intent is armed (the end is
+  /// [SessionEnd.sessionLost]: the vault is closed and kept, and the same uid
+  /// signing back in reopens its keys). The push unregister runs, bounded and
+  /// best effort as on a normal sign-out: unlike a SESSION_ENDED device, this
+  /// one's ID token is still accepted, and a signed-out device should not
+  /// keep getting pushes.
+  ///
+  /// Fix round 1, R2 (code M2, security M1 and L2): the server's
+  /// `other_sessions_ended` means "a cut exists for this removal", not "this
+  /// token was revoked" (a replay after a re-sign-in, or a sign-in in the
+  /// same second as the cut, keeps a live sign-in). So, one place for the
+  /// Settings and outbox paths alike:
+  /// 1. the intent is armed (a null user that comes meanwhile, e.g. the SDK
+  ///    signing out on its own, still reads as this end);
+  /// 2. one forced refresh probes the sign-in ([AuthRepository.probeSignIn],
+  ///    which never signs out);
+  /// 3. alive: disarmed, nobody is signed out;
+  /// 4. dead: signed out with the remover's notice;
+  /// 5. unknown (offline, a timeout): signed out all the same, since the
+  ///    server said the sessions ended.
+  ///
+  /// Fix round 2, F1: with [AuthSignedOutAfterOwnRemoval.probed] (the
+  /// Settings dialog already ran [checkOwnRemoval]) there is no second
+  /// probe: dead or unknown signs out at once. Only the removal queue's
+  /// report (no answer) probes here. With the user already null, the
+  /// backstop [_upgradeEndedToOwnRemoval] applies.
+  Future<void> _onSignedOutAfterOwnRemoval(
+    AuthSignedOutAfterOwnRemoval event,
+    Emitter<AuthState> emit,
+  ) async {
+    final uid = state.user?.uid;
+    if (uid == null) {
+      _upgradeEndedToOwnRemoval(event.uid, emit);
+      return;
+    }
+    if (uid != event.uid ||
+        _signingOutForOwnRemoval == uid ||
+        _endingForCut == uid) {
+      return;
+    }
+    _signingOutForOwnRemoval = uid;
+    _endingForOwnRemoval = uid;
+    final probe = event.probed ?? await _probe();
+    if (_endingForOwnRemoval != uid || state.user?.uid != uid) {
+      return; // ended meanwhile (its end consumed the reason)
+    }
+    if (probe == SignInProbe.alive) {
+      // This sign-in was not revoked: nothing to end.
+      _endingForOwnRemoval = null;
+      _signingOutForOwnRemoval = null;
+      return;
+    }
+    final before = _beforeSignOut;
+    if (before != null) {
+      try {
+        await _guarded(before).timeout(kBeforeSignOutTimeout);
+      } catch (_) {
+        // Never block sign-out on bookkeeping.
+      }
+    }
+    try {
+      await _authRepository.signOut();
+    } catch (_) {
+      // Still signed in: a later report (or the failing refresh) ends it.
+      if (_authRepository.currentUser?.uid == uid) {
+        if (_endingForOwnRemoval == uid) _endingForOwnRemoval = null;
+        if (_signingOutForOwnRemoval == uid) _signingOutForOwnRemoval = null;
+      }
+      rethrow;
+    }
+  }
+
   /// The uid being signed out for SESSION_ENDED; cleared by its end (or a
   /// failed sign-out). Deduplicates a burst of reports.
   String? _endingForCut;
+
+  /// The uid whose session ended last, while nobody has signed in since
+  /// (null once a user signs in). Read by [_upgradeEndedToCut].
+  String? _lastEndedUid;
+
+  /// Fix round 1, R1: the cut report for [uid] landed after the user was
+  /// already null (the auth SDK signed out on its own when the cut's revoke
+  /// made the refresh fail). When that null user was [uid]'s lost session
+  /// and nobody signed in since, the end is upgraded to the cut: the removed
+  /// device's notice shows. The vault needs nothing more: the cut path's end
+  /// is that same [SessionEnd.sessionLost] (closed and kept), already
+  /// handed to the vault. An explicit end, the remover's own end, or
+  /// another uid is left as it is.
+  void _upgradeEndedToCut(String uid, Emitter<AuthState> emit) {
+    final s = state;
+    if (_lastEndedUid != uid ||
+        s.status != AuthStatus.unauthenticated ||
+        s.lastSessionEnd != SessionEnd.sessionLost ||
+        s.signedOutAfterOwnRemoval ||
+        s.signedOutByDeviceRemoval) {
+      return;
+    }
+    emit(s.copyWith(signedOutByDeviceRemoval: true));
+  }
 
   /// Ruling 1 (lane D PR 4): signs [AuthSessionEndedByServer.uid] out as a
   /// lost session (no intent is armed, so the vault is kept), once per
@@ -66,7 +247,19 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     Emitter<AuthState> emit,
   ) async {
     final uid = state.user?.uid;
-    if (uid == null || uid != event.uid || _endingForCut == uid) return;
+    if (uid == null) {
+      _upgradeEndedToCut(event.uid, emit);
+      return;
+    }
+    // Fix round 3, m1: only a remover sign-out that is RUNNING holds a cut
+    // back. A reason armed by [checkOwnRemoval] while the remover's dialog
+    // is open (no sign-out yet) does not: a real cut signs out now, and its
+    // notice wins in [_onUserChanged].
+    if (uid != event.uid ||
+        _endingForCut == uid ||
+        _signingOutForOwnRemoval == uid) {
+      return;
+    }
     _endingForCut = uid;
     try {
       await _authRepository.signOut();
@@ -145,24 +338,40 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     final previous = state.user;
     var lastSessionEnd = state.lastSessionEnd;
     var byRemoval = state.signedOutByDeviceRemoval;
+    var byOwnRemoval = state.signedOutAfterOwnRemoval;
     if (user?.uid != previous?.uid) {
       final intent = _intent;
       _intent = null;
       final cut = _endingForCut;
       _endingForCut = null;
+      final own = _endingForOwnRemoval;
+      _endingForOwnRemoval = null;
+      _signingOutForOwnRemoval = null;
       if (user == null) {
         lastSessionEnd = _endOf(previous?.uid, intent, event.fromStreamError);
+        _lastEndedUid = previous?.uid;
         // Ruling 2: the sign-in copy only for this cause (an explicit
         // sign-out that raced it reads as that sign-out).
         byRemoval =
             cut != null &&
             cut == previous?.uid &&
             lastSessionEnd == SessionEnd.sessionLost;
+        // The remover's notice, by the same rule; the two causes never
+        // both hold (each handler ignores a uid the other is ending).
+        byOwnRemoval =
+            !byRemoval &&
+            own != null &&
+            own == previous?.uid &&
+            lastSessionEnd == SessionEnd.sessionLost;
       }
     } else if (event.fromStreamError) {
       lastSessionEnd = SessionEnd.sessionLost;
     }
-    if (user != null) byRemoval = false;
+    if (user != null) {
+      byRemoval = false;
+      byOwnRemoval = false;
+      _lastEndedUid = null;
+    }
     emit(
       state.copyWith(
         status: status,
@@ -170,6 +379,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         isSubmitting: false,
         lastSessionEnd: lastSessionEnd,
         signedOutByDeviceRemoval: byRemoval,
+        signedOutAfterOwnRemoval: byOwnRemoval,
       ),
     );
   }
@@ -353,6 +563,12 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     // Tear-offs of the same method on the same bloc are equal (`==`).
     if (_authRepository.onServerEndedSession == _sessionEndedHook) {
       _authRepository.onServerEndedSession = null;
+    }
+    if (_authRepository.onRemovalSignedOutAll == _ownRemovalHook) {
+      _authRepository.onRemovalSignedOutAll = null;
+    }
+    if (_authRepository.onCheckOwnRemoval == checkOwnRemoval) {
+      _authRepository.onCheckOwnRemoval = null;
     }
     return super.close();
   }

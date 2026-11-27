@@ -41,7 +41,11 @@ bool isSessionEndedFailure(connect.ConnectException error) =>
 ///   same account are not refreshed or retried, but report again, so a
 ///   sign-out that failed gets another try (the auth bloc drops duplicates
 ///   while one runs). A successful call, or a call bound to another account,
-///   ends the burst.
+///   ends the burst;
+/// - a forced refresh that fails with [DeadSignInException] (the cut revoked
+///   this sign-in's refresh token, H1) is the end too: reported at once, the
+///   refusal rethrown, no retry (remover copy fix round 1, R1). The refresh
+///   itself never signs out.
 ///
 /// The retry keeps the request-session binding: the call is bound to the
 /// account signed in when it entered (read synchronously); if the session
@@ -59,7 +63,7 @@ final class SessionEndedInterceptor {
 
   /// How many forced refreshes finished.
   int _refreshes = 0;
-  Future<void>? _refreshing;
+  Future<bool>? _refreshing;
 
   /// The account whose end this burst already reported.
   String? _endedUid;
@@ -85,7 +89,18 @@ final class SessionEndedInterceptor {
           _tokens.reportSessionEnded(uid);
           rethrow;
         }
-        if (seen == _refreshes) await _refresh();
+        // Fix round 1, R1 (code M1): a refresh the SDK refused because the
+        // sign-in is dead (H1 revoked its refresh token with the cut) is the
+        // cut itself: it is reported (the bloc signs out with the removed
+        // device's notice) and the refusal is rethrown, with no retry.
+        // Stale-token race (n1): a call sent before a dead refresh finished
+        // (seen != _refreshes) skips this and retries once with the SDK's
+        // token; that retry is refused again and reports, so it costs one
+        // extra request, never a missed end.
+        if (seen == _refreshes && await _refresh()) {
+          _report(uid);
+          rethrow;
+        }
         if (_sessionUid() != uid) throw const RequestSessionChangedException();
         return _retry(next, request, uid);
       }
@@ -129,14 +144,22 @@ final class SessionEndedInterceptor {
   /// N2: a second refresh within one burst is possible: a call that entered
   /// after the first one finished and is refused before the end is reported
   /// starts another. Bounded (one token call per such wave) and accepted.
-  Future<void> _refresh() => _refreshing ??= _runRefresh();
+  ///
+  /// Answers true only when the refresh failed with [DeadSignInException]
+  /// (fix round 1, R1); every call that joined the refresh gets the same
+  /// answer.
+  Future<bool> _refresh() => _refreshing ??= _runRefresh();
 
-  Future<void> _runRefresh() async {
+  Future<bool> _runRefresh() async {
     try {
       await Future.sync(_tokens.refreshIdToken)
           .timeout(kSessionEndedRefreshTimeout);
+      return false;
+    } on DeadSignInException {
+      return true;
     } catch (_) {
       // A failure or the timeout (TimeoutException): the retry decides.
+      return false;
     } finally {
       _refreshes++;
       _refreshing = null;

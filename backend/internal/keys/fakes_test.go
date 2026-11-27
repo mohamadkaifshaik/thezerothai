@@ -28,7 +28,9 @@ type fakeRepo struct {
 	// cuts is uid|deviceID -> the mark's session-cut state (cutAt, cutDone); cutDoneErr fails MarkCutDone only.
 	cuts       map[string]MarkState
 	cutDoneErr error
-	err        error
+	// revokeDoneErr fails MarkRevokeDone only.
+	revokeDoneErr error
+	err           error
 	// markErr fails MarkRemoved only; removeErr fails Remove only.
 	markErr   error
 	removeErr error
@@ -93,6 +95,24 @@ func (f *fakeRepo) MarkCutDone(_ context.Context, uid, deviceID string) error {
 	}
 	st := f.cuts[k]
 	st.CutDone = true
+	f.cuts[k] = st
+	return nil
+}
+
+// MarkRevokeDone mirrors FirestoreRepo.MarkRevokeDone: the mark's revokeDone becomes true; a missing mark is an error.
+func (f *fakeRepo) MarkRevokeDone(_ context.Context, uid, deviceID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.ops = append(f.ops, "MarkRevokeDone")
+	if f.revokeDoneErr != nil {
+		return f.revokeDoneErr
+	}
+	k := devKey(uid, deviceID)
+	if _, ok := f.marks[k]; !ok {
+		return errors.New("keys: no mark")
+	}
+	st := f.cuts[k]
+	st.RevokeDone = true
 	f.cuts[k] = st
 	return nil
 }

@@ -685,6 +685,9 @@ Future<void> bootstrap() async {
             signedInUid: () => authBloc.state.user?.uid,
           ),
           onUnexpectedError: reportUnexpectedError,
+          // Remover copy (H1 option b): a stored removal that, sent again
+          // later, signed every session out signs this device out at once.
+          onRemovalSignedOutAll: authRepository.reportRemovalSignedOutAll,
         )
       : null;
   // Handed to AppWidget below (5b Task 14); null where the vault is not

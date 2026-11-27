@@ -5,6 +5,8 @@
 fail_count=0
 fail() { echo "FAIL: $*" >&2; fail_count=$((fail_count + 1)); }
 note() { echo "ok: $*"; }
+# warn: reported on stderr (callers send stdout to /dev/null), never counted as a failure.
+warn() { echo "WARN: $*" >&2; }
 finish() {
   if [ "$fail_count" -gt 0 ]; then
     echo "RESULT: $fail_count check(s) failed" >&2

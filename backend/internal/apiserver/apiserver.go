@@ -893,9 +893,14 @@ func build(ctx context.Context, cfg config.Config, log *slog.Logger, idVerifierO
 	keysClaimCap := ratelimit.NewDailyCap(cfg.RateLimit.KeysClaimsPerTargetPerDay)
 	lookupCap := keysLookupCap(cfg.RateLimit.KeysDeviceLookupsPerDay, cfg.RateLimit.KeysNewAccountDeviceLookupsPerDay, isNewActor)
 	// A REMOTE removal with device_sign_out on for the remover writes the session cut through identity (keys.SessionCutter,
-	// the same identity.SessionCuts the cut interceptor reads). With the cut done, it drops the account's push registrations
-	// through the notifications repository (keys.PushRegistrations; keys never imports notifications).
-	keysMod, err := newKeysModule(keysRepo, featureFlags, messagingPermission, messaging.ConversationID, keysClaimCap, lookupCap, cfg.AccountDeleteReauthMaxAge, sessionCuts, notifRepo, log, keys.WithClientFloor(floors))
+	// the same identity.SessionCuts the cut interceptor reads), then revokes the account's refresh tokens (security audit H1,
+	// identity's revoke seam, reachable only through keys_wiring.go). With the cut done, it drops the account's push
+	// registrations through the notifications repository (keys.PushRegistrations; keys never imports notifications).
+	keysSessions, err := newIdentityKeysSessions(identitySvc)
+	if err != nil {
+		return nil, nil, err
+	}
+	keysMod, err := newKeysModule(keysRepo, featureFlags, messagingPermission, messaging.ConversationID, keysClaimCap, lookupCap, cfg.AccountDeleteReauthMaxAge, keysSessions, notifRepo, log, keys.WithClientFloor(floors))
 	if err != nil {
 		return nil, nil, err
 	}

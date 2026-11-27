@@ -25,7 +25,14 @@ mixin _$AuthState {
 /// device; lane D PR 4, ruling 2): the sign-in screens show
 /// [SessionEndedException.userMessage]. Set in the state that drops the
 /// user, only for that cause; cleared when a user signs in.
- bool get signedOutByDeviceRemoval;
+ bool get signedOutByDeviceRemoval;/// The last session ended because THIS device removed another device
+/// and the server signed every session out (`other_sessions_ended`; H1
+/// revokes this device's sign-in too): the app signed out on purpose
+/// ([AuthSignedOutAfterOwnRemoval]) and the sign-in screens show the
+/// remover's notice. The end is [SessionEnd.sessionLost] (the vault is
+/// closed and kept). Never set together with [signedOutByDeviceRemoval];
+/// cleared when a user signs in.
+ bool get signedOutAfterOwnRemoval;
 /// Create a copy of AuthState
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -37,20 +44,20 @@ $AuthStateCopyWith<AuthState> get copyWith => _$AuthStateCopyWithImpl<AuthState>
 @override
 bool operator ==(Object other) {
   final _this = this as AuthState;
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is AuthState&&(identical(other.status, _this.status) || other.status == _this.status)&&(identical(other.user, _this.user) || other.user == _this.user)&&(identical(other.isSubmitting, _this.isSubmitting) || other.isSubmitting == _this.isSubmitting)&&(identical(other.failure, _this.failure) || other.failure == _this.failure)&&(identical(other.lastSessionEnd, _this.lastSessionEnd) || other.lastSessionEnd == _this.lastSessionEnd)&&(identical(other.signedOutByDeviceRemoval, _this.signedOutByDeviceRemoval) || other.signedOutByDeviceRemoval == _this.signedOutByDeviceRemoval));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is AuthState&&(identical(other.status, _this.status) || other.status == _this.status)&&(identical(other.user, _this.user) || other.user == _this.user)&&(identical(other.isSubmitting, _this.isSubmitting) || other.isSubmitting == _this.isSubmitting)&&(identical(other.failure, _this.failure) || other.failure == _this.failure)&&(identical(other.lastSessionEnd, _this.lastSessionEnd) || other.lastSessionEnd == _this.lastSessionEnd)&&(identical(other.signedOutByDeviceRemoval, _this.signedOutByDeviceRemoval) || other.signedOutByDeviceRemoval == _this.signedOutByDeviceRemoval)&&(identical(other.signedOutAfterOwnRemoval, _this.signedOutAfterOwnRemoval) || other.signedOutAfterOwnRemoval == _this.signedOutAfterOwnRemoval));
 }
 
 
 @override
 int get hashCode {
   final _this = this as AuthState;
-  return Object.hash(runtimeType,_this.status,_this.user,_this.isSubmitting,_this.failure,_this.lastSessionEnd,_this.signedOutByDeviceRemoval);
+  return Object.hash(runtimeType,_this.status,_this.user,_this.isSubmitting,_this.failure,_this.lastSessionEnd,_this.signedOutByDeviceRemoval,_this.signedOutAfterOwnRemoval);
 }
 
 @override
 String toString() {
   final _this = this as AuthState;
-  return 'AuthState(status: ${_this.status}, user: ${_this.user}, isSubmitting: ${_this.isSubmitting}, failure: ${_this.failure}, lastSessionEnd: ${_this.lastSessionEnd}, signedOutByDeviceRemoval: ${_this.signedOutByDeviceRemoval})';
+  return 'AuthState(status: ${_this.status}, user: ${_this.user}, isSubmitting: ${_this.isSubmitting}, failure: ${_this.failure}, lastSessionEnd: ${_this.lastSessionEnd}, signedOutByDeviceRemoval: ${_this.signedOutByDeviceRemoval}, signedOutAfterOwnRemoval: ${_this.signedOutAfterOwnRemoval})';
 }
 
 
@@ -61,7 +68,7 @@ abstract mixin class $AuthStateCopyWith<$Res>  {
   factory $AuthStateCopyWith(AuthState value, $Res Function(AuthState) _then) = _$AuthStateCopyWithImpl;
 @useResult
 $Res call({
- AuthStatus status, AppUser? user, bool isSubmitting, AuthFailure? failure, SessionEnd? lastSessionEnd, bool signedOutByDeviceRemoval
+ AuthStatus status, AppUser? user, bool isSubmitting, AuthFailure? failure, SessionEnd? lastSessionEnd, bool signedOutByDeviceRemoval, bool signedOutAfterOwnRemoval
 });
 
 
@@ -78,7 +85,7 @@ class _$AuthStateCopyWithImpl<$Res>
 
 /// Create a copy of AuthState
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? status = null,Object? user = freezed,Object? isSubmitting = null,Object? failure = freezed,Object? lastSessionEnd = freezed,Object? signedOutByDeviceRemoval = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? status = null,Object? user = freezed,Object? isSubmitting = null,Object? failure = freezed,Object? lastSessionEnd = freezed,Object? signedOutByDeviceRemoval = null,Object? signedOutAfterOwnRemoval = null,}) {
   return _then(AuthState(
 status: null == status ? _self.status : status // ignore: cast_nullable_to_non_nullable
 as AuthStatus,user: freezed == user ? _self.user : user // ignore: cast_nullable_to_non_nullable
@@ -86,6 +93,7 @@ as AppUser?,isSubmitting: null == isSubmitting ? _self.isSubmitting : isSubmitti
 as bool,failure: freezed == failure ? _self.failure : failure // ignore: cast_nullable_to_non_nullable
 as AuthFailure?,lastSessionEnd: freezed == lastSessionEnd ? _self.lastSessionEnd : lastSessionEnd // ignore: cast_nullable_to_non_nullable
 as SessionEnd?,signedOutByDeviceRemoval: null == signedOutByDeviceRemoval ? _self.signedOutByDeviceRemoval : signedOutByDeviceRemoval // ignore: cast_nullable_to_non_nullable
+as bool,signedOutAfterOwnRemoval: null == signedOutAfterOwnRemoval ? _self.signedOutAfterOwnRemoval : signedOutAfterOwnRemoval // ignore: cast_nullable_to_non_nullable
 as bool,
   ));
 }
@@ -195,10 +203,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( AuthStatus status,  AppUser? user,  bool isSubmitting,  AuthFailure? failure,  SessionEnd? lastSessionEnd,  bool signedOutByDeviceRemoval)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( AuthStatus status,  AppUser? user,  bool isSubmitting,  AuthFailure? failure,  SessionEnd? lastSessionEnd,  bool signedOutByDeviceRemoval,  bool signedOutAfterOwnRemoval)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _AuthState() when $default != null:
-return $default(_that.status,_that.user,_that.isSubmitting,_that.failure,_that.lastSessionEnd,_that.signedOutByDeviceRemoval);case _:
+return $default(_that.status,_that.user,_that.isSubmitting,_that.failure,_that.lastSessionEnd,_that.signedOutByDeviceRemoval,_that.signedOutAfterOwnRemoval);case _:
   return orElse();
 
 }
@@ -216,10 +224,10 @@ return $default(_that.status,_that.user,_that.isSubmitting,_that.failure,_that.l
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( AuthStatus status,  AppUser? user,  bool isSubmitting,  AuthFailure? failure,  SessionEnd? lastSessionEnd,  bool signedOutByDeviceRemoval)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( AuthStatus status,  AppUser? user,  bool isSubmitting,  AuthFailure? failure,  SessionEnd? lastSessionEnd,  bool signedOutByDeviceRemoval,  bool signedOutAfterOwnRemoval)  $default,) {final _that = this;
 switch (_that) {
 case _AuthState():
-return $default(_that.status,_that.user,_that.isSubmitting,_that.failure,_that.lastSessionEnd,_that.signedOutByDeviceRemoval);case _:
+return $default(_that.status,_that.user,_that.isSubmitting,_that.failure,_that.lastSessionEnd,_that.signedOutByDeviceRemoval,_that.signedOutAfterOwnRemoval);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -236,10 +244,10 @@ return $default(_that.status,_that.user,_that.isSubmitting,_that.failure,_that.l
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( AuthStatus status,  AppUser? user,  bool isSubmitting,  AuthFailure? failure,  SessionEnd? lastSessionEnd,  bool signedOutByDeviceRemoval)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( AuthStatus status,  AppUser? user,  bool isSubmitting,  AuthFailure? failure,  SessionEnd? lastSessionEnd,  bool signedOutByDeviceRemoval,  bool signedOutAfterOwnRemoval)?  $default,) {final _that = this;
 switch (_that) {
 case _AuthState() when $default != null:
-return $default(_that.status,_that.user,_that.isSubmitting,_that.failure,_that.lastSessionEnd,_that.signedOutByDeviceRemoval);case _:
+return $default(_that.status,_that.user,_that.isSubmitting,_that.failure,_that.lastSessionEnd,_that.signedOutByDeviceRemoval,_that.signedOutAfterOwnRemoval);case _:
   return null;
 
 }
@@ -251,7 +259,7 @@ return $default(_that.status,_that.user,_that.isSubmitting,_that.failure,_that.l
 
 
 class _AuthState extends AuthState {
-  const _AuthState({this.status = AuthStatus.unknown, this.user, this.isSubmitting = false, this.failure, this.lastSessionEnd, this.signedOutByDeviceRemoval = false}): super._();
+  const _AuthState({this.status = AuthStatus.unknown, this.user, this.isSubmitting = false, this.failure, this.lastSessionEnd, this.signedOutByDeviceRemoval = false, this.signedOutAfterOwnRemoval = false}): super._();
   
 
 @override@JsonKey() final  AuthStatus status;
@@ -270,6 +278,14 @@ class _AuthState extends AuthState {
 /// [SessionEndedException.userMessage]. Set in the state that drops the
 /// user, only for that cause; cleared when a user signs in.
 @override@JsonKey() final  bool signedOutByDeviceRemoval;
+/// The last session ended because THIS device removed another device
+/// and the server signed every session out (`other_sessions_ended`; H1
+/// revokes this device's sign-in too): the app signed out on purpose
+/// ([AuthSignedOutAfterOwnRemoval]) and the sign-in screens show the
+/// remover's notice. The end is [SessionEnd.sessionLost] (the vault is
+/// closed and kept). Never set together with [signedOutByDeviceRemoval];
+/// cleared when a user signs in.
+@override@JsonKey() final  bool signedOutAfterOwnRemoval;
 
 /// Create a copy of AuthState
 /// with the given fields replaced by the non-null parameter values.
@@ -281,18 +297,18 @@ _$AuthStateCopyWith<_AuthState> get copyWith => __$AuthStateCopyWithImpl<_AuthSt
 
 @override
 bool operator ==(Object other) {
-    return identical(this, other) || (other.runtimeType == runtimeType&&other is _AuthState&&(identical(other.status, status) || other.status == status)&&(identical(other.user, user) || other.user == user)&&(identical(other.isSubmitting, isSubmitting) || other.isSubmitting == isSubmitting)&&(identical(other.failure, failure) || other.failure == failure)&&(identical(other.lastSessionEnd, lastSessionEnd) || other.lastSessionEnd == lastSessionEnd)&&(identical(other.signedOutByDeviceRemoval, signedOutByDeviceRemoval) || other.signedOutByDeviceRemoval == signedOutByDeviceRemoval));
+    return identical(this, other) || (other.runtimeType == runtimeType&&other is _AuthState&&(identical(other.status, status) || other.status == status)&&(identical(other.user, user) || other.user == user)&&(identical(other.isSubmitting, isSubmitting) || other.isSubmitting == isSubmitting)&&(identical(other.failure, failure) || other.failure == failure)&&(identical(other.lastSessionEnd, lastSessionEnd) || other.lastSessionEnd == lastSessionEnd)&&(identical(other.signedOutByDeviceRemoval, signedOutByDeviceRemoval) || other.signedOutByDeviceRemoval == signedOutByDeviceRemoval)&&(identical(other.signedOutAfterOwnRemoval, signedOutAfterOwnRemoval) || other.signedOutAfterOwnRemoval == signedOutAfterOwnRemoval));
 }
 
 
 @override
 int get hashCode {
-    return Object.hash(runtimeType,status,user,isSubmitting,failure,lastSessionEnd,signedOutByDeviceRemoval);
+    return Object.hash(runtimeType,status,user,isSubmitting,failure,lastSessionEnd,signedOutByDeviceRemoval,signedOutAfterOwnRemoval);
 }
 
 @override
 String toString() {
-    return 'AuthState(status: $status, user: $user, isSubmitting: $isSubmitting, failure: $failure, lastSessionEnd: $lastSessionEnd, signedOutByDeviceRemoval: $signedOutByDeviceRemoval)';
+    return 'AuthState(status: $status, user: $user, isSubmitting: $isSubmitting, failure: $failure, lastSessionEnd: $lastSessionEnd, signedOutByDeviceRemoval: $signedOutByDeviceRemoval, signedOutAfterOwnRemoval: $signedOutAfterOwnRemoval)';
 }
 
 
@@ -303,7 +319,7 @@ abstract mixin class _$AuthStateCopyWith<$Res> implements $AuthStateCopyWith<$Re
   factory _$AuthStateCopyWith(_AuthState value, $Res Function(_AuthState) _then) = __$AuthStateCopyWithImpl;
 @override @useResult
 $Res call({
- AuthStatus status, AppUser? user, bool isSubmitting, AuthFailure? failure, SessionEnd? lastSessionEnd, bool signedOutByDeviceRemoval
+ AuthStatus status, AppUser? user, bool isSubmitting, AuthFailure? failure, SessionEnd? lastSessionEnd, bool signedOutByDeviceRemoval, bool signedOutAfterOwnRemoval
 });
 
 
@@ -320,7 +336,7 @@ class __$AuthStateCopyWithImpl<$Res>
 
 /// Create a copy of AuthState
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? status = null,Object? user = freezed,Object? isSubmitting = null,Object? failure = freezed,Object? lastSessionEnd = freezed,Object? signedOutByDeviceRemoval = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? status = null,Object? user = freezed,Object? isSubmitting = null,Object? failure = freezed,Object? lastSessionEnd = freezed,Object? signedOutByDeviceRemoval = null,Object? signedOutAfterOwnRemoval = null,}) {
   return _then(_AuthState(
 status: null == status ? _self.status : status // ignore: cast_nullable_to_non_nullable
 as AuthStatus,user: freezed == user ? _self.user : user // ignore: cast_nullable_to_non_nullable
@@ -328,6 +344,7 @@ as AppUser?,isSubmitting: null == isSubmitting ? _self.isSubmitting : isSubmitti
 as bool,failure: freezed == failure ? _self.failure : failure // ignore: cast_nullable_to_non_nullable
 as AuthFailure?,lastSessionEnd: freezed == lastSessionEnd ? _self.lastSessionEnd : lastSessionEnd // ignore: cast_nullable_to_non_nullable
 as SessionEnd?,signedOutByDeviceRemoval: null == signedOutByDeviceRemoval ? _self.signedOutByDeviceRemoval : signedOutByDeviceRemoval // ignore: cast_nullable_to_non_nullable
+as bool,signedOutAfterOwnRemoval: null == signedOutAfterOwnRemoval ? _self.signedOutAfterOwnRemoval : signedOutAfterOwnRemoval // ignore: cast_nullable_to_non_nullable
 as bool,
   ));
 }

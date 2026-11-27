@@ -410,8 +410,12 @@ class ConversationContexts {
   /// those users, and commits stay gated on [ConversationContext.canReply]).
   ///
   /// [fromList]: the row is from a `ListConversations` answer, which never
-  /// raises `can_reply` (the list says true for a suspended peer where the
-  /// thread header says false); only a first-page header does.
+  /// raises `can_reply`; only a first-page header does. Since #1133 the list
+  /// decides each row in the header's order (erased, then blocked, then
+  /// liveness), so an inactive peer reads false in both; a list row is still
+  /// not trusted to raise it, because a false from a header or from the
+  /// thread's own refusal (CANNOT_MESSAGE) may be newer than the list page
+  /// and carry what the list does not show.
   ///
   /// The caller is the repository's completion path, or a pipeline read
   /// right after its RPC: never inside a `runWrite` body, and never waiting
@@ -450,8 +454,9 @@ class ConversationContexts {
         c.canReplyLoweredByList = false;
       } else if (!c.extraFirstPageUsed) {
         // A false from a header or a refusal is not undone by a list row
-        // (the list says true for a suspended peer): the thread reads one
-        // more first page, whose header decides. At most once per run.
+        // (the list page may predate it, and a refusal is not a list
+        // fact): the thread reads one more first page, whose header
+        // decides. At most once per run.
         c.extraFirstPageOwed = true;
       }
     }
@@ -465,10 +470,12 @@ class ConversationContexts {
         ..incomingRequest = false
         ..requestSeenInHeader = false;
     }
-    // A row with no peer reference (the inbox lists the sender of a request
-    // whose recipient account was erased as ACCEPTED while the thread header
-    // says REQUEST) is no acceptance sight. A sight already held is not
-    // handed over again (the next catch-up applies it).
+    // A row with no peer reference is no acceptance sight. (Before #1133 the
+    // inbox listed the sender of a request whose recipient account was
+    // erased as ACCEPTED while the thread header said REQUEST; the list now
+    // keeps it REQUEST too, and this check stays so a peerless ACCEPTED row
+    // still hands nothing over.) A sight already held is not handed over
+    // again (the next catch-up applies it).
     if (row.state == ConversationState.CONVERSATION_STATE_ACCEPTED &&
         !c.acceptanceSettled &&
         !c.acceptedSightingHeld &&

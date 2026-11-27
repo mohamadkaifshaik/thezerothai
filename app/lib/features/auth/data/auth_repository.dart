@@ -26,6 +26,19 @@ class ReauthResult {
   final String? appleAuthorizationCode;
 }
 
+/// What [AuthRepository.probeSignIn] found (remover copy fix round 1, R2).
+enum SignInProbe {
+  /// A forced refresh minted a new token: this sign-in was not revoked.
+  alive,
+
+  /// The SDK said the sign-in is dead (revoked, disabled or deleted).
+  dead,
+
+  /// The refresh failed otherwise (offline, a timeout), or nobody is signed
+  /// in: nothing is known.
+  unknown,
+}
+
 /// Wraps Firebase Auth + Google Sign-In + Sign in with Apple behind one
 /// interface. No phone/SMS auth: the sign-in surface is
 /// intentionally limited to email/password, Google and Apple.
@@ -137,8 +150,15 @@ class AuthRepository implements AuthTokenProvider {
   /// Emits the current [AppUser], or null when signed out. Uses
   /// `userChanges()` (not `authStateChanges()`) so profile reloads —
   /// e.g. after the user confirms email verification — are reflected too.
+  ///
+  /// Every event bumps the sign-in generation (fix round 1, R3).
   Stream<AppUser?> authStateChanges() {
-    return _firebaseAuth.userChanges().map(_toAppUser);
+    return _firebaseAuth.userChanges().map((user) {
+      // Bumped once per event per subscriber (n2): two listeners bump twice,
+      // which only makes the stale-fetch guard stricter, never looser.
+      _signInGeneration++;
+      return _toAppUser(user);
+    });
   }
 
   AppUser? get currentUser => _toAppUser(_firebaseAuth.currentUser);
@@ -541,14 +561,103 @@ class AuthRepository implements AuthTokenProvider {
     ]);
   }
 
+  /// The Firebase codes of a sign-in the server will never refresh again
+  /// (a revoked refresh token, a disabled or deleted user). Web's
+  /// `_logoutIfInvalidated` signs out on these; this repository does not rely
+  /// on every platform doing it.
+  static const _deadSessionCodes = {
+    'user-token-expired',
+    'invalid-user-token',
+    'user-disabled',
+    'user-not-found',
+  };
+
+  /// Whether [error] is the SDK saying the sign-in is dead ([_deadSessionCodes]).
+  static bool _isDead(Object error) =>
+      error is fb.FirebaseAuthException &&
+      _deadSessionCodes.contains(error.code);
+
+  /// Bumped on every event of the auth stream ([authStateChanges]): a sign-in,
+  /// a sign-out, the same uid signing in again, a re-authentication or a
+  /// token change. Fix round 1, R3 (security L1): the defensive sign-out of a
+  /// plain token fetch runs only when no event came while the fetch ran, so a
+  /// stale fetch that started before a new sign-in never signs that new
+  /// sign-in out. Bumping on every event (not only on a uid change) also
+  /// covers a re-authentication of the same uid, which mints a new refresh
+  /// token without a null user in between.
+  int _signInGeneration = 0;
+
+  /// Fix round 1, R4 (code m3): the one defensive sign-out in flight; a burst
+  /// of failing fetches joins it.
+  Future<void>? _deadSignOut;
+
+  /// Remover copy defensive fix (controller ruling 2026-11-27): a PLAIN token
+  /// fetch that fails because the sign-in is dead signs out here, so the app
+  /// ends up signed out as [SessionEnd.sessionLost] (no intent is armed: the
+  /// vault is kept) instead of staying "signed in" with every call failing
+  /// as a NetworkException. Best effort: a failing sign-out is ignored (the
+  /// next fetch tries again); the original error is always rethrown.
+  ///
+  /// Fix round 1, R1 (code M1): a FORCED fetch ([forceRefresh] true, and
+  /// [refreshIdToken]) never signs out. The SESSION_ENDED interceptor's
+  /// refresh must leave the end to the bloc's cut path (the removed device's
+  /// notice), and the auth bloc's own probe must decide for itself.
   @override
-  Future<String?> getIdToken({bool forceRefresh = false}) {
-    return _firebaseAuth.currentUser?.getIdToken(forceRefresh) ??
-        Future.value();
+  Future<String?> getIdToken({bool forceRefresh = false}) =>
+      _token(forceRefresh, signOutIfDead: !forceRefresh);
+
+  /// Fix round 1, R1: forced, never signs out; a dead sign-in throws
+  /// [DeadSignInException] (any other failure as the SDK threw it).
+  @override
+  Future<String?> refreshIdToken() async {
+    try {
+      return await _token(true, signOutIfDead: false);
+    } on fb.FirebaseAuthException catch (e) {
+      if (_isDead(e)) throw const DeadSignInException();
+      rethrow;
+    }
   }
 
-  @override
-  Future<String?> refreshIdToken() => getIdToken(forceRefresh: true);
+  /// Fix round 1, R2: whether this device's sign-in still holds, by one
+  /// forced refresh that never signs out. [SignInProbe.alive] when the SDK
+  /// minted a new token, [SignInProbe.dead] when it says the sign-in is dead,
+  /// [SignInProbe.unknown] for any other failure (offline, a timeout) or no
+  /// user. A removal answer's `other_sessions_ended` means "a cut exists",
+  /// not "this token was revoked": only this tells them apart.
+  Future<SignInProbe> probeSignIn() async {
+    if (_firebaseAuth.currentUser == null) return SignInProbe.unknown;
+    try {
+      await refreshIdToken();
+      return SignInProbe.alive;
+    } on DeadSignInException {
+      return SignInProbe.dead;
+    } catch (_) {
+      return SignInProbe.unknown;
+    }
+  }
+
+  Future<String?> _token(bool force, {required bool signOutIfDead}) async {
+    final user = _firebaseAuth.currentUser;
+    if (user == null) return null;
+    final generation = _signInGeneration;
+    try {
+      return await user.getIdToken(force);
+    } on fb.FirebaseAuthException catch (e) {
+      if (signOutIfDead &&
+          _isDead(e) &&
+          generation == _signInGeneration &&
+          _firebaseAuth.currentUser?.uid == user.uid) {
+        try {
+          await (_deadSignOut ??= signOut().whenComplete(
+            () => _deadSignOut = null,
+          ));
+        } catch (_) {
+          // The next token fetch tries again.
+        }
+      }
+      rethrow;
+    }
+  }
 
   /// Told when the server ended [reportSessionEnded]'s session (a device was
   /// removed on another device). The auth bloc sets it in its constructor
@@ -558,6 +667,38 @@ class AuthRepository implements AuthTokenProvider {
 
   @override
   void reportSessionEnded(String uid) => onServerEndedSession?.call(uid);
+
+  /// Told when THIS device removed another device of the account and the
+  /// server answered `other_sessions_ended` (H1 then revoked every
+  /// sign-in of the account, this one included). The auth bloc sets it in its
+  /// constructor and signs that uid out at once, the vault kept, with the
+  /// remover's sign-in notice (controller ruling 2026-11-27, options a + b).
+  ///
+  /// Fix round 2, F1: [SignInProbe] is the answer of a probe the caller
+  /// already ran through [checkOwnRemoval] (the Settings dialog), or null
+  /// when none ran (the removal queue): the bloc then probes itself.
+  void Function(String uid, SignInProbe? probed)? onRemovalSignedOutAll;
+
+  /// Reports [uid]'s own removal that signed every session out: from the
+  /// Settings removal once its dialog closes ([probed]: the answer of its
+  /// [checkOwnRemoval]), and from the removal queue when a stored removal's
+  /// retry answers later (no [probed]). A no-op without a hook.
+  void reportRemovalSignedOutAll(String uid, {SignInProbe? probed}) =>
+      onRemovalSignedOutAll?.call(uid, probed);
+
+  /// Fix round 2, F1 (re-review M1, m2): set by the auth bloc. It records
+  /// the remover's reason for [uid] BEFORE probing, so a sign-out that
+  /// happens during the probe (the SDK signing out on its own) still lands
+  /// with the remover's notice; it disarms the reason on [SignInProbe.alive].
+  Future<SignInProbe> Function(String uid)? onCheckOwnRemoval;
+
+  /// After a removal answered `other_sessions_ended` true: whether [uid]'s
+  /// sign-in on this device ended too. Through the auth bloc
+  /// ([onCheckOwnRemoval]); without one, a plain [probeSignIn].
+  Future<SignInProbe> checkOwnRemoval(String uid) {
+    final check = onCheckOwnRemoval;
+    return check != null ? check(uid) : probeSignIn();
+  }
 
   static String _generateNonce([int length = 32]) {
     const charset =

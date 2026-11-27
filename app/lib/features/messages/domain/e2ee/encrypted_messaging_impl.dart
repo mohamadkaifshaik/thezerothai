@@ -396,8 +396,10 @@ class EncryptedMessagingImpl implements EncryptedMessaging {
     // refuses a conversation the cache marked as ever encrypted, and anything
     // else answers `notEncrypted`. The sign-in step must be done: once it is,
     // the flag is THIS user's (the step sets it, and `onFlagChanged` checks
-    // the uid); before that it may be the previous session's, which the
-    // session does not reset when it ends. Why: with the flag known off the server's
+    // the uid). The session also forgets the flag (back to `unknown`) when
+    // the signed-in user's session ends (5b Task 14a S1), so a previous
+    // session's `off` is never read here; the sign-in-step check below stays
+    // as a second guard. Why: with the flag known off the server's
     // ErrEncryptionRequired gate is the control for a conversation the cache
     // has not marked, exactly as it was before the port was handed to these
     // users; refusing every DM for a whole launch would change the app for
