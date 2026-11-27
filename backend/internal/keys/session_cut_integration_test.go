@@ -120,3 +120,102 @@ func TestRemoval_SessionCutOnTheMark(t *testing.T) {
 		}
 	})
 }
+
+// recordingRevoker is the H1 revoke seam on the emulator tests: it records the cuts it revoked at, and can fail.
+type recordingRevoker struct {
+	mu   sync.Mutex
+	cuts []time.Time
+	err  error
+}
+
+func (r *recordingRevoker) RevokeSessionsAt(_ context.Context, _ string, cut time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.err != nil {
+		return r.err
+	}
+	r.cuts = append(r.cuts, cut)
+	return nil
+}
+
+// TestRemoval_SessionRevokeOnTheMark (H1): the mark stores revokeDone after the revoke; a failed revoke leaves it unset
+// and the device in place, and the retry revokes once; a new cut on a mark without one starts with revokeDone false;
+// MarkRevokeDone never re-creates a mark.
+func TestRemoval_SessionRevokeOnTheMark(t *testing.T) {
+	e := newRepoEnv(t)
+	ctx := context.Background()
+	uid := uniqueUID()
+	now := it0.Add(time.Hour)
+	authAt := now.Add(-time.Minute).Truncate(time.Second)
+	newSvc := func(rv *recordingRevoker) Service {
+		return New(Deps{Repo: e.repo, Now: func() time.Time { return now }, ReauthMaxAge: itReauth,
+			Flags: cutFlags{on: map[string]bool{uid: true}}, Sessions: &recordingCutter{}, Revoke: rv})
+	}
+
+	t.Run("a failed revoke leaves revokeDone unset; the retry revokes once and notes it", func(t *testing.T) {
+		e.mustRegister(t, uid, dvc(1), skey(1), it0)
+		rv := &recordingRevoker{err: errors.New("auth down")}
+		svc := newSvc(rv)
+		if _, err := svc.RemoveDevice(signedInAt(uid, authAt), uid, dvc(1), RemoveRemote); err == nil {
+			t.Fatal("want the revoke failure")
+		}
+		data, _ := e.markData(t, uid, dvc(1))
+		if _, set := data["revokeDone"]; set || data["cutDone"] != true {
+			t.Fatalf("mark = %v, want cutDone and no revokeDone", data)
+		}
+		if _, err := e.repo.deviceRef(uid, dvc(1)).Get(ctx); err != nil {
+			t.Fatalf("the device was swept before the revoke: %v", err)
+		}
+		rv.err = nil
+		for range 2 {
+			if res, err := svc.RemoveDevice(signedInAt(uid, now.Add(-time.Hour)), uid, dvc(1), RemoveRemote); err != nil || !res.OtherSessionsEnded {
+				t.Fatalf("retry = %+v, %v; want ended", res, err)
+			}
+		}
+		if len(rv.cuts) != 1 || !rv.cuts[0].Equal(authAt) {
+			t.Fatalf("revokes = %v, want exactly [%v]", rv.cuts, authAt)
+		}
+		if data, _ := e.markData(t, uid, dvc(1)); data["revokeDone"] != true {
+			t.Fatalf("mark = %v, want revokeDone", data)
+		}
+	})
+
+	t.Run("a cut recorded on an existing mark resets revokeDone", func(t *testing.T) {
+		if _, err := e.repo.MarkRemovedCut(ctx, uid, dvc(2), now, true, time.Time{}); err != nil {
+			t.Fatal(err)
+		}
+		if err := e.repo.MarkRevokeDone(ctx, uid, dvc(2)); err != nil { // stands in for a stale value on a mark without a cut
+			t.Fatal(err)
+		}
+		st, err := e.repo.MarkRemovedCut(ctx, uid, dvc(2), now, true, authAt)
+		if err != nil || !st.CutAt.Equal(authAt) || st.CutDone || st.RevokeDone {
+			t.Fatalf("= %+v, %v; want a pending cut and revoke", st, err)
+		}
+		if data, _ := e.markData(t, uid, dvc(2)); data["revokeDone"] != false {
+			t.Fatalf("mark = %v, want revokeDone false", data)
+		}
+	})
+
+	t.Run("no cut to revoke for (cleared by an operator): the removal finishes without revokeDone", func(t *testing.T) {
+		e.mustRegister(t, uid, dvc(4), skey(4), it0)
+		rv := &recordingRevoker{err: ErrNoCutToRevoke}
+		if res, err := newSvc(rv).RemoveDevice(signedInAt(uid, authAt), uid, dvc(4), RemoveRemote); err != nil || !res.OtherSessionsEnded {
+			t.Fatalf("= %+v, %v; want the removal to finish", res, err)
+		}
+		if _, err := e.repo.deviceRef(uid, dvc(4)).Get(ctx); err == nil {
+			t.Fatal("the device was not swept")
+		}
+		if data, _ := e.markData(t, uid, dvc(4)); data["revokeDone"] == true {
+			t.Fatalf("mark = %v, want no revokeDone (nothing was revoked)", data)
+		}
+	})
+
+	t.Run("MarkRevokeDone on a missing mark is an error and creates nothing", func(t *testing.T) {
+		if err := e.repo.MarkRevokeDone(ctx, uid, dvc(3)); err == nil {
+			t.Fatal("want an error")
+		}
+		if _, ok := e.markData(t, uid, dvc(3)); ok {
+			t.Fatal("a mark was created")
+		}
+	})
+}

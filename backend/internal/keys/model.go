@@ -238,14 +238,19 @@ type Repo interface {
 	// MarkCutDone sets the mark's cutDone once the session cut is written on the account: 1 write, no read. A missing
 	// mark is an error.
 	MarkCutDone(ctx context.Context, uid, deviceID string) error
+	// MarkRevokeDone sets the mark's revokeDone once the account's refresh tokens are revoked for the mark's cut (H1): 1
+	// write, no read. A missing mark is an error.
+	MarkRevokeDone(ctx context.Context, uid, deviceID string) error
 }
 
 // MarkState is the session-cut part of a removed mark (removal-server design 2.1): CutAt is the remover's auth_time the
 // removal asked to cut at (zero = no cut asked), CutDone that the cut was written on the account, so a retry neither
-// cuts again nor reports it undone.
+// cuts again nor reports it undone. RevokeDone (H1) that the account's refresh tokens were revoked after that cut, so a
+// retry revokes only when the earlier attempt's revoke did not finish. A new cut on the mark resets both.
 type MarkState struct {
-	CutAt   time.Time
-	CutDone bool
+	CutAt      time.Time
+	CutDone    bool
+	RevokeDone bool
 }
 
 // RemoveResult is what RemoveDevice reports beyond success.
