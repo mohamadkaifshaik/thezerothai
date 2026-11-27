@@ -656,6 +656,57 @@ resource "google_monitoring_alert_policy" "keys_session_revoke_failed" { # cost-
   }
 }
 
+// 10b. Session revokes skipped by the daily revoke cap (KEYS_SESSION_REVOKES_PER_DAY, per (uid, cut) and per uid). The
+// removal and its cut still succeed, but Firebase refresh tokens issued before the cut stay valid and nothing replays the
+// revoke later, so every capped line is worth a look (security review of the revoke cap: threshold 1). Keys writes one
+// WARN line per capped removal: message keys_session_revoke_capped, uid_hash, cap=cut|uid. Prod only, with C4.
+resource "google_logging_metric" "keys_session_revoke_capped" { # cost-approved: <owner, date> (free log-based metric)
+  project     = var.project_id
+  name        = "keys_session_revoke_capped"
+  description = "REMOTE device removals whose Firebase refresh-token revoke was skipped by the daily revoke cap (WARN keys_session_revoke_capped from the api)."
+  filter      = "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"api\" AND jsonPayload.message=\"keys_session_revoke_capped\""
+
+  metric_descriptor {
+    metric_kind = "DELTA"
+    value_type  = "INT64"
+    unit        = "1"
+  }
+}
+
+resource "google_monitoring_alert_policy" "keys_session_revoke_capped" { # cost-approved: <owner, date> (~$0.20/month, prod only)
+  count        = var.enable_auth_admin_alert ? 1 : 0
+  project      = var.project_id
+  display_name = "Session revoke skipped by the cap (${var.env})"
+  combiner     = "OR"
+
+  conditions {
+    display_name = "keys_session_revoke_capped, 1 h sum > 0"
+    condition_threshold {
+      filter          = "metric.type=\"logging.googleapis.com/user/${google_logging_metric.keys_session_revoke_capped.name}\" resource.type=\"cloud_run_revision\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 0
+      duration        = "0s"
+
+      aggregations {
+        alignment_period     = "3600s"
+        per_series_aligner   = "ALIGN_SUM"
+        cross_series_reducer = "REDUCE_SUM"
+      }
+    }
+  }
+
+  notification_channels = [for c in google_monitoring_notification_channel.email : c.id]
+
+  documentation {
+    mime_type = "text/markdown"
+    content   = "A REMOTE device removal skipped the Firebase refresh-token revoke because of the daily revoke cap: refresh tokens issued before the cut are still valid at Firebase (the cut still refuses them at our API, but they can reach Identity Toolkit, e.g. to link a sign-in method). Logs Explorer: jsonPayload.message=\"keys_session_revoke_capped\" shows uid_hash and cap (cut or uid). Check for abuse (many removals of unknown devices) and revoke that account's sessions manually."
+  }
+
+  alert_strategy {
+    auto_close = "1800s"
+  }
+}
+
 // 11. The ordered epoch listing fell back (E2EE receive walks). ListEpochMessages orders by (mlsKey ASC, createdAt ASC),
 // which needs a composite index. When Firestore answers FAILED_PRECONDITION (index missing or not READY), messaging fails
 // closed with an empty page and writes one ERROR `messaging_epoch_order_fallback` line per request (epoch_order_fallback=true,
