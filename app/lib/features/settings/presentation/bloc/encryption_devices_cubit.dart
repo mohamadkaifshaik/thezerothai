@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
 import '../../../../core/network/app_exception.dart';
+import '../../../auth/data/auth_repository.dart' show SignInProbe;
 import '../../../messages/domain/e2ee/encrypted_messaging.dart';
 
 enum EncryptionDevicesStatus { loading, ready, failed }
@@ -49,7 +50,9 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
   EncryptionDevicesCubit({
     required EncryptedMessaging messaging,
     this.onUnexpectedError,
-  }) : _messaging = messaging,
+    Future<SignInProbe> Function()? probeSignIn,
+  }) : _probeSignIn = probeSignIn,
+       _messaging = messaging,
        super(
          EncryptionDevicesState(
            removalsPending: messaging.removalsPending.value,
@@ -60,6 +63,35 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
 
   final EncryptedMessaging _messaging;
   final void Function(Object error, StackTrace stack)? onUnexpectedError;
+
+  /// Fix round 1, R2: `AuthRepository.probeSignIn` (one forced refresh that
+  /// never signs out). Null (tests of other things): nothing is probed and a
+  /// true answer counts as this sign-in ended.
+  final Future<SignInProbe> Function()? _probeSignIn;
+
+  /// After a run with [sessionsEnded], whether THIS device's sign-in ended
+  /// too: the probe found it dead or could not tell. False when the probe
+  /// found it alive (a replay after a re-sign-in, or the same second as the
+  /// cut), and false after every new run starts. The screen signs out only
+  /// when it is true.
+  bool get thisSignInEnded => _thisSignInEnded;
+  bool _thisSignInEnded = false;
+
+  /// Probes once when [sessionsEnded] (fix round 1, R2), while the row still
+  /// shows its spinner (the existing busy state).
+  Future<void> _probeIfEnded() async {
+    if (!_sessionsEnded) return;
+    final probe = _probeSignIn;
+    var result = SignInProbe.unknown;
+    if (probe != null) {
+      try {
+        result = await probe();
+      } catch (_) {
+        result = SignInProbe.unknown;
+      }
+    }
+    _thisSignInEnded = result != SignInProbe.alive;
+  }
 
   /// A re-sign-in for a removal is open: no second removal starts.
   bool _confirming = false;
@@ -161,6 +193,7 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
     }
     _otherSessionsEnded = null;
     _sessionsEnded = false;
+    _thisSignInEnded = false;
     _removedCount = 0;
     if (!await _confirm(confirmItsYou)) return RemoveOutcome.cancelled;
     if (isClosed || state.removing != null) return RemoveOutcome.notAttempted;
@@ -206,6 +239,7 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
         _report('retryDeviceSetup', stack);
       }
     }
+    await _probeIfEnded();
     await _reloadAfterRemoval(before.list);
     return RemoveOutcome.removed;
   }
@@ -285,6 +319,7 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
     if (asked.isEmpty) return RemoveOutcome.notAttempted;
     _otherSessionsEnded = null;
     _sessionsEnded = false;
+    _thisSignInEnded = false;
     _removedCount = 0;
     if (!await _confirm(confirmItsYou)) return RemoveOutcome.cancelled;
     if (isClosed || state.removing != null) return RemoveOutcome.notAttempted;
@@ -319,6 +354,7 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
       } catch (e, stack) {
         if (e is! AppException) _report('resumeRemoval', stack);
         // Earlier removals answered: the list must not keep those devices.
+        await _probeIfEnded();
         if (answers.isNotEmpty) await _reloadAfterRemoval(before.list);
         if (!isClosed) {
           emit(
@@ -339,6 +375,7 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
         : answers.every((a) => a == true)
         ? true
         : null;
+    await _probeIfEnded();
     await _reloadAfterRemoval(before.list);
     return RemoveOutcome.removed;
   }

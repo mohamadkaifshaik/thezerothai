@@ -158,6 +158,11 @@ class _DevicesSection extends StatelessWidget {
       create: (context) => EncryptionDevicesCubit(
         messaging: port,
         onUnexpectedError: context.read<UnexpectedErrorReporter?>(),
+        // Fix round 1, R2: a true answer is probed before anything is shown.
+        // Read when needed (a Remove tap reads the same repository), so a
+        // page opened without one still builds; a failed read is an unknown
+        // probe (the screen then signs out as the server said).
+        probeSignIn: () => context.read<AuthRepository>().probeSignIn(),
       )..load(),
       child: _DevicesView(port: port, now: now ?? DateTime.now),
     );
@@ -283,19 +288,27 @@ class _DevicesView extends StatelessWidget {
 
   /// After a removal run. Remover copy (controller ruling 2026-11-27, H1
   /// options a + b): when any answer said `other_sessions_ended`, H1 revoked
-  /// every sign-in of the account, this device's too. The user first reads
-  /// [kDeviceRemovedSessionsEnded] in a one-action dialog, then this device
-  /// signs out on purpose (the auth bloc records the remover's notice; the
-  /// vault is kept), instead of failing at a token refresh within the hour.
+  /// every sign-in of the account, normally this device's too. Fix round 1,
+  /// R2: the cubit has already probed this device's sign-in with one forced
+  /// refresh, under the row's spinner, BEFORE anything is shown:
+  /// - alive (a replay after a re-sign-in, the same second as the cut): the
+  ///   snackbar [kDeviceRemovedSessionsEnded] ("Your other devices were
+  ///   signed out"), no sign-out;
+  /// - dead, or unknown: the user first reads [kDeviceRemovedThisDeviceToo]
+  ///   in a one-action dialog, then this device signs out on purpose (the
+  ///   auth bloc probes once more, records the remover's notice; the vault
+  ///   is kept), instead of failing at a token refresh within the hour.
   /// Why a dialog and not the snackbar: the sign-out leaves this screen at
   /// once, so a snackbar would be read (if at all) on the sign-in screen
   /// beside its notice; the dialog keeps the order "result, then sign-out"
-  /// with one tap. Closing it any way (the action, back, Escape) signs out,
+  /// with one tap. Closing it with the action or the system back signs out
+  /// (the barrier and Escape do not close it: `barrierDismissible: false`),
   /// and so does a screen that is gone by the time the answer came.
   ///
-  /// The sign-out follows the server's answer, not the `device_sign_out`
-  /// snapshot: a true answer is a cut the server made, whatever this client
-  /// read. With no session ended the snackbar is as before.
+  /// The sign-out follows the server's answer and the probe, not the
+  /// `device_sign_out` snapshot: a true answer is a cut the server made,
+  /// whatever this client read. With no session ended the snackbar is as
+  /// before.
   Future<void> _finish(
     BuildContext? context,
     ScaffoldMessengerState messenger,
@@ -304,13 +317,37 @@ class _DevicesView extends StatelessWidget {
     required AuthRepository auth,
     required String? uid,
   }) async {
-    if (cubit.sessionsEnded && uid != null) {
+    if (cubit.sessionsEnded && !cubit.thisSignInEnded) {
+      // The probe found this sign-in alive: only the others were signed out.
+      if (!messenger.mounted) return;
+      if (outcome == RemoveOutcome.removed) {
+        messenger
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            const SnackBar(content: Text(kDeviceRemovedSessionsEnded)),
+          );
+      } else {
+        _sayOutcome(messenger, cubit, outcome, signOutOn: false);
+      }
+      return;
+    }
+    if (cubit.thisSignInEnded && uid != null) {
       if (outcome == RemoveOutcome.removed &&
           context != null &&
           context.mounted) {
         messenger.hideCurrentSnackBar();
-        await _showSignedOutAll(context);
-        auth.reportRemovalSignedOutAll(uid);
+        // Fix round 1, m2: reported once, when the dialog closes OR when its
+        // route goes without closing (the router removed the page under it:
+        // a removed pageless route never completes its future).
+        var reported = false;
+        void report() {
+          if (reported) return;
+          reported = true;
+          auth.reportRemovalSignedOutAll(uid);
+        }
+
+        await _showSignedOutAll(context, onGone: report);
+        report();
         return;
       }
       // No dialog: the screen is gone (the sign-in notice explains), or the
@@ -333,22 +370,30 @@ class _DevicesView extends StatelessWidget {
     );
   }
 
-  /// The removed result when every session ended: one action, not
-  /// dismissible by the barrier; resolves however it closes.
-  Future<void> _showSignedOutAll(BuildContext context) => showAppDialog<void>(
+  /// The removed result when this sign-in ended too: one action, not
+  /// dismissible by the barrier or Escape; resolves when it closes. [onGone]
+  /// runs when its content leaves the tree, also when the route is removed
+  /// without closing.
+  Future<void> _showSignedOutAll(
+    BuildContext context, {
+    required VoidCallback onGone,
+  }) => showAppDialog<void>(
     context: context,
     barrierDismissible: false,
     maxWidth: AppSize.alertDialogMax,
-    builder: (dialogContext) => AppDialog(
-      title: kDeviceRemovedSignInAgainTitle,
-      body: const Text(kDeviceRemovedSessionsEnded),
-      actions: [
-        AppPillButton(
-          label: kDeviceRemovedSignInAgainAction,
-          autofocus: true,
-          onPressed: () => Navigator.of(dialogContext).pop(),
-        ),
-      ],
+    builder: (dialogContext) => _OnGone(
+      onGone: onGone,
+      child: AppDialog(
+        title: kDeviceRemovedSignInAgainTitle,
+        body: const Text(kDeviceRemovedThisDeviceToo),
+        actions: [
+          AppPillButton(
+            label: kDeviceRemovedSignInAgainAction,
+            autofocus: true,
+            onPressed: () => Navigator.of(dialogContext).pop(),
+          ),
+        ],
+      ),
     ),
   );
 
@@ -668,4 +713,26 @@ class _AboutGroup extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Runs [onGone] when it leaves the tree (fix round 1, m2).
+class _OnGone extends StatefulWidget {
+  const _OnGone({required this.onGone, required this.child});
+
+  final VoidCallback onGone;
+  final Widget child;
+
+  @override
+  State<_OnGone> createState() => _OnGoneState();
+}
+
+class _OnGoneState extends State<_OnGone> {
+  @override
+  void dispose() {
+    widget.onGone();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }

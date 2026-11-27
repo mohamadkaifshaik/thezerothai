@@ -850,22 +850,27 @@ const kDeviceRemovedSessionsKept =
     "Removed. It won't get new encrypted messages once the removal "
     "finishes. That device wasn't signed out of your account.";
 
-/// Removed, `other_sessions_ended` true (any answer of the run). Remover copy
-/// (controller ruling 2026-11-27, H1 options a + b): H1 revokes every
-/// sign-in of the account when the cut is made, this device's included, so
-/// the line says so and the app then signs this device out itself
-/// ([kDeviceRemovedSignInAgainAction]) instead of failing later at a token
-/// refresh. Shown in [kDeviceRemovedSignInAgainTitle]'s dialog, never as a
-/// snackbar; the owner may reword it.
+/// Removed, `other_sessions_ended` true, and this device's sign-in was NOT
+/// revoked (remover copy fix round 1, R2: the forced-refresh probe found it
+/// alive, e.g. a removal replayed after a re-sign-in). The snackbar.
 const kDeviceRemovedSessionsEnded =
-    'Removed. All your devices were signed out, this one too. Sign in again '
-    'to keep going.';
+    'Removed. Your other devices were signed out.';
 
-/// The title of the dialog that shows [kDeviceRemovedSessionsEnded].
+/// Removed, `other_sessions_ended` true, and the probe found this device's
+/// sign-in revoked too, or could not tell (remover copy, controller ruling
+/// 2026-11-27, H1 options a + b; fix round 1, n1 wording). The body of
+/// [kDeviceRemovedSignInAgainTitle]'s dialog, never a snackbar; the app then
+/// signs this device out itself instead of failing later at a token refresh.
+/// The owner may reword it.
+const kDeviceRemovedThisDeviceToo =
+    'Removed. This device was signed out too. Sign in again to keep going.';
+
+/// The title of the dialog that shows [kDeviceRemovedThisDeviceToo].
 const kDeviceRemovedSignInAgainTitle = 'All your devices were signed out';
 
-/// Its one action: closing the dialog (this or any other way) signs this
-/// device out.
+/// Its one action. Closing the dialog with it, or with the system back, signs
+/// this device out. The barrier does not close it, and neither does Escape
+/// (`barrierDismissible: false`; fix round 1, m1).
 const kDeviceRemovedSignInAgainAction = 'Sign in again';
 
 /// The sign-in screens' notice after THIS device removed another one and so

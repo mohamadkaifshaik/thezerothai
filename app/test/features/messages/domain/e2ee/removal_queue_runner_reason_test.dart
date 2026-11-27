@@ -475,6 +475,47 @@ void main() {
       });
     }
 
+    // Fix round 1, R2 (security M1): reported only once the removal is
+    // stored, so a stored intent fires it at most once.
+    test('the outbox report fires only after the save, and once', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      final seen = <String>[];
+      runner = build(onRemovalSignedOutAll: seen.add);
+      await join(_c1, others: [sibling]);
+      await synced();
+      rig.keys.otherSessionsEnded = true;
+      rig.keys.removeError = const NetworkException('rig: offline');
+      await expectLater(
+        runner.removeDevice(sibling.idString),
+        throwsA(isA<NetworkException>()),
+      );
+      await runner.idle();
+      rig.keys.removeError = null;
+
+      // The pass's save of the removal fails: no report yet.
+      rig.device.failNextWriteAsked = true;
+      try {
+        await runner.runPass();
+      } catch (_) {
+        // The failed write may surface; the intent is what matters.
+      }
+      await runner.idle();
+      expect(rig.device.writesRefused, 1);
+      expect(seen, isEmpty);
+
+      // The report stays owed; the next pass's successful save stores the
+      // removal and reports once.
+      await runner.runPass();
+      await runner.idle();
+      expect(seen, [rig.device.session.vault!.uid]);
+
+      // Gone from storage: a later pass never reports it again.
+      await runner.runPass();
+      await runner.idle();
+      expect(seen, hasLength(1));
+    });
+
     test('a removeDevice answer is the caller\'s: it is never reported '
         '(the screen shows the result, then signs out)', () async {
       final sibling = await RigPeer.create('sibling');

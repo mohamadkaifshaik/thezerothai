@@ -187,11 +187,13 @@ extension _RemovalStore on RemovalQueueRunner {
         }
         continue;
       }
-      // The answer arrived: every session ended, this one too (reported
-      // whatever happens to the queue write below, and before it, so a
-      // failing write never keeps a revoked session signed in).
-      if (ended) _onRemovalSignedOutAll?.call(vault.uid);
       if (!_current(vault, resets)) return;
+      // The answer arrived: every other session ended, and probably this
+      // one (the auth bloc probes before it signs out). Fix round 1, R2
+      // (security M1): owed, and reported only once a save has stored the
+      // removal ([_save]), so a stored intent fires it at most once; a
+      // failing save keeps it owed until the next one succeeds.
+      if (ended) _owedSignedOutReport = vault.uid;
       await _queueRemoved(
         vault,
         intent.deviceId,
@@ -477,6 +479,12 @@ extension _RemovalStore on RemovalQueueRunner {
         await tx.putSetting(kVaultSettingRemovalRecord, record);
       });
     });
+    // Stored: an owed report fires now, once (fix round 1, R2).
+    final owed = _owedSignedOutReport;
+    if (owed != null && owed == vault.uid) {
+      _owedSignedOutReport = null;
+      _onRemovalSignedOutAll?.call(owed);
+    }
   }
 
   /// Fix round 5, ruling 2 (R1): [list] was fetched before the last

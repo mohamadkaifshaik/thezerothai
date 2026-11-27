@@ -277,6 +277,11 @@ void main() {
     // the auth bloc emits after this device's own removal signed every
     // session out closes the vault and keeps it; the same uid signing back
     // in finds its keys again.
+    //
+    // Fix round 1, m4: a regression pin only. It feeds a hand-built state;
+    // the proof that the auth bloc emits `sessionLost` with no explicit
+    // hook for this end is the bloc test ("signed out after removing a
+    // device" in auth_bloc_test.dart).
     test('signed out after removing a device: the vault is closed and kept, '
         'and reopens for the same uid', () async {
       wireVault();

@@ -142,7 +142,10 @@ class ConversationRow extends StatelessWidget {
     final peer = conversation.peer;
     // FU1 review nit (#1133): a peer with no handle (a deleted or inactive
     // account) never reads as a bare "@", seen or spoken: the name falls
-    // back to [kUnavailableAccountName] and the label carries no handle.
+    // back to [kUnavailableAccountName] and the label carries no handle. An
+    // empty handle with an empty name reads as "Deleted account", the app's
+    // existing word for an account with no name of its own (as in
+    // `user_list_row.dart`).
     final handle = peer.handle.isEmpty ? '' : '@${peer.handle}';
     final name = peer.displayName.isNotEmpty
         ? peer.displayName

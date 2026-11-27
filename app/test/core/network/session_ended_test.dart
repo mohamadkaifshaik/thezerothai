@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:connectrpc/connect.dart' as connect;
 import 'package:dzeroth/core/network/api_client.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
+import 'package:dzeroth/core/network/auth_token_provider.dart'
+    show DeadSignInException;
 import 'package:dzeroth/core/network/session_ended.dart'
     show kSessionEndedRefreshTimeout;
 import 'package:fake_async/fake_async.dart';
@@ -178,6 +180,39 @@ void main() {
 
     expect(await getMe(client()), isA<SessionEndedException>());
     expect(http.sent, hasLength(2));
+    expect(auth.ended, [_a]);
+  });
+
+  // Remover copy fix round 1, R1: a refresh the SDK refused because the
+  // sign-in is dead (the cut's revoke) is the cut itself.
+  test('a dead refresh reports at once, with no retry, and the refusal '
+      'stays SESSION_ENDED', () async {
+    auth
+      ..answer(idTokenFor(_a, iat: 1))
+      ..refreshError = const DeadSignInException();
+    script([sessionEndedError]);
+
+    expect(await getMe(client()), isA<SessionEndedException>());
+    expect(http.sent, hasLength(1));
+    expect(auth.refreshes, 1);
+    expect(auth.ended, [_a]);
+  });
+
+  test('a burst sharing a dead refresh reports once', () async {
+    for (var i = 0; i < 3; i++) {
+      auth.answer(idTokenFor(_a, iat: i));
+    }
+    http.respond = (_) => sessionEndedError();
+    auth
+      ..refreshError = const DeadSignInException()
+      ..holdRefresh = false;
+    final api = client();
+    final results = [getMe(api), getMe(api), getMe(api)];
+    for (final r in results) {
+      expect(await r, isA<SessionEndedException>());
+    }
+    expect(http.sent, hasLength(3));
+    expect(auth.refreshes, 1);
     expect(auth.ended, [_a]);
   });
 

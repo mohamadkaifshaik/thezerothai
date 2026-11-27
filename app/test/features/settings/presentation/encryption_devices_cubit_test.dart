@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:bloc_test/bloc_test.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
+import 'package:dzeroth/features/auth/data/auth_repository.dart'
+    show SignInProbe;
 import 'package:dzeroth/features/messages/domain/e2ee/encrypted_messaging.dart';
 import 'package:dzeroth/features/settings/presentation/bloc/encryption_devices_cubit.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -564,6 +566,80 @@ void main() {
           reason: '$first $second',
         );
       }
+    });
+
+    // Fix round 1, R2: a true answer is probed (one forced refresh) before
+    // anything is shown; only a sign-in that is not alive has ended.
+    group('the sign-in probe', () {
+      EncryptionDevicesCubit probing(SignInProbe answer, List<String> log) =>
+          EncryptionDevicesCubit(
+            messaging: port,
+            onUnexpectedError: (e, _) => reported.add(e),
+            probeSignIn: () async {
+              // Still busy: the row shows its spinner while it runs.
+              log.add('probe');
+              return answer;
+            },
+          );
+
+      for (final (answer, ended) in [
+        (SignInProbe.alive, false),
+        (SignInProbe.dead, true),
+        (SignInProbe.unknown, true),
+      ]) {
+        test('$answer: thisSignInEnded $ended', () async {
+          port.nextRemoval = const DeviceRemoval(otherSessionsEnded: true);
+          final log = <String>[];
+          final c = probing(answer, log);
+          addTearDown(c.close);
+          await c.load();
+          await c.remove('ref-other', confirmItsYou: _yes);
+          expect(log, ['probe']);
+          expect(c.sessionsEnded, isTrue);
+          expect(c.thisSignInEnded, ended);
+        });
+      }
+
+      test('no true answer: no probe, nothing ended', () async {
+        port.nextRemoval = const DeviceRemoval(otherSessionsEnded: false);
+        final log = <String>[];
+        final c = probing(SignInProbe.dead, log);
+        addTearDown(c.close);
+        await c.load();
+        await c.remove('ref-other', confirmItsYou: _yes);
+        expect(log, isEmpty);
+        expect(c.thisSignInEnded, isFalse);
+      });
+
+      test('the probe runs while the row is still busy', () async {
+        port.nextRemoval = const DeviceRemoval(otherSessionsEnded: true);
+        late EncryptionDevicesCubit c;
+        String? removingDuringProbe;
+        c = EncryptionDevicesCubit(
+          messaging: port,
+          probeSignIn: () async {
+            removingDuringProbe = c.state.removing;
+            return SignInProbe.dead;
+          },
+        );
+        addTearDown(c.close);
+        await c.load();
+        await c.remove('ref-other', confirmItsYou: _yes);
+        expect(removingDuringProbe, 'ref-other');
+        expect(c.state.removing, isNull);
+      });
+
+      test('a throwing probe is unknown: ended', () async {
+        port.nextRemoval = const DeviceRemoval(otherSessionsEnded: true);
+        final c = EncryptionDevicesCubit(
+          messaging: port,
+          probeSignIn: () async => throw StateError('x'),
+        );
+        addTearDown(c.close);
+        await c.load();
+        await c.remove('ref-other', confirmItsYou: _yes);
+        expect(c.thisSignInEnded, isTrue);
+      });
     });
 
     test('sessionsEnded holds a true answer even when a later removal of '

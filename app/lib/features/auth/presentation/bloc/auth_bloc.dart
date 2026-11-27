@@ -75,6 +75,20 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   /// best effort as on a normal sign-out: unlike a SESSION_ENDED device, this
   /// one's ID token is still accepted, and a signed-out device should not
   /// keep getting pushes.
+  ///
+  /// Fix round 1, R2 (code M2, security M1 and L2): the server's
+  /// `other_sessions_ended` means "a cut exists for this removal", not "this
+  /// token was revoked" (a replay after a re-sign-in, or a sign-in in the
+  /// same second as the cut, keeps a live sign-in). So, one place for the
+  /// Settings and outbox paths alike:
+  /// 1. the intent is armed (a null user that comes meanwhile, e.g. the SDK
+  ///    signing out on its own, still reads as this end);
+  /// 2. one forced refresh probes the sign-in ([AuthRepository.probeSignIn],
+  ///    which never signs out);
+  /// 3. alive: disarmed, nobody is signed out;
+  /// 4. dead: signed out with the remover's notice;
+  /// 5. unknown (offline, a timeout): signed out all the same, since the
+  ///    server said the sessions ended.
   Future<void> _onSignedOutAfterOwnRemoval(
     AuthSignedOutAfterOwnRemoval event,
     Emitter<AuthState> emit,
@@ -87,6 +101,19 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       return;
     }
     _endingForOwnRemoval = uid;
+    SignInProbe probe;
+    try {
+      probe = await _authRepository.probeSignIn();
+    } catch (_) {
+      probe = SignInProbe.unknown;
+    }
+    if (_endingForOwnRemoval != uid) return; // ended meanwhile
+    if (probe == SignInProbe.alive) {
+      // This sign-in was not revoked: nothing to end.
+      _endingForOwnRemoval = null;
+      return;
+    }
+    if (state.user?.uid != uid) return;
     final before = _beforeSignOut;
     if (before != null) {
       try {
@@ -111,6 +138,30 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
   /// failed sign-out). Deduplicates a burst of reports.
   String? _endingForCut;
 
+  /// The uid whose session ended last, while nobody has signed in since
+  /// (null once a user signs in). Read by [_upgradeEndedToCut].
+  String? _lastEndedUid;
+
+  /// Fix round 1, R1: the cut report for [uid] landed after the user was
+  /// already null (the auth SDK signed out on its own when the cut's revoke
+  /// made the refresh fail). When that null user was [uid]'s lost session
+  /// and nobody signed in since, the end is upgraded to the cut: the removed
+  /// device's notice shows. The vault needs nothing more: the cut path's end
+  /// is that same [SessionEnd.sessionLost] (closed and kept), already
+  /// handed to the vault. An explicit end, the remover's own end, or
+  /// another uid is left as it is.
+  void _upgradeEndedToCut(String uid, Emitter<AuthState> emit) {
+    final s = state;
+    if (_lastEndedUid != uid ||
+        s.status != AuthStatus.unauthenticated ||
+        s.lastSessionEnd != SessionEnd.sessionLost ||
+        s.signedOutAfterOwnRemoval ||
+        s.signedOutByDeviceRemoval) {
+      return;
+    }
+    emit(s.copyWith(signedOutByDeviceRemoval: true));
+  }
+
   /// Ruling 1 (lane D PR 4): signs [AuthSessionEndedByServer.uid] out as a
   /// lost session (no intent is armed, so the vault is kept), once per
   /// burst. No push unregister: the server refuses this session's calls.
@@ -119,8 +170,11 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     Emitter<AuthState> emit,
   ) async {
     final uid = state.user?.uid;
-    if (uid == null ||
-        uid != event.uid ||
+    if (uid == null) {
+      _upgradeEndedToCut(event.uid, emit);
+      return;
+    }
+    if (uid != event.uid ||
         _endingForCut == uid ||
         _endingForOwnRemoval == uid) {
       return;
@@ -213,6 +267,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       _endingForOwnRemoval = null;
       if (user == null) {
         lastSessionEnd = _endOf(previous?.uid, intent, event.fromStreamError);
+        _lastEndedUid = previous?.uid;
         // Ruling 2: the sign-in copy only for this cause (an explicit
         // sign-out that raced it reads as that sign-out).
         byRemoval =
@@ -233,6 +288,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     if (user != null) {
       byRemoval = false;
       byOwnRemoval = false;
+      _lastEndedUid = null;
     }
     emit(
       state.copyWith(

@@ -712,6 +712,65 @@ void main() {
       await bloc.close();
     });
 
+    // Fix round 1, R1: the SDK signed out on its own (its refresh met the
+    // cut's revoke) before the cut report landed.
+    group('a cut report after the user is already null', () {
+      test('upgrades that uid\'s lost session to the removed-device notice, '
+          'with no second sign-out', () async {
+        final bloc = await signedIn();
+        users.add(null);
+        await pumpEventQueue();
+        expect(bloc.state.signedOutByDeviceRemoval, isFalse);
+        hookOf()('uid-1');
+        await pumpEventQueue();
+        expect(bloc.state.signedOutByDeviceRemoval, isTrue);
+        expect(bloc.state.lastSessionEnd, SessionEnd.sessionLost);
+        verifyNever(() => authRepository.signOut());
+        await bloc.close();
+      });
+
+      test('another uid, an explicit sign-out, or a sign-in since: nothing '
+          'changes', () async {
+        final bloc = await signedIn();
+        final hook = hookOf();
+        users.add(null);
+        await pumpEventQueue();
+        hook('uid-2');
+        await pumpEventQueue();
+        expect(bloc.state.signedOutByDeviceRemoval, isFalse);
+
+        users.add(verifiedUser);
+        await pumpEventQueue();
+        bloc.add(const AuthSignOutRequested(uid: 'uid-1'));
+        await pumpEventQueue();
+        expect(bloc.state.lastSessionEnd, SessionEnd.userSignedOut);
+        hook('uid-1');
+        await pumpEventQueue();
+        expect(bloc.state.signedOutByDeviceRemoval, isFalse);
+
+        // uid-1's lost session, then another account signed in and lost
+        // its session since: a late uid-1 report changes nothing.
+        users.add(verifiedUser);
+        await pumpEventQueue();
+        users.add(null);
+        await pumpEventQueue();
+        users.add(
+          const AppUser(
+            uid: 'uid-2',
+            emailVerified: true,
+            isPasswordProvider: true,
+          ),
+        );
+        await pumpEventQueue();
+        users.add(null);
+        await pumpEventQueue();
+        hook('uid-1');
+        await pumpEventQueue();
+        expect(bloc.state.signedOutByDeviceRemoval, isFalse);
+        await bloc.close();
+      });
+    });
+
     test('closing the bloc unhooks it from the repository', () async {
       final bloc = await signedIn();
       final hook = hookOf();
@@ -728,16 +787,25 @@ void main() {
     late StreamController<AppUser?> users;
     late int beforeSignOut;
     late List<String> beforeExplicit;
+    late SignInProbe probe;
+    late int probes;
 
     setUp(() {
       beforeSignOut = 0;
       beforeExplicit = [];
+      // Fix round 1, R2: by default the probe finds this sign-in revoked.
+      probe = SignInProbe.dead;
+      probes = 0;
       users = StreamController<AppUser?>();
       when(() => authRepository.authStateChanges())
           .thenAnswer((_) => users.stream);
       when(() => authRepository.signOut()).thenAnswer((_) async {
         await Future<void>.delayed(Duration.zero);
         users.add(null);
+      });
+      when(() => authRepository.probeSignIn()).thenAnswer((_) async {
+        probes++;
+        return probe;
       });
     });
     tearDown(() => users.close());
@@ -766,6 +834,96 @@ void main() {
       return bloc;
     }
 
+    // Fix round 1, R2: the probe decides before anything is signed out.
+    test('probe alive (a replay, the same second): no sign-out, no notice, '
+        'and a later report probes again', () async {
+      probe = SignInProbe.alive;
+      final bloc = await signedIn();
+      final hook = removalHookOf();
+      hook('uid-1');
+      await pumpEventQueue();
+      expect(probes, 1);
+      verifyNever(() => authRepository.signOut());
+      expect(bloc.state.user, verifiedUser);
+      expect(bloc.state.signedOutAfterOwnRemoval, isFalse);
+      expect(beforeSignOut, 0);
+
+      // Disarmed: the next report is handled again.
+      probe = SignInProbe.dead;
+      hook('uid-1');
+      await pumpEventQueue();
+      expect(probes, 2);
+      verify(() => authRepository.signOut()).called(1);
+      expect(bloc.state.signedOutAfterOwnRemoval, isTrue);
+      await bloc.close();
+    });
+
+    test('probe dead: signed out with the remover notice', () async {
+      final bloc = await signedIn();
+      removalHookOf()('uid-1');
+      await pumpEventQueue();
+      expect(probes, 1);
+      verify(() => authRepository.signOut()).called(1);
+      expect(bloc.state.signedOutAfterOwnRemoval, isTrue);
+      expect(bloc.state.lastSessionEnd, SessionEnd.sessionLost);
+      await bloc.close();
+    });
+
+    for (final failing in [true, false]) {
+      test('probe unknown (${failing ? 'it throws' : 'offline'}): signed out '
+          'all the same, the server said the sessions ended', () async {
+        if (failing) {
+          when(() => authRepository.probeSignIn())
+              .thenAnswer((_) async => throw StateError('x'));
+        } else {
+          probe = SignInProbe.unknown;
+        }
+        final bloc = await signedIn();
+        removalHookOf()('uid-1');
+        await pumpEventQueue();
+        verify(() => authRepository.signOut()).called(1);
+        expect(bloc.state.signedOutAfterOwnRemoval, isTrue);
+        await bloc.close();
+      });
+    }
+
+    test('the outbox replay after a re-sign-in as the same uid, with the '
+        'probe alive, signs nobody out', () async {
+      final bloc = await signedIn();
+      final hook = removalHookOf();
+      // The first removal ended this sign-in.
+      hook('uid-1');
+      await pumpEventQueue();
+      expect(bloc.state.user, isNull);
+      // The same uid signs in again; a stored intent replays and the
+      // server says true again, but this fresh sign-in is past the cut.
+      users.add(verifiedUser);
+      await pumpEventQueue();
+      probe = SignInProbe.alive;
+      hook('uid-1');
+      await pumpEventQueue();
+      verify(() => authRepository.signOut()).called(1);
+      expect(bloc.state.user, verifiedUser);
+      expect(bloc.state.signedOutAfterOwnRemoval, isFalse);
+      await bloc.close();
+    });
+
+    test('the SDK signing out during the probe still reads as the remover\'s '
+        'end', () async {
+      when(() => authRepository.probeSignIn()).thenAnswer((_) async {
+        users.add(null);
+        await pumpEventQueue();
+        return SignInProbe.dead;
+      });
+      final bloc = await signedIn();
+      removalHookOf()('uid-1');
+      await pumpEventQueue();
+      verifyNever(() => authRepository.signOut());
+      expect(bloc.state.user, isNull);
+      expect(bloc.state.signedOutAfterOwnRemoval, isTrue);
+      await bloc.close();
+    });
+
     test('signs that uid out as sessionLost (the vault is kept: no explicit '
         'hook) with the remover notice, not the removed-device one; the '
         'push unregister runs', () async {
@@ -783,8 +941,8 @@ void main() {
       await bloc.close();
     });
 
-    test('the AuthUserChanged path is the same one: an AuthSignedOutAfter'
-        'OwnRemoval event signs out once for a burst', () async {
+    test('a burst of AuthSignedOutAfterOwnRemoval events for the same uid '
+        'signs out once', () async {
       final bloc = await signedIn();
       bloc
         ..add(const AuthSignedOutAfterOwnRemoval('uid-1'))
