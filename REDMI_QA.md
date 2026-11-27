@@ -1,6 +1,6 @@
 # Redmi K20 Pro QA checklist
 
-Base commit `d96c2904`. ADB and Flutter detected the physical Redmi K20 Pro running Android 11 (API 30). The checkboxes below track device verification.
+Initial base commit `d96c2904`. The QA branch subsequently merged GitHub main at `72401aa8`. ADB and Flutter detected the physical Redmi K20 Pro running Android 11 (API 30). The checkboxes below track device verification.
 
 
 ## November 27 device results
@@ -21,6 +21,18 @@ The allowlisted account published one [16-strip QA post on dev](https://dev.dzer
 | Android release configuration | Gradle merged the release manifest successfully on this checkout. It sets allowBackup to false and contains neither the debug network configuration nor a cleartext override. No release upload key was configured in this worktree. |
 
 The local signer failure was confirmed in the API log at CreateUpload. The debug emulator signup fix works independently. The dev browser used the existing signed-in account and feature access. Verification of the original post against a deployed copy of the patch remains open. The controlled benchmark covers the patch locally. The deployed dev run covers the complete upload and read paths. No production deployment, access-list edit, Firebase rules change or release signing was performed.
+
+### Hosted Data saver comparison
+
+In Chrome on the Redmi, Data saver was initially off. With HTTP caching disabled, the 16-color QA post requested 16 originals and 16 thumbnails. After enabling Data saver, the same post requested 16 thumbnails and zero originals. All 16 strip colors painted in the expected order in each state. The original off setting was restored and checked. This comparison measures request selection on the deployed dev build.
+
+### Merged-branch checks on November 28
+
+The QA branch merged GitHub main at `72401aa8`. On the merged code, Flutter analysis found no issues and the full Flutter suite passed 21,838 tests with 273 skipped. Go tests passed in all nine packages checked across posts, media, identity, messaging, engagement, keys, timeline, authentication and object storage.
+
+On the physical Redmi, all eight vault-session integration tests passed, covering explicit sign-out, interrupted sign-out, marker durability and recovery for the same user after session loss. Both device-key integration tests passed. They checked registration, idempotent startup, removal at sign-out, deletion of the local vault and issuance of a fresh device ID on the next sign-in. The tests used isolated databases and a fake key directory. The vault test emitted a Drift debug warning about multiple database instances during the simulated restarts. The Android build also warned that some plugins still apply the Kotlin Gradle Plugin.
+
+Read-only navigation on hosted dev also showed the limits of testing features through a URL. Creator Studio, articles, communities, Explore settings and Premium landed on Home. Notification settings landed on Settings. Calls and Advertise retained their paths in one sample, but their content in a second sample was the Following feed. None of these URL attempts verified the corresponding feature workflow. Premium requires opening the dialog from inside the app according to `app/lib/core/router/shell_entries.dart`.
 
 ## November 26 checkpoint
 
@@ -61,14 +73,18 @@ These timings describe the controlled fixture. The hosted dev trace did not repr
 
 ## Device workflows
 
-- [ ] Following and pinned list tabs (including Hello if the test user pinned that list). Open a 15-strip post cold, return from detail, scroll away and back, change tabs during loading, repeat offline and after reconnect. Measure first clear frame and request counts.
-- [ ] Sign up, verify, sign in, finish onboarding, reopen session and sign out.
-- [ ] Compose text, attach multiple narrow photos, edit and crop, add alt text, publish, open detail and viewer. Cover empty, over-limit and emoji input, interrupted upload, back and retry.
-- [ ] Like, repost, bookmark and reply. Double-tap actions and reconcile feed, detail and bookmarks.
-- [ ] Search for users and posts, open a profile, follow and inspect notifications.
-- [ ] Open conversations, compose and receive messages, exercise vault lock, offline recovery and back navigation.
-- [ ] Open account, privacy, data usage and notification settings. Repeat media loading with data saver enabled.
-- [ ] Exercise lists, articles, communities, discovery, location, beacons, calls, moderation, premium and creator screens with eligible test fixtures.
+| Journey | Verified on device | Remaining device checks |
+|---|---|---|
+| Feed and pinned lists | Following, pinned Hello, switching tabs, flings, cold QA post, viewer, back, offline and reconnect | Cold original post with the patch deployed, scroll across multiple strip posts |
+| Authentication | Signup, verification, onboarding and restored session with disposable accounts | Interactive sign-out and sign-in cycle |
+| Composer | Text double-submit, empty form, 16 images, first-image crop and alt text, interruption, retry and hosted publication | Over-limit and emoji input, back during upload |
+| Engagement | Like, repost, bookmark and reply from detail | Double-tap each control and verify feed, detail and bookmarks agree |
+| Discovery and social | Search for a disposable user, open profile and notifications | Post search, follow and resulting notification |
+| Messaging | Open conversations, send and accept a request, reply and confirm receipt | Offline message recovery, user-facing vault controls |
+| Settings | Blocked and muted lists, Data saver persistence, actual thumbnail and original request selection with Data saver on and off | Edit and restore notification preferences in a disposable account |
+| Other features | Manage pinned lists and open Plans | Articles, communities, location, beacons, calls, moderation, subscriptions and creator workflows need individual walkthroughs |
+
+Three saved Android logs from the original device run and the emulator-backed runs contained no matches for RenderFlex overflows, unhandled exceptions or BLoC updates after close. These samples do not cover long-session memory growth.
 
 ## Feature inventory
 
@@ -105,18 +121,38 @@ Dart declarations and named sheet files under each feature. Cross-feature naviga
 
 ## Firebase and release checks
 
-The media bucket Terraform module sets uniform bucket-level access and enforces public access prevention on the upload, serving and export buckets. Firestore and Storage rules both deny all direct client reads and writes. Authenticated operations go through the Go API. Production media uses bucket IAM and signed URLs.
+The media bucket Terraform module sets uniform bucket-level access and enforces public access prevention on the upload, serving and export buckets. Firestore and Storage rules both deny all direct client reads and writes. Authenticated operations go through the Go API. The production configuration uses bucket IAM and signed URLs. Keep the direct-client rules closed. The media bucket module grants object administration on each bucket to the runtime service account.
 
 - [ ] Verify the deployed rules match `firebase/firestore.rules` and `firebase/storage.rules`.
-- [ ] Check resource ownership and audience restrictions in Go services, including posts, profiles, bookmarks and messages. Review upload size, type and content validation at slot creation and finalization.
-- [ ] Check private bucket IAM, scoped URL signing, telemetry redaction, vault persistence and logout behavior.
+- Reviewed authenticated ownership in the Go source. Post deletion compares the caller with the stored author (`backend/internal/posts/service_delete.go`). Profile updates use the authenticated user's ID (`backend/internal/identity/server.go`, `service.go` and `repo_firestore.go`). Bookmark RPCs authenticate the caller and scope records to their namespace (`backend/internal/engagement/server_bookmarks.go` and `repo_bookmarks.go`). Message reads check conversation membership before returning messages (`backend/internal/messaging/service_messages.go`). This review covers those operations. Other operations and audience combinations need separate checks.
+- Reviewed upload reservation and finalization in `backend/internal/media/service.go` and `finalize.go`. The service constrains accepted media formats, dimensions and sizes, checks the stored object's metadata and checksum, and pins its generation. `backend/pkg/platform/objstore` scopes signed uploads by method and required headers, including create-only preconditions. Actual deployed IAM and rules still need comparison against the repository.
+- Crash reporting uses an allowlist for exception messages. The scrubber removes URLs, email addresses, handles, long alphanumeric strings and long digit runs, then caps the text at 200 characters. Connect failures emit the code and structured reason. See `app/lib/core/telemetry/crash_payload.dart` and `crash_scrubber.dart`. Other log sinks and deployed IAM still need review.
 - [ ] Require release signing, verify the release target and test a signed release build on the handset.
 
 ## Data access inventory
 
-The original scan matched literal arguments to Collection. Several repositories also use constants. Confirmed examples include the top-level posts and media collections in their respective Firestore repositories and the likes and reposts collections in engagement. The following names are examples from the literal-only scan.
+Collection names found in Go repository constants and literal Firestore calls under `backend/internal`. Names can occur at several levels of a document path. Dynamically constructed paths and collections managed outside those packages require separate review.
 
-articles, billingCustomerOwners, billingCustomers, users
+| Backend package | Collection or subcollection names |
+|---|---|
+| articles | articles |
+| beacons | beaconMemberships, beaconParticipants, beacons, users |
+| billing | billingCustomerOwners, billingCustomers, users |
+| communities | communities, communityMembers, communityMemberships |
+| engagement | bookmarks, impressions, likes, pollVotes, postShares, reposts, userLikes, users |
+| graph | followRequests, follows, graph |
+| identity | dailyStats, exports, handles, notifications, privacy, private, publicIds, users |
+| keys | keyDeviceRemovals, keyDevices, keyPackages, users |
+| lists | listFollows, lists |
+| location | locationArea, locationConsents, users |
+| media | admin, media |
+| messaging | commits, conversations, dmInbox, dmRequests, dmWelcomes, messages, users |
+| moderation | evidence, reports |
+| notifications | deviceTokens, devices, notifications, settings, users |
+| posts | postRemovals, posts, scheduled, users, viewDirty, viewRollup, viewShards |
+| search | trends |
+
+In `backend/internal/media/service.go`, upload objects use `u/{uid}/{id}.{ext}`. Served objects use `m/{id}-{suffix}.{ext}`. Thumbnails insert `_t` before the extension. The service still recognizes earlier served names without a suffix.
 
 ## Initial results
 
