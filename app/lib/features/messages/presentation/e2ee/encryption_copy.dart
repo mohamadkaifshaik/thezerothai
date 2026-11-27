@@ -775,9 +775,14 @@ String deviceRemoveTitleNamed(String? date) =>
 
 /// Remove: dialog message. The design's sentences, then R17's fixed
 /// sentence (the queue needs time to update each conversation).
+///
+/// Remover copy (controller ruling 2026-11-27, H1 options a + b): since H1 a
+/// removal that signs the other sessions out also revokes this device's
+/// sign-in, so the warning says this device too has to sign in again.
 const kDeviceRemoveSignOutMessage =
     'It will stop receiving your encrypted messages. You\'ll also be signed '
-    'out on all your other devices, and they\'ll need to sign in again.\n\n'
+    'out on all your devices, this one too, and you\'ll need to sign in '
+    'again.\n\n'
     'Until each conversation has been updated, that device may still receive '
     'and send messages.';
 
@@ -845,9 +850,29 @@ const kDeviceRemovedSessionsKept =
     "Removed. It won't get new encrypted messages once the removal "
     "finishes. That device wasn't signed out of your account.";
 
-/// Removed, `other_sessions_ended` true.
+/// Removed, `other_sessions_ended` true (any answer of the run). Remover copy
+/// (controller ruling 2026-11-27, H1 options a + b): H1 revokes every
+/// sign-in of the account when the cut is made, this device's included, so
+/// the line says so and the app then signs this device out itself
+/// ([kDeviceRemovedSignInAgainAction]) instead of failing later at a token
+/// refresh. Shown in [kDeviceRemovedSignInAgainTitle]'s dialog, never as a
+/// snackbar; the owner may reword it.
 const kDeviceRemovedSessionsEnded =
-    'Removed. Your other devices were signed out.';
+    'Removed. All your devices were signed out, this one too. Sign in again '
+    'to keep going.';
+
+/// The title of the dialog that shows [kDeviceRemovedSessionsEnded].
+const kDeviceRemovedSignInAgainTitle = 'All your devices were signed out';
+
+/// Its one action: closing the dialog (this or any other way) signs this
+/// device out.
+const kDeviceRemovedSignInAgainAction = 'Sign in again';
+
+/// The sign-in screens' notice after THIS device removed another one and so
+/// signed itself out (`AuthState.signedOutAfterOwnRemoval`). Different from
+/// the notice the removed device gets (`SessionEndedException.userMessage`).
+const kSignedOutAfterOwnRemovalNotice =
+    'You removed a device, so every device was signed out. Sign in again.';
 
 /// The removed result: keyed on `other_sessions_ended` when it is known;
 /// null (the port does not pass it on yet, Task 13-ii) keeps the plain text.

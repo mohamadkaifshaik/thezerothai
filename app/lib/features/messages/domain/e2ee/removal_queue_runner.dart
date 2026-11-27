@@ -189,7 +189,9 @@ class RemovalQueueRunner {
     required bool Function() removedDefinitely,
     void Function() Function(Duration delay, void Function() run)? schedule,
     void Function(Object error, StackTrace stack)? onUnexpectedError,
-  }) : _keys = keys,
+    void Function(String uid)? onRemovalSignedOutAll,
+  }) : _onRemovalSignedOutAll = onRemovalSignedOutAll,
+       _keys = keys,
        _directory = directory,
        _commits = commits,
        _receiver = receiver,
@@ -228,6 +230,17 @@ class RemovalQueueRunner {
   final bool Function() _removedDefinitely;
   final void Function() Function(Duration delay, void Function() run) _schedule;
   final void Function(Object error, StackTrace stack)? _onUnexpectedError;
+
+  /// Remover copy (controller ruling 2026-11-27, H1 option b): told with the
+  /// vault's uid when a STORED removal intent, sent again by a pass (the
+  /// outbox: a removal whose first answer was lost, or one sent after a
+  /// restart), answers `other_sessions_ended` true. H1 then revoked every
+  /// sign-in of the account, this one included, and no screen is waiting
+  /// for that answer, so the app signs this device out at once (production:
+  /// `AuthRepository.reportRemovalSignedOutAll`). A [removeDevice] answer
+  /// goes back to its caller instead (the Settings screen shows the result
+  /// first, then signs out), so it is never reported here.
+  final void Function(String uid)? _onRemovalSignedOutAll;
 
   /// The image of the stored queue, valid for [_loadedFor] only.
   final List<RemovalQueueEntry> _entries = [];

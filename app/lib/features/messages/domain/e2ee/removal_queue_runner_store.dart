@@ -157,8 +157,9 @@ extension _RemovalStore on RemovalQueueRunner {
       // Brief amendment 3: parked until the user signs in again and asks.
       if (_reauthParked.contains(intent.deviceId)) continue;
       if (!_current(vault, resets)) return;
+      bool ended;
       try {
-        await _sendRemove(intent.deviceId);
+        ended = await _sendRemove(intent.deviceId);
       } on ReauthRequiredException {
         // Never settled by a list: the refusal says nothing about the
         // device, only about this sign-in. Kept and parked (stored so).
@@ -186,6 +187,10 @@ extension _RemovalStore on RemovalQueueRunner {
         }
         continue;
       }
+      // The answer arrived: every session ended, this one too (reported
+      // whatever happens to the queue write below, and before it, so a
+      // failing write never keeps a revoked session signed in).
+      if (ended) _onRemovalSignedOutAll?.call(vault.uid);
       if (!_current(vault, resets)) return;
       await _queueRemoved(
         vault,

@@ -79,8 +79,12 @@ class _AuthScreenState extends State<AuthScreen> {
                           ? null
                           : () => _switchMode(context),
                     )
-                  : !signUp && state.signedOutByDeviceRemoval
-                  ? const SessionEndedNotice()
+                  : !signUp &&
+                        (state.signedOutByDeviceRemoval ||
+                            state.signedOutAfterOwnRemoval)
+                  ? SessionEndedNotice(
+                      afterOwnRemoval: state.signedOutAfterOwnRemoval,
+                    )
                   : null,
               onSubmit: (email, password) {
                 if (_accountExists) setState(() => _accountExists = false);

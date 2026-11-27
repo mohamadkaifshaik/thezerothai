@@ -1,4 +1,8 @@
-import 'package:dzeroth/core/session/session_end.dart';
+import 'dart:async';
+
+import 'package:dzeroth/features/auth/presentation/bloc/auth_bloc.dart';
+import 'package:dzeroth/features/auth/presentation/bloc/auth_event.dart';
+import 'package:dzeroth/features/auth/presentation/bloc/auth_state.dart';
 import 'package:dzeroth/features/auth/data/auth_repository.dart';
 import 'package:dzeroth/features/auth/domain/auth_failure.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb;
@@ -47,6 +51,155 @@ void main() {
       );
       expect(await repo.refreshIdToken(), 'fresh');
       verify(() => user.getIdToken(true)).called(1);
+    });
+
+    // Remover copy defensive fix (controller ruling 2026-11-27): a refresh
+    // the server will never grant again (H1 revoked the refresh token) signs
+    // out, so the null user reaches the auth bloc as a lost session instead
+    // of every call failing as a NetworkException while "signed in".
+    for (final code in [
+      'user-token-expired',
+      'invalid-user-token',
+      'user-disabled',
+      'user-not-found',
+    ]) {
+      test('a token fetch failing with $code signs out and rethrows', () async {
+        final user = _MockUser();
+        when(() => user.uid).thenReturn('uid-1');
+        when(() => firebaseAuth.currentUser).thenReturn(user);
+        when(() => user.getIdToken(false))
+            .thenThrow(fb.FirebaseAuthException(code: code));
+        when(() => firebaseAuth.signOut()).thenAnswer((_) async {});
+        final repo = AuthRepository(
+          firebaseAuth: firebaseAuth,
+          googleSignIn: googleSignIn,
+        );
+        await expectLater(
+          repo.getIdToken(),
+          throwsA(
+            isA<fb.FirebaseAuthException>().having((e) => e.code, 'code', code),
+          ),
+        );
+        verify(() => firebaseAuth.signOut()).called(1);
+      });
+    }
+
+    test('a forced refresh failing with user-token-expired signs out too '
+        '(the SESSION_ENDED interceptor\'s refresh)', () async {
+      final user = _MockUser();
+      when(() => user.uid).thenReturn('uid-1');
+      when(() => firebaseAuth.currentUser).thenReturn(user);
+      when(() => user.getIdToken(true))
+          .thenThrow(fb.FirebaseAuthException(code: 'user-token-expired'));
+      when(() => firebaseAuth.signOut()).thenAnswer((_) async {});
+      final repo = AuthRepository(
+        firebaseAuth: firebaseAuth,
+        googleSignIn: googleSignIn,
+      );
+      await expectLater(
+        repo.refreshIdToken(),
+        throwsA(isA<fb.FirebaseAuthException>()),
+      );
+      verify(() => firebaseAuth.signOut()).called(1);
+    });
+
+    test('a transient token failure (network) does not sign out', () async {
+      final user = _MockUser();
+      when(() => user.uid).thenReturn('uid-1');
+      when(() => firebaseAuth.currentUser).thenReturn(user);
+      when(() => user.getIdToken(false))
+          .thenThrow(fb.FirebaseAuthException(code: 'network-request-failed'));
+      final repo = AuthRepository(
+        firebaseAuth: firebaseAuth,
+        googleSignIn: googleSignIn,
+      );
+      await expectLater(
+        repo.getIdToken(),
+        throwsA(isA<fb.FirebaseAuthException>()),
+      );
+      verifyNever(() => firebaseAuth.signOut());
+    });
+
+    test('a dead token after the SDK already signed out signs out nothing '
+        'more', () async {
+      final user = _MockUser();
+      when(() => user.uid).thenReturn('uid-1');
+      var current = true;
+      when(() => firebaseAuth.currentUser)
+          .thenAnswer((_) => current ? user : null);
+      when(() => user.getIdToken(false)).thenAnswer((_) async {
+        current = false;
+        throw fb.FirebaseAuthException(code: 'user-token-expired');
+      });
+      final repo = AuthRepository(
+        firebaseAuth: firebaseAuth,
+        googleSignIn: googleSignIn,
+      );
+      await expectLater(
+        repo.getIdToken(),
+        throwsA(isA<fb.FirebaseAuthException>()),
+      );
+      verifyNever(() => firebaseAuth.signOut());
+    });
+
+    test('no user: no token and no call', () async {
+      when(() => firebaseAuth.currentUser).thenReturn(null);
+      final repo = AuthRepository(
+        firebaseAuth: firebaseAuth,
+        googleSignIn: googleSignIn,
+      );
+      expect(await repo.getIdToken(), isNull);
+    });
+
+    test('end to end through the auth bloc: a dead token leaves the app '
+        'signed out as sessionLost (no notice, vault kept)', () async {
+      final user = _MockUser();
+      when(() => user.uid).thenReturn('uid-1');
+      when(() => user.email).thenReturn('a@example.com');
+      when(() => user.displayName).thenReturn(null);
+      when(() => user.emailVerified).thenReturn(true);
+      when(() => user.providerData).thenReturn([]);
+      fb.User? current = user;
+      final changes = StreamController<fb.User?>();
+      addTearDown(changes.close);
+      when(() => firebaseAuth.currentUser).thenAnswer((_) => current);
+      when(() => firebaseAuth.userChanges()).thenAnswer((_) => changes.stream);
+      when(() => firebaseAuth.signOut()).thenAnswer((_) async {
+        current = null;
+        changes.add(null);
+      });
+      when(() => user.getIdToken(false))
+          .thenThrow(fb.FirebaseAuthException(code: 'user-token-expired'));
+      final repo = AuthRepository(
+        firebaseAuth: firebaseAuth,
+        googleSignIn: googleSignIn,
+      );
+      final bloc = AuthBloc(authRepository: repo)
+        ..add(const AuthSubscriptionRequested());
+      changes.add(user);
+      await pumpEventQueue();
+      expect(bloc.state.status, AuthStatus.authenticated);
+
+      await expectLater(repo.getIdToken(), throwsA(anything));
+      await pumpEventQueue();
+      expect(bloc.state.status, AuthStatus.unauthenticated);
+      expect(bloc.state.lastSessionEnd, SessionEnd.sessionLost);
+      expect(bloc.state.signedOutAfterOwnRemoval, isFalse);
+      expect(bloc.state.signedOutByDeviceRemoval, isFalse);
+      await bloc.close();
+    });
+
+    test('reportRemovalSignedOutAll tells onRemovalSignedOutAll, and is a '
+        'no-op without it', () {
+      final repo = AuthRepository(
+        firebaseAuth: firebaseAuth,
+        googleSignIn: googleSignIn,
+      );
+      repo.reportRemovalSignedOutAll('uid-1');
+      final seen = <String>[];
+      repo.onRemovalSignedOutAll = seen.add;
+      repo.reportRemovalSignedOutAll('uid-1');
+      expect(seen, ['uid-1']);
     });
 
     test('reportSessionEnded tells onServerEndedSession, and is a no-op '

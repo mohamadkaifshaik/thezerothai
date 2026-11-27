@@ -100,6 +100,17 @@ final class AuthSessionEndedByServer extends AuthEvent {
   final String uid;
 }
 
+/// Internal: THIS device removed another device of [uid]'s account and the
+/// server answered `other_sessions_ended` (H1 revoked every sign-in, this
+/// one included). Dispatched through `AuthRepository.onRemovalSignedOutAll`.
+/// Signs [uid] out at once as [SessionEnd.sessionLost] (the vault is kept)
+/// with the remover's notice, once per burst; ignored when another account
+/// (or nobody) is signed in.
+final class AuthSignedOutAfterOwnRemoval extends AuthEvent {
+  const AuthSignedOutAfterOwnRemoval(this.uid);
+  final String uid;
+}
+
 /// Clears a transient [AuthState.failure] after the UI has shown it.
 final class AuthFailureDismissed extends AuthEvent {
   const AuthFailureDismissed();

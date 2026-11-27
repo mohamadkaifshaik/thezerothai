@@ -541,10 +541,40 @@ class AuthRepository implements AuthTokenProvider {
     ]);
   }
 
+  /// The Firebase codes of a sign-in the server will never refresh again
+  /// (a revoked refresh token, a disabled or deleted user). Web's
+  /// `_logoutIfInvalidated` signs out on these; this repository does not rely
+  /// on every platform doing it.
+  static const _deadSessionCodes = {
+    'user-token-expired',
+    'invalid-user-token',
+    'user-disabled',
+    'user-not-found',
+  };
+
+  /// Remover copy defensive fix (controller ruling 2026-11-27): a token
+  /// fetch that fails because the sign-in is dead signs out here, so the app
+  /// ends up signed out as [SessionEnd.sessionLost] (no intent is armed: the
+  /// vault is kept) instead of staying "signed in" with every call failing
+  /// as a NetworkException. Best effort: a failing sign-out is ignored (the
+  /// next fetch tries again); the original error is always rethrown.
   @override
-  Future<String?> getIdToken({bool forceRefresh = false}) {
-    return _firebaseAuth.currentUser?.getIdToken(forceRefresh) ??
-        Future.value();
+  Future<String?> getIdToken({bool forceRefresh = false}) async {
+    final user = _firebaseAuth.currentUser;
+    if (user == null) return null;
+    try {
+      return await user.getIdToken(forceRefresh);
+    } on fb.FirebaseAuthException catch (e) {
+      if (_deadSessionCodes.contains(e.code) &&
+          _firebaseAuth.currentUser?.uid == user.uid) {
+        try {
+          await signOut();
+        } catch (_) {
+          // The next token fetch tries again.
+        }
+      }
+      rethrow;
+    }
   }
 
   @override
@@ -558,6 +588,19 @@ class AuthRepository implements AuthTokenProvider {
 
   @override
   void reportSessionEnded(String uid) => onServerEndedSession?.call(uid);
+
+  /// Told when THIS device removed another device of the account and the
+  /// server answered `other_sessions_ended` (H1 then revoked every
+  /// sign-in of the account, this one included). The auth bloc sets it in its
+  /// constructor and signs that uid out at once, the vault kept, with the
+  /// remover's sign-in notice (controller ruling 2026-11-27, options a + b).
+  void Function(String uid)? onRemovalSignedOutAll;
+
+  /// Reports [uid]'s own removal that signed every session out: from the
+  /// Settings removal once its dialog closes, and from the removal queue
+  /// when a stored removal's retry answers later. A no-op without a hook.
+  void reportRemovalSignedOutAll(String uid) =>
+      onRemovalSignedOutAll?.call(uid);
 
   static String _generateNonce([int length = 32]) {
     const charset =

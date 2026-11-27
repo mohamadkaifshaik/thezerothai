@@ -41,6 +41,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     on<AuthEmailVerificationCheckRequested>(_onVerificationCheckRequested);
     on<AuthSignOutRequested>(_onSignOutRequested);
     on<AuthSessionEndedByServer>(_onSessionEndedByServer);
+    on<AuthSignedOutAfterOwnRemoval>(_onSignedOutAfterOwnRemoval);
     on<AuthFailureDismissed>((event, emit) {
       emit(state.copyWith(failure: null));
     });
@@ -48,10 +49,62 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     // and again after one forced refresh) through the repository: the one
     // place both already share, so bootstrap needs no new wiring.
     authRepository.onServerEndedSession = _sessionEndedHook;
+    // The same seam for this device's own removal that signed every session
+    // out (the Settings removal and the removal queue report it).
+    authRepository.onRemovalSignedOutAll = _ownRemovalHook;
   }
 
   void _sessionEndedHook(String uid) {
     if (!isClosed) add(AuthSessionEndedByServer(uid));
+  }
+
+  void _ownRemovalHook(String uid) {
+    if (!isClosed) add(AuthSignedOutAfterOwnRemoval(uid));
+  }
+
+  /// The uid being signed out because this device's own removal ended every
+  /// session (the intent recorded for the remover's notice); cleared by its
+  /// end (or a failed sign-out). Deduplicates a burst of reports.
+  String? _endingForOwnRemoval;
+
+  /// Remover copy (controller ruling 2026-11-27, H1 option b): signs
+  /// [AuthSignedOutAfterOwnRemoval.uid] out at once, without waiting for the
+  /// token refresh H1 makes fail. No vault intent is armed (the end is
+  /// [SessionEnd.sessionLost]: the vault is closed and kept, and the same uid
+  /// signing back in reopens its keys). The push unregister runs, bounded and
+  /// best effort as on a normal sign-out: unlike a SESSION_ENDED device, this
+  /// one's ID token is still accepted, and a signed-out device should not
+  /// keep getting pushes.
+  Future<void> _onSignedOutAfterOwnRemoval(
+    AuthSignedOutAfterOwnRemoval event,
+    Emitter<AuthState> emit,
+  ) async {
+    final uid = state.user?.uid;
+    if (uid == null ||
+        uid != event.uid ||
+        _endingForOwnRemoval == uid ||
+        _endingForCut == uid) {
+      return;
+    }
+    _endingForOwnRemoval = uid;
+    final before = _beforeSignOut;
+    if (before != null) {
+      try {
+        await _guarded(before).timeout(kBeforeSignOutTimeout);
+      } catch (_) {
+        // Never block sign-out on bookkeeping.
+      }
+    }
+    try {
+      await _authRepository.signOut();
+    } catch (_) {
+      // Still signed in: a later report (or the failing refresh) ends it.
+      if (_endingForOwnRemoval == uid &&
+          _authRepository.currentUser?.uid == uid) {
+        _endingForOwnRemoval = null;
+      }
+      rethrow;
+    }
   }
 
   /// The uid being signed out for SESSION_ENDED; cleared by its end (or a
@@ -66,7 +119,12 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     Emitter<AuthState> emit,
   ) async {
     final uid = state.user?.uid;
-    if (uid == null || uid != event.uid || _endingForCut == uid) return;
+    if (uid == null ||
+        uid != event.uid ||
+        _endingForCut == uid ||
+        _endingForOwnRemoval == uid) {
+      return;
+    }
     _endingForCut = uid;
     try {
       await _authRepository.signOut();
@@ -145,11 +203,14 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     final previous = state.user;
     var lastSessionEnd = state.lastSessionEnd;
     var byRemoval = state.signedOutByDeviceRemoval;
+    var byOwnRemoval = state.signedOutAfterOwnRemoval;
     if (user?.uid != previous?.uid) {
       final intent = _intent;
       _intent = null;
       final cut = _endingForCut;
       _endingForCut = null;
+      final own = _endingForOwnRemoval;
+      _endingForOwnRemoval = null;
       if (user == null) {
         lastSessionEnd = _endOf(previous?.uid, intent, event.fromStreamError);
         // Ruling 2: the sign-in copy only for this cause (an explicit
@@ -158,11 +219,21 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
             cut != null &&
             cut == previous?.uid &&
             lastSessionEnd == SessionEnd.sessionLost;
+        // The remover's notice, by the same rule; the two causes never
+        // both hold (each handler ignores a uid the other is ending).
+        byOwnRemoval =
+            !byRemoval &&
+            own != null &&
+            own == previous?.uid &&
+            lastSessionEnd == SessionEnd.sessionLost;
       }
     } else if (event.fromStreamError) {
       lastSessionEnd = SessionEnd.sessionLost;
     }
-    if (user != null) byRemoval = false;
+    if (user != null) {
+      byRemoval = false;
+      byOwnRemoval = false;
+    }
     emit(
       state.copyWith(
         status: status,
@@ -170,6 +241,7 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
         isSubmitting: false,
         lastSessionEnd: lastSessionEnd,
         signedOutByDeviceRemoval: byRemoval,
+        signedOutAfterOwnRemoval: byOwnRemoval,
       ),
     );
   }
@@ -353,6 +425,9 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
     // Tear-offs of the same method on the same bloc are equal (`==`).
     if (_authRepository.onServerEndedSession == _sessionEndedHook) {
       _authRepository.onServerEndedSession = null;
+    }
+    if (_authRepository.onRemovalSignedOutAll == _ownRemovalHook) {
+      _authRepository.onRemovalSignedOutAll = null;
     }
     return super.close();
   }

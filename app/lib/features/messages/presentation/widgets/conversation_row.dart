@@ -1,5 +1,6 @@
 import 'package:material_ui/material_ui.dart';
 
+import '../../../../core/session/user_ids.dart' show kUnavailableAccountName;
 import '../../../../core/theme/app_theme.dart';
 import '../../../../gen/dzeroth/messaging/v1/messaging.pb.dart' as pb;
 import '../../../../gen/dzeroth/messaging/v1/messaging.pbenum.dart';
@@ -139,9 +140,15 @@ class ConversationRow extends StatelessWidget {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
     final peer = conversation.peer;
-    final name = peer.displayName.isEmpty
-        ? '@${peer.handle}'
-        : peer.displayName;
+    // FU1 review nit (#1133): a peer with no handle (a deleted or inactive
+    // account) never reads as a bare "@", seen or spoken: the name falls
+    // back to [kUnavailableAccountName] and the label carries no handle.
+    final handle = peer.handle.isEmpty ? '' : '@${peer.handle}';
+    final name = peer.displayName.isNotEmpty
+        ? peer.displayName
+        : handle.isNotEmpty
+        ? handle
+        : kUnavailableAccountName;
     final unread = conversation.unreadCount > 0;
     final silent = conversation.silent;
     final snippet = conversationSnippet(
@@ -156,7 +163,7 @@ class ConversationRow extends StatelessWidget {
         : formatRelativeTimeSpoken(activity, now);
     final label = [
       name,
-      if (peer.displayName.isNotEmpty) '@${peer.handle}',
+      if (peer.displayName.isNotEmpty && handle.isNotEmpty) handle,
       if (snippet.isNotEmpty) snippet,
       if (spokenTime.isNotEmpty) spokenTime,
       if (unread) 'unread',

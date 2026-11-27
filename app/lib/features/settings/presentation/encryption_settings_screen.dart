@@ -16,6 +16,8 @@ import '../../../core/widgets/app_error_view.dart';
 import '../../../core/widgets/shell_bottom_inset_sliver.dart';
 import '../../../core/widgets/shell_geometry.dart';
 import '../../../shared/widgets/primitives/app_alert_confirm.dart';
+import '../../../shared/widgets/primitives/app_dialog.dart';
+import '../../../shared/widgets/primitives/app_pill_button.dart';
 import '../../../shared/widgets/primitives/app_section_header.dart';
 import '../../../shared/widgets/primitives/headline_message.dart';
 import '../../../shared/widgets/primitives/settings_group.dart';
@@ -230,6 +232,9 @@ class _DevicesView extends StatelessWidget {
     // the other sessions) only changes the copy.
     final signOut = featureEnabledSnapshot(context, kFeatureDeviceSignOut);
     final auth = context.read<AuthRepository>();
+    // The account the removal is for (read before any await): only it is
+    // signed out when the removal ends every session.
+    final uid = auth.currentUser?.uid;
     final added = device.addedAt;
     final confirmed = await showAppAlertConfirm(
       context,
@@ -266,15 +271,86 @@ class _DevicesView extends StatelessWidget {
         confirmItsYou: confirm(true),
       );
     }
+    await _finish(
+      context.mounted ? context : null,
+      messenger,
+      cubit,
+      outcome,
+      auth: auth,
+      uid: uid,
+    );
+  }
+
+  /// After a removal run. Remover copy (controller ruling 2026-11-27, H1
+  /// options a + b): when any answer said `other_sessions_ended`, H1 revoked
+  /// every sign-in of the account, this device's too. The user first reads
+  /// [kDeviceRemovedSessionsEnded] in a one-action dialog, then this device
+  /// signs out on purpose (the auth bloc records the remover's notice; the
+  /// vault is kept), instead of failing at a token refresh within the hour.
+  /// Why a dialog and not the snackbar: the sign-out leaves this screen at
+  /// once, so a snackbar would be read (if at all) on the sign-in screen
+  /// beside its notice; the dialog keeps the order "result, then sign-out"
+  /// with one tap. Closing it any way (the action, back, Escape) signs out,
+  /// and so does a screen that is gone by the time the answer came.
+  ///
+  /// The sign-out follows the server's answer, not the `device_sign_out`
+  /// snapshot: a true answer is a cut the server made, whatever this client
+  /// read. With no session ended the snackbar is as before.
+  Future<void> _finish(
+    BuildContext? context,
+    ScaffoldMessengerState messenger,
+    EncryptionDevicesCubit cubit,
+    RemoveOutcome outcome, {
+    required AuthRepository auth,
+    required String? uid,
+  }) async {
+    if (cubit.sessionsEnded && uid != null) {
+      if (outcome == RemoveOutcome.removed &&
+          context != null &&
+          context.mounted) {
+        messenger.hideCurrentSnackBar();
+        await _showSignedOutAll(context);
+        auth.reportRemovalSignedOutAll(uid);
+        return;
+      }
+      // No dialog: the screen is gone (the sign-in notice explains), or the
+      // run failed after an earlier removal ended the sessions. The sign-out
+      // comes first, so nothing below can keep a revoked session in.
+      auth.reportRemovalSignedOutAll(uid);
+      if (outcome != RemoveOutcome.removed && messenger.mounted) {
+        _sayOutcome(messenger, cubit, outcome, signOutOn: false);
+      }
+      return;
+    }
     _sayOutcome(
       messenger,
       cubit,
       outcome,
       signOutOn:
+          context != null &&
           context.mounted &&
           featureEnabledSnapshot(context, kFeatureDeviceSignOut),
     );
   }
+
+  /// The removed result when every session ended: one action, not
+  /// dismissible by the barrier; resolves however it closes.
+  Future<void> _showSignedOutAll(BuildContext context) => showAppDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    maxWidth: AppSize.alertDialogMax,
+    builder: (dialogContext) => AppDialog(
+      title: kDeviceRemovedSignInAgainTitle,
+      body: const Text(kDeviceRemovedSessionsEnded),
+      actions: [
+        AppPillButton(
+          label: kDeviceRemovedSignInAgainAction,
+          autofocus: true,
+          onPressed: () => Navigator.of(dialogContext).pop(),
+        ),
+      ],
+    ),
+  );
 
   /// The banner's "Confirm it's you": the removals REAUTH_REQUIRED parked are
   /// sent only after a fresh re-sign-in (review gate G2: the cubit runs
@@ -286,6 +362,7 @@ class _DevicesView extends StatelessWidget {
   ) async {
     final messenger = ScaffoldMessenger.of(context);
     final auth = context.read<AuthRepository>();
+    final uid = auth.currentUser?.uid;
     Future<bool> Function() confirm(bool again) =>
         () => context.mounted
         ? confirmItsYou(context, auth, again: again)
@@ -294,13 +371,13 @@ class _DevicesView extends StatelessWidget {
     if (outcome == RemoveOutcome.needsReauth && context.mounted) {
       outcome = await cubit.resumeParked(confirmItsYou: confirm(true));
     }
-    _sayOutcome(
+    await _finish(
+      context.mounted ? context : null,
       messenger,
       cubit,
       outcome,
-      signOutOn:
-          context.mounted &&
-          featureEnabledSnapshot(context, kFeatureDeviceSignOut),
+      auth: auth,
+      uid: uid,
     );
   }
 
@@ -341,7 +418,8 @@ class _DevicesView extends StatelessWidget {
     // answer, or the flag off, gives the plain text that claims nothing about
     // the other sessions.
     // With several removals in one run the answer is a summary: no
-    // per-device claim, the plain text.
+    // per-device claim, the plain text. A true answer never reaches this
+    // snackbar any more ([_finish] shows the sign-out dialog instead).
     final ended = signOutOn && cubit.removedCount == 1
         ? cubit.otherSessionsEnded
         : null;

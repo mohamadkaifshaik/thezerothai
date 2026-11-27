@@ -30,27 +30,29 @@ final Map<String, RigOffer> offers = {};
 /// Pipeline errors the running test expects (checked by the tearDown).
 var expectedErrors = <String>[];
 
-RemovalQueueRunner build() => RemovalQueueRunner(
-  keys: rig.keys,
-  directory: rig.directory,
-  commits: rig.commits,
-  upkeep: rig.upkeep,
-  receiver: rig.receiver,
-  crypto: rig.crypto,
-  session: rig.device.session,
-  engine: () => rig.device.engine,
-  locks: rig.locks,
-  contexts: rig.contexts,
-  now: rig.clock.now,
-  removedElsewhere: () => rig.removedElsewhere,
-  removedDefinitely: () => rig.removedDefinitely ?? rig.removedElsewhere,
-  schedule: (delay, run) {
-    final entry = RigScheduled(delay, run);
-    runnerScheduled.add(entry);
-    return entry.cancel;
-  },
-  onUnexpectedError: (e, _) => rig.unexpected.add(e),
-);
+RemovalQueueRunner build({void Function(String uid)? onRemovalSignedOutAll}) =>
+    RemovalQueueRunner(
+      onRemovalSignedOutAll: onRemovalSignedOutAll,
+      keys: rig.keys,
+      directory: rig.directory,
+      commits: rig.commits,
+      upkeep: rig.upkeep,
+      receiver: rig.receiver,
+      crypto: rig.crypto,
+      session: rig.device.session,
+      engine: () => rig.device.engine,
+      locks: rig.locks,
+      contexts: rig.contexts,
+      now: rig.clock.now,
+      removedElsewhere: () => rig.removedElsewhere,
+      removedDefinitely: () => rig.removedDefinitely ?? rig.removedElsewhere,
+      schedule: (delay, run) {
+        final entry = RigScheduled(delay, run);
+        runnerScheduled.add(entry);
+        return entry.cancel;
+      },
+      onUnexpectedError: (e, _) => rig.unexpected.add(e),
+    );
 
 /// A rig whose key directory lists bob (and [peerListed]) for bob and
 /// [ownListed] for the own user.

@@ -334,6 +334,7 @@ void main() {
           await c.load();
           await c.remove('ref-other', confirmItsYou: _yes);
           expect(c.otherSessionsEnded, answer);
+          expect(c.sessionsEnded, answer == true);
         }
       },
     );
@@ -344,9 +345,11 @@ void main() {
       addTearDown(c.close);
       await c.load();
       await c.remove('ref-other', confirmItsYou: _yes);
+      expect(c.sessionsEnded, isTrue);
       port.failNextOn('removeDevice', const NetworkException('x'));
       await c.remove('ref-other', confirmItsYou: _yes);
       expect(c.otherSessionsEnded, isNull);
+      expect(c.sessionsEnded, isFalse);
     });
 
     // Item 1 of the last round: `confirmItsYou` is a required parameter, so a
@@ -553,7 +556,29 @@ void main() {
         await c.load();
         await c.resumeParked(confirmItsYou: confirm(true));
         expect(c.otherSessionsEnded, want, reason: '$first $second');
+        // Remover copy (ruling 2026-11-27): any true is a cut, which ended
+        // every session (this device's too).
+        expect(
+          c.sessionsEnded,
+          first == true || second == true,
+          reason: '$first $second',
+        );
       }
+    });
+
+    test('sessionsEnded holds a true answer even when a later removal of '
+        'the run fails', () async {
+      port = FakeEncryptedMessaging()
+        ..setOwnDevices(const OwnDeviceList(devices: [_mine, _other]))
+        ..park(['ref-other', 'ref-third'])
+        ..nextRemoval = const DeviceRemoval(otherSessionsEnded: true)
+        ..failRemovalOf('ref-third', const NetworkException('x'));
+      final c = make();
+      addTearDown(c.close);
+      await c.load();
+      final outcome = await c.resumeParked(confirmItsYou: confirm(true));
+      expect(outcome, RemoveOutcome.failed);
+      expect(c.sessionsEnded, isTrue);
     });
 
     test('dropParked drops every parked ref with no removal call', () async {

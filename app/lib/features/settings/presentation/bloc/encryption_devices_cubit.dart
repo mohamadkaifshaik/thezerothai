@@ -160,6 +160,7 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
       return RemoveOutcome.notAttempted;
     }
     _otherSessionsEnded = null;
+    _sessionsEnded = false;
     _removedCount = 0;
     if (!await _confirm(confirmItsYou)) return RemoveOutcome.cancelled;
     if (isClosed || state.removing != null) return RemoveOutcome.notAttempted;
@@ -175,6 +176,7 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
     try {
       final removal = await _messaging.removeDevice(ref);
       _otherSessionsEnded = removal.otherSessionsEnded;
+      _sessionsEnded = removal.otherSessionsEnded == true;
       _removedCount = 1;
     } on ReauthRequiredException {
       // The call missed the window: the queue parked the removal (never
@@ -233,6 +235,15 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
   bool? get otherSessionsEnded => _otherSessionsEnded;
   bool? _otherSessionsEnded;
 
+  /// True when ANY removal of the last run answered `other_sessions_ended`
+  /// true, even one followed by a failure ([resumeParked]); false after
+  /// every new run starts. H1 then revoked every sign-in of the account,
+  /// this device's included, so the screen signs this device out
+  /// (controller ruling 2026-11-27, option b). Unlike [otherSessionsEnded]
+  /// it is not a per-device summary: one cut ends every session.
+  bool get sessionsEnded => _sessionsEnded;
+  bool _sessionsEnded = false;
+
   /// How many removals the last run finished (1 for [remove]). With more
   /// than one, [otherSessionsEnded] is a summary, so the screen makes no
   /// per-device claim.
@@ -273,6 +284,7 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
     final asked = List<String>.of(_messaging.parkedRemovals.value);
     if (asked.isEmpty) return RemoveOutcome.notAttempted;
     _otherSessionsEnded = null;
+    _sessionsEnded = false;
     _removedCount = 0;
     if (!await _confirm(confirmItsYou)) return RemoveOutcome.cancelled;
     if (isClosed || state.removing != null) return RemoveOutcome.notAttempted;
@@ -298,7 +310,9 @@ class EncryptionDevicesCubit extends Cubit<EncryptionDevicesState> {
         ),
       );
       try {
-        answers.add((await _messaging.removeDevice(ref)).otherSessionsEnded);
+        final ended = (await _messaging.removeDevice(ref)).otherSessionsEnded;
+        answers.add(ended);
+        if (ended == true) _sessionsEnded = true;
       } on ReauthRequiredException {
         _restore(before);
         return RemoveOutcome.needsReauth;

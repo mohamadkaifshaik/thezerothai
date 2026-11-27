@@ -442,6 +442,53 @@ void main() {
       });
     }
 
+    // Remover copy (controller ruling 2026-11-27, H1 option b): the outbox.
+    // A stored removal sent again by a pass has no screen waiting for its
+    // answer, so a true answer is reported for the vault's uid (production:
+    // the auth bloc signs this device out at once).
+    for (final ended in [true, false]) {
+      test('a stored intent a pass sends again reports '
+          'other_sessions_ended $ended '
+          '${ended ? 'with the vault uid' : 'not at all'}', () async {
+        final sibling = await RigPeer.create('sibling');
+        await setUpRig(ownListed: [sibling]);
+        final seen = <String>[];
+        runner = build(onRemovalSignedOutAll: seen.add);
+        await join(_c1, others: [sibling]);
+        await synced();
+        rig.keys.otherSessionsEnded = ended;
+        // The first answer is lost: the intent stays stored.
+        rig.keys.removeError = const NetworkException('rig: offline');
+        await expectLater(
+          runner.removeDevice(sibling.idString),
+          throwsA(isA<NetworkException>()),
+        );
+        await runner.idle();
+        expect(seen, isEmpty);
+        rig.keys.removeError = null;
+
+        await runner.runPass();
+        await runner.idle();
+        expect(rig.keys.removeCalls, hasLength(2));
+        expect(seen, ended ? [rig.device.session.vault!.uid] : isEmpty);
+        expect(await runner.wasRemovedByUser(sibling.id), isTrue);
+      });
+    }
+
+    test('a removeDevice answer is the caller\'s: it is never reported '
+        '(the screen shows the result, then signs out)', () async {
+      final sibling = await RigPeer.create('sibling');
+      await setUpRig(ownListed: [sibling]);
+      final seen = <String>[];
+      runner = build(onRemovalSignedOutAll: seen.add);
+      await join(_c1, others: [sibling]);
+      await synced();
+      rig.keys.otherSessionsEnded = true;
+      expect(await runner.removeDevice(sibling.idString), isTrue);
+      await runner.idle();
+      expect(seen, isEmpty);
+    });
+
     test('a stored intent finished although its retry was refused answers '
         'null: no answer of the server says it', () async {
       final sibling = await RigPeer.create('sibling');

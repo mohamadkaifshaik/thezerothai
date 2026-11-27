@@ -82,9 +82,10 @@ class WelcomeScreen extends StatelessWidget {
           ],
         ),
         children: [
-          if (state.signedOutByDeviceRemoval) ...const [
-            SessionEndedNotice(),
-            SizedBox(height: AppSpacing.sm),
+          if (state.signedOutByDeviceRemoval ||
+              state.signedOutAfterOwnRemoval) ...[
+            SessionEndedNotice(afterOwnRemoval: state.signedOutAfterOwnRemoval),
+            const SizedBox(height: AppSpacing.sm),
           ],
           Text(
             'Share what you want to do. Someone nearby wants that too.',
