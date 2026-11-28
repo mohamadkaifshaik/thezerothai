@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/binary"
+	"math"
 	"regexp"
 	"strings"
 	"time"
@@ -132,11 +133,14 @@ func timedCues(results []*speech.SpeechRecognitionResult, duration time.Duration
 		if line == "" {
 			return
 		}
-		cues = append(cues, &mediav1.VideoCaptionCue{
-			StartMs: int32(segmentStart.Milliseconds()), // duration is bounded at validation
-			EndMs:   int32(segmentEnd.Milliseconds()),
-			Text:    line,
-		})
+		startMs, endMs := segmentStart.Milliseconds(), segmentEnd.Milliseconds()
+		if startMs >= 0 && startMs <= math.MaxInt32 && endMs >= 0 && endMs <= math.MaxInt32 {
+			cues = append(cues, &mediav1.VideoCaptionCue{
+				StartMs: int32(startMs),
+				EndMs:   int32(endMs),
+				Text:    line,
+			})
+		}
 		line = ""
 	}
 	for _, result := range results {

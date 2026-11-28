@@ -149,13 +149,13 @@ class _PostVideoState extends State<PostVideo> {
             start: 8,
             child: IgnorePointer(
               child: Material(
-                color: Color(0xb3000000),
+                color: AppColors.mediaDisclosureBackground,
                 borderRadius: BorderRadius.all(Radius.circular(6)),
                 child: Padding(
                   padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   child: Text(
                     'Made with AI',
-                    style: TextStyle(color: Colors.white),
+                    style: TextStyle(color: AppColors.onPhotoBackground),
                   ),
                 ),
               ),

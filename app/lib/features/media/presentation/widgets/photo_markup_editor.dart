@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 
 import 'package:material_ui/material_ui.dart';
 
+import '../../../../core/theme/app_theme.dart';
 import '../../data/image_picker_service.dart';
 import '../../domain/image_preflight.dart';
 import '../../domain/photo_edit.dart';
@@ -72,7 +73,7 @@ class _MarkupEditorState extends State<_MarkupEditor> {
   bool _saving = false;
   _Mark? _active;
   _Tool _tool = _Tool.draw;
-  Color _color = const Color(0xfff45468);
+  Color _color = AppColors.markupRed;
   double _width = 0.045;
   String? _text;
   ui.Image? _pendingPhoto;
@@ -477,11 +478,11 @@ class _MarkupEditorState extends State<_MarkupEditor> {
                         onSelected: (color) => setState(() => _color = color),
                         itemBuilder: (_) => [
                           for (final (name, color) in const [
-                            ('Red', Color(0xfff45468)),
-                            ('Yellow', Color(0xffffc547)),
-                            ('Blue', Color(0xff0878f4)),
-                            ('White', Color(0xffffffff)),
-                            ('Black', Color(0xff111111)),
+                            ('Red', AppColors.markupRed),
+                            ('Yellow', AppColors.markupYellow),
+                            ('Blue', AppColors.markupBlue),
+                            ('White', AppColors.onPhotoBackground),
+                            ('Black', AppColors.markupBlack),
                           ])
                             PopupMenuItem(
                               value: color,
@@ -565,7 +566,7 @@ class _MarkupPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    canvas.drawColor(const Color(0xffffffff), BlendMode.src);
+    canvas.drawColor(AppColors.onPhotoBackground, BlendMode.src);
     _image(
       canvas,
       photo,
@@ -622,7 +623,9 @@ class _MarkupPainter extends CustomPainter {
               color: mark.color,
               fontWeight: FontWeight.w700,
               fontSize: width * 1.7,
-              shadows: const [Shadow(color: Color(0x99000000), blurRadius: 2)],
+              shadows: const [
+                Shadow(color: AppColors.markupTextShadow, blurRadius: 2),
+              ],
             ),
           ),
           textDirection: ui.TextDirection.ltr,
@@ -648,13 +651,13 @@ class _MarkupPainter extends CustomPainter {
         final box = mark.points.length == 1
             ? Rect.fromCenter(center: first, width: width, height: width)
             : Rect.fromPoints(first, last);
-        canvas.drawRect(box, Paint()..color = const Color(0xff000000));
+        canvas.drawRect(box, Paint()..color = AppColors.photoBackground);
         continue;
       }
       final pixelate = mark.tool == _Tool.pixelate;
       if (pixelate) canvas.saveLayer(bounds, Paint());
       final brush = Paint()
-        ..color = pixelate ? const Color(0xffffffff) : mark.color
+        ..color = pixelate ? AppColors.onPhotoBackground : mark.color
         ..strokeWidth = width
         ..strokeCap = StrokeCap.round
         ..strokeJoin = StrokeJoin.round;
@@ -688,7 +691,7 @@ class _MarkupPainter extends CustomPainter {
     final height = (size.height - gutter * (rows - 1)) / rows;
     canvas.drawRect(
       Offset.zero & size,
-      Paint()..color = const Color(0xffffffff),
+      Paint()..color = AppColors.onPhotoBackground,
     );
     for (final (index, image) in images.indexed) {
       final row = index ~/ columns;

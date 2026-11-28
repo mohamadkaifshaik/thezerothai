@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/painting.dart';
 
+import '../../../core/theme/app_theme.dart';
 import '../domain/image_preflight.dart';
 import '../domain/video_edit.dart';
 
@@ -119,7 +120,7 @@ Future<Uint8List> renderVideoCover(
     final original = Size(image.width.toDouble(), image.height.toDouble());
     final crop = applyBoxFit(BoxFit.cover, original, size).source;
     return await _png(size, (canvas) {
-      canvas.drawColor(const Color(0xffffffff), BlendMode.src);
+      canvas.drawColor(AppColors.onPhotoBackground, BlendMode.src);
       canvas.drawImageRect(
         image,
         Alignment.center.inscribe(crop, Offset.zero & original),
