@@ -174,25 +174,26 @@ void main() {
   }
 
   group('the three looks', () {
-    testWidgets('phone: the mark, then the text and actions at the bottom', (
+    testWidgets('phone: brand, sample plans, then sign-in actions', (
       tester,
     ) async {
       await pump(tester);
       expect(find.text('DZEROTH'), findsOneWidget);
       expect(find.text('ZERO DISTANCE'), findsOneWidget);
-      expect(panelHeadline(), findsOneWidget);
+      expect(heroHeadline(), findsOneWidget);
+      expect(find.text('Filter coffee & sketching'), findsOneWidget);
+      expect(find.text('Doubles, all levels'), findsOneWidget);
       expect(
         find.text('Share what you want to do. Someone nearby wants that too.'),
         findsOneWidget,
       );
-      expect(heroHeadline(), findsNothing);
-      expect(find.text('or keep it classic'), findsOneWidget);
+      expect(find.text('Sign in'), findsOneWidget);
       expect(find.text('Continue with Email'), findsOneWidget);
       expect(find.text('Privacy Policy'), findsOneWidget);
       expect(find.text('Find your people ↗'), findsOneWidget);
 
       final mark = tester.getRect(find.byType(Image));
-      final headline = tester.getRect(panelHeadline());
+      final headline = tester.getRect(heroHeadline());
       expect(mark.size.width, AppWelcomeLayout.markPhone);
       expect(mark.bottom, lessThan(headline.top));
       // The actions are pinned to the bottom of the page.
@@ -295,10 +296,9 @@ void main() {
     testWidgets('phone: the back button returns to welcome', (tester) async {
       await pump(tester, realForms: true);
       await tapVisible(tester, find.text('Continue with Email'));
-      expect(find.text('Good to see you.'), findsOneWidget);
+      expect(find.text('Good to see you again.'), findsOneWidget);
       await tapVisible(tester, find.byTooltip('All sign-in options'));
-      expect(heroHeadline(), findsNothing);
-      expect(panelHeadline(), findsOneWidget);
+      expect(heroHeadline(), findsOneWidget);
     });
 
     testWidgets('desktop: "All sign-in options" returns to welcome', (

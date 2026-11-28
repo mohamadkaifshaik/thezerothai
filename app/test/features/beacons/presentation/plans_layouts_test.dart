@@ -119,7 +119,10 @@ void main() {
         testWidgets('the look', (tester) async {
           await _open(tester, size, AppRouter.plansPath);
           expect(find.text('Flat white before work'), findsWidgets);
-          expect(find.textContaining('2 going'), findsWidgets);
+          expect(
+            find.textContaining(phone ? '2/3 going' : '2 going'),
+            findsWidgets,
+          );
           // My plans is the header's round action at every width (one with
           // the other tab screens); New plan too on the phone and in the list
           // pane. The page's pills beside the headline are the designs'.
@@ -138,7 +141,7 @@ void main() {
             find.text('Your plans'),
             phone ? findsNothing : findsOneWidget,
           );
-          // The list cards say who is going and carry no seat count.
+          // No separate seat-count row belongs on the list card.
           expect(find.text('2 of 3 seats taken'), findsNothing);
           expect(tester.takeException(), isNull);
         });
@@ -180,7 +183,7 @@ void main() {
           }
           expect(find.text('Organiser'), findsOneWidget);
           expect(find.text('Ask to join'), findsOneWidget);
-          expect(find.text('Plan'), findsNothing);
+          expect(find.text('Plan'), phone ? findsOneWidget : findsNothing);
           expect(tester.takeException(), isNull);
         });
 

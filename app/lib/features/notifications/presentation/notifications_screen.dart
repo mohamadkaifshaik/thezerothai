@@ -355,6 +355,26 @@ class _NotificationsViewState extends State<_NotificationsView>
       ];
     }
     final since = state.highlightSince;
+    bool isNew(DateTime? created) =>
+        created != null && (since == null || created.isAfter(since));
+    final phone = MediaQuery.sizeOf(context).width < AppBreakpoints.mobile;
+    final firstNew = phone
+        ? entries.indexWhere((entry) {
+            final item = entry.value;
+            return item != null &&
+                item.hasCreatedAt() &&
+                isNew(item.createdAt.toDateTime());
+          })
+        : -1;
+    final firstEarlier = phone
+        ? entries.indexWhere((entry) {
+            final item = entry.value;
+            return item != null &&
+                !isNew(
+                  item.hasCreatedAt() ? item.createdAt.toDateTime() : null,
+                );
+          })
+        : -1;
     return [
       _inset(
         inset,
@@ -380,8 +400,7 @@ class _NotificationsViewState extends State<_NotificationsView>
             }
             final n = entry.value!;
             final created = n.hasCreatedAt() ? n.createdAt.toDateTime() : null;
-            final unread =
-                created != null && (since == null || created.isAfter(since));
+            final unread = isNew(created);
             final location = notificationLocation(
               type: notificationTypeWire(n.type),
               postId: n.postId,
@@ -393,6 +412,25 @@ class _NotificationsViewState extends State<_NotificationsView>
               key: key,
               mainAxisSize: MainAxisSize.min,
               children: [
+                if (index == firstNew || index == firstEarlier)
+                  Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(
+                        AppSpacing.md,
+                        AppSpacing.smd,
+                        AppSpacing.md,
+                        AppSpacing.xs,
+                      ),
+                      child: Semantics(
+                        header: true,
+                        child: Text(
+                          index == firstNew ? 'NEW' : 'EARLIER',
+                          style: AppTextStyles.eyebrow(Theme.of(context)),
+                        ),
+                      ),
+                    ),
+                  ),
                 NotificationRow(
                   notification: n,
                   unread: unread,

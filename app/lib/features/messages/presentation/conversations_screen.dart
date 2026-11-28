@@ -331,6 +331,8 @@ class _ConversationsViewState extends State<ConversationsList>
   Widget build(BuildContext context) {
     final cubit = context.read<ConversationsCubit>();
     final searchOn = _searchOn(context);
+    final phone = MediaQuery.sizeOf(context).width < AppBreakpoints.mobile;
+    void openSearch() => setState(() => _searching = true);
     if (searchOn && _searching) {
       return Scaffold(
         body: SafeArea(
@@ -409,12 +411,11 @@ class _ConversationsViewState extends State<ConversationsList>
                                       tooltip: kNewMessageLabel,
                                       onPressed: widget.onNewMessage,
                                     ),
-                                  if (searchOn)
+                                  if (searchOn && !phone)
                                     AppTopBarAction(
                                       icon: Icons.search,
                                       tooltip: kMessageSearchHint,
-                                      onPressed: () =>
-                                          setState(() => _searching = true),
+                                      onPressed: openSearch,
                                     ),
                                   const MessageSettingsAction(),
                                 ],
@@ -426,6 +427,15 @@ class _ConversationsViewState extends State<ConversationsList>
                                   child: AppBackHeader(
                                     title: 'Message requests',
                                     onBack: _back,
+                                  ),
+                                ),
+                              ),
+                            if (searchOn && phone)
+                              _inset(
+                                inset,
+                                SliverToBoxAdapter(
+                                  child: _InboxSearchButton(
+                                    onPressed: openSearch,
                                   ),
                                 ),
                               ),
@@ -624,6 +634,46 @@ class _ConversationsViewState extends State<ConversationsList>
       );
     }
     return const SizedBox(height: AppSpacing.lg);
+  }
+}
+
+class _InboxSearchButton extends StatelessWidget {
+  const _InboxSearchButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.md,
+        AppSpacing.smd,
+        AppSpacing.md,
+        AppSpacing.xs,
+      ),
+      child: OutlinedButton(
+        onPressed: onPressed,
+        style: OutlinedButton.styleFrom(
+          minimumSize: const Size.fromHeight(AppSpacing.minTapTarget),
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: AppSpacing.sm,
+          ),
+          foregroundColor: colors.onSurfaceVariant,
+          backgroundColor: colors.surfaceContainer,
+          side: BorderSide(color: colors.outline),
+          shape: const StadiumBorder(),
+        ),
+        child: const Row(
+          children: [
+            ExcludeSemantics(child: Icon(Icons.search, size: AppIconSize.md)),
+            SizedBox(width: AppSpacing.sm),
+            Flexible(child: Text(kMessageSearchHint)),
+          ],
+        ),
+      ),
+    );
   }
 }
 

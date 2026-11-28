@@ -166,6 +166,7 @@ class ThreadShellRig {
     Set<String> flags = kThreadShellFlags,
     double textScale = 1,
     Brightness brightness = Brightness.light,
+    String viewerUserId = 'uid-1',
   }) async {
     final onboarding = _MockOnboardingBloc();
     whenListen(
@@ -174,7 +175,7 @@ class ThreadShellRig {
       initialState: OnboardingState(
         status: OnboardingStatus.ready,
         enabledFeatures: flags,
-        profile: identity.Profile(userId: 'uid-1', handle: 'me'),
+        profile: identity.Profile(userId: viewerUserId, handle: 'me'),
       ),
     );
     final auth = _MockAuthBloc();
@@ -222,6 +223,12 @@ class ThreadShellRig {
               path: '/post/:id',
               builder: (context, state) =>
                   PostDetailScreen(postId: state.pathParameters['id']!),
+            ),
+            GoRoute(
+              path: '/compose/reply/:id',
+              builder: (context, state) => Scaffold(
+                body: Text('Reply target ${state.pathParameters['id']}'),
+              ),
             ),
           ],
         ),

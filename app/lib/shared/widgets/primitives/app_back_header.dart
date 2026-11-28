@@ -20,7 +20,7 @@ class AppBackHeader extends StatelessWidget {
     required this.title,
     required this.onBack,
     this.backTooltip = 'Back',
-    this.backIcon = Icons.arrow_back,
+    this.backIcon,
     this.titleContent,
     this.subtitle,
     this.actions = const [],
@@ -35,7 +35,7 @@ class AppBackHeader extends StatelessWidget {
 
   /// The leading button's glyph: a form that closes instead of going back
   /// uses [Icons.close].
-  final IconData backIcon;
+  final IconData? backIcon;
   final Widget? titleContent;
   final String? subtitle;
   final List<Widget> actions;
@@ -47,6 +47,10 @@ class AppBackHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final phone = MediaQuery.sizeOf(context).width < AppBreakpoints.mobile;
+    final titleStyle = phone
+        ? AppTextStyles.dzTitle(theme)
+        : theme.textTheme.titleLarge;
     final subtitle = this.subtitle;
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -66,7 +70,10 @@ class AppBackHeader extends StatelessWidget {
                 leading ??
                     IconButton(
                       tooltip: backTooltip,
-                      icon: Icon(backIcon),
+                      icon: Icon(
+                        backIcon ??
+                            (phone ? Icons.chevron_left : Icons.arrow_back),
+                      ),
                       onPressed: onBack,
                     ),
                 const SizedBox(width: AppSpacing.xs),
@@ -76,12 +83,12 @@ class AppBackHeader extends StatelessWidget {
                     child:
                         titleContent ??
                         (subtitle == null
-                            ? _titleText(theme)
+                            ? _titleText(titleStyle)
                             : Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  _titleText(theme),
+                                  _titleText(titleStyle),
                                   Text(
                                     subtitle,
                                     maxLines: 1,
@@ -105,10 +112,6 @@ class AppBackHeader extends StatelessWidget {
     );
   }
 
-  Text _titleText(ThemeData theme) => Text(
-    title,
-    maxLines: 1,
-    overflow: TextOverflow.ellipsis,
-    style: theme.textTheme.titleLarge,
-  );
+  Text _titleText(TextStyle? style) =>
+      Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: style);
 }

@@ -4,7 +4,6 @@ import 'package:dzeroth/shared/widgets/primitives/app_chip.dart';
 import 'package:dzeroth/core/network/app_exception.dart';
 import 'package:dzeroth/core/router/app_router.dart';
 import 'package:dzeroth/core/widgets/app_shell_scope.dart';
-import 'package:dzeroth/features/beacons/domain/beacon_labels.dart';
 import 'package:dzeroth/features/beacons/domain/beacons_feature_flag.dart';
 import 'package:dzeroth/features/beacons/presentation/beacons_screen.dart';
 import 'package:dzeroth/features/beacons/presentation/widgets/beacon_row.dart';
@@ -87,9 +86,13 @@ void main() {
     expect(find.text('Plans'), findsOneWidget);
     expect(_inRow('Coffee'), findsOneWidget);
     expect(find.text('Run'), findsOneWidget);
-    expect(find.text('${beaconWhenText(view.beacon)} · Hall'), findsOneWidget);
+    final context = tester.element(find.byType(BeaconRow).first);
+    final time = MaterialLocalizations.of(context)
+        .formatTimeOfDay(TimeOfDay.fromDateTime(start(2)));
+    expect(_inRow('$time · Hall'), findsOneWidget);
+    expect(_inRow('Coffee · Public'), findsOneWidget);
     expect(find.textContaining('· Hall'), findsNWidgets(2));
-    expect(find.text('1 going'), findsOneWidget);
+    expect(_inRow('1/3 going'), findsOneWidget);
     expect(find.text('Full'), findsOneWidget);
     expect(find.text('Open'), findsNothing);
     expect(find.byType(BeaconRow), findsNWidgets(2));

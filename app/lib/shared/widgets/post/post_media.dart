@@ -541,20 +541,50 @@ class _MediaStripState extends State<_MediaStrip> {
             ),
     );
     if (!widget.showIndicator) return strip;
+    final page = fits ? 0 : _page.clamp(0, count - 1);
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         NotificationListener<ScrollNotification>(
           onNotification: _onScroll,
-          child: strip,
+          child: Stack(
+            children: [
+              strip,
+              PositionedDirectional(
+                top: AppSpacing.sm,
+                end: widget.insetEnd + AppSpacing.sm,
+                child: IgnorePointer(
+                  child: ExcludeSemantics(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: AppPalette.photoScrim,
+                        borderRadius: BorderRadius.circular(AppRadius.pill),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.sm,
+                          vertical: AppSpacing.xs,
+                        ),
+                        child: Text(
+                          '${page + 1}/$count',
+                          style: Theme.of(context).textTheme.labelSmall
+                              ?.copyWith(color: AppPalette.white),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
         Padding(
           padding: EdgeInsetsDirectional.only(
             start: widget.insetStart,
             end: widget.insetEnd,
           ),
-          child: _PageDots(count: count, page: fits ? 0 : _page),
+          child: _PageDots(count: count, page: page),
         ),
       ],
     );
@@ -570,10 +600,13 @@ class _PageDots extends StatelessWidget {
   final int page;
 
   static const _dot = 6.0;
+  static const _maxVisible = 5;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final visible = math.min(count, _maxVisible);
+    final first = (page - visible ~/ 2).clamp(0, count - visible);
     return Semantics(
       container: true,
       liveRegion: true,
@@ -584,7 +617,7 @@ class _PageDots extends StatelessWidget {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            for (var i = 0; i < count; i++)
+            for (var i = first; i < first + visible; i++)
               Padding(
                 padding: const EdgeInsets.symmetric(
                   horizontal: AppSpacing.xs / 2,

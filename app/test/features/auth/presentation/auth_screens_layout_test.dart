@@ -178,8 +178,19 @@ void main() {
               await open(tester, screen, size: size, brightness: brightness);
               expect(tester.takeException(), isNull);
               // The same form, providers and actions in every look.
-              expect(find.text(heading), findsOneWidget);
-              expect(find.text(copy.eyebrow.toUpperCase()), findsWidgets);
+              final phoneSignIn = !signup && look == AuthLook.phone;
+              expect(
+                find.text(phoneSignIn ? 'Good to see you again.' : heading),
+                findsOneWidget,
+              );
+              if (phoneSignIn) {
+                expect(
+                  find.text('Sign in with the email you used to join.'),
+                  findsOneWidget,
+                );
+              } else {
+                expect(find.text(copy.eyebrow.toUpperCase()), findsWidgets);
+              }
               expect(find.byType(TextFormField), findsNWidgets(signup ? 3 : 2));
               expect(submitButton(submit), findsOneWidget);
               expect(find.bySemanticsLabel('Continue with Google'), findsOne);
@@ -195,7 +206,10 @@ void main() {
               expect(find.byTooltip('Appearance'), findsOneWidget);
               // What differs: footer, hero and field glyphs on wide screens.
               final wide = look != AuthLook.phone;
-              expect(find.text('DZEROTH'), findsOneWidget);
+              expect(
+                find.text(phoneSignIn ? 'Sign in' : 'DZEROTH'),
+                findsOneWidget,
+              );
               expect(
                 find.textContaining('©'),
                 wide ? findsOneWidget : findsNothing,
@@ -233,25 +247,15 @@ void main() {
       }
     }
 
-    testWidgets('$mode phone pins the actions to the bottom', (tester) async {
+    testWidgets('$mode phone places actions below the form', (tester) async {
       await open(tester, screen);
       final button = tester.getRect(submitButton(submit));
       final lastField = tester.getRect(find.byType(TextFormField).last);
       expect(button.top, greaterThan(lastField.bottom));
-      // The mock's `margin-top: auto`: the last line sits on the bottom
-      // padding, not under the fields.
-      // That last line is now the site links (Terms, About, Help centre),
-      // with the Privacy Policy line directly above it.
-      // Sign-up is the longer form: with the extra row it can exceed the
-      // 844 dp test screen and scroll, so only login keeps the exact pin.
       final siteLinks = tester.getRect(find.byType(SiteLinksRow));
+      expect(siteLinks.bottom, lessThanOrEqualTo(844));
       if (!signup) {
-        expect(
-          siteLinks.bottom,
-          moreOrLessEquals(844 - AppAuthLayout.phonePaddingBottom, epsilon: 1),
-        );
-      } else {
-        expect(siteLinks.bottom, lessThanOrEqualTo(844));
+        expect(button.top - lastField.bottom, lessThan(AppSpacing.xxl * 2));
       }
       expect(
         tester.getRect(find.byType(PrivacyPolicyLink)).bottom,
@@ -526,7 +530,14 @@ void main() {
         await tester.ensureVisible(toSignIn);
         await tester.tap(toSignIn);
         await tester.pumpAndSettle();
-        expect(find.text('Good to see you.'), findsOneWidget);
+        expect(
+          find.text(
+            size.width < AppBreakpoints.mobile
+                ? 'Good to see you again.'
+                : 'Good to see you.',
+          ),
+          findsOneWidget,
+        );
       },
     );
   }

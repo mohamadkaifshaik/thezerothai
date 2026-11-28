@@ -16,6 +16,7 @@ class SocialSignInButtons extends StatelessWidget {
     required this.onGoogleTap,
     required this.onAppleTap,
     this.stacked = false,
+    this.highlightGoogle = false,
     this.appleOnIosEnabled = AppConfig.appleSignInIosEnabled,
   });
 
@@ -26,6 +27,7 @@ class SocialSignInButtons extends StatelessWidget {
   /// The welcome page's full-width "Continue with ..." pills, one under the
   /// other, instead of the forms' two-up row.
   final bool stacked;
+  final bool highlightGoogle;
 
   /// Defaults to [AppConfig.appleSignInIosEnabled]; overridable in tests.
   final bool appleOnIosEnabled;
@@ -46,6 +48,7 @@ class SocialSignInButtons extends StatelessWidget {
       semanticsLabel: 'Continue with Google',
       onPressed: isSubmitting ? null : onGoogleTap,
       mark: const CustomPaint(painter: _GoogleMark()),
+      lightFill: highlightGoogle,
     );
     final apple = _showApple
         ? _SocialPill(
@@ -88,12 +91,14 @@ class _SocialPill extends StatelessWidget {
     required this.semanticsLabel,
     required this.onPressed,
     required this.mark,
+    this.lightFill = false,
   });
 
   final String label;
   final String semanticsLabel;
   final VoidCallback? onPressed;
   final Widget mark;
+  final bool lightFill;
 
   @override
   Widget build(BuildContext context) {
@@ -110,8 +115,11 @@ class _SocialPill extends StatelessWidget {
         style: OutlinedButton.styleFrom(
           minimumSize: const Size.fromHeight(AppAuthLayout.socialHeight),
           padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-          foregroundColor: colors.onSurface,
-          side: BorderSide(color: colors.outline, width: 1.5),
+          foregroundColor: lightFill ? AppPalette.navy : colors.onSurface,
+          backgroundColor: lightFill ? AppPalette.white : null,
+          side: lightFill && onPressed != null
+              ? BorderSide.none
+              : BorderSide(color: colors.outline, width: 1.5),
           shape: const StadiumBorder(),
           textStyle: theme.textTheme.labelLarge,
         ),

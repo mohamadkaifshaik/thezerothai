@@ -1001,6 +1001,7 @@ class _ComposerViewState extends State<_ComposerView> {
             ComposerPresentation.fullScreen;
         final post = AppPillButton(
           label: scheduling ? 'Schedule' : 'Post',
+          variant: phone ? AppButtonVariant.navy : AppButtonVariant.primary,
           compact: true,
           busy: state.isSubmitting,
           busySemanticsLabel: scheduling ? 'Scheduling post' : null,
@@ -1053,6 +1054,7 @@ class _ComposerViewState extends State<_ComposerView> {
                             : null,
                         post: phone ? post : null,
                       ),
+                      if (phone) const Divider(height: 1),
                       // The header announces "Scheduling post"; this bar is
                       // only the picture of it.
                       if (state.isSubmitting && scheduling)
@@ -1240,8 +1242,7 @@ class _ComposerViewState extends State<_ComposerView> {
 }
 
 /// Close at the start; Drafts (when kept) and, full screen, the Post pill at
-/// the end. The dialogs carry Post in the footer. [title] is only the screen
-/// reader's heading: the designs draw none.
+/// the end. The dialogs carry Post in the footer and announce the title.
 class _ComposerHeader extends StatelessWidget {
   const _ComposerHeader({
     required this.title,
@@ -1273,7 +1274,26 @@ class _ComposerHeader extends StatelessWidget {
             onPressed: onClose,
             icon: const Icon(Icons.close),
           ),
-          Semantics(header: true, label: title, child: const SizedBox.shrink()),
+          if (post == null)
+            Semantics(
+              header: true,
+              label: title,
+              child: const SizedBox.shrink(),
+            )
+          else
+            Expanded(
+              child: Semantics(
+                header: true,
+                label: title,
+                excludeSemantics: true,
+                child: Text(
+                  title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTextStyles.dzComposeTitle(Theme.of(context)),
+                ),
+              ),
+            ),
           Expanded(
             child: Align(
               alignment: AlignmentDirectional.centerEnd,

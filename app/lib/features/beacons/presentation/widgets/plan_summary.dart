@@ -4,6 +4,7 @@ import '../../../../core/theme/app_theme.dart';
 import '../../../../gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
 import '../../../../shared/widgets/primitives/app_avatar.dart';
 import '../../../../shared/widgets/primitives/app_chip.dart';
+import '../../../../shared/widgets/primitives/app_status_pill.dart';
 import '../../domain/beacon_labels.dart';
 import '../beacon_icons.dart';
 import 'area_label.dart';
@@ -67,107 +68,113 @@ class PlanSummary extends StatelessWidget {
       color: untitled ? AppPalette.mutedOnDark : AppPalette.pearl,
     );
     final bar = heroBar;
+    final phone =
+        bar != null && MediaQuery.sizeOf(context).width < AppBreakpoints.mobile;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        DecoratedBox(
-          key: const ValueKey('plan-hero'),
-          decoration: BoxDecoration(
-            gradient: AppGradients.hero,
-            borderRadius: bar == null
-                ? BorderRadius.circular(AppRadius.card)
-                : const BorderRadius.vertical(
-                    bottom: Radius.circular(AppPlansLayout.heroRadius),
-                  ),
-          ),
-          child: Padding(
-            padding: bar == null
-                ? const EdgeInsets.fromLTRB(20, 18, 20, 20)
-                : const EdgeInsets.fromLTRB(
-                    AppPlansLayout.heroGutter,
-                    AppSpacing.md,
-                    AppPlansLayout.heroGutter,
-                    AppPlansLayout.heroGutter,
-                  ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                if (bar != null) ...[
-                  bar,
-                  const SizedBox(height: AppSpacing.md),
-                ],
-                Row(
-                  children: [
-                    Icon(
-                      activityIcon(b.activity),
-                      size: AppIconSize.sm,
-                      color: AppPalette.tealElectric,
+        if (phone)
+          _PhonePlanOverview(beacon: b, bar: bar)
+        else
+          DecoratedBox(
+            key: const ValueKey('plan-hero'),
+            decoration: BoxDecoration(
+              gradient: AppGradients.hero,
+              borderRadius: bar == null
+                  ? BorderRadius.circular(AppRadius.card)
+                  : const BorderRadius.vertical(
+                      bottom: Radius.circular(AppPlansLayout.heroRadius),
                     ),
-                    const SizedBox(width: AppSpacing.sm),
-                    Expanded(
-                      child: Text(
-                        'Plan · ${activityLabel(b.activity)}'.toUpperCase(),
-                        style: AppTextStyles.eyebrow(theme)
-                            .copyWith(color: AppPalette.tealElectric),
-                      ),
+            ),
+            child: Padding(
+              padding: bar == null
+                  ? const EdgeInsets.fromLTRB(20, 18, 20, 20)
+                  : const EdgeInsets.fromLTRB(
+                      AppPlansLayout.heroGutter,
+                      AppSpacing.md,
+                      AppPlansLayout.heroGutter,
+                      AppPlansLayout.heroGutter,
                     ),
-                    if (!open) ...[
-                      const SizedBox(width: AppSpacing.sm),
-                      AppChip(
-                        label: statusLabel(b.status),
-                        onDark: true,
-                        danger:
-                            b.status == pb.BeaconStatus.BEACON_STATUS_ENDED,
-                      ),
-                    ],
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (bar != null) ...[
+                    bar,
+                    const SizedBox(height: AppSpacing.md),
                   ],
-                ),
-                const SizedBox(height: AppSpacing.smd),
-                Semantics(
-                  header: true,
-                  child: untitled
-                      ? Text(titlePlaceholder!, style: title)
-                      : _AccentLastWord(text: b.title, style: title),
-                ),
-                const SizedBox(height: AppSpacing.md),
-                PlanFactLine(
-                  icon: Icons.schedule_outlined,
-                  text: beaconWhenText(b),
-                ),
-                PlanFactLine(
-                  icon: Icons.place_outlined,
-                  text: noVenue ? venuePlaceholder! : b.venue,
-                  placeholder: noVenue,
-                  note: kMeetingPointNote,
-                ),
-                if (b.hasArea() && showsAreaLabel(context, b.area))
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                    child: AreaLabel(area: b.area, onDark: true),
+                  Row(
+                    children: [
+                      Icon(
+                        activityIcon(b.activity),
+                        size: AppIconSize.sm,
+                        color: AppPalette.tealElectric,
+                      ),
+                      const SizedBox(width: AppSpacing.sm),
+                      Expanded(
+                        child: Text(
+                          'Plan · ${activityLabel(b.activity)}'.toUpperCase(),
+                          style: AppTextStyles.eyebrow(theme)
+                              .copyWith(color: AppPalette.tealElectric),
+                        ),
+                      ),
+                      if (!open) ...[
+                        const SizedBox(width: AppSpacing.sm),
+                        AppChip(
+                          label: statusLabel(b.status),
+                          onDark: true,
+                          danger:
+                              b.status == pb.BeaconStatus.BEACON_STATUS_ENDED,
+                        ),
+                      ],
+                    ],
                   ),
-                PlanFactLine(
-                  icon: Icons.people_outline,
-                  text: beaconSeatsText(b),
-                ),
-                if (b.cost != pb.BeaconCost.BEACON_COST_UNSPECIFIED)
+                  const SizedBox(height: AppSpacing.smd),
+                  Semantics(
+                    key: const ValueKey('plan-title'),
+                    header: true,
+                    child: untitled
+                        ? Text(titlePlaceholder!, style: title)
+                        : _AccentLastWord(text: b.title, style: title),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
                   PlanFactLine(
-                    icon: Icons.payments_outlined,
-                    text: 'Cost: ${costLabel(b.cost)}',
-                    last:
-                        b.chatPreference ==
-                        pb.ChatPreference.CHAT_PREFERENCE_UNSPECIFIED,
+                    icon: Icons.schedule_outlined,
+                    text: beaconWhenText(b),
                   ),
-                if (b.chatPreference !=
-                    pb.ChatPreference.CHAT_PREFERENCE_UNSPECIFIED)
                   PlanFactLine(
-                    icon: Icons.chat_bubble_outline,
-                    text: 'Chat: ${chatPreferenceLabel(b.chatPreference)}',
-                    last: true,
+                    icon: Icons.place_outlined,
+                    text: noVenue ? venuePlaceholder! : b.venue,
+                    placeholder: noVenue,
+                    note: kMeetingPointNote,
                   ),
-              ],
+                  if (b.hasArea() && showsAreaLabel(context, b.area))
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                      child: AreaLabel(area: b.area, onDark: true),
+                    ),
+                  PlanFactLine(
+                    icon: Icons.people_outline,
+                    text: beaconSeatsText(b),
+                  ),
+                  if (b.cost != pb.BeaconCost.BEACON_COST_UNSPECIFIED)
+                    PlanFactLine(
+                      icon: Icons.payments_outlined,
+                      text: 'Cost: ${costLabel(b.cost)}',
+                      last:
+                          b.chatPreference ==
+                          pb.ChatPreference.CHAT_PREFERENCE_UNSPECIFIED,
+                    ),
+                  if (b.chatPreference !=
+                      pb.ChatPreference.CHAT_PREFERENCE_UNSPECIFIED)
+                    PlanFactLine(
+                      icon: Icons.chat_bubble_outline,
+                      text: 'Chat: ${chatPreferenceLabel(b.chatPreference)}',
+                      last: true,
+                    ),
+                ],
+              ),
             ),
           ),
-        ),
         Padding(
           padding: bar == null
               ? EdgeInsets.zero
@@ -248,12 +255,150 @@ class PlanSummary extends StatelessWidget {
               ],
               if (b.details.isNotEmpty) ...[
                 const SizedBox(height: AppSpacing.smd),
+                if (phone) ...[
+                  Semantics(
+                    header: true,
+                    child: Text('Details', style: theme.textTheme.titleMedium),
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                ],
                 Text(
                   b.details,
                   style: theme.textTheme.bodyLarge?.copyWith(
                     color: colors.text2,
                   ),
                 ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// The plan's facts in a compact two-column card on the phone detail page.
+class _PhonePlanOverview extends StatelessWidget {
+  const _PhonePlanOverview({required this.beacon, required this.bar});
+
+  final pb.Beacon beacon;
+  final Widget bar;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final b = beacon;
+    final wideFacts = MediaQuery.textScalerOf(context).scale(1) <= 1.4;
+    Widget fact(String label, String value, {String? note}) => Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: AppTextStyles.eyebrow(theme)
+              .copyWith(color: colors.onSurfaceVariant),
+        ),
+        Text(value, style: theme.textTheme.titleSmall),
+        if (note != null)
+          Text(
+            note,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: colors.onSurfaceVariant,
+            ),
+          ),
+      ],
+    );
+    final when = fact('When', beaconWhenText(b));
+    final where = fact('Where', b.venue, note: kMeetingPointNote);
+    final cost = fact('Cost', costLabel(b.cost));
+    final spots = fact('Spots', beaconSeatsText(b));
+    Widget pair(Widget first, Widget second) => wideFacts
+        ? Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: first),
+              const SizedBox(width: AppSpacing.smd),
+              Expanded(child: second),
+            ],
+          )
+        : Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              first,
+              const SizedBox(height: AppSpacing.smd),
+              second,
+            ],
+          );
+    return Column(
+      key: const ValueKey('plan-hero'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.sm,
+            vertical: AppSpacing.xs,
+          ),
+          child: bar,
+        ),
+        const Divider(height: 1),
+        Container(
+          margin: const EdgeInsets.all(AppSpacing.md),
+          padding: const EdgeInsets.all(AppSpacing.md),
+          decoration: BoxDecoration(
+            color: theme.brightness == Brightness.light
+                ? AppPalette.planOverviewLight
+                : colors.surfaceContainerHigh,
+            border: Border.all(color: colors.outlineVariant),
+            borderRadius: BorderRadius.circular(AppRadius.card),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Wrap(
+                spacing: AppSpacing.sm,
+                runSpacing: AppSpacing.xs,
+                children: [
+                  Semantics(
+                    label: activityLabel(b.activity),
+                    child: AppStatusPill(
+                      label: activityLabel(b.activity),
+                      tone: AppStatusTone.info,
+                    ),
+                  ),
+                  Semantics(
+                    label: b.communityId.isEmpty ? 'Public' : 'Community',
+                    child: AppStatusPill(
+                      label: b.communityId.isEmpty ? 'Public' : 'Community',
+                    ),
+                  ),
+                  if (b.status != pb.BeaconStatus.BEACON_STATUS_OPEN)
+                    Semantics(
+                      label: statusLabel(b.status),
+                      child: AppStatusPill(label: statusLabel(b.status)),
+                    ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.smd),
+              Semantics(
+                key: const ValueKey('plan-title'),
+                header: true,
+                child: Text(b.title, style: AppTextStyles.dzHeroTitle(theme)),
+              ),
+              const SizedBox(height: AppSpacing.md),
+              pair(when, where),
+              if (b.hasArea() && showsAreaLabel(context, b.area)) ...[
+                const SizedBox(height: AppSpacing.xs),
+                AreaLabel(area: b.area),
+              ],
+              const SizedBox(height: AppSpacing.smd),
+              if (b.cost == pb.BeaconCost.BEACON_COST_UNSPECIFIED)
+                spots
+              else
+                pair(cost, spots),
+              if (b.chatPreference !=
+                  pb.ChatPreference.CHAT_PREFERENCE_UNSPECIFIED) ...[
+                const SizedBox(height: AppSpacing.smd),
+                fact('Chat', chatPreferenceLabel(b.chatPreference)),
               ],
             ],
           ),

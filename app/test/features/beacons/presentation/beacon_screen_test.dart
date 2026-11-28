@@ -87,7 +87,13 @@ void main() {
         await open(tester);
 
         expectNoOverflow(tester);
-        expect(find.text('Coffee'), findsOneWidget);
+        expect(
+          find.descendant(
+            of: find.byKey(const ValueKey('plan-title')),
+            matching: find.text('Coffee'),
+          ),
+          findsOneWidget,
+        );
         if (tc.pill != null) {
           expect(find.text(tc.pill!), findsOneWidget);
         } else {
@@ -182,10 +188,16 @@ void main() {
     await open(tester);
 
     expect(find.text("Plans aren't available yet."), findsOneWidget);
-    expect(find.text('Coffee'), findsNothing);
+    expect(find.byKey(const ValueKey('plan-title')), findsNothing);
     await tester.tap(find.text('Try again'));
     await tester.pumpAndSettle();
-    expect(find.text('Coffee'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('plan-title')),
+        matching: find.text('Coffee'),
+      ),
+      findsOneWidget,
+    );
     // The organiser's page also reads the first faces going (ACCEPTED, 3).
     expect(server.calls, ['get', 'get', 'people:accepted']);
   });

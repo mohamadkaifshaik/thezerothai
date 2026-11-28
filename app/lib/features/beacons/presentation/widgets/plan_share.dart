@@ -126,9 +126,10 @@ Future<void> showPlanShareMenu(
 /// The Share icon on the plan's hero. Draws nothing when
 /// [planShareOptions] is null.
 class PlanShareButton extends StatelessWidget {
-  const PlanShareButton({super.key, required this.view});
+  const PlanShareButton({super.key, required this.view, this.onDark = true});
 
   final pb.BeaconView view;
+  final bool onDark;
 
   @override
   Widget build(BuildContext context) {
@@ -138,7 +139,7 @@ class PlanShareButton extends StatelessWidget {
     return Builder(
       builder: (context) => IconButton(
         tooltip: kSharePlanTitle,
-        icon: const Icon(Icons.ios_share, color: AppPalette.pearl),
+        icon: Icon(Icons.ios_share, color: onDark ? AppPalette.pearl : null),
         style: IconButton.styleFrom(
           minimumSize: const Size.square(AppPlansLayout.heroButton),
         ),

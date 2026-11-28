@@ -38,7 +38,7 @@ class WelcomeScreen extends StatelessWidget {
       final busy = state.isSubmitting;
       final phone =
           AuthLook.of(MediaQuery.sizeOf(context).width) == AuthLook.phone;
-      return AuthFrame(
+      final frame = AuthFrame(
         eyebrow: 'Zero distance',
         headline: 'Make ',
         accent: 'nearby',
@@ -53,22 +53,36 @@ class WelcomeScreen extends StatelessWidget {
               : AppWelcomeLayout.markRadiusWide,
         ),
         phoneAction: const AuthAppearanceControl(),
+        phonePreview: const _PlanPreview(),
         actions: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             SocialSignInButtons(
               stacked: true,
+              highlightGoogle: phone,
               isSubmitting: busy,
               onGoogleTap: () => bloc.add(const AuthGoogleSignInRequested()),
               onAppleTap: () => bloc.add(const AuthAppleSignInRequested()),
             ),
-            const AuthOrDivider(label: 'or keep it classic'),
+            if (phone)
+              const SizedBox(height: AppWelcomeLayout.providerGap)
+            else
+              const AuthOrDivider(label: 'or keep it classic'),
             AppPillButton(
               label: 'Continue with Email',
-              icon: Icons.mail_outline,
+              icon: phone ? null : Icons.mail_outline,
+              variant: phone
+                  ? AppButtonVariant.outline
+                  : AppButtonVariant.primary,
               size: AppButtonSize.large,
               onPressed: busy ? null : () => context.go(AppRouter.signInPath),
             ),
+            if (phone)
+              AuthSwitchLine(
+                prompt: 'Already have an account?',
+                action: 'Sign in',
+                onPressed: busy ? null : () => context.go(AppRouter.signInPath),
+              ),
             const SizedBox(height: AppSpacing.sm),
             const Center(child: PrivacyPolicyLink()),
             const SiteLinksRow(),
@@ -90,11 +104,107 @@ class WelcomeScreen extends StatelessWidget {
           Text(
             'Share what you want to do. Someone nearby wants that too.',
             style: theme.textTheme.bodyLarge?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
+              color: phone
+                  ? AppPalette.text2OnDark
+                  : theme.colorScheme.onSurfaceVariant,
             ),
           ),
         ],
       );
+      return phone
+          ? Theme(
+              data: buildAppTheme(brightness: Brightness.dark),
+              child: frame,
+            )
+          : frame;
     },
   );
+}
+
+/// An illustration of the kind of plans people can share after signing in.
+class _PlanPreview extends StatelessWidget {
+  const _PlanPreview();
+
+  @override
+  Widget build(BuildContext context) => ExcludeSemantics(
+    child: Padding(
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+      child: Column(
+        children: [
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: Transform.rotate(
+              angle: -.07,
+              child: const _ExamplePlan(
+                background: AppPalette.darkContainerHighest,
+                foreground: AppPalette.white,
+                metadata: AppPalette.text2OnDark,
+                activity: 'Coffee · Today 5:30 PM',
+                title: 'Filter coffee & sketching',
+                details: 'Indiranagar · 2 spots left',
+              ),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Align(
+            alignment: AlignmentDirectional.centerEnd,
+            child: Transform.rotate(
+              angle: .05,
+              child: const _ExamplePlan(
+                background: AppPalette.drawerTileTeal,
+                foreground: AppPalette.navy,
+                metadata: AppPalette.text2,
+                activity: 'Badminton · Sat 7 AM',
+                title: 'Doubles, all levels',
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class _ExamplePlan extends StatelessWidget {
+  const _ExamplePlan({
+    required this.background,
+    required this.foreground,
+    required this.metadata,
+    required this.activity,
+    required this.title,
+    this.details,
+  });
+
+  final Color background;
+  final Color foreground;
+  final Color metadata;
+  final String activity;
+  final String title;
+  final String? details;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return Container(
+      width: AppWelcomeLayout.phonePreviewWidth,
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(AppRadius.card),
+        boxShadow: AppShadows.navBar,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(activity, style: text.bodySmall?.copyWith(color: metadata)),
+          const SizedBox(height: AppSpacing.xs),
+          Text(title, style: text.titleMedium?.copyWith(color: foreground)),
+          if (details case final detail?) ...[
+            const SizedBox(height: AppSpacing.xs),
+            Text(detail, style: text.bodySmall?.copyWith(color: metadata)),
+          ],
+        ],
+      ),
+    );
+  }
 }

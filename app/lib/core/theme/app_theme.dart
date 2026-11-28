@@ -1227,6 +1227,7 @@ abstract final class AppPalette {
   static const Color lightContainerLow = Color(0xFFFAF9F6);
   static const Color lightContainerHigh = Color(0xFFEEF1F4);
   static const Color lightContainerHighest = Color(0xFFE6EAEE);
+  static const Color planOverviewLight = Color(0xFFFAF7EA);
 
   /// text2 on dark: pearl at 80 % over navy (dz.css `.dark .field label`).
   static const Color text2OnDark = Color(0xFFC7C7C7);
@@ -1965,6 +1966,9 @@ abstract final class AppPlansLayout {
 
   // The list card's inner padding; "I'm in" lines up with the card's text.
   static const double cardPad = 20;
+  static const double phoneCardPad = 14;
+  static const double dateTileWidth = 58;
+  static const double dateTileHeight = 64;
 
   // The compact rows of My plans (the tile, then eyebrow, title and time).
   static const double tileSize = 52;
@@ -2208,13 +2212,21 @@ abstract final class AppAccountLayout {
 /// Welcome (Main) geometry per screen size (dp), from the dzeroth-mobile,
 /// tablet and desktop Main mocks: the brand mark and its spacing.
 abstract final class AppWelcomeLayout {
-  static const double markPhone = 96;
+  static const double markPhone = 36;
   static const double markWide = 130;
-  static const double markRadiusPhone = 26;
+  static const double markRadiusPhone = 18;
   static const double markRadiusWide = 34;
 
   /// Gap from the wordmark to the mark on the phone page.
   static const double phoneMarkTop = 72;
+  static const double phonePreviewWidth = 244;
+  static const double phoneHeadlineSize = 38;
+  static const List<(double, double)> phoneRings = [
+    (110, .22),
+    (180, .14),
+    (250, .08),
+  ];
+  static const Offset phoneRingsCentre = Offset(195, 110);
 
   /// Gap from the mark to the eyebrow on tablet and in the desktop hero.
   static const double wideMarkGap = 30;
@@ -2343,6 +2355,7 @@ abstract final class AppAuthLayout {
   static const double phonePaddingTop = 12;
   static const double phonePaddingBottom = 24;
   static const double phoneDisplaySize = 40;
+  static const double phoneSignInDisplaySize = 30;
   static const double phoneFieldGap = 12;
   static const double phoneHeaderTop = 12;
   static const double phoneFieldsTop = 16;

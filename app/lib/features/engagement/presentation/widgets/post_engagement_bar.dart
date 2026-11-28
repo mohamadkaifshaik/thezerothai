@@ -80,6 +80,7 @@ class PostEngagementBar extends StatelessWidget {
     this.style = PostActionBarStyle.feed,
     this.layout = PostActionBarLayout.compact,
     this.showCounts = true,
+    this.showFocalSummary = false,
   });
 
   /// How the actions sit in the row (see [PostActionBarLayout]).
@@ -87,6 +88,9 @@ class PostEngagementBar extends StatelessWidget {
 
   /// Draw the counts beside the glyphs (see [PostActionBar.showCounts]).
   final bool showCounts;
+
+  /// The mobile post detail puts totals above the action icons.
+  final bool showFocalSummary;
 
   /// The look of the row (see [PostActionBarStyle]); the feed keeps its own.
   final PostActionBarStyle style;
@@ -168,7 +172,7 @@ class PostEngagementBar extends StatelessWidget {
           showDisabled: false,
           style: style,
           layout: layout,
-          showCounts: showCounts,
+          showCounts: showCounts && !showFocalSummary,
           iconSize: iconSize,
           replyDisabledHint: replyBlocked ? replyNotAllowedHint(view) : null,
           replyCount: view.post.replyCount.toInt(),
@@ -231,12 +235,48 @@ class PostEngagementBar extends StatelessWidget {
         // Bookmarks: the icon exists only with the `bookmarks`
         // flag, and only here, where the action row is (so `engagement` too).
         // Flag off: no BookmarksCubit is read at all.
-        if (!bookmarksOn) return bar();
-        return _BookmarkBinding(
-          view: view,
-          target: target,
-          builder: (saved, toggle) =>
-              bar(bookmarked: saved, onBookmark: toggle),
+        final actionRow = bookmarksOn
+            ? _BookmarkBinding(
+                view: view,
+                target: target,
+                builder: (saved, toggle) =>
+                    bar(bookmarked: saved, onBookmark: toggle),
+              )
+            : bar();
+        if (!showFocalSummary) return actionRow;
+        final replyCount = view.post.replyCount.toInt();
+        final repostCount = current.repostCount ?? 0;
+        final likeCount = current.likeCount ?? 0;
+        final shareCount = current.shareCount ?? 0;
+        final theme = Theme.of(context);
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.sm),
+              child: Wrap(
+                spacing: AppSpacing.md,
+                runSpacing: AppSpacing.xs,
+                children: [
+                  for (final stat in [
+                    '$replyCount ${replyCount == 1 ? 'reply' : 'replies'}',
+                    '$repostCount ${repostCount == 1 ? 'repost' : 'reposts'}',
+                    '$likeCount ${likeCount == 1 ? 'like' : 'likes'}',
+                    if (shareCountOn && shareCount > 0)
+                      '$shareCount ${shareCount == 1 ? 'share' : 'shares'}',
+                  ])
+                    Text(
+                      stat,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            actionRow,
+          ],
         );
       },
     );
