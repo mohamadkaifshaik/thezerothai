@@ -189,7 +189,10 @@ void main() {
 
         testWidgets('Ask to join sends the request', (tester) async {
           final rig = await _open(tester, size, _planPath);
-          await tester.tap(find.text('Ask to join'));
+          final askToJoin = find.widgetWithText(AppPillButton, 'Ask to join');
+          await tester.ensureVisible(askToJoin);
+          await tester.pumpAndSettle();
+          await tester.tap(askToJoin);
           await tester.pumpAndSettle();
           await tester.tap(find.text('Send request'));
           await tester.pumpAndSettle();
