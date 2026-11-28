@@ -6,12 +6,14 @@
 // so transparency flattens like the package:image path.
 'use strict';
 
-const PROTOCOL = 2;
+const PROTOCOL = 3;
 
 // Largest output side Dart ever asks for (posts 1600); anything else is malformed.
 const MAX_OUTPUT_EDGE = 4096;
 
 let bitmap = null;
+let look = null;
+let markup = null;
 
 const supported =
   typeof createImageBitmap === 'function' &&
@@ -59,6 +61,7 @@ function draw(req) {
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
   const turns = turnsOf(req);
+  ctx.save();
   if (turns === 0) {
     ctx.drawImage(bitmap, req.sx, req.sy, req.sw, req.sh, 0, 0, req.w, req.h);
   } else {
@@ -72,6 +75,39 @@ function draw(req) {
     else ctx.transform(0, -1, 1, 0, 0, bw);
     ctx.drawImage(bitmap, 0, 0);
   }
+  ctx.restore();
+  if (look?.matrix) {
+    const m = look.matrix;
+    const pixels = ctx.getImageData(0, 0, req.w, req.h);
+    const d = pixels.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const r = d[i], g = d[i + 1], b = d[i + 2];
+      d[i] = m[0] * r + m[1] * g + m[2] * b + m[4];
+      d[i + 1] = m[5] * r + m[6] * g + m[7] * b + m[9];
+      d[i + 2] = m[10] * r + m[11] * g + m[12] * b + m[14];
+    }
+    ctx.putImageData(pixels, 0, 0);
+  }
+  if (look?.stickers?.length || markup) {
+    ctx.scale(req.w / req.sw, req.h / req.sh);
+    ctx.translate(-req.sx, -req.sy);
+    for (const { color, points } of look.stickers) {
+      ctx.beginPath();
+      ctx.moveTo(...points[0]);
+      for (const point of points.slice(1)) ctx.lineTo(...point);
+      ctx.closePath();
+      ctx.fillStyle = color;
+      ctx.fill();
+    }
+    if (markup) {
+      const { markupTurns, width, height } = look;
+      if (markupTurns === 1) ctx.transform(0, 1, -1, 0, width, 0);
+      else if (markupTurns === 2) ctx.transform(-1, 0, 0, -1, width, height);
+      else if (markupTurns === 3) ctx.transform(0, -1, 1, 0, 0, height);
+      const odd = markupTurns % 2 === 1;
+      ctx.drawImage(markup, 0, 0, odd ? height : width, odd ? width : height);
+    }
+  }
   return { canvas, ctx };
 }
 
@@ -82,6 +118,9 @@ self.onmessage = async (event) => {
   try {
     switch (req.op) {
       case 'decode': {
+        look = null;
+        markup?.close();
+        markup = null;
         if (!(req.bytes instanceof Uint8Array)) throw new Error('bad bytes');
         if (bitmap) {
           bitmap.close();
@@ -102,6 +141,14 @@ self.onmessage = async (event) => {
         self.postMessage({ seq, ok: true, width: bitmap.width, height: bitmap.height });
         return;
       }
+      case 'look':
+        look = req.look;
+        markup?.close();
+        markup = look.markup
+          ? await createImageBitmap(new Blob([look.markup], { type: 'image/png' }))
+          : null;
+        self.postMessage({ seq, ok: true });
+        return;
       case 'jpeg': {
         checkDraw(req, true);
         const { canvas } = draw(req);

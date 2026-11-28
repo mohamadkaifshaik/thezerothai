@@ -134,7 +134,7 @@ func mediaRefsToDocs(refs []MediaRef) []mediaDoc {
 	}
 	out := make([]mediaDoc, len(refs))
 	for i, m := range refs {
-		out[i] = mediaDoc{MediaID: m.ID, URL: m.URL, ThumbURL: m.ThumbURL, Width: m.Width, Height: m.Height, Blurhash: m.Blurhash, AltText: m.AltText, ContentType: m.ContentType}
+		out[i] = mediaDoc{MediaID: m.ID, URL: m.URL, ThumbURL: m.ThumbURL, Width: m.Width, Height: m.Height, Blurhash: m.Blurhash, AltText: m.AltText, ContentType: m.ContentType, VideoLabels: m.VideoLabels}
 	}
 	return out
 }
@@ -145,7 +145,7 @@ func mediaDocsToRefs(docs []mediaDoc) []MediaRef {
 	}
 	out := make([]MediaRef, len(docs))
 	for i, m := range docs {
-		out[i] = MediaRef{ID: m.MediaID, URL: m.URL, ThumbURL: m.ThumbURL, Width: m.Width, Height: m.Height, Blurhash: m.Blurhash, AltText: m.AltText, ContentType: m.ContentType}
+		out[i] = MediaRef{ID: m.MediaID, URL: m.URL, ThumbURL: m.ThumbURL, Width: m.Width, Height: m.Height, Blurhash: m.Blurhash, AltText: m.AltText, ContentType: m.ContentType, VideoLabels: m.VideoLabels}
 	}
 	return out
 }

@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:dzeroth/features/media/domain/image_preflight.dart';
 import 'package:dzeroth/features/media/domain/image_processor.dart';
 import 'package:dzeroth/features/media/domain/photo_edit.dart';
+import 'package:dzeroth/features/media/domain/photo_look.dart';
 import 'package:dzeroth/features/media/domain/raster_image_processor.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
@@ -149,6 +150,56 @@ void main() {
   });
 
   group('package:image path (isolate processor core)', () {
+    test('the filter handles 16-bit RGB photo inputs', () {
+      final image = img.Image(width: 48, height: 32, format: img.Format.uint16);
+      for (final pixel in image) {
+        pixel.setRgb(32768, 32768, 32768);
+      }
+      final output = processImageSync(
+        img.encodePng(image),
+        ImagePurpose.post,
+        edit: const PhotoEdit(filter: PhotoFilter.mono),
+      );
+      final gray = img.decodeJpg(output.fullBytes)!.getPixel(24, 16);
+      expect(gray.r, closeTo(128, 4));
+      expect(gray.b, closeTo(128, 4));
+    });
+
+    test('the filter, sticker and markup reach the exported pixels', () {
+      final layer = img.Image(width: 100, height: 60, numChannels: 4);
+      img.fillRect(
+        layer,
+        x1: 7,
+        y1: 7,
+        x2: 26,
+        y2: 27,
+        color: img.ColorRgba8(0, 0, 0, 255),
+      );
+      final edit = PhotoEdit.none.withLook(
+        filter: PhotoFilter.mono,
+        stickers: [
+          (shape: StickerShape.star, x: 0.75, y: 0.5, size: 0.5, angle: 0),
+        ],
+        markup: (png: img.encodePng(layer), quarterTurns: 0),
+      );
+      final output = processImageSync(
+        _redBlue(100, 60),
+        ImagePurpose.post,
+        edit: edit.rotated(),
+      );
+      for (final bytes in [output.fullBytes, output.thumbBytes]) {
+        final image = img.decodeJpg(bytes)!;
+        expect((image.width, image.height), (60, 100));
+        final redacted = image.getPixel(42, 16);
+        expect(redacted.r, lessThan(10));
+        final filtered = image.getPixel(40, 45);
+        expect(filtered.r, closeTo(filtered.b, 3));
+        final sticker = image.getPixel(30, 75);
+        expect(sticker.r, greaterThan(220));
+        expect(sticker.b, lessThan(120));
+      }
+    });
+
     test('rotate 90 turns clockwise and declares the rotated size', () {
       final out = processImageSync(
         _redBlue(40, 20),

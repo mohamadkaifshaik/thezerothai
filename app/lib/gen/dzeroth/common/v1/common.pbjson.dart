@@ -118,6 +118,7 @@ const MediaRef$json = {
     {'1': 'blurhash', '3': 6, '4': 1, '5': 9, '10': 'blurhash'},
     {'1': 'alt_text', '3': 7, '4': 1, '5': 9, '10': 'altText'},
     {'1': 'content_type', '3': 8, '4': 1, '5': 9, '10': 'contentType'},
+    {'1': 'video_labels', '3': 9, '4': 1, '5': 13, '10': 'videoLabels'},
   ],
 };
 
@@ -126,7 +127,8 @@ final $typed_data.Uint8List mediaRefDescriptor = $convert.base64Decode(
     'CghNZWRpYVJlZhIZCghtZWRpYV9pZBgBIAEoCVIHbWVkaWFJZBIQCgN1cmwYAiABKAlSA3VybB'
     'IbCgl0aHVtYl91cmwYAyABKAlSCHRodW1iVXJsEhQKBXdpZHRoGAQgASgFUgV3aWR0aBIWCgZo'
     'ZWlnaHQYBSABKAVSBmhlaWdodBIaCghibHVyaGFzaBgGIAEoCVIIYmx1cmhhc2gSGQoIYWx0X3'
-    'RleHQYByABKAlSB2FsdFRleHQSIQoMY29udGVudF90eXBlGAggASgJUgtjb250ZW50VHlwZQ==');
+    'RleHQYByABKAlSB2FsdFRleHQSIQoMY29udGVudF90eXBlGAggASgJUgtjb250ZW50VHlwZRIh'
+    'Cgx2aWRlb19sYWJlbHMYCSABKA1SC3ZpZGVvTGFiZWxz');
 
 @$core.Deprecated('Use homeTabDescriptor instead')
 const HomeTab$json = {

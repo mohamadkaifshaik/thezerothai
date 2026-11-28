@@ -44,6 +44,9 @@ const (
 	// MediaServiceFinalizeUploadProcedure is the fully-qualified name of the MediaService's
 	// FinalizeUpload RPC.
 	MediaServiceFinalizeUploadProcedure = "/dzeroth.media.v1.MediaService/FinalizeUpload"
+	// MediaServiceTranscribeVideoAudioProcedure is the fully-qualified name of the MediaService's
+	// TranscribeVideoAudio RPC.
+	MediaServiceTranscribeVideoAudioProcedure = "/dzeroth.media.v1.MediaService/TranscribeVideoAudio"
 )
 
 // MediaServiceClient is a client for the dzeroth.media.v1.MediaService service.
@@ -90,6 +93,10 @@ type MediaServiceClient interface {
 	// its objects are deleted. A busy GIF slot consumes no attempt.
 	// For videos the server screens a sheet of 4-15 sampled frames and the still thumbnail before publication.
 	FinalizeUpload(context.Context, *connect.Request[v1.FinalizeUploadRequest]) (*connect.Response[v1.FinalizeUploadResponse], error)
+	// Transcribe an explicitly selected clip segment. Only its audio is sent.
+	// A segment is mono Ogg Opus, up to 55 seconds.
+	// The returned times are relative to the start of that audio segment.
+	TranscribeVideoAudio(context.Context, *connect.Request[v1.TranscribeVideoAudioRequest]) (*connect.Response[v1.TranscribeVideoAudioResponse], error)
 }
 
 // NewMediaServiceClient constructs a client for the dzeroth.media.v1.MediaService service. By
@@ -115,13 +122,20 @@ func NewMediaServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(mediaServiceMethods.ByName("FinalizeUpload")),
 			connect.WithClientOptions(opts...),
 		),
+		transcribeVideoAudio: connect.NewClient[v1.TranscribeVideoAudioRequest, v1.TranscribeVideoAudioResponse](
+			httpClient,
+			baseURL+MediaServiceTranscribeVideoAudioProcedure,
+			connect.WithSchema(mediaServiceMethods.ByName("TranscribeVideoAudio")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // mediaServiceClient implements MediaServiceClient.
 type mediaServiceClient struct {
-	createUpload   *connect.Client[v1.CreateUploadRequest, v1.CreateUploadResponse]
-	finalizeUpload *connect.Client[v1.FinalizeUploadRequest, v1.FinalizeUploadResponse]
+	createUpload         *connect.Client[v1.CreateUploadRequest, v1.CreateUploadResponse]
+	finalizeUpload       *connect.Client[v1.FinalizeUploadRequest, v1.FinalizeUploadResponse]
+	transcribeVideoAudio *connect.Client[v1.TranscribeVideoAudioRequest, v1.TranscribeVideoAudioResponse]
 }
 
 // CreateUpload calls dzeroth.media.v1.MediaService.CreateUpload.
@@ -132,6 +146,11 @@ func (c *mediaServiceClient) CreateUpload(ctx context.Context, req *connect.Requ
 // FinalizeUpload calls dzeroth.media.v1.MediaService.FinalizeUpload.
 func (c *mediaServiceClient) FinalizeUpload(ctx context.Context, req *connect.Request[v1.FinalizeUploadRequest]) (*connect.Response[v1.FinalizeUploadResponse], error) {
 	return c.finalizeUpload.CallUnary(ctx, req)
+}
+
+// TranscribeVideoAudio calls dzeroth.media.v1.MediaService.TranscribeVideoAudio.
+func (c *mediaServiceClient) TranscribeVideoAudio(ctx context.Context, req *connect.Request[v1.TranscribeVideoAudioRequest]) (*connect.Response[v1.TranscribeVideoAudioResponse], error) {
+	return c.transcribeVideoAudio.CallUnary(ctx, req)
 }
 
 // MediaServiceHandler is an implementation of the dzeroth.media.v1.MediaService service.
@@ -178,6 +197,10 @@ type MediaServiceHandler interface {
 	// its objects are deleted. A busy GIF slot consumes no attempt.
 	// For videos the server screens a sheet of 4-15 sampled frames and the still thumbnail before publication.
 	FinalizeUpload(context.Context, *connect.Request[v1.FinalizeUploadRequest]) (*connect.Response[v1.FinalizeUploadResponse], error)
+	// Transcribe an explicitly selected clip segment. Only its audio is sent.
+	// A segment is mono Ogg Opus, up to 55 seconds.
+	// The returned times are relative to the start of that audio segment.
+	TranscribeVideoAudio(context.Context, *connect.Request[v1.TranscribeVideoAudioRequest]) (*connect.Response[v1.TranscribeVideoAudioResponse], error)
 }
 
 // NewMediaServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -199,12 +222,20 @@ func NewMediaServiceHandler(svc MediaServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(mediaServiceMethods.ByName("FinalizeUpload")),
 		connect.WithHandlerOptions(opts...),
 	)
+	mediaServiceTranscribeVideoAudioHandler := connect.NewUnaryHandler(
+		MediaServiceTranscribeVideoAudioProcedure,
+		svc.TranscribeVideoAudio,
+		connect.WithSchema(mediaServiceMethods.ByName("TranscribeVideoAudio")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/dzeroth.media.v1.MediaService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case MediaServiceCreateUploadProcedure:
 			mediaServiceCreateUploadHandler.ServeHTTP(w, r)
 		case MediaServiceFinalizeUploadProcedure:
 			mediaServiceFinalizeUploadHandler.ServeHTTP(w, r)
+		case MediaServiceTranscribeVideoAudioProcedure:
+			mediaServiceTranscribeVideoAudioHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -220,4 +251,8 @@ func (UnimplementedMediaServiceHandler) CreateUpload(context.Context, *connect.R
 
 func (UnimplementedMediaServiceHandler) FinalizeUpload(context.Context, *connect.Request[v1.FinalizeUploadRequest]) (*connect.Response[v1.FinalizeUploadResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.media.v1.MediaService.FinalizeUpload is not implemented"))
+}
+
+func (UnimplementedMediaServiceHandler) TranscribeVideoAudio(context.Context, *connect.Request[v1.TranscribeVideoAudioRequest]) (*connect.Response[v1.TranscribeVideoAudioResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("dzeroth.media.v1.MediaService.TranscribeVideoAudio is not implemented"))
 }

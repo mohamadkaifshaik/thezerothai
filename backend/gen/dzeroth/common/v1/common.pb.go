@@ -310,11 +310,11 @@ func (ErrorReason) EnumDescriptor() ([]byte, []int) {
 }
 
 // A user's display data. Two kinds of copy share this message:
-// - frozen copies, denormalized at write time: `posts.v1.Post.author` and `posts.v1.EmbeddedPost.author`
-//   (may be up to one refresh cycle stale, embeds are never refreshed) and `notifications.v1.Notification.actor`
-//   (snapshotted when the row was written);
-// - live rows: `graph.v1.UserListItem.user`, hydrated from the user's profile when the response is built (instance
-//   cache, up to 60 s stale).
+//   - frozen copies, denormalized at write time: `posts.v1.Post.author` and `posts.v1.EmbeddedPost.author`
+//     (may be up to one refresh cycle stale, embeds are never refreshed) and `notifications.v1.Notification.actor`
+//     (snapshotted when the row was written);
+//   - live rows: `graph.v1.UserListItem.user`, hydrated from the user's profile when the response is built (instance
+//     cache, up to 60 s stale).
 type AuthorSnapshot struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Deprecated for display and links (FEATURE_PUBLIC_IDS): use public_id. Always set. With FEATURE_PUBLIC_IDS off for the
@@ -443,7 +443,12 @@ type MediaRef struct {
 	// url is fetched only when the user taps to play (F10). Set in FinalizeUpload's MediaResult.media, copied into posts
 	// from the media doc at CreatePost, and into embeds with them. Treat unknown values as a still image
 	// that cannot play.
-	ContentType   string `protobuf:"bytes,8,opt,name=content_type,json=contentType,proto3" json:"content_type,omitempty"`
+	ContentType string `protobuf:"bytes,8,opt,name=content_type,json=contentType,proto3" json:"content_type,omitempty"`
+	// Uploader-provided video labels. Bits 1, 2, and 4 indicate nudity,
+	// violence, and other sensitive content. Bit 8 discloses AI-generated media.
+	// Bit 16 enables the in-app download action. Zero carries no uploader
+	// labels or download opt-in. These labels do not replace screening.
+	VideoLabels   uint32 `protobuf:"varint,9,opt,name=video_labels,json=videoLabels,proto3" json:"video_labels,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -532,6 +537,13 @@ func (x *MediaRef) GetContentType() string {
 		return x.ContentType
 	}
 	return ""
+}
+
+func (x *MediaRef) GetVideoLabels() uint32 {
+	if x != nil {
+		return x.VideoLabels
+	}
+	return 0
 }
 
 // One pinned Home tab (founder decision F5). Home always starts with the fixed "Following" tab, which is
@@ -692,7 +704,7 @@ const file_dzeroth_common_v1_common_proto_rawDesc = "" +
 	"\bverified\x18\x05 \x01(\bR\bverified\x12\x1d\n" +
 	"\n" +
 	"is_private\x18\x06 \x01(\bR\tisPrivate\x12!\n" +
-	"\tpublic_id\x18\a \x01(\tB\x04\xe8\xe0\x18\x03R\bpublicId\"\xdc\x01\n" +
+	"\tpublic_id\x18\a \x01(\tB\x04\xe8\xe0\x18\x03R\bpublicId\"\xff\x01\n" +
 	"\bMediaRef\x12\x19\n" +
 	"\bmedia_id\x18\x01 \x01(\tR\amediaId\x12\x10\n" +
 	"\x03url\x18\x02 \x01(\tR\x03url\x12\x1b\n" +
@@ -701,7 +713,8 @@ const file_dzeroth_common_v1_common_proto_rawDesc = "" +
 	"\x06height\x18\x05 \x01(\x05R\x06height\x12\x1a\n" +
 	"\bblurhash\x18\x06 \x01(\tR\bblurhash\x12\x19\n" +
 	"\balt_text\x18\a \x01(\tR\aaltText\x12!\n" +
-	"\fcontent_type\x18\b \x01(\tR\vcontentType\"c\n" +
+	"\fcontent_type\x18\b \x01(\tR\vcontentType\x12!\n" +
+	"\fvideo_labels\x18\t \x01(\rR\vvideoLabels\"c\n" +
 	"\aHomeTab\x122\n" +
 	"\x04kind\x18\x01 \x01(\x0e2\x1e.dzeroth.common.v1.HomeTabKindR\x04kind\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x14\n" +

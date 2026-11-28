@@ -7,7 +7,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-import '../../media/presentation/widgets/video_editor.dart';
+import '../../media/presentation/widgets/video_import_editor.dart';
 
 import 'package:go_router/go_router.dart';
 import 'package:uuid/uuid.dart';
@@ -1537,7 +1537,7 @@ class _AddVideoButton extends StatelessWidget {
     Future<void> pick(bool fromFiles) => attachments.pickVideo(
       fromFiles: fromFiles,
       chooseEdit: (path) async =>
-          context.mounted ? showVideoEditor(context, path) : null,
+          context.mounted ? showVideoImportEditor(context, path) : null,
     );
     const icon = Icon(Icons.video_library_outlined);
     if (kIsWeb) {

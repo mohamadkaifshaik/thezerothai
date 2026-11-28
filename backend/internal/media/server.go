@@ -30,12 +30,18 @@ const (
 
 // Server adapts Service to mediav1connect.MediaServiceHandler.
 type Server struct {
-	svc   Service
-	flags FlagChecker
+	svc      Service
+	flags    FlagChecker
+	captions CaptionRecognizer
 }
 
 // NewServer builds the Connect handler. Use with mediav1connect.NewMediaServiceHandler.
 func NewServer(svc Service, fc FlagChecker) *Server { return &Server{svc: svc, flags: fc} }
+
+func (s *Server) WithVideoCaptions(recognizer CaptionRecognizer) *Server {
+	s.captions = recognizer
+	return s
+}
 
 var _ mediav1connect.MediaServiceHandler = (*Server)(nil)
 
@@ -73,6 +79,7 @@ func (s *Server) CreateUpload(ctx context.Context, req *connect.Request[mediav1.
 			ContentType: it.GetContentType(), FullBytes: it.GetFullSizeBytes(), ThumbBytes: it.GetThumbSizeBytes(),
 			Width: int(it.GetWidth()), Height: int(it.GetHeight()), FullMD5: it.GetFullMd5(), ThumbMD5: it.GetThumbMd5(),
 			ThumbContentType: it.GetThumbContentType(),
+			VideoLabels:      it.GetVideoLabels(),
 		})
 	}
 	targets, err := s.svc.CreateUpload(ctx, uid, in)
@@ -122,6 +129,7 @@ func RefToProto(r Ref) *commonv1.MediaRef {
 	return &commonv1.MediaRef{
 		MediaId: r.ID, Url: r.URL, ThumbUrl: r.ThumbURL,
 		Width: int32(r.Width), Height: int32(r.Height), Blurhash: r.Blurhash, ContentType: r.ContentType, //nolint:gosec // validated <= MaxDimension (4096) at CreateUpload
+		VideoLabels: r.VideoLabels,
 	}
 }
 

@@ -3,6 +3,9 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 
 import 'image_size_plan.dart';
+import 'photo_look.dart';
+
+typedef PhotoMarkup = ({Uint8List png, int quarterTurns});
 
 /// What the user did to a photo in the editor, applied to the SOURCE before it
 /// is processed, so the server receives (and verifies, B14) real pixels.
@@ -20,6 +23,10 @@ class PhotoEdit {
     this.top = 0,
     this.right = 1,
     this.bottom = 1,
+    this.filter = PhotoFilter.original,
+    this.enhance = false,
+    this.stickers = const [],
+    this.markup,
   }) : assert(quarterTurns >= 0 && quarterTurns < 4);
 
   static const PhotoEdit none = PhotoEdit();
@@ -30,25 +37,65 @@ class PhotoEdit {
   final double top;
   final double right;
   final double bottom;
+  final PhotoFilter filter;
+  final bool enhance;
+  final List<PhotoSticker> stickers;
+  final PhotoMarkup? markup;
+
+  int get markupRotation => (quarterTurns - (markup?.quarterTurns ?? 0)) % 4;
+
+  bool get hasLook =>
+      filter != PhotoFilter.original ||
+      enhance ||
+      stickers.isNotEmpty ||
+      markup != null;
 
   bool get hasCrop => left > 0 || top > 0 || right < 1 || bottom < 1;
 
   /// True when processing with this edit equals processing without one.
-  bool get isIdentity => quarterTurns == 0 && !hasCrop;
+  bool get isIdentity => quarterTurns == 0 && !hasCrop && !hasLook;
 
   CropFractions get box => (left: left, top: top, right: right, bottom: bottom);
 
-  PhotoEdit withBox(CropFractions b) => PhotoEdit(
+  PhotoEdit withBox(CropFractions b) => withLook(box: b);
+
+  PhotoEdit withLook({
+    PhotoFilter? filter,
+    bool? enhance,
+    List<PhotoSticker>? stickers,
+    PhotoMarkup? markup,
+    bool clearMarkup = false,
+    CropFractions? box,
+  }) => PhotoEdit(
     quarterTurns: quarterTurns,
-    left: b.left,
-    top: b.top,
-    right: b.right,
-    bottom: b.bottom,
+    left: (box ?? this.box).left,
+    top: (box ?? this.box).top,
+    right: (box ?? this.box).right,
+    bottom: (box ?? this.box).bottom,
+    filter: filter ?? this.filter,
+    enhance: enhance ?? this.enhance,
+    stickers: stickers == null ? this.stickers : List.unmodifiable(stickers),
+    markup: clearMarkup ? null : markup ?? this.markup,
   );
 
   /// One more clockwise turn; the crop starts over (it was drawn on the
   /// previous orientation).
-  PhotoEdit rotated() => PhotoEdit(quarterTurns: (quarterTurns + 1) % 4);
+  PhotoEdit rotated() => PhotoEdit(
+    quarterTurns: (quarterTurns + 1) % 4,
+    filter: filter,
+    enhance: enhance,
+    markup: markup,
+    stickers: List.unmodifiable([
+      for (final s in stickers)
+        (
+          shape: s.shape,
+          x: 1 - s.y,
+          y: s.x,
+          size: s.size,
+          angle: s.angle + math.pi / 2,
+        ),
+    ]),
+  );
 
   @override
   bool operator ==(Object other) =>
@@ -57,10 +104,24 @@ class PhotoEdit {
       other.left == left &&
       other.top == top &&
       other.right == right &&
-      other.bottom == bottom;
+      other.bottom == bottom &&
+      other.filter == filter &&
+      other.enhance == enhance &&
+      other.markup == markup &&
+      listEquals(other.stickers, stickers);
 
   @override
-  int get hashCode => Object.hash(quarterTurns, left, top, right, bottom);
+  int get hashCode => Object.hash(
+    quarterTurns,
+    left,
+    top,
+    right,
+    bottom,
+    filter,
+    enhance,
+    markup,
+    Object.hashAll(stickers),
+  );
 }
 
 /// The size of a [width] x [height] photo after [quarterTurns] turns.

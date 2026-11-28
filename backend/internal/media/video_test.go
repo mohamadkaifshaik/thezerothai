@@ -57,6 +57,7 @@ func TestPostVideoPublication(t *testing.T) {
 		poster := jpegSized("poster", 32, 24)
 		it := item(clip, poster, ContentTypeMP4)
 		it.Width, it.Height, it.ThumbContentType = 64, 48, ContentTypeJPEG
+		it.VideoLabels = 2 | 8 | 16
 		ctx := context.Background()
 		targets, err := e.svc.CreateUpload(ctx, uidA, CreateUploadInput{IdempotencyKey: key1, Purpose: PurposePost, Items: []UploadItem{it}})
 		if err != nil {
@@ -80,7 +81,8 @@ func TestPostVideoPublication(t *testing.T) {
 			if results[0].Status != StatusRejected || len(e.obj.public) != 0 {
 				t.Fatalf("blocked clip published: %+v", results)
 			}
-		} else if results[0].Status != StatusReady || results[0].Ref.ContentType != ContentTypeMP4 || len(e.obj.public) != 2 {
+		} else if results[0].Status != StatusReady || results[0].Ref.ContentType != ContentTypeMP4 ||
+			results[0].Ref.VideoLabels != it.VideoLabels || len(e.obj.public) != 2 {
 			t.Fatalf("clip publication: %+v", results)
 		}
 	}

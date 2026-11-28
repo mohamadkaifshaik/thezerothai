@@ -186,6 +186,7 @@ class MediaRef extends $pb.GeneratedMessage {
     $core.String? blurhash,
     $core.String? altText,
     $core.String? contentType,
+    $core.int? videoLabels,
   }) {
     final result = MediaRef._();
     if (mediaId != null) result.mediaId = mediaId;
@@ -196,6 +197,7 @@ class MediaRef extends $pb.GeneratedMessage {
     if (blurhash != null) result.blurhash = blurhash;
     if (altText != null) result.altText = altText;
     if (contentType != null) result.contentType = contentType;
+    if (videoLabels != null) result.videoLabels = videoLabels;
     return result;
   }
 
@@ -221,6 +223,8 @@ class MediaRef extends $pb.GeneratedMessage {
     ..aOS(6, _omitFieldNames ? '' : 'blurhash')
     ..aOS(7, _omitFieldNames ? '' : 'altText')
     ..aOS(8, _omitFieldNames ? '' : 'contentType')
+    ..aI(9, _omitFieldNames ? '' : 'videoLabels',
+        fieldType: $pb.PbFieldType.OU3)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -323,6 +327,19 @@ class MediaRef extends $pb.GeneratedMessage {
   $core.bool hasContentType() => $_has(7);
   @$pb.TagNumber(8)
   void clearContentType() => $_clearField(8);
+
+  /// Uploader-provided video labels. Bits 1, 2, and 4 indicate nudity,
+  /// violence, and other sensitive content. Bit 8 discloses AI-generated media.
+  /// Bit 16 enables the in-app download action. Zero carries no uploader
+  /// labels or download opt-in. These labels do not replace screening.
+  @$pb.TagNumber(9)
+  $core.int get videoLabels => $_getIZ(8);
+  @$pb.TagNumber(9)
+  set videoLabels($core.int value) => $_setUnsignedInt32(8, value);
+  @$pb.TagNumber(9)
+  $core.bool hasVideoLabels() => $_has(8);
+  @$pb.TagNumber(9)
+  void clearVideoLabels() => $_clearField(9);
 }
 
 /// One pinned Home tab (founder decision F5). Home always starts with the fixed "Following" tab, which is

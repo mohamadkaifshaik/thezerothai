@@ -141,6 +141,163 @@ func (MediaStatus) EnumDescriptor() ([]byte, []int) {
 	return file_dzeroth_media_v1_media_proto_rawDescGZIP(), []int{1}
 }
 
+type TranscribeVideoAudioRequest struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	OggOpus []byte                 `protobuf:"bytes,1,opt,name=ogg_opus,json=oggOpus,proto3" json:"ogg_opus,omitempty"`
+	// BCP 47 recognition language, e.g. en-IN or hi-IN.
+	LanguageCode  string `protobuf:"bytes,2,opt,name=language_code,json=languageCode,proto3" json:"language_code,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TranscribeVideoAudioRequest) Reset() {
+	*x = TranscribeVideoAudioRequest{}
+	mi := &file_dzeroth_media_v1_media_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TranscribeVideoAudioRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TranscribeVideoAudioRequest) ProtoMessage() {}
+
+func (x *TranscribeVideoAudioRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_media_v1_media_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TranscribeVideoAudioRequest.ProtoReflect.Descriptor instead.
+func (*TranscribeVideoAudioRequest) Descriptor() ([]byte, []int) {
+	return file_dzeroth_media_v1_media_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *TranscribeVideoAudioRequest) GetOggOpus() []byte {
+	if x != nil {
+		return x.OggOpus
+	}
+	return nil
+}
+
+func (x *TranscribeVideoAudioRequest) GetLanguageCode() string {
+	if x != nil {
+		return x.LanguageCode
+	}
+	return ""
+}
+
+type VideoCaptionCue struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	StartMs       int32                  `protobuf:"varint,1,opt,name=start_ms,json=startMs,proto3" json:"start_ms,omitempty"`
+	EndMs         int32                  `protobuf:"varint,2,opt,name=end_ms,json=endMs,proto3" json:"end_ms,omitempty"`
+	Text          string                 `protobuf:"bytes,3,opt,name=text,proto3" json:"text,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VideoCaptionCue) Reset() {
+	*x = VideoCaptionCue{}
+	mi := &file_dzeroth_media_v1_media_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VideoCaptionCue) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VideoCaptionCue) ProtoMessage() {}
+
+func (x *VideoCaptionCue) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_media_v1_media_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VideoCaptionCue.ProtoReflect.Descriptor instead.
+func (*VideoCaptionCue) Descriptor() ([]byte, []int) {
+	return file_dzeroth_media_v1_media_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *VideoCaptionCue) GetStartMs() int32 {
+	if x != nil {
+		return x.StartMs
+	}
+	return 0
+}
+
+func (x *VideoCaptionCue) GetEndMs() int32 {
+	if x != nil {
+		return x.EndMs
+	}
+	return 0
+}
+
+func (x *VideoCaptionCue) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+type TranscribeVideoAudioResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Cues          []*VideoCaptionCue     `protobuf:"bytes,1,rep,name=cues,proto3" json:"cues,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TranscribeVideoAudioResponse) Reset() {
+	*x = TranscribeVideoAudioResponse{}
+	mi := &file_dzeroth_media_v1_media_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TranscribeVideoAudioResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TranscribeVideoAudioResponse) ProtoMessage() {}
+
+func (x *TranscribeVideoAudioResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_dzeroth_media_v1_media_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TranscribeVideoAudioResponse.ProtoReflect.Descriptor instead.
+func (*TranscribeVideoAudioResponse) Descriptor() ([]byte, []int) {
+	return file_dzeroth_media_v1_media_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *TranscribeVideoAudioResponse) GetCues() []*VideoCaptionCue {
+	if x != nil {
+		return x.Cues
+	}
+	return nil
+}
+
 type UploadItem struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// image/webp or image/jpeg (client re-encodes everything else on device); or image/gif for MEDIA_PURPOSE_POST behind
@@ -158,13 +315,15 @@ type UploadItem struct {
 	// (a still first frame); for image/jpeg and image/webp it must be empty or equal to content_type. Bound into the
 	// thumbnail's signed URL like content_type is for the full image.
 	ThumbContentType string `protobuf:"bytes,8,opt,name=thumb_content_type,json=thumbContentType,proto3" json:"thumb_content_type,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Only for video/mp4. Uses the same flags as MediaRef.video_labels.
+	VideoLabels   uint32 `protobuf:"varint,9,opt,name=video_labels,json=videoLabels,proto3" json:"video_labels,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *UploadItem) Reset() {
 	*x = UploadItem{}
-	mi := &file_dzeroth_media_v1_media_proto_msgTypes[0]
+	mi := &file_dzeroth_media_v1_media_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -176,7 +335,7 @@ func (x *UploadItem) String() string {
 func (*UploadItem) ProtoMessage() {}
 
 func (x *UploadItem) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_media_v1_media_proto_msgTypes[0]
+	mi := &file_dzeroth_media_v1_media_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -189,7 +348,7 @@ func (x *UploadItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UploadItem.ProtoReflect.Descriptor instead.
 func (*UploadItem) Descriptor() ([]byte, []int) {
-	return file_dzeroth_media_v1_media_proto_rawDescGZIP(), []int{0}
+	return file_dzeroth_media_v1_media_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *UploadItem) GetContentType() string {
@@ -248,6 +407,13 @@ func (x *UploadItem) GetThumbContentType() string {
 	return ""
 }
 
+func (x *UploadItem) GetVideoLabels() uint32 {
+	if x != nil {
+		return x.VideoLabels
+	}
+	return 0
+}
+
 type SignedUpload struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Url   string                 `protobuf:"bytes,1,opt,name=url,proto3" json:"url,omitempty"`
@@ -262,7 +428,7 @@ type SignedUpload struct {
 
 func (x *SignedUpload) Reset() {
 	*x = SignedUpload{}
-	mi := &file_dzeroth_media_v1_media_proto_msgTypes[1]
+	mi := &file_dzeroth_media_v1_media_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -274,7 +440,7 @@ func (x *SignedUpload) String() string {
 func (*SignedUpload) ProtoMessage() {}
 
 func (x *SignedUpload) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_media_v1_media_proto_msgTypes[1]
+	mi := &file_dzeroth_media_v1_media_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -287,7 +453,7 @@ func (x *SignedUpload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SignedUpload.ProtoReflect.Descriptor instead.
 func (*SignedUpload) Descriptor() ([]byte, []int) {
-	return file_dzeroth_media_v1_media_proto_rawDescGZIP(), []int{1}
+	return file_dzeroth_media_v1_media_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *SignedUpload) GetUrl() string {
@@ -329,7 +495,7 @@ type UploadTarget struct {
 
 func (x *UploadTarget) Reset() {
 	*x = UploadTarget{}
-	mi := &file_dzeroth_media_v1_media_proto_msgTypes[2]
+	mi := &file_dzeroth_media_v1_media_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -341,7 +507,7 @@ func (x *UploadTarget) String() string {
 func (*UploadTarget) ProtoMessage() {}
 
 func (x *UploadTarget) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_media_v1_media_proto_msgTypes[2]
+	mi := &file_dzeroth_media_v1_media_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -354,7 +520,7 @@ func (x *UploadTarget) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UploadTarget.ProtoReflect.Descriptor instead.
 func (*UploadTarget) Descriptor() ([]byte, []int) {
-	return file_dzeroth_media_v1_media_proto_rawDescGZIP(), []int{2}
+	return file_dzeroth_media_v1_media_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *UploadTarget) GetMediaId() string {
@@ -390,7 +556,7 @@ type CreateUploadRequest struct {
 
 func (x *CreateUploadRequest) Reset() {
 	*x = CreateUploadRequest{}
-	mi := &file_dzeroth_media_v1_media_proto_msgTypes[3]
+	mi := &file_dzeroth_media_v1_media_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -402,7 +568,7 @@ func (x *CreateUploadRequest) String() string {
 func (*CreateUploadRequest) ProtoMessage() {}
 
 func (x *CreateUploadRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_media_v1_media_proto_msgTypes[3]
+	mi := &file_dzeroth_media_v1_media_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -415,7 +581,7 @@ func (x *CreateUploadRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateUploadRequest.ProtoReflect.Descriptor instead.
 func (*CreateUploadRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_media_v1_media_proto_rawDescGZIP(), []int{3}
+	return file_dzeroth_media_v1_media_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *CreateUploadRequest) GetIdempotencyKey() string {
@@ -448,7 +614,7 @@ type CreateUploadResponse struct {
 
 func (x *CreateUploadResponse) Reset() {
 	*x = CreateUploadResponse{}
-	mi := &file_dzeroth_media_v1_media_proto_msgTypes[4]
+	mi := &file_dzeroth_media_v1_media_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -460,7 +626,7 @@ func (x *CreateUploadResponse) String() string {
 func (*CreateUploadResponse) ProtoMessage() {}
 
 func (x *CreateUploadResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_media_v1_media_proto_msgTypes[4]
+	mi := &file_dzeroth_media_v1_media_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -473,7 +639,7 @@ func (x *CreateUploadResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateUploadResponse.ProtoReflect.Descriptor instead.
 func (*CreateUploadResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_media_v1_media_proto_rawDescGZIP(), []int{4}
+	return file_dzeroth_media_v1_media_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *CreateUploadResponse) GetTargets() []*UploadTarget {
@@ -494,7 +660,7 @@ type FinalizeItem struct {
 
 func (x *FinalizeItem) Reset() {
 	*x = FinalizeItem{}
-	mi := &file_dzeroth_media_v1_media_proto_msgTypes[5]
+	mi := &file_dzeroth_media_v1_media_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -506,7 +672,7 @@ func (x *FinalizeItem) String() string {
 func (*FinalizeItem) ProtoMessage() {}
 
 func (x *FinalizeItem) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_media_v1_media_proto_msgTypes[5]
+	mi := &file_dzeroth_media_v1_media_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -519,7 +685,7 @@ func (x *FinalizeItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FinalizeItem.ProtoReflect.Descriptor instead.
 func (*FinalizeItem) Descriptor() ([]byte, []int) {
-	return file_dzeroth_media_v1_media_proto_rawDescGZIP(), []int{5}
+	return file_dzeroth_media_v1_media_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *FinalizeItem) GetMediaId() string {
@@ -547,7 +713,7 @@ type FinalizeUploadRequest struct {
 
 func (x *FinalizeUploadRequest) Reset() {
 	*x = FinalizeUploadRequest{}
-	mi := &file_dzeroth_media_v1_media_proto_msgTypes[6]
+	mi := &file_dzeroth_media_v1_media_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -559,7 +725,7 @@ func (x *FinalizeUploadRequest) String() string {
 func (*FinalizeUploadRequest) ProtoMessage() {}
 
 func (x *FinalizeUploadRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_media_v1_media_proto_msgTypes[6]
+	mi := &file_dzeroth_media_v1_media_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -572,7 +738,7 @@ func (x *FinalizeUploadRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FinalizeUploadRequest.ProtoReflect.Descriptor instead.
 func (*FinalizeUploadRequest) Descriptor() ([]byte, []int) {
-	return file_dzeroth_media_v1_media_proto_rawDescGZIP(), []int{6}
+	return file_dzeroth_media_v1_media_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *FinalizeUploadRequest) GetIdempotencyKey() string {
@@ -603,7 +769,7 @@ type MediaResult struct {
 
 func (x *MediaResult) Reset() {
 	*x = MediaResult{}
-	mi := &file_dzeroth_media_v1_media_proto_msgTypes[7]
+	mi := &file_dzeroth_media_v1_media_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -615,7 +781,7 @@ func (x *MediaResult) String() string {
 func (*MediaResult) ProtoMessage() {}
 
 func (x *MediaResult) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_media_v1_media_proto_msgTypes[7]
+	mi := &file_dzeroth_media_v1_media_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -628,7 +794,7 @@ func (x *MediaResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MediaResult.ProtoReflect.Descriptor instead.
 func (*MediaResult) Descriptor() ([]byte, []int) {
-	return file_dzeroth_media_v1_media_proto_rawDescGZIP(), []int{7}
+	return file_dzeroth_media_v1_media_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *MediaResult) GetMediaId() string {
@@ -668,7 +834,7 @@ type FinalizeUploadResponse struct {
 
 func (x *FinalizeUploadResponse) Reset() {
 	*x = FinalizeUploadResponse{}
-	mi := &file_dzeroth_media_v1_media_proto_msgTypes[8]
+	mi := &file_dzeroth_media_v1_media_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -680,7 +846,7 @@ func (x *FinalizeUploadResponse) String() string {
 func (*FinalizeUploadResponse) ProtoMessage() {}
 
 func (x *FinalizeUploadResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dzeroth_media_v1_media_proto_msgTypes[8]
+	mi := &file_dzeroth_media_v1_media_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -693,7 +859,7 @@ func (x *FinalizeUploadResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FinalizeUploadResponse.ProtoReflect.Descriptor instead.
 func (*FinalizeUploadResponse) Descriptor() ([]byte, []int) {
-	return file_dzeroth_media_v1_media_proto_rawDescGZIP(), []int{8}
+	return file_dzeroth_media_v1_media_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *FinalizeUploadResponse) GetResults() []*MediaResult {
@@ -707,7 +873,16 @@ var File_dzeroth_media_v1_media_proto protoreflect.FileDescriptor
 
 const file_dzeroth_media_v1_media_proto_rawDesc = "" +
 	"\n" +
-	"\x1cdzeroth/media/v1/media.proto\x12\x10dzeroth.media.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x95\x02\n" +
+	"\x1cdzeroth/media/v1/media.proto\x12\x10dzeroth.media.v1\x1a\x1edzeroth/common/v1/common.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"]\n" +
+	"\x1bTranscribeVideoAudioRequest\x12\x19\n" +
+	"\bogg_opus\x18\x01 \x01(\fR\aoggOpus\x12#\n" +
+	"\rlanguage_code\x18\x02 \x01(\tR\flanguageCode\"W\n" +
+	"\x0fVideoCaptionCue\x12\x19\n" +
+	"\bstart_ms\x18\x01 \x01(\x05R\astartMs\x12\x15\n" +
+	"\x06end_ms\x18\x02 \x01(\x05R\x05endMs\x12\x12\n" +
+	"\x04text\x18\x03 \x01(\tR\x04text\"U\n" +
+	"\x1cTranscribeVideoAudioResponse\x125\n" +
+	"\x04cues\x18\x01 \x03(\v2!.dzeroth.media.v1.VideoCaptionCueR\x04cues\"\xb8\x02\n" +
 	"\n" +
 	"UploadItem\x12!\n" +
 	"\fcontent_type\x18\x01 \x01(\tR\vcontentType\x12&\n" +
@@ -717,7 +892,8 @@ const file_dzeroth_media_v1_media_proto_rawDesc = "" +
 	"\x06height\x18\x05 \x01(\x05R\x06height\x12\x19\n" +
 	"\bfull_md5\x18\x06 \x01(\tR\afullMd5\x12\x1b\n" +
 	"\tthumb_md5\x18\a \x01(\tR\bthumbMd5\x12,\n" +
-	"\x12thumb_content_type\x18\b \x01(\tR\x10thumbContentType\"\xf6\x01\n" +
+	"\x12thumb_content_type\x18\b \x01(\tR\x10thumbContentType\x12!\n" +
+	"\fvideo_labels\x18\t \x01(\rR\vvideoLabels\"\xf6\x01\n" +
 	"\fSignedUpload\x12\x10\n" +
 	"\x03url\x18\x01 \x01(\tR\x03url\x12\x16\n" +
 	"\x06method\x18\x02 \x01(\tR\x06method\x12E\n" +
@@ -759,10 +935,11 @@ const file_dzeroth_media_v1_media_proto_rawDesc = "" +
 	"\x14MEDIA_STATUS_PENDING\x10\x01\x12\x16\n" +
 	"\x12MEDIA_STATUS_READY\x10\x02\x12!\n" +
 	"\x1dMEDIA_STATUS_READY_UNSCREENED\x10\x03\x12\x19\n" +
-	"\x15MEDIA_STATUS_REJECTED\x10\x042\xd2\x01\n" +
+	"\x15MEDIA_STATUS_REJECTED\x10\x042\xc9\x02\n" +
 	"\fMediaService\x12]\n" +
 	"\fCreateUpload\x12%.dzeroth.media.v1.CreateUploadRequest\x1a&.dzeroth.media.v1.CreateUploadResponse\x12c\n" +
-	"\x0eFinalizeUpload\x12'.dzeroth.media.v1.FinalizeUploadRequest\x1a(.dzeroth.media.v1.FinalizeUploadResponseBAZ?github.com/dzeroth/dzeroth/backend/gen/dzeroth/media/v1;mediav1b\x06proto3"
+	"\x0eFinalizeUpload\x12'.dzeroth.media.v1.FinalizeUploadRequest\x1a(.dzeroth.media.v1.FinalizeUploadResponse\x12u\n" +
+	"\x14TranscribeVideoAudio\x12-.dzeroth.media.v1.TranscribeVideoAudioRequest\x1a..dzeroth.media.v1.TranscribeVideoAudioResponseBAZ?github.com/dzeroth/dzeroth/backend/gen/dzeroth/media/v1;mediav1b\x06proto3"
 
 var (
 	file_dzeroth_media_v1_media_proto_rawDescOnce sync.Once
@@ -777,44 +954,50 @@ func file_dzeroth_media_v1_media_proto_rawDescGZIP() []byte {
 }
 
 var file_dzeroth_media_v1_media_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_dzeroth_media_v1_media_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_dzeroth_media_v1_media_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_dzeroth_media_v1_media_proto_goTypes = []any{
-	(MediaPurpose)(0),              // 0: dzeroth.media.v1.MediaPurpose
-	(MediaStatus)(0),               // 1: dzeroth.media.v1.MediaStatus
-	(*UploadItem)(nil),             // 2: dzeroth.media.v1.UploadItem
-	(*SignedUpload)(nil),           // 3: dzeroth.media.v1.SignedUpload
-	(*UploadTarget)(nil),           // 4: dzeroth.media.v1.UploadTarget
-	(*CreateUploadRequest)(nil),    // 5: dzeroth.media.v1.CreateUploadRequest
-	(*CreateUploadResponse)(nil),   // 6: dzeroth.media.v1.CreateUploadResponse
-	(*FinalizeItem)(nil),           // 7: dzeroth.media.v1.FinalizeItem
-	(*FinalizeUploadRequest)(nil),  // 8: dzeroth.media.v1.FinalizeUploadRequest
-	(*MediaResult)(nil),            // 9: dzeroth.media.v1.MediaResult
-	(*FinalizeUploadResponse)(nil), // 10: dzeroth.media.v1.FinalizeUploadResponse
-	nil,                            // 11: dzeroth.media.v1.SignedUpload.HeadersEntry
-	(*timestamppb.Timestamp)(nil),  // 12: google.protobuf.Timestamp
-	(*v1.MediaRef)(nil),            // 13: dzeroth.common.v1.MediaRef
+	(MediaPurpose)(0),                    // 0: dzeroth.media.v1.MediaPurpose
+	(MediaStatus)(0),                     // 1: dzeroth.media.v1.MediaStatus
+	(*TranscribeVideoAudioRequest)(nil),  // 2: dzeroth.media.v1.TranscribeVideoAudioRequest
+	(*VideoCaptionCue)(nil),              // 3: dzeroth.media.v1.VideoCaptionCue
+	(*TranscribeVideoAudioResponse)(nil), // 4: dzeroth.media.v1.TranscribeVideoAudioResponse
+	(*UploadItem)(nil),                   // 5: dzeroth.media.v1.UploadItem
+	(*SignedUpload)(nil),                 // 6: dzeroth.media.v1.SignedUpload
+	(*UploadTarget)(nil),                 // 7: dzeroth.media.v1.UploadTarget
+	(*CreateUploadRequest)(nil),          // 8: dzeroth.media.v1.CreateUploadRequest
+	(*CreateUploadResponse)(nil),         // 9: dzeroth.media.v1.CreateUploadResponse
+	(*FinalizeItem)(nil),                 // 10: dzeroth.media.v1.FinalizeItem
+	(*FinalizeUploadRequest)(nil),        // 11: dzeroth.media.v1.FinalizeUploadRequest
+	(*MediaResult)(nil),                  // 12: dzeroth.media.v1.MediaResult
+	(*FinalizeUploadResponse)(nil),       // 13: dzeroth.media.v1.FinalizeUploadResponse
+	nil,                                  // 14: dzeroth.media.v1.SignedUpload.HeadersEntry
+	(*timestamppb.Timestamp)(nil),        // 15: google.protobuf.Timestamp
+	(*v1.MediaRef)(nil),                  // 16: dzeroth.common.v1.MediaRef
 }
 var file_dzeroth_media_v1_media_proto_depIdxs = []int32{
-	11, // 0: dzeroth.media.v1.SignedUpload.headers:type_name -> dzeroth.media.v1.SignedUpload.HeadersEntry
-	12, // 1: dzeroth.media.v1.SignedUpload.expires_at:type_name -> google.protobuf.Timestamp
-	3,  // 2: dzeroth.media.v1.UploadTarget.full:type_name -> dzeroth.media.v1.SignedUpload
-	3,  // 3: dzeroth.media.v1.UploadTarget.thumb:type_name -> dzeroth.media.v1.SignedUpload
-	0,  // 4: dzeroth.media.v1.CreateUploadRequest.purpose:type_name -> dzeroth.media.v1.MediaPurpose
-	2,  // 5: dzeroth.media.v1.CreateUploadRequest.items:type_name -> dzeroth.media.v1.UploadItem
-	4,  // 6: dzeroth.media.v1.CreateUploadResponse.targets:type_name -> dzeroth.media.v1.UploadTarget
-	7,  // 7: dzeroth.media.v1.FinalizeUploadRequest.items:type_name -> dzeroth.media.v1.FinalizeItem
-	1,  // 8: dzeroth.media.v1.MediaResult.status:type_name -> dzeroth.media.v1.MediaStatus
-	13, // 9: dzeroth.media.v1.MediaResult.media:type_name -> dzeroth.common.v1.MediaRef
-	9,  // 10: dzeroth.media.v1.FinalizeUploadResponse.results:type_name -> dzeroth.media.v1.MediaResult
-	5,  // 11: dzeroth.media.v1.MediaService.CreateUpload:input_type -> dzeroth.media.v1.CreateUploadRequest
-	8,  // 12: dzeroth.media.v1.MediaService.FinalizeUpload:input_type -> dzeroth.media.v1.FinalizeUploadRequest
-	6,  // 13: dzeroth.media.v1.MediaService.CreateUpload:output_type -> dzeroth.media.v1.CreateUploadResponse
-	10, // 14: dzeroth.media.v1.MediaService.FinalizeUpload:output_type -> dzeroth.media.v1.FinalizeUploadResponse
-	13, // [13:15] is the sub-list for method output_type
-	11, // [11:13] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	3,  // 0: dzeroth.media.v1.TranscribeVideoAudioResponse.cues:type_name -> dzeroth.media.v1.VideoCaptionCue
+	14, // 1: dzeroth.media.v1.SignedUpload.headers:type_name -> dzeroth.media.v1.SignedUpload.HeadersEntry
+	15, // 2: dzeroth.media.v1.SignedUpload.expires_at:type_name -> google.protobuf.Timestamp
+	6,  // 3: dzeroth.media.v1.UploadTarget.full:type_name -> dzeroth.media.v1.SignedUpload
+	6,  // 4: dzeroth.media.v1.UploadTarget.thumb:type_name -> dzeroth.media.v1.SignedUpload
+	0,  // 5: dzeroth.media.v1.CreateUploadRequest.purpose:type_name -> dzeroth.media.v1.MediaPurpose
+	5,  // 6: dzeroth.media.v1.CreateUploadRequest.items:type_name -> dzeroth.media.v1.UploadItem
+	7,  // 7: dzeroth.media.v1.CreateUploadResponse.targets:type_name -> dzeroth.media.v1.UploadTarget
+	10, // 8: dzeroth.media.v1.FinalizeUploadRequest.items:type_name -> dzeroth.media.v1.FinalizeItem
+	1,  // 9: dzeroth.media.v1.MediaResult.status:type_name -> dzeroth.media.v1.MediaStatus
+	16, // 10: dzeroth.media.v1.MediaResult.media:type_name -> dzeroth.common.v1.MediaRef
+	12, // 11: dzeroth.media.v1.FinalizeUploadResponse.results:type_name -> dzeroth.media.v1.MediaResult
+	8,  // 12: dzeroth.media.v1.MediaService.CreateUpload:input_type -> dzeroth.media.v1.CreateUploadRequest
+	11, // 13: dzeroth.media.v1.MediaService.FinalizeUpload:input_type -> dzeroth.media.v1.FinalizeUploadRequest
+	2,  // 14: dzeroth.media.v1.MediaService.TranscribeVideoAudio:input_type -> dzeroth.media.v1.TranscribeVideoAudioRequest
+	9,  // 15: dzeroth.media.v1.MediaService.CreateUpload:output_type -> dzeroth.media.v1.CreateUploadResponse
+	13, // 16: dzeroth.media.v1.MediaService.FinalizeUpload:output_type -> dzeroth.media.v1.FinalizeUploadResponse
+	4,  // 17: dzeroth.media.v1.MediaService.TranscribeVideoAudio:output_type -> dzeroth.media.v1.TranscribeVideoAudioResponse
+	15, // [15:18] is the sub-list for method output_type
+	12, // [12:15] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_dzeroth_media_v1_media_proto_init() }
@@ -828,7 +1011,7 @@ func file_dzeroth_media_v1_media_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_dzeroth_media_v1_media_proto_rawDesc), len(file_dzeroth_media_v1_media_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   10,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -46,6 +46,34 @@ App Check, telemetry collection, and FCM are disabled in this mode. Fully stop
 and relaunch Flutter after changing startup configuration; hot reload is not
 sufficient.
 
+## Composer media editor
+
+Dzeroth covers the core photo and video editing workflow. The table tracks
+parity with the X Android editor audited on a Redmi K20 Pro.
+
+| Area | Implemented | Remaining gaps |
+| --- | --- | --- |
+| Photos | Crop, rotate, enhance, filters, movable stickers, text, drawing, pixelation, manual blackout, photo overlays, collages, alt text, and Android gallery export. | Automatic text detection and redaction, photo-specific sensitive-content warnings, people and location tagging, and Grok editing controls. |
+| Videos | Preview, trim before and after import, mute, styled text, automatic and imported timed captions, cover frame selection, uploaded covers, Android gallery export, sensitive-content warnings, Made with AI disclosure, and an Android in-app download toggle. | Grok permissions, multiple video attachments, and importing source files larger than 96 MiB even when the final trim would fit. |
+
+Tap an attached photo and choose **Tools** to edit it. Tap the pencil on an
+attached video to open **Trim**, **Text**, **Captions**, **Cover**, and
+**Settings**. Text and captions are rendered into the exported clip. The
+download toggle controls the in-app action. Published media URLs remain public.
+
+The X workflow was verified on the Redmi K20 Pro. Dzeroth verification covered
+Android and web builds, 500 Flutter tests, and the relevant Go suites. A
+device test of the upgraded Dzeroth APK and a live Google transcription test
+remain pending.
+
+### Automatic video captions
+
+Enable the Speech-to-Text API (`speech.googleapis.com`) in the Google Cloud
+project and set `VIDEO_CAPTIONS=true` on the Go API. The API uses Application
+Default Credentials from its runtime identity. The editor sends only the
+audio from the selected trim range when the author chooses **Generate
+captions**. SRT and WebVTT import also work with the provider disabled.
+
 ## Android release signing
 
 `android/app/build.gradle.kts` signs the `release` build type with an upload

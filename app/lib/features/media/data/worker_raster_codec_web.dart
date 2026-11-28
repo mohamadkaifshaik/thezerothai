@@ -4,6 +4,8 @@ import 'dart:js_interop_unsafe';
 import 'dart:typed_data';
 
 import '../domain/image_size_plan.dart';
+import '../domain/photo_edit.dart';
+import '../domain/photo_look.dart';
 import '../domain/processed_image.dart';
 import '../domain/raster_image_processor.dart';
 
@@ -14,7 +16,7 @@ import '../domain/raster_image_processor.dart';
 const kImageWorkerUrl = 'image_worker.js?v=$kImageWorkerProtocol';
 
 /// Must match `PROTOCOL` in app/web/image_worker.js.
-const kImageWorkerProtocol = 2;
+const kImageWorkerProtocol = 3;
 
 /// How long a worker may take to start before the browser counts as
 /// unsupported (a missing script fails fast through `onerror`).
@@ -47,6 +49,7 @@ extension type _Request._(JSObject _) implements JSObject {
     required int h,
     required int quality,
     required int turns,
+    JSObject? look,
   });
 }
 
@@ -101,7 +104,7 @@ class WorkerRasterCodec implements RasterCodec {
   }
 }
 
-class _WorkerSession implements RasterSession {
+class _WorkerSession implements PhotoLookRasterSession {
   _WorkerSession(String url, this._requestTimeout) {
     try {
       _worker = _Worker(url);
@@ -184,6 +187,7 @@ class _WorkerSession implements RasterSession {
     int h = 0,
     int quality = 0,
     int turns = 0,
+    JSObject? look,
   }) async {
     if (_closed) throw const RasterUnavailableException('closed');
     final seq = ++_seq;
@@ -204,6 +208,7 @@ class _WorkerSession implements RasterSession {
         h: h,
         quality: quality,
         turns: turns,
+        look: look,
       ),
     );
     final reply = await done.future.timeout(
@@ -222,6 +227,38 @@ class _WorkerSession implements RasterSession {
           : RasterUnavailableException(reason);
     }
     return reply;
+  }
+
+  @override
+  Future<void> setLook(PhotoEdit edit, int width, int height) async {
+    final look =
+        {
+              if (edit.markup case final markup?) ...{
+                'markup': markup.png,
+                'markupTurns': edit.markupRotation,
+                'width': width,
+                'height': height,
+              },
+              if (edit.filter != PhotoFilter.original || edit.enhance)
+                'matrix': edit.filter.matrix(edit.enhance),
+              'stickers': [
+                for (final sticker in edit.stickers)
+                  {
+                    'color':
+                        '#${(sticker.shape.color & 0xffffff).toRadixString(16).padLeft(6, '0')}',
+                    'points': [
+                      for (final p in stickerOutline(
+                        sticker,
+                        width.toDouble(),
+                        height.toDouble(),
+                      ))
+                        [p.x, p.y],
+                    ],
+                  },
+              ],
+            }.jsify()!
+            as JSObject;
+    await _send('look', look: look);
   }
 
   @override

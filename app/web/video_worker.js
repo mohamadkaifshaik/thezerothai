@@ -7,6 +7,19 @@ self.onmessage = async ({data}) => {
       wasmBinary: await (await fetch('ffmpeg/ffmpeg-core.wasm')).arrayBuffer(),
     });
     core.FS.writeFile('input', new Uint8Array(await (await fetch(data.url)).arrayBuffer()));
+    if (data.captionCommands) {
+      const captionAudio = [];
+      for (const segment of data.captionCommands) {
+        core.reset();
+        if (core.exec(...segment.args) !== 0) throw new Error('audio extraction');
+        captionAudio.push(core.FS.readFile(segment.output));
+      }
+      self.postMessage({captionAudio}, captionAudio.map(chunk => chunk.buffer));
+      return;
+    }
+    for (const item of data.artwork ?? []) {
+      core.FS.writeFile(item.path, item.png);
+    }
     if (core.exec(...data.encode) !== 0) throw new Error('encode');
     core.reset();
     // The 0.12.10 probe can leave ret at -1 after writing a successful report.
@@ -14,10 +27,22 @@ self.onmessage = async ({data}) => {
     core.ffprobe(...data.probe);
     const metadata = core.FS.readFile('metadata.json', {encoding: 'utf8'});
     if (!JSON.parse(metadata).streams?.length) throw new Error('metadata');
-    core.reset();
-    if (core.exec(...data.poster) !== 0) throw new Error('poster');
+    let poster;
+    const candidates = Array.isArray(data.poster[0]) ? data.poster : [data.poster];
+    for (const args of candidates) {
+      core.reset();
+      const success = core.exec(...args) === 0;
+      if (core.FS.analyzePath('poster.jpg').exists) {
+        const candidate = core.FS.readFile('poster.jpg');
+        if (success && candidate.length > 0) {
+          poster = candidate;
+          break;
+        }
+        core.FS.unlink('poster.jpg');
+      }
+    }
+    if (!poster) throw new Error('poster');
     const video = core.FS.readFile('post.mp4');
-    const poster = core.FS.readFile('poster.jpg');
     // Hash the encoded container bytes, including its headers, in the worker.
     core.reset();
     if (core.exec('-f', 'data', '-i', 'post.mp4', '-map', '0:0', '-c', 'copy',

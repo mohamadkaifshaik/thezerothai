@@ -56,6 +56,27 @@ service MediaService {
   // its objects are deleted. A busy GIF slot consumes no attempt.
   // For videos the server screens a sheet of 4-15 sampled frames and the still thumbnail before publication.
   rpc FinalizeUpload(FinalizeUploadRequest) returns (FinalizeUploadResponse);
+
+  // Transcribe an explicitly selected clip segment. Only its audio is sent.
+  // A segment is mono Ogg Opus, up to 55 seconds.
+  // The returned times are relative to the start of that audio segment.
+  rpc TranscribeVideoAudio(TranscribeVideoAudioRequest) returns (TranscribeVideoAudioResponse);
+}
+
+message TranscribeVideoAudioRequest {
+  bytes ogg_opus = 1;
+  // BCP 47 recognition language, e.g. en-IN or hi-IN.
+  string language_code = 2;
+}
+
+message VideoCaptionCue {
+  int32 start_ms = 1;
+  int32 end_ms = 2;
+  string text = 3;
+}
+
+message TranscribeVideoAudioResponse {
+  repeated VideoCaptionCue cues = 1;
 }
 
 enum MediaPurpose {
@@ -99,6 +120,8 @@ message UploadItem {
   // (a still first frame); for image/jpeg and image/webp it must be empty or equal to content_type. Bound into the
   // thumbnail's signed URL like content_type is for the full image.
   string thumb_content_type = 8;
+  // Only for video/mp4. Uses the same flags as MediaRef.video_labels.
+  uint32 video_labels = 9;
 }
 
 message SignedUpload {

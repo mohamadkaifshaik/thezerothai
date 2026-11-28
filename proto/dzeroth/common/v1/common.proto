@@ -71,6 +71,11 @@ message MediaRef {
   // from the media doc at CreatePost, and into embeds with them. Treat unknown values as a still image
   // that cannot play.
   string content_type = 8;
+  // Uploader-provided video labels. Bits 1, 2, and 4 indicate nudity,
+  // violence, and other sensitive content. Bit 8 discloses AI-generated media.
+  // Bit 16 enables the in-app download action. Zero carries no uploader
+  // labels or download opt-in. These labels do not replace screening.
+  uint32 video_labels = 9;
 }
 
 // One pinned Home tab (founder decision F5). Home always starts with the fixed "Following" tab, which is

@@ -6863,6 +6863,18 @@ class $UnsentPostPhotoEntriesTable extends UnsentPostPhotoEntries
     requiredDuringInsert: false,
     defaultValue: const Constant(''),
   );
+  static const VerificationMeta _videoLabelsMeta = const VerificationMeta(
+    'videoLabels',
+  );
+  @override
+  late final GeneratedColumn<int> videoLabels = GeneratedColumn<int>(
+    'video_labels',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
   static const VerificationMeta _altTextMeta = const VerificationMeta(
     'altText',
   );
@@ -6901,6 +6913,7 @@ class $UnsentPostPhotoEntriesTable extends UnsentPostPhotoEntries
     blurhash,
     contentType,
     thumbContentType,
+    videoLabels,
     altText,
     mediaId,
   ];
@@ -7016,6 +7029,15 @@ class $UnsentPostPhotoEntriesTable extends UnsentPostPhotoEntries
         ),
       );
     }
+    if (data.containsKey('video_labels')) {
+      context.handle(
+        _videoLabelsMeta,
+        videoLabels.isAcceptableOrUnknown(
+          data['video_labels']!,
+          _videoLabelsMeta,
+        ),
+      );
+    }
     if (data.containsKey('alt_text')) {
       context.handle(
         _altTextMeta,
@@ -7085,6 +7107,10 @@ class $UnsentPostPhotoEntriesTable extends UnsentPostPhotoEntries
         DriftSqlType.string,
         data['${effectivePrefix}thumb_content_type'],
       )!,
+      videoLabels: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}video_labels'],
+      )!,
       altText: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}alt_text'],
@@ -7116,6 +7142,7 @@ class UnsentPostPhotoRow extends DataClass
   final String blurhash;
   final String contentType;
   final String thumbContentType;
+  final int videoLabels;
   final String altText;
 
   /// The media id of this photo's finished upload, '' while not uploaded.
@@ -7133,6 +7160,7 @@ class UnsentPostPhotoRow extends DataClass
     required this.blurhash,
     required this.contentType,
     required this.thumbContentType,
+    required this.videoLabels,
     required this.altText,
     required this.mediaId,
   });
@@ -7151,6 +7179,7 @@ class UnsentPostPhotoRow extends DataClass
     map['blurhash'] = Variable<String>(blurhash);
     map['content_type'] = Variable<String>(contentType);
     map['thumb_content_type'] = Variable<String>(thumbContentType);
+    map['video_labels'] = Variable<int>(videoLabels);
     map['alt_text'] = Variable<String>(altText);
     map['media_id'] = Variable<String>(mediaId);
     return map;
@@ -7170,6 +7199,7 @@ class UnsentPostPhotoRow extends DataClass
       blurhash: Value(blurhash),
       contentType: Value(contentType),
       thumbContentType: Value(thumbContentType),
+      videoLabels: Value(videoLabels),
       altText: Value(altText),
       mediaId: Value(mediaId),
     );
@@ -7193,6 +7223,7 @@ class UnsentPostPhotoRow extends DataClass
       blurhash: serializer.fromJson<String>(json['blurhash']),
       contentType: serializer.fromJson<String>(json['contentType']),
       thumbContentType: serializer.fromJson<String>(json['thumbContentType']),
+      videoLabels: serializer.fromJson<int>(json['videoLabels']),
       altText: serializer.fromJson<String>(json['altText']),
       mediaId: serializer.fromJson<String>(json['mediaId']),
     );
@@ -7213,6 +7244,7 @@ class UnsentPostPhotoRow extends DataClass
       'blurhash': serializer.toJson<String>(blurhash),
       'contentType': serializer.toJson<String>(contentType),
       'thumbContentType': serializer.toJson<String>(thumbContentType),
+      'videoLabels': serializer.toJson<int>(videoLabels),
       'altText': serializer.toJson<String>(altText),
       'mediaId': serializer.toJson<String>(mediaId),
     };
@@ -7231,6 +7263,7 @@ class UnsentPostPhotoRow extends DataClass
     String? blurhash,
     String? contentType,
     String? thumbContentType,
+    int? videoLabels,
     String? altText,
     String? mediaId,
   }) => UnsentPostPhotoRow(
@@ -7246,6 +7279,7 @@ class UnsentPostPhotoRow extends DataClass
     blurhash: blurhash ?? this.blurhash,
     contentType: contentType ?? this.contentType,
     thumbContentType: thumbContentType ?? this.thumbContentType,
+    videoLabels: videoLabels ?? this.videoLabels,
     altText: altText ?? this.altText,
     mediaId: mediaId ?? this.mediaId,
   );
@@ -7269,6 +7303,9 @@ class UnsentPostPhotoRow extends DataClass
       thumbContentType: data.thumbContentType.present
           ? data.thumbContentType.value
           : this.thumbContentType,
+      videoLabels: data.videoLabels.present
+          ? data.videoLabels.value
+          : this.videoLabels,
       altText: data.altText.present ? data.altText.value : this.altText,
       mediaId: data.mediaId.present ? data.mediaId.value : this.mediaId,
     );
@@ -7289,6 +7326,7 @@ class UnsentPostPhotoRow extends DataClass
           ..write('blurhash: $blurhash, ')
           ..write('contentType: $contentType, ')
           ..write('thumbContentType: $thumbContentType, ')
+          ..write('videoLabels: $videoLabels, ')
           ..write('altText: $altText, ')
           ..write('mediaId: $mediaId')
           ..write(')'))
@@ -7309,6 +7347,7 @@ class UnsentPostPhotoRow extends DataClass
     blurhash,
     contentType,
     thumbContentType,
+    videoLabels,
     altText,
     mediaId,
   );
@@ -7328,6 +7367,7 @@ class UnsentPostPhotoRow extends DataClass
           other.blurhash == this.blurhash &&
           other.contentType == this.contentType &&
           other.thumbContentType == this.thumbContentType &&
+          other.videoLabels == this.videoLabels &&
           other.altText == this.altText &&
           other.mediaId == this.mediaId);
 }
@@ -7346,6 +7386,7 @@ class UnsentPostPhotoEntriesCompanion
   final Value<String> blurhash;
   final Value<String> contentType;
   final Value<String> thumbContentType;
+  final Value<int> videoLabels;
   final Value<String> altText;
   final Value<String> mediaId;
   final Value<int> rowid;
@@ -7362,6 +7403,7 @@ class UnsentPostPhotoEntriesCompanion
     this.blurhash = const Value.absent(),
     this.contentType = const Value.absent(),
     this.thumbContentType = const Value.absent(),
+    this.videoLabels = const Value.absent(),
     this.altText = const Value.absent(),
     this.mediaId = const Value.absent(),
     this.rowid = const Value.absent(),
@@ -7379,6 +7421,7 @@ class UnsentPostPhotoEntriesCompanion
     required String blurhash,
     required String contentType,
     this.thumbContentType = const Value.absent(),
+    this.videoLabels = const Value.absent(),
     this.altText = const Value.absent(),
     this.mediaId = const Value.absent(),
     this.rowid = const Value.absent(),
@@ -7406,6 +7449,7 @@ class UnsentPostPhotoEntriesCompanion
     Expression<String>? blurhash,
     Expression<String>? contentType,
     Expression<String>? thumbContentType,
+    Expression<int>? videoLabels,
     Expression<String>? altText,
     Expression<String>? mediaId,
     Expression<int>? rowid,
@@ -7423,6 +7467,7 @@ class UnsentPostPhotoEntriesCompanion
       if (blurhash != null) 'blurhash': blurhash,
       if (contentType != null) 'content_type': contentType,
       if (thumbContentType != null) 'thumb_content_type': thumbContentType,
+      if (videoLabels != null) 'video_labels': videoLabels,
       if (altText != null) 'alt_text': altText,
       if (mediaId != null) 'media_id': mediaId,
       if (rowid != null) 'rowid': rowid,
@@ -7442,6 +7487,7 @@ class UnsentPostPhotoEntriesCompanion
     Value<String>? blurhash,
     Value<String>? contentType,
     Value<String>? thumbContentType,
+    Value<int>? videoLabels,
     Value<String>? altText,
     Value<String>? mediaId,
     Value<int>? rowid,
@@ -7459,6 +7505,7 @@ class UnsentPostPhotoEntriesCompanion
       blurhash: blurhash ?? this.blurhash,
       contentType: contentType ?? this.contentType,
       thumbContentType: thumbContentType ?? this.thumbContentType,
+      videoLabels: videoLabels ?? this.videoLabels,
       altText: altText ?? this.altText,
       mediaId: mediaId ?? this.mediaId,
       rowid: rowid ?? this.rowid,
@@ -7504,6 +7551,9 @@ class UnsentPostPhotoEntriesCompanion
     if (thumbContentType.present) {
       map['thumb_content_type'] = Variable<String>(thumbContentType.value);
     }
+    if (videoLabels.present) {
+      map['video_labels'] = Variable<int>(videoLabels.value);
+    }
     if (altText.present) {
       map['alt_text'] = Variable<String>(altText.value);
     }
@@ -7531,6 +7581,7 @@ class UnsentPostPhotoEntriesCompanion
           ..write('blurhash: $blurhash, ')
           ..write('contentType: $contentType, ')
           ..write('thumbContentType: $thumbContentType, ')
+          ..write('videoLabels: $videoLabels, ')
           ..write('altText: $altText, ')
           ..write('mediaId: $mediaId, ')
           ..write('rowid: $rowid')
@@ -11337,6 +11388,7 @@ typedef $$UnsentPostPhotoEntriesTableCreateCompanionBuilder =
       required String blurhash,
       required String contentType,
       Value<String> thumbContentType,
+      Value<int> videoLabels,
       Value<String> altText,
       Value<String> mediaId,
       Value<int> rowid,
@@ -11355,6 +11407,7 @@ typedef $$UnsentPostPhotoEntriesTableUpdateCompanionBuilder =
       Value<String> blurhash,
       Value<String> contentType,
       Value<String> thumbContentType,
+      Value<int> videoLabels,
       Value<String> altText,
       Value<String> mediaId,
       Value<int> rowid,
@@ -11426,6 +11479,11 @@ class $$UnsentPostPhotoEntriesTableFilterComposer
 
   ColumnFilters<String> get thumbContentType => $composableBuilder(
     column: $table.thumbContentType,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get videoLabels => $composableBuilder(
+    column: $table.videoLabels,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -11509,6 +11567,11 @@ class $$UnsentPostPhotoEntriesTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<int> get videoLabels => $composableBuilder(
+    column: $table.videoLabels,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get altText => $composableBuilder(
     column: $table.altText,
     builder: (column) => ColumnOrderings(column),
@@ -11568,6 +11631,11 @@ class $$UnsentPostPhotoEntriesTableAnnotationComposer
 
   GeneratedColumn<String> get thumbContentType => $composableBuilder(
     column: $table.thumbContentType,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get videoLabels => $composableBuilder(
+    column: $table.videoLabels,
     builder: (column) => column,
   );
 
@@ -11636,6 +11704,7 @@ class $$UnsentPostPhotoEntriesTableTableManager
                 Value<String> blurhash = const Value.absent(),
                 Value<String> contentType = const Value.absent(),
                 Value<String> thumbContentType = const Value.absent(),
+                Value<int> videoLabels = const Value.absent(),
                 Value<String> altText = const Value.absent(),
                 Value<String> mediaId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
@@ -11652,6 +11721,7 @@ class $$UnsentPostPhotoEntriesTableTableManager
                 blurhash: blurhash,
                 contentType: contentType,
                 thumbContentType: thumbContentType,
+                videoLabels: videoLabels,
                 altText: altText,
                 mediaId: mediaId,
                 rowid: rowid,
@@ -11670,6 +11740,7 @@ class $$UnsentPostPhotoEntriesTableTableManager
                 required String blurhash,
                 required String contentType,
                 Value<String> thumbContentType = const Value.absent(),
+                Value<int> videoLabels = const Value.absent(),
                 Value<String> altText = const Value.absent(),
                 Value<String> mediaId = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
@@ -11686,6 +11757,7 @@ class $$UnsentPostPhotoEntriesTableTableManager
                 blurhash: blurhash,
                 contentType: contentType,
                 thumbContentType: thumbContentType,
+                videoLabels: videoLabels,
                 altText: altText,
                 mediaId: mediaId,
                 rowid: rowid,

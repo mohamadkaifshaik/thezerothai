@@ -9,6 +9,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -468,6 +469,8 @@ type Config struct {
 	// in lists is moderated as well as the full image (2 units per image instead of 1). Set false to follow
 	// the one-unit wording literally.
 	VisionScreenThumb bool
+	// VideoCaptions enables Google Cloud Speech-to-Text for user-selected audio.
+	VideoCaptions bool
 	// ProfileMediaRetire is PROFILE_MEDIA_RETIRE (default off): which replaced or removed profile
 	// images the profile_media_retired step deletes after the grace. Per-project retention, not a FEATURE_ flag.
 	ProfileMediaRetire ProfileMediaRetire
@@ -1034,6 +1037,10 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("config: invalid VISION_SCREEN_THUMB %q (want true|false)", v)
 	}
 	authIdentityAudit := false
+	videoCaptions, err := strconv.ParseBool(getenv("VIDEO_CAPTIONS", "false"))
+	if err != nil {
+		return Config{}, fmt.Errorf("config: invalid VIDEO_CAPTIONS (want true|false)")
+	}
 	switch v := strings.ToLower(getenv("AUTH_IDENTITY_AUDIT", "false")); v {
 	case "true", "1":
 		authIdentityAudit = true
@@ -1455,6 +1462,7 @@ func Load() (Config, error) {
 		MediaBucket:                  mediaBucket,
 		MediaPublicBaseURL:           strings.TrimRight(getenv("MEDIA_PUBLIC_BASE_URL", "https://storage.googleapis.com/"+mediaBucket), "/"),
 		VisionScreenThumb:            visionScreenThumb,
+		VideoCaptions:                videoCaptions,
 		ProfileMediaRetire:           profileMediaRetire,
 		MediaOrphanSweep:             mediaOrphanSweep,
 		AuthIdentityAudit:            authIdentityAudit,

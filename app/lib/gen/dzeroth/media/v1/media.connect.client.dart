@@ -81,4 +81,24 @@ extension type MediaServiceClient (connect.Transport _transport) {
       onTrailer: onTrailer,
     );
   }
+
+  /// Transcribe an explicitly selected clip segment. Only its audio is sent.
+  /// A segment is mono Ogg Opus, up to 55 seconds.
+  /// The returned times are relative to the start of that audio segment.
+  Future<dzerothmediav1media.TranscribeVideoAudioResponse> transcribeVideoAudio(
+    dzerothmediav1media.TranscribeVideoAudioRequest input, {
+    connect.Headers? headers,
+    connect.AbortSignal? signal,
+    Function(connect.Headers)? onHeader,
+    Function(connect.Headers)? onTrailer,
+  }) {
+    return connect.Client(_transport).unary(
+      specs.MediaService.transcribeVideoAudio,
+      input,
+      signal: signal,
+      headers: headers,
+      onHeader: onHeader,
+      onTrailer: onTrailer,
+    );
+  }
 }

@@ -8,15 +8,16 @@ import 'package:video_player/video_player.dart';
 import '../domain/image_processor.dart';
 import '../domain/processed_image.dart';
 import '../domain/processing_cancellation.dart';
+import '../domain/video_edit.dart';
+import 'video_artwork.dart';
 import 'video_conversion.dart';
 import 'video_conversion_native.dart'
     if (dart.library.js_interop) 'video_conversion_web.dart';
 
 export 'video_conversion.dart' show ClipEdit;
-
 export 'video_conversion_native.dart'
     if (dart.library.js_interop) 'video_conversion_web.dart'
-    show withVideoPreview;
+    show withVideoPreview, extractCaptionSegments;
 
 typedef ChooseClipEdit = Future<ClipEdit?> Function(String path);
 
@@ -50,18 +51,31 @@ Future<ProcessedImage> preparePostVideo(
   ImageProcessor processor,
   ProcessingCancellation cancellation, {
   ClipEdit edit = const ClipEdit(),
+  List<VideoLayer> layers = const [],
+  Duration? coverAt,
+  Uint8List? coverImage,
+  int videoLabels = 0,
 }) async {
   cancellation.throwIfCancelled();
   if (await file.length() > maxClipBytes) {
     throw const FormatException('Choose a video up to 96 MiB.');
   }
-  final clip = await convertClip(file, cancellation, edit: edit);
+  final clip = await convertClip(
+    file,
+    cancellation,
+    edit: edit,
+    layers: layers,
+    coverAt: coverAt,
+  );
   final size = clipDimensions(clip.metadata);
   if (clip.video.length > maxClipBytes) {
     throw const FormatException('Choose a video up to 96 MiB.');
   }
+  final poster = coverImage == null
+      ? clip.poster
+      : await renderVideoCover(coverImage, size.width, size.height);
   final preview = await processor.process(
-    clip.poster,
+    poster,
     ImagePurpose.post,
     cancellation: cancellation,
   );
@@ -75,5 +89,54 @@ Future<ProcessedImage> preparePostVideo(
     blurhash: preview.blurhash,
     contentType: kVideoContentType,
     thumbContentType: preview.contentType,
+    videoLabels: videoLabels,
   );
+}
+
+Future<ProcessedImage> editPostVideo(
+  ProcessedImage source,
+  VideoProject project,
+  ImageProcessor processor,
+  ProcessingCancellation cancellation,
+) async {
+  final edit = project.range;
+  if (edit.start < Duration.zero ||
+      edit.end <= edit.start ||
+      edit.end - edit.start > const Duration(minutes: 5)) {
+    throw const FormatException('Choose a valid video range up to 5 minutes.');
+  }
+  final layers = await cancellation.guard(
+    renderVideoLayers(project, source.width, source.height),
+  );
+  final latestFrame = edit.end - const Duration(milliseconds: 120);
+  final frame = project.coverFrame?.clampBetween(
+    edit.start,
+    latestFrame < edit.start ? edit.start : latestFrame,
+  );
+  late final ProcessedImage result;
+  await withVideoPreview(source.fullBytes, (path) async {
+    result = await preparePostVideo(
+      XFile(path, length: source.fullBytes.length, mimeType: kVideoContentType),
+      processor,
+      cancellation,
+      edit: ClipEdit(
+        start: edit.start,
+        length: edit.end - edit.start,
+        muted: edit.muted,
+      ),
+      layers: layers,
+      coverAt: frame == null ? null : frame - edit.start,
+      coverImage: project.coverImage,
+      videoLabels: project.labels,
+    );
+  });
+  return result;
+}
+
+extension on Duration {
+  Duration clampBetween(Duration min, Duration max) {
+    if (this < min) return min;
+    if (this > max) return max;
+    return this;
+  }
 }

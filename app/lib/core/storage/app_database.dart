@@ -447,6 +447,7 @@ class UnsentPostPhotoEntries extends Table {
   TextColumn get blurhash => text()();
   TextColumn get contentType => text()();
   TextColumn get thumbContentType => text().withDefault(const Constant(''))();
+  IntColumn get videoLabels => integer().withDefault(const Constant(0))();
   TextColumn get altText => text().withDefault(const Constant(''))();
 
   /// The media id of this photo's finished upload, '' while not uploaded.
@@ -524,7 +525,7 @@ class AppDatabase extends _$AppDatabase {
   final SessionEpoch sessionEpoch = SessionEpoch();
 
   @override
-  int get schemaVersion => 15;
+  int get schemaVersion => 16;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -621,6 +622,13 @@ class AppDatabase extends _$AppDatabase {
       if (from < 15) {
         await m.createTable(unsentPostEntries);
         await m.createTable(unsentPostPhotoEntries);
+      }
+      // Earlier upgrades created the table from the current schema above.
+      if (from == 15) {
+        await m.addColumn(
+          unsentPostPhotoEntries,
+          unsentPostPhotoEntries.videoLabels,
+        );
       }
     },
   );
