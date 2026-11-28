@@ -48,6 +48,7 @@ type Doc struct {
 	// ThumbContentType is the thumbnail's type; absent = ContentType (every document before W6, and every
 	// JPEG or WebP upload without thumb_content_type). Read it through ThumbType.
 	ThumbContentType string `firestore:"thumbContentType,omitempty"`
+	VideoLabels      uint32 `firestore:"videoLabels,omitempty"`
 	Bytes            int64  `firestore:"bytes"`
 	ThumbBytes       int64  `firestore:"thumbBytes"`
 	Width            int    `firestore:"w"`

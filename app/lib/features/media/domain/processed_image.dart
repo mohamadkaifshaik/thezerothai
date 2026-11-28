@@ -16,6 +16,7 @@ class ProcessedImage {
     required this.blurhash,
     this.contentType = 'image/jpeg',
     this.thumbContentType = '',
+    this.videoLabels = 0,
   });
 
   final Uint8List fullBytes;
@@ -40,6 +41,7 @@ class ProcessedImage {
   /// "the same as [contentType]" (every photo). A GIF sets `image/jpeg`: its
   /// thumbnail is a still of the first frame.
   final String thumbContentType;
+  final int videoLabels;
 
   /// An animated GIF: [fullBytes] are the picked file, unchanged.
   bool get isGif => contentType == kGifContentType;

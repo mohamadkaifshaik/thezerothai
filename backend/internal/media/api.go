@@ -87,6 +87,7 @@ type Ref struct {
 	Blurhash string
 	// ContentType is the full object's type (common.MediaRef.content_type).
 	ContentType string
+	VideoLabels uint32
 }
 
 // Errors.
@@ -172,6 +173,7 @@ type UploadItem struct {
 	ThumbMD5 string
 	// ThumbContentType is the thumbnail's type: "" means the same as ContentType.
 	ThumbContentType string
+	VideoLabels      uint32
 }
 
 // SignedPut is one signed upload URL.

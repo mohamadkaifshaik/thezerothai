@@ -39,6 +39,32 @@ void main() {
     expect(find.text('123 / 1'), findsOneWidget);
   });
 
+  testWidgets('sensitive clips hide their poster until revealed', (
+    tester,
+  ) async {
+    final clip = common.MediaRef(
+      url: 'https://cdn.example/clip.mp4',
+      thumbUrl: 'https://cdn.example/poster.jpg',
+      width: 640,
+      height: 480,
+      contentType: 'video/mp4',
+      videoLabels: 2 | 8,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(body: PostMedia(media: [clip])),
+      ),
+    );
+    expect(find.text('Sensitive video'), findsOneWidget);
+    expect(find.text('Violence'), findsOneWidget);
+    expect(find.byType(CachedNetworkImage), findsNothing);
+    await tester.tap(find.text('Show video'));
+    await tester.pump();
+    expect(find.byType(CachedNetworkImage), findsOneWidget);
+    expect(find.text('Made with AI'), findsOneWidget);
+    expect(find.byTooltip('Play video'), findsOneWidget);
+  });
+
   for (final detail in [false, true]) {
     testWidgets('only the poster loads before play (detail $detail)', (
       tester,

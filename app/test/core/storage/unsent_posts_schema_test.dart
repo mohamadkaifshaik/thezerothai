@@ -67,7 +67,7 @@ void main() {
 
     expect(await db.readSetting('theme'), 'dark');
     final version = await db.customSelect('PRAGMA user_version').getSingle();
-    expect(version.read<int>('user_version'), 15);
+    expect(version.read<int>('user_version'), 16);
 
     final store = UnsentPostsStore(db, keepsPhotoBytes: true);
     await store.save(_post('u1', 'p1'), epoch: db.sessionEpoch.value);

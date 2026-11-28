@@ -273,6 +273,7 @@ type mediaDoc struct {
 	Blurhash    string `firestore:"blurhash,omitempty"`
 	AltText     string `firestore:"altText,omitempty"`
 	ContentType string `firestore:"contentType,omitempty"`
+	VideoLabels uint32 `firestore:"videoLabels,omitempty"`
 }
 
 // toDoc converts a domain Post to its stored shape (used by writers, and by integration-test seeding).
@@ -316,7 +317,7 @@ func toDoc(p *Post) postDoc {
 			t := e.CreatedAt
 			ed.CreatedAt = &t
 			for _, m := range e.Media {
-				ed.Media = append(ed.Media, mediaDoc{MediaID: m.ID, URL: m.URL, ThumbURL: m.ThumbURL, Width: m.Width, Height: m.Height, Blurhash: m.Blurhash, AltText: m.AltText, ContentType: m.ContentType})
+				ed.Media = append(ed.Media, mediaDoc{MediaID: m.ID, URL: m.URL, ThumbURL: m.ThumbURL, Width: m.Width, Height: m.Height, Blurhash: m.Blurhash, AltText: m.AltText, ContentType: m.ContentType, VideoLabels: m.VideoLabels})
 			}
 		}
 		d.Embedded = ed
@@ -332,7 +333,7 @@ func toDoc(p *Post) postDoc {
 		d.Media = make([]mediaDoc, 0, len(p.Media))
 	}
 	for _, m := range p.Media {
-		d.Media = append(d.Media, mediaDoc{MediaID: m.ID, URL: m.URL, ThumbURL: m.ThumbURL, Width: m.Width, Height: m.Height, Blurhash: m.Blurhash, AltText: m.AltText, ContentType: m.ContentType})
+		d.Media = append(d.Media, mediaDoc{MediaID: m.ID, URL: m.URL, ThumbURL: m.ThumbURL, Width: m.Width, Height: m.Height, Blurhash: m.Blurhash, AltText: m.AltText, ContentType: m.ContentType, VideoLabels: m.VideoLabels})
 	}
 	return d
 }
@@ -378,7 +379,7 @@ func (d postDoc) toPost(id string) *Post {
 			pe.Poll = &EmbeddedPoll{Options: e.Poll.Options, ClosesAt: e.Poll.ClosesAt.UTC()}
 		}
 		for _, m := range e.Media {
-			pe.Media = append(pe.Media, MediaRef{ID: m.MediaID, URL: m.URL, ThumbURL: m.ThumbURL, Width: m.Width, Height: m.Height, Blurhash: m.Blurhash, AltText: m.AltText, ContentType: m.ContentType})
+			pe.Media = append(pe.Media, MediaRef{ID: m.MediaID, URL: m.URL, ThumbURL: m.ThumbURL, Width: m.Width, Height: m.Height, Blurhash: m.Blurhash, AltText: m.AltText, ContentType: m.ContentType, VideoLabels: m.VideoLabels})
 		}
 		p.Embedded = pe
 	}
@@ -391,7 +392,7 @@ func (d postDoc) toPost(id string) *Post {
 	if len(d.Media) > 0 {
 		p.Media = make([]MediaRef, len(d.Media))
 		for i, m := range d.Media {
-			p.Media[i] = MediaRef{ID: m.MediaID, URL: m.URL, ThumbURL: m.ThumbURL, Width: m.Width, Height: m.Height, Blurhash: m.Blurhash, AltText: m.AltText, ContentType: m.ContentType}
+			p.Media[i] = MediaRef{ID: m.MediaID, URL: m.URL, ThumbURL: m.ThumbURL, Width: m.Width, Height: m.Height, Blurhash: m.Blurhash, AltText: m.AltText, ContentType: m.ContentType, VideoLabels: m.VideoLabels}
 		}
 	}
 	return p

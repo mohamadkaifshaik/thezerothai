@@ -23,7 +23,7 @@ void main() {
 
     expect(await db.readSetting('theme'), 'dark');
     final version = await db.customSelect('PRAGMA user_version').getSingle();
-    expect(version.read<int>('user_version'), 15);
+    expect(version.read<int>('user_version'), 16);
 
     final repo = PostHistoryRepository(db);
     await repo.recordOpen(uid: 'u1', postId: 'p1');

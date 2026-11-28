@@ -44,6 +44,7 @@ func mediaProcedures() degraded.ProcedureSet {
 	return degraded.NewProcedureSet(
 		mediav1connect.MediaServiceCreateUploadProcedure,
 		mediav1connect.MediaServiceFinalizeUploadProcedure,
+		mediav1connect.MediaServiceTranscribeVideoAudioProcedure,
 	)
 }
 
@@ -127,10 +128,14 @@ func wireMedia(cfg config.Config, log *slog.Logger, fs *firestore.Client, featur
 			return buckets.Public.SignedMediaURL(ctx, object, cfg.ExportRetention)
 		})
 	}
+	server := media.NewServer(svc, featureFlags)
+	if cfg.VideoCaptions {
+		server.WithVideoCaptions(media.GoogleCaptions{})
+	}
 	return &mediaModule{
 		delivery: newMediaDelivery(cfg.MediaPublicBaseURL, buckets.Public.SignedMediaURL),
 		orphans:  orphans,
-		server:   media.NewServer(svc, featureFlags),
+		server:   server,
 		library:  media.NewLibrary(repo, cfg.MediaPublicBaseURL),
 		purger:   purger,
 		// PROFILE_MEDIA_RETIRE (default off) gates both the publish and the handler.
@@ -235,7 +240,7 @@ type postsMediaClaim struct{ c *media.Claim }
 func (m postsMediaClaim) Refs() []posts.MediaRef {
 	out := make([]posts.MediaRef, len(m.c.Refs))
 	for i, r := range m.c.Refs {
-		out[i] = posts.MediaRef{ID: r.ID, URL: r.URL, ThumbURL: r.ThumbURL, Width: r.Width, Height: r.Height, Blurhash: r.Blurhash, ContentType: r.ContentType}
+		out[i] = posts.MediaRef{ID: r.ID, URL: r.URL, ThumbURL: r.ThumbURL, Width: r.Width, Height: r.Height, Blurhash: r.Blurhash, ContentType: r.ContentType, VideoLabels: r.VideoLabels}
 	}
 	return out
 }

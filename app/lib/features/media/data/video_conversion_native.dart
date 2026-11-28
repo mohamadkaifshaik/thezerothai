@@ -12,12 +12,15 @@ import 'package:ffmpeg_kit_flutter_new_full/return_code.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../domain/processing_cancellation.dart';
+import '../domain/video_edit.dart';
 import 'video_conversion.dart';
 
 Future<ConvertedClip> convertClip(
   XFile file,
   ProcessingCancellation cancellation, {
   ClipEdit edit = const ClipEdit(),
+  List<VideoLayer> layers = const [],
+  Duration? coverAt,
 }) async {
   final directory = await Directory.systemTemp.createTemp('post-video-');
   final video = File('${directory.path}/post.mp4');
@@ -31,21 +34,21 @@ Future<ConvertedClip> convertClip(
       await file.saveTo(input);
     }
     cancellation.throwIfCancelled();
-    final finished = Completer<FFmpegSession>();
-    final running = await FFmpegKit.executeWithArgumentsAsync(
-      encodeClip(input, video.path, web: false, edit: edit),
-      finished.complete,
+    final artwork = [
+      for (final (index, layer) in layers.indexed)
+        (
+          path: (await File(
+            '${directory.path}/overlay-$index.png',
+          ).writeAsBytes(layer.png)).path,
+          layer: layer,
+        ),
+    ];
+    cancellation.throwIfCancelled();
+    final converted = await _runFFmpeg(
+      encodeClip(input, video.path, web: false, edit: edit, artwork: artwork),
+      cancellation,
     );
-    final FFmpegSession session;
-    try {
-      session = await cancellation.guard(finished.future);
-    } on ImageProcessingCancelled {
-      final id = running.getSessionId();
-      if (id != null && !finished.isCompleted) await FFmpegKit.cancel(id);
-      await finished.future;
-      rethrow;
-    }
-    if (!ReturnCode.isSuccess(await session.getReturnCode())) {
+    if (!converted) {
       throw const FormatException(unreadableClip);
     }
     final probe = await FFprobeKit.executeWithArguments(
@@ -59,10 +62,16 @@ Future<ConvertedClip> convertClip(
     if (await video.length() > maxClipBytes) {
       throw const FormatException('Choose a video up to 96 MiB.');
     }
-    final frame = await FFmpegKit.executeWithArguments(
-      extractPoster(video.path, poster.path),
-    );
-    if (!ReturnCode.isSuccess(await frame.getReturnCode())) {
+    var created = false;
+    for (final args in posterCandidates(video.path, poster.path, coverAt)) {
+      final ok = await _runFFmpeg(args, cancellation);
+      if (ok && await poster.exists() && await poster.length() > 0) {
+        created = true;
+        break;
+      }
+      if (await poster.exists()) await poster.delete();
+    }
+    if (!created) {
       throw const FormatException('Could not create a poster for this clip.');
     }
     return (
@@ -71,6 +80,52 @@ Future<ConvertedClip> convertClip(
       metadata: info,
       fullMd5: await _checksum(video.path),
     );
+  } finally {
+    await directory.delete(recursive: true);
+  }
+}
+
+Future<bool> _runFFmpeg(
+  List<String> args,
+  ProcessingCancellation cancellation,
+) async {
+  cancellation.throwIfCancelled();
+  final finished = Completer<FFmpegSession>();
+  final running = await FFmpegKit.executeWithArgumentsAsync(
+    args,
+    finished.complete,
+  );
+  try {
+    final session = await cancellation.guard(finished.future);
+    return ReturnCode.isSuccess(await session.getReturnCode());
+  } on ImageProcessingCancelled {
+    final id = running.getSessionId();
+    if (id != null && !finished.isCompleted) await FFmpegKit.cancel(id);
+    await finished.future;
+    rethrow;
+  }
+}
+
+Future<List<Uint8List>> extractCaptionSegments(
+  String path,
+  List<VideoAudioWindow> windows,
+  ProcessingCancellation cancellation,
+) async {
+  final directory = await Directory.systemTemp.createTemp('caption-audio-');
+  try {
+    final chunks = <Uint8List>[];
+    for (final (index, window) in windows.indexed) {
+      final output = File('${directory.path}/segment-$index.ogg');
+      final ok = await _runFFmpeg(
+        encodeCaptionAudio(path, output.path, window),
+        cancellation,
+      );
+      if (!ok) {
+        throw const FormatException('Could not read audio from this video.');
+      }
+      chunks.add(await output.readAsBytes());
+    }
+    return chunks;
   } finally {
     await directory.delete(recursive: true);
   }

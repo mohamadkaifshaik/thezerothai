@@ -10,6 +10,7 @@ import '../../../gen/dzeroth/media/v1/media.pb.dart' as pb;
 import '../../posts/domain/composer_attachment_rules.dart' show kFeatureGif;
 import '../domain/media_feature_flag.dart';
 import '../domain/processed_image.dart';
+import '../domain/video_edit.dart';
 
 /// Storage answered a signed-URL PUT with a 4xx: the URL is expired or
 /// otherwise unusable, so retrying the same URL cannot work. The uploader
@@ -29,8 +30,8 @@ class FinalizeRequestItem {
   final String blurhash;
 }
 
-/// Talks to `MediaService` and PUTs bytes to the signed GCS URLs (bytes never
-/// pass through the API, the media rule).
+/// Talks to `MediaService` and PUTs post assets directly to signed GCS URLs.
+/// The optional caption RPC sends only the selected audio.
 ///
 /// - With the media flag off no RPC is sent ([FeatureDisabledException]); a
 ///   server FEATURE_DISABLED calls [onFeatureDisabled] so the caller can
@@ -86,6 +87,25 @@ class MediaRepository {
     }
   }
 
+  Future<List<VideoCaption>> transcribeVideoAudio(
+    Uint8List audio,
+    String language,
+  ) async {
+    final response = await _run(
+      () => _apiClient.media.transcribeVideoAudio(
+        pb.TranscribeVideoAudioRequest(oggOpus: audio, languageCode: language),
+      ),
+    );
+    return [
+      for (final cue in response.cues)
+        (
+          start: Duration(milliseconds: cue.startMs),
+          end: Duration(milliseconds: cue.endMs),
+          text: cue.text,
+        ),
+    ];
+  }
+
   /// Reserves media ids and signed PUT URLs for [images]. Reuse the same
   /// [idempotencyKey] when retrying the same call (the server replays the
   /// stored result and never charges the quota twice).
@@ -120,6 +140,7 @@ class MediaRepository {
                 // Empty for photos (= the full image's type); `image/jpeg`
                 // for a GIF. The signed thumbnail URL pins it.
                 thumbContentType: image.thumbContentType,
+                videoLabels: image.videoLabels,
               ),
           ],
         ),

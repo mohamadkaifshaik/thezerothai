@@ -17,6 +17,7 @@ import '../../domain/photo_edit.dart';
 import '../../domain/processed_image.dart';
 import '../../domain/processing_cancellation.dart';
 import '../../domain/unusual_aspect.dart';
+import '../../domain/video_edit.dart';
 
 /// Shown when a keyboard GIF arrives while GIFs are off.
 const kGifOffMessage = 'GIFs are not available right now.';
@@ -451,6 +452,61 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
 
   /// The edit each photo was last processed with.
   final Map<String, PhotoEdit> _edits = {};
+  final Map<String, ProcessedImage> _videoSources = {};
+  final Map<String, VideoProject> _videoEdits = {};
+
+  ProcessedImage? videoSourceOf(Attachment video) =>
+      _videoSources[video.id] ?? video.image;
+
+  VideoProject? videoEditOf(String id) => _videoEdits[id];
+
+  Future<ProcessedImage> renderVideoEdit(
+    ProcessedImage source,
+    VideoProject edit,
+  ) => editPostVideo(source, edit, _processor, ProcessingCancellation());
+
+  Future<void> applyVideoEdit(String id, VideoProject edit) async {
+    final index = state.items.indexWhere((item) => item.id == id);
+    if (index == -1 || edit == videoEditOf(id)) return;
+    final previous = state.items[index];
+    if (previous.kind != AttachmentKind.video ||
+        !state.isSendable ||
+        _picking) {
+      return;
+    }
+    final source = videoSourceOf(previous);
+    if (source == null) return;
+    final cancellation = ProcessingCancellation();
+    _processing[id] = cancellation;
+    _update(id, (item) => item.copyWith(status: AttachmentStatus.processing));
+    try {
+      final image = await editPostVideo(source, edit, _processor, cancellation);
+      if (isClosed || !identical(_processing[id], cancellation)) return;
+      _videoSources[id] = source;
+      _videoEdits[id] = edit;
+      _uploader.forget(id);
+      _update(
+        id,
+        (item) => item.copyWith(
+          status: AttachmentStatus.ready,
+          image: image,
+          mediaId: '',
+          progress: 0,
+          rejectionReason: '',
+        ),
+      );
+    } catch (error) {
+      if (isClosed || !identical(_processing[id], cancellation)) return;
+      emit(
+        AttachmentsState(
+          items: [previous],
+          refusal: error is FormatException ? error.message : 'Could not save the video edit. Your previous clip is still attached.',
+        ),
+      );
+    } finally {
+      if (identical(_processing[id], cancellation)) _processing.remove(id);
+    }
+  }
 
   /// The picked bytes of photo [id], or null (a GIF, or removed).
   Uint8List? sourceOf(String id) => _sources[id];
@@ -461,6 +517,17 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
 
   /// The edit photo [id] currently has (none by default).
   PhotoEdit editOf(String id) => _edits[id] ?? PhotoEdit.none;
+
+  Future<Uint8List> renderPhotoEdit(String id, PhotoEdit edit) async {
+    final source = _sources[id];
+    if (source == null) throw StateError('Photo source is unavailable');
+    final rendered = await _processor.process(
+      source,
+      ImagePurpose.post,
+      edit: edit,
+    );
+    return rendered.fullBytes;
+  }
 
   Future<void> _process(String id, Uint8List bytes, {PhotoEdit? edit}) async {
     final cancellation = ProcessingCancellation();
@@ -515,6 +582,8 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
     _sources.remove(id);
     _previews.remove(id);
     _edits.remove(id);
+    _videoSources.remove(id);
+    _videoEdits.remove(id);
     emit(
       AttachmentsState(
         items: [
@@ -802,28 +871,32 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
     bool gif = false,
   }) {
     if (isClosed) return;
-    emit(
-      AttachmentsState(
-        items: [
-          for (final p in photos)
-            Attachment(
-              id: _uuid.v4(),
-              kind: p.image.contentType == kVideoContentType
-                  ? AttachmentKind.video
-                  : gif
-                  ? AttachmentKind.gif
-                  : AttachmentKind.photo,
-              status: p.mediaId.isEmpty
-                  ? AttachmentStatus.ready
-                  : AttachmentStatus.uploaded,
-              image: p.image,
-              altText: p.altText,
-              mediaId: p.mediaId,
-              progress: p.mediaId.isEmpty ? 0 : 1,
-            ),
-        ],
-      ),
-    );
+    final items = [
+      for (final p in photos)
+        Attachment(
+          id: _uuid.v4(),
+          kind: p.image.contentType == kVideoContentType
+              ? AttachmentKind.video
+              : gif
+              ? AttachmentKind.gif
+              : AttachmentKind.photo,
+          status: p.mediaId.isEmpty
+              ? AttachmentStatus.ready
+              : AttachmentStatus.uploaded,
+          image: p.image,
+          altText: p.altText,
+          mediaId: p.mediaId,
+          progress: p.mediaId.isEmpty ? 0 : 1,
+        ),
+    ];
+    for (final item in items.where(
+      (item) => item.kind == AttachmentKind.photo,
+    )) {
+      final bytes = item.image!.fullBytes;
+      _sources[item.id] = bytes;
+      _previews[item.id] = bytes;
+    }
+    emit(AttachmentsState(items: items));
   }
 
   /// The server no longer has the uploads (MEDIA_NOT_READY): every photo that
@@ -865,6 +938,8 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
     _sources.clear();
     _previews.clear();
     _edits.clear();
+    _videoSources.clear();
+    _videoEdits.clear();
     emit(const AttachmentsState());
   }
 
@@ -901,6 +976,8 @@ class AttachmentsCubit extends Cubit<AttachmentsState> {
     _sources.clear();
     _previews.clear();
     _edits.clear();
+    _videoSources.clear();
+    _videoEdits.clear();
     return super.close();
   }
 }

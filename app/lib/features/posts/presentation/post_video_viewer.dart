@@ -9,6 +9,7 @@ import '../../../gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import '../../../shared/widgets/post/post_video.dart';
 import '../../engagement/domain/engagement_feature_flag.dart';
 import '../../media/domain/processed_image.dart';
+import '../../media/domain/video_edit.dart';
 import '../../search/data/search_repository.dart';
 import '../../search/presentation/bloc/trending_paged_cubit.dart';
 import 'widgets/loaded_post.dart';
@@ -107,6 +108,7 @@ class _PostVideoViewerState extends State<PostVideoViewer> {
         media.url.isEmpty) {
       return const Center(child: Text('Video unavailable'));
     }
+    final sensitive = VideoLabel.warnings(media.videoLabels).isNotEmpty;
     final poster = media.thumbUrl.isEmpty
         ? const ColoredBox(color: AppColors.photoBackground)
         : CachedNetworkImage(imageUrl: media.thumbUrl, fit: BoxFit.contain);
@@ -122,8 +124,11 @@ class _PostVideoViewerState extends State<PostVideoViewer> {
                     startOnOpen: true,
                     loop: true,
                     poster: poster,
+                    labels: media.videoLabels,
                   ),
                 )
+              : sensitive
+              ? const ColoredBox(color: AppColors.photoBackground)
               : poster,
         ),
         PhotoBottomPanel(view: view, engagement: engagement),

@@ -325,7 +325,8 @@ class MediaUploader {
           'c|${purpose.value}|'
           '${[for (final j in batch) '${j.id}:${j.image.fullMd5}:${j.image.thumbMd5}:'
                 '${j.image.fullBytes.length}:${j.image.thumbBytes.length}:'
-                '${j.image.width}x${j.image.height}'].join(',')}';
+                '${j.image.width}x${j.image.height}'
+                '${j.image.videoLabels == 0 ? '' : ':labels=${j.image.videoLabels}'}'].join(',')}';
       check();
       final targets = await _repository.createUpload(
         idempotencyKey: _key(intent),

@@ -6,6 +6,8 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../shared/widgets/post/gif_badge.dart';
 import '../../../../shared/widgets/post/post_video.dart';
+import '../../data/photo_gallery.dart';
+import '../../data/media_repository.dart';
 import '../../data/video_source.dart';
 import '../../domain/unusual_aspect.dart';
 import '../bloc/attachments_cubit.dart';
@@ -13,6 +15,7 @@ import '../media_error_messages.dart';
 import 'alt_text_editor.dart';
 import 'photo_editor.dart';
 import 'unusual_photo_notice.dart';
+import 'video_editor.dart';
 
 /// The composer's picked images: a single row of removable preview tiles
 /// (at most [kMaxPostImages]) with per-image state (processing, upload
@@ -177,19 +180,51 @@ class _AttachmentTileState extends State<AttachmentTile> {
   Future<void> _edit(BuildContext context) async {
     final cubit = context.read<AttachmentsCubit>();
     final id = attachment.id;
+    final source = cubit.previewOf(id);
     final result = await showPhotoEditor(
       context,
-      source: cubit.previewOf(id),
+      source: source,
       preview: attachment.previewBytes,
       initialEdit: cubit.editOf(id),
       initialAlt: attachment.altText,
       isGif: attachment.isGif,
       warning: _shape == null ? null : thinPhotoLine(_shape!),
+      onSaveToGallery: source != null
+          ? (edit) async =>
+                savePhotoToGallery(await cubit.renderPhotoEdit(id, edit))
+          : null,
     );
     if (result != null && !cubit.isClosed) {
       cubit.applyEdit(id, result.edit, result.altText);
     }
     if (mounted) _altFocus.requestFocus();
+  }
+
+  Future<void> _editVideo(BuildContext context) async {
+    final cubit = context.read<AttachmentsCubit>();
+    final repository = context.read<MediaRepository?>();
+    final id = attachment.id;
+    final source = cubit.videoSourceOf(attachment);
+    if (source == null) return;
+    final initial = cubit.videoEditOf(id);
+    var edit = initial;
+    await withVideoPreview(source.fullBytes, (path) async {
+      if (!context.mounted) return;
+      edit = await showVideoEditor(
+        context,
+        path,
+        initial,
+        savedLabels: attachment.image?.videoLabels ?? 0,
+        transcribe: repository?.transcribeVideoAudio,
+        onSaveCopy: (project) async {
+          final clip = await cubit.renderVideoEdit(source, project);
+          await withVideoPreview(clip.fullBytes, saveVideoToGallery);
+        },
+      );
+    });
+    if (edit != null && edit != initial && !cubit.isClosed) {
+      await cubit.applyVideoEdit(id, edit!);
+    }
   }
 
   Map<CustomSemanticsAction, VoidCallback> _moveActions(BuildContext context) {
@@ -333,6 +368,28 @@ class _AttachmentTileState extends State<AttachmentTile> {
                       ),
                     ),
                   ),
+                if (videoImage != null &&
+                    enabled &&
+                    !busy &&
+                    (attachment.status == AttachmentStatus.ready ||
+                        attachment.status == AttachmentStatus.uploaded ||
+                        attachment.status == AttachmentStatus.failed))
+                  PositionedDirectional(
+                    top: 0,
+                    start: 0,
+                    child: IconButton(
+                      tooltip: 'Edit video',
+                      icon: const Icon(
+                        Icons.edit_outlined,
+                        size: AppIconSize.md,
+                      ),
+                      style: IconButton.styleFrom(
+                        backgroundColor: colors.surface.withValues(alpha: 0.7),
+                        minimumSize: const Size.square(AppSpacing.minTapTarget),
+                      ),
+                      onPressed: () => _editVideo(context),
+                    ),
+                  ),
                 if (videoImage != null && preview != null && !busy && !problem)
                   Center(
                     child: IconButton.filled(
@@ -412,7 +469,7 @@ class _AttachmentTileState extends State<AttachmentTile> {
                       child: const Text('Retry'),
                     ),
                   )
-                else if (attachment.image != null)
+                else if (attachment.image != null && !busy)
                   PositionedDirectional(
                     bottom: 0,
                     start: 0,
@@ -433,9 +490,12 @@ class _AttachmentTileState extends State<AttachmentTile> {
                       ),
                       child: Text(
                         attachment.altText.isEmpty ? '+ ALT' : 'ALT',
-                        semanticsLabel: attachment.altText.isEmpty
-                            ? 'Add description for ${attachment.isGif ? 'GIF' : 'photo $position'}'
-                            : 'Edit description for ${attachment.isGif ? 'GIF' : 'photo $position'}',
+                        semanticsLabel:
+                            '${attachment.altText.isEmpty ? 'Add' : 'Edit'} description for ${switch (attachment.kind) {
+                              AttachmentKind.gif => 'GIF',
+                              AttachmentKind.video => 'video',
+                              AttachmentKind.photo => 'photo $position',
+                            }}',
                       ),
                     ),
                   ),

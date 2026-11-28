@@ -25,6 +25,225 @@ export 'package:protobuf/protobuf.dart' show GeneratedMessageGenericExtensions;
 
 export 'media.pbenum.dart';
 
+class TranscribeVideoAudioRequest extends $pb.GeneratedMessage {
+  factory TranscribeVideoAudioRequest({
+    $core.List<$core.int>? oggOpus,
+    $core.String? languageCode,
+  }) {
+    final result = TranscribeVideoAudioRequest._();
+    if (oggOpus != null) result.oggOpus = oggOpus;
+    if (languageCode != null) result.languageCode = languageCode;
+    return result;
+  }
+
+  TranscribeVideoAudioRequest._();
+
+  factory TranscribeVideoAudioRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      TranscribeVideoAudioRequest()..mergeFromBuffer(data, registry);
+  factory TranscribeVideoAudioRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      TranscribeVideoAudioRequest()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'TranscribeVideoAudioRequest',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.media.v1'),
+      createEmptyInstance: TranscribeVideoAudioRequest.$_createMessage)
+    ..a<$core.List<$core.int>>(
+        1, _omitFieldNames ? '' : 'oggOpus', $pb.PbFieldType.OY)
+    ..aOS(2, _omitFieldNames ? '' : 'languageCode')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  TranscribeVideoAudioRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  TranscribeVideoAudioRequest copyWith(
+          void Function(TranscribeVideoAudioRequest) updates) =>
+      super.copyWith(
+              (message) => updates(message as TranscribeVideoAudioRequest))
+          as TranscribeVideoAudioRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use TranscribeVideoAudioRequest() / TranscribeVideoAudioRequest.new instead')
+  static TranscribeVideoAudioRequest create() =>
+      TranscribeVideoAudioRequest._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      TranscribeVideoAudioRequest._();
+  @$core.override
+  TranscribeVideoAudioRequest createEmptyInstance() =>
+      TranscribeVideoAudioRequest._();
+  @$core.pragma('dart2js:noInline')
+  static TranscribeVideoAudioRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<TranscribeVideoAudioRequest>(
+          TranscribeVideoAudioRequest.$_createMessage);
+  static TranscribeVideoAudioRequest? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.List<$core.int> get oggOpus => $_getN(0);
+  @$pb.TagNumber(1)
+  set oggOpus($core.List<$core.int> value) => $_setBytes(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasOggOpus() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearOggOpus() => $_clearField(1);
+
+  /// BCP 47 recognition language, e.g. en-IN or hi-IN.
+  @$pb.TagNumber(2)
+  $core.String get languageCode => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set languageCode($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasLanguageCode() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearLanguageCode() => $_clearField(2);
+}
+
+class VideoCaptionCue extends $pb.GeneratedMessage {
+  factory VideoCaptionCue({
+    $core.int? startMs,
+    $core.int? endMs,
+    $core.String? text,
+  }) {
+    final result = VideoCaptionCue._();
+    if (startMs != null) result.startMs = startMs;
+    if (endMs != null) result.endMs = endMs;
+    if (text != null) result.text = text;
+    return result;
+  }
+
+  VideoCaptionCue._();
+
+  factory VideoCaptionCue.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      VideoCaptionCue()..mergeFromBuffer(data, registry);
+  factory VideoCaptionCue.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      VideoCaptionCue()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'VideoCaptionCue',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.media.v1'),
+      createEmptyInstance: VideoCaptionCue.$_createMessage)
+    ..aI(1, _omitFieldNames ? '' : 'startMs')
+    ..aI(2, _omitFieldNames ? '' : 'endMs')
+    ..aOS(3, _omitFieldNames ? '' : 'text')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  VideoCaptionCue clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  VideoCaptionCue copyWith(void Function(VideoCaptionCue) updates) =>
+      super.copyWith((message) => updates(message as VideoCaptionCue))
+          as VideoCaptionCue;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated('Use VideoCaptionCue() / VideoCaptionCue.new instead')
+  static VideoCaptionCue create() => VideoCaptionCue._();
+  static $pb.GeneratedMessage $_createMessage() => VideoCaptionCue._();
+  @$core.override
+  VideoCaptionCue createEmptyInstance() => VideoCaptionCue._();
+  @$core.pragma('dart2js:noInline')
+  static VideoCaptionCue getDefault() =>
+      _defaultInstance ??= $pb.GeneratedMessage.$_defaultFor<VideoCaptionCue>(
+          VideoCaptionCue.$_createMessage);
+  static VideoCaptionCue? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.int get startMs => $_getIZ(0);
+  @$pb.TagNumber(1)
+  set startMs($core.int value) => $_setSignedInt32(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasStartMs() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearStartMs() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.int get endMs => $_getIZ(1);
+  @$pb.TagNumber(2)
+  set endMs($core.int value) => $_setSignedInt32(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasEndMs() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearEndMs() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get text => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set text($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasText() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearText() => $_clearField(3);
+}
+
+class TranscribeVideoAudioResponse extends $pb.GeneratedMessage {
+  factory TranscribeVideoAudioResponse({
+    $core.Iterable<VideoCaptionCue>? cues,
+  }) {
+    final result = TranscribeVideoAudioResponse._();
+    if (cues != null) result.cues.addAll(cues);
+    return result;
+  }
+
+  TranscribeVideoAudioResponse._();
+
+  factory TranscribeVideoAudioResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      TranscribeVideoAudioResponse()..mergeFromBuffer(data, registry);
+  factory TranscribeVideoAudioResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      TranscribeVideoAudioResponse()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'TranscribeVideoAudioResponse',
+      package:
+          const $pb.PackageName(_omitMessageNames ? '' : 'dzeroth.media.v1'),
+      createEmptyInstance: TranscribeVideoAudioResponse.$_createMessage)
+    ..pPM<VideoCaptionCue>(1, _omitFieldNames ? '' : 'cues',
+        subBuilder: VideoCaptionCue.$_createMessage)
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  TranscribeVideoAudioResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  TranscribeVideoAudioResponse copyWith(
+          void Function(TranscribeVideoAudioResponse) updates) =>
+      super.copyWith(
+              (message) => updates(message as TranscribeVideoAudioResponse))
+          as TranscribeVideoAudioResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  @$core.Deprecated(
+      'Use TranscribeVideoAudioResponse() / TranscribeVideoAudioResponse.new instead')
+  static TranscribeVideoAudioResponse create() =>
+      TranscribeVideoAudioResponse._();
+  static $pb.GeneratedMessage $_createMessage() =>
+      TranscribeVideoAudioResponse._();
+  @$core.override
+  TranscribeVideoAudioResponse createEmptyInstance() =>
+      TranscribeVideoAudioResponse._();
+  @$core.pragma('dart2js:noInline')
+  static TranscribeVideoAudioResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<TranscribeVideoAudioResponse>(
+          TranscribeVideoAudioResponse.$_createMessage);
+  static TranscribeVideoAudioResponse? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $pb.PbList<VideoCaptionCue> get cues => $_getList(0);
+}
+
 class UploadItem extends $pb.GeneratedMessage {
   factory UploadItem({
     $core.String? contentType,
@@ -35,6 +254,7 @@ class UploadItem extends $pb.GeneratedMessage {
     $core.String? fullMd5,
     $core.String? thumbMd5,
     $core.String? thumbContentType,
+    $core.int? videoLabels,
   }) {
     final result = UploadItem._();
     if (contentType != null) result.contentType = contentType;
@@ -45,6 +265,7 @@ class UploadItem extends $pb.GeneratedMessage {
     if (fullMd5 != null) result.fullMd5 = fullMd5;
     if (thumbMd5 != null) result.thumbMd5 = thumbMd5;
     if (thumbContentType != null) result.thumbContentType = thumbContentType;
+    if (videoLabels != null) result.videoLabels = videoLabels;
     return result;
   }
 
@@ -70,6 +291,8 @@ class UploadItem extends $pb.GeneratedMessage {
     ..aOS(6, _omitFieldNames ? '' : 'fullMd5')
     ..aOS(7, _omitFieldNames ? '' : 'thumbMd5')
     ..aOS(8, _omitFieldNames ? '' : 'thumbContentType')
+    ..aI(9, _omitFieldNames ? '' : 'videoLabels',
+        fieldType: $pb.PbFieldType.OU3)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -170,6 +393,16 @@ class UploadItem extends $pb.GeneratedMessage {
   $core.bool hasThumbContentType() => $_has(7);
   @$pb.TagNumber(8)
   void clearThumbContentType() => $_clearField(8);
+
+  /// Only for video/mp4. Uses the same flags as MediaRef.video_labels.
+  @$pb.TagNumber(9)
+  $core.int get videoLabels => $_getIZ(8);
+  @$pb.TagNumber(9)
+  set videoLabels($core.int value) => $_setUnsignedInt32(8, value);
+  @$pb.TagNumber(9)
+  $core.bool hasVideoLabels() => $_has(8);
+  @$pb.TagNumber(9)
+  void clearVideoLabels() => $_clearField(9);
 }
 
 class SignedUpload extends $pb.GeneratedMessage {
@@ -839,6 +1072,14 @@ class MediaServiceApi {
           $pb.ClientContext? ctx, FinalizeUploadRequest request) =>
       _client.invoke<FinalizeUploadResponse>(ctx, 'MediaService',
           'FinalizeUpload', request, FinalizeUploadResponse());
+
+  /// Transcribe an explicitly selected clip segment. Only its audio is sent.
+  /// A segment is mono Ogg Opus, up to 55 seconds.
+  /// The returned times are relative to the start of that audio segment.
+  $async.Future<TranscribeVideoAudioResponse> transcribeVideoAudio(
+          $pb.ClientContext? ctx, TranscribeVideoAudioRequest request) =>
+      _client.invoke<TranscribeVideoAudioResponse>(ctx, 'MediaService',
+          'TranscribeVideoAudio', request, TranscribeVideoAudioResponse());
 }
 
 const $core.bool _omitFieldNames =

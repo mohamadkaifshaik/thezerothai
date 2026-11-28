@@ -504,6 +504,10 @@ func uidScanCaseTable() map[string]uidScanCase {
 			Build: func(w *uidScanWorld, v uidScanView) proto.Message {
 				return &mediav1.FinalizeUploadRequest{IdempotencyKey: uidScanKey("finalize"), Items: []*mediav1.FinalizeItem{{MediaId: "1234567890123456789"}}}
 			}},
+		mediav1connect.MediaServiceTranscribeVideoAudioProcedure: {Phase: uidScanWrite, Want: "error", Why: "transcription is disabled in the emulator and this request contains no audio",
+			Build: func(w *uidScanWorld, v uidScanView) proto.Message {
+				return &mediav1.TranscribeVideoAudioRequest{LanguageCode: "en-US"}
+			}},
 
 		// ---- messaging ----
 		messagingv1connect.MessagingServiceSendMessageProcedure: {Phase: uidScanWrite, Want: "ok", Build: func(w *uidScanWorld, v uidScanView) proto.Message {

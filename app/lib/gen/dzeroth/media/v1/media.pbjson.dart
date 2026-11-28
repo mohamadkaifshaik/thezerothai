@@ -58,6 +58,57 @@ final $typed_data.Uint8List mediaStatusDescriptor = $convert.base64Decode(
     'FUVVNfUEVORElORxABEhYKEk1FRElBX1NUQVRVU19SRUFEWRACEiEKHU1FRElBX1NUQVRVU19S'
     'RUFEWV9VTlNDUkVFTkVEEAMSGQoVTUVESUFfU1RBVFVTX1JFSkVDVEVEEAQ=');
 
+@$core.Deprecated('Use transcribeVideoAudioRequestDescriptor instead')
+const TranscribeVideoAudioRequest$json = {
+  '1': 'TranscribeVideoAudioRequest',
+  '2': [
+    {'1': 'ogg_opus', '3': 1, '4': 1, '5': 12, '10': 'oggOpus'},
+    {'1': 'language_code', '3': 2, '4': 1, '5': 9, '10': 'languageCode'},
+  ],
+};
+
+/// Descriptor for `TranscribeVideoAudioRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List transcribeVideoAudioRequestDescriptor =
+    $convert.base64Decode(
+        'ChtUcmFuc2NyaWJlVmlkZW9BdWRpb1JlcXVlc3QSGQoIb2dnX29wdXMYASABKAxSB29nZ09wdX'
+        'MSIwoNbGFuZ3VhZ2VfY29kZRgCIAEoCVIMbGFuZ3VhZ2VDb2Rl');
+
+@$core.Deprecated('Use videoCaptionCueDescriptor instead')
+const VideoCaptionCue$json = {
+  '1': 'VideoCaptionCue',
+  '2': [
+    {'1': 'start_ms', '3': 1, '4': 1, '5': 5, '10': 'startMs'},
+    {'1': 'end_ms', '3': 2, '4': 1, '5': 5, '10': 'endMs'},
+    {'1': 'text', '3': 3, '4': 1, '5': 9, '10': 'text'},
+  ],
+};
+
+/// Descriptor for `VideoCaptionCue`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List videoCaptionCueDescriptor = $convert.base64Decode(
+    'Cg9WaWRlb0NhcHRpb25DdWUSGQoIc3RhcnRfbXMYASABKAVSB3N0YXJ0TXMSFQoGZW5kX21zGA'
+    'IgASgFUgVlbmRNcxISCgR0ZXh0GAMgASgJUgR0ZXh0');
+
+@$core.Deprecated('Use transcribeVideoAudioResponseDescriptor instead')
+const TranscribeVideoAudioResponse$json = {
+  '1': 'TranscribeVideoAudioResponse',
+  '2': [
+    {
+      '1': 'cues',
+      '3': 1,
+      '4': 3,
+      '5': 11,
+      '6': '.dzeroth.media.v1.VideoCaptionCue',
+      '10': 'cues'
+    },
+  ],
+};
+
+/// Descriptor for `TranscribeVideoAudioResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List transcribeVideoAudioResponseDescriptor =
+    $convert.base64Decode(
+        'ChxUcmFuc2NyaWJlVmlkZW9BdWRpb1Jlc3BvbnNlEjUKBGN1ZXMYASADKAsyIS5kemVyb3RoLm'
+        '1lZGlhLnYxLlZpZGVvQ2FwdGlvbkN1ZVIEY3Vlcw==');
+
 @$core.Deprecated('Use uploadItemDescriptor instead')
 const UploadItem$json = {
   '1': 'UploadItem',
@@ -76,6 +127,7 @@ const UploadItem$json = {
       '5': 9,
       '10': 'thumbContentType'
     },
+    {'1': 'video_labels', '3': 9, '4': 1, '5': 13, '10': 'videoLabels'},
   ],
 };
 
@@ -85,8 +137,8 @@ final $typed_data.Uint8List uploadItemDescriptor = $convert.base64Decode(
     '9zaXplX2J5dGVzGAIgASgDUg1mdWxsU2l6ZUJ5dGVzEigKEHRodW1iX3NpemVfYnl0ZXMYAyAB'
     'KANSDnRodW1iU2l6ZUJ5dGVzEhQKBXdpZHRoGAQgASgFUgV3aWR0aBIWCgZoZWlnaHQYBSABKA'
     'VSBmhlaWdodBIZCghmdWxsX21kNRgGIAEoCVIHZnVsbE1kNRIbCgl0aHVtYl9tZDUYByABKAlS'
-    'CHRodW1iTWQ1EiwKEnRodW1iX2NvbnRlbnRfdHlwZRgIIAEoCVIQdGh1bWJDb250ZW50VHlwZQ'
-    '==');
+    'CHRodW1iTWQ1EiwKEnRodW1iX2NvbnRlbnRfdHlwZRgIIAEoCVIQdGh1bWJDb250ZW50VHlwZR'
+    'IhCgx2aWRlb19sYWJlbHMYCSABKA1SC3ZpZGVvTGFiZWxz');
 
 @$core.Deprecated('Use signedUploadDescriptor instead')
 const SignedUpload$json = {
@@ -315,6 +367,11 @@ const $core.Map<$core.String, $core.dynamic> MediaServiceBase$json = {
       '2': '.dzeroth.media.v1.FinalizeUploadRequest',
       '3': '.dzeroth.media.v1.FinalizeUploadResponse'
     },
+    {
+      '1': 'TranscribeVideoAudio',
+      '2': '.dzeroth.media.v1.TranscribeVideoAudioRequest',
+      '3': '.dzeroth.media.v1.TranscribeVideoAudioResponse'
+    },
   ],
 };
 
@@ -333,6 +390,11 @@ const $core.Map<$core.String, $core.Map<$core.String, $core.dynamic>>
   '.dzeroth.media.v1.FinalizeUploadResponse': FinalizeUploadResponse$json,
   '.dzeroth.media.v1.MediaResult': MediaResult$json,
   '.dzeroth.common.v1.MediaRef': $1.MediaRef$json,
+  '.dzeroth.media.v1.TranscribeVideoAudioRequest':
+      TranscribeVideoAudioRequest$json,
+  '.dzeroth.media.v1.TranscribeVideoAudioResponse':
+      TranscribeVideoAudioResponse$json,
+  '.dzeroth.media.v1.VideoCaptionCue': VideoCaptionCue$json,
 };
 
 /// Descriptor for `MediaService`. Decode as a `google.protobuf.ServiceDescriptorProto`.
@@ -340,4 +402,6 @@ final $typed_data.Uint8List mediaServiceDescriptor = $convert.base64Decode(
     'CgxNZWRpYVNlcnZpY2USXQoMQ3JlYXRlVXBsb2FkEiUuZHplcm90aC5tZWRpYS52MS5DcmVhdG'
     'VVcGxvYWRSZXF1ZXN0GiYuZHplcm90aC5tZWRpYS52MS5DcmVhdGVVcGxvYWRSZXNwb25zZRJj'
     'Cg5GaW5hbGl6ZVVwbG9hZBInLmR6ZXJvdGgubWVkaWEudjEuRmluYWxpemVVcGxvYWRSZXF1ZX'
-    'N0GiguZHplcm90aC5tZWRpYS52MS5GaW5hbGl6ZVVwbG9hZFJlc3BvbnNl');
+    'N0GiguZHplcm90aC5tZWRpYS52MS5GaW5hbGl6ZVVwbG9hZFJlc3BvbnNlEnUKFFRyYW5zY3Jp'
+    'YmVWaWRlb0F1ZGlvEi0uZHplcm90aC5tZWRpYS52MS5UcmFuc2NyaWJlVmlkZW9BdWRpb1JlcX'
+    'Vlc3QaLi5kemVyb3RoLm1lZGlhLnYxLlRyYW5zY3JpYmVWaWRlb0F1ZGlvUmVzcG9uc2U=');

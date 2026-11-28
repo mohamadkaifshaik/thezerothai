@@ -19,6 +19,7 @@ import '../../engagement/domain/engagement_feature_flag.dart';
 import '../../../shared/widgets/primitives/app_side_sheet.dart';
 import '../../media/domain/processed_image.dart'
     show kGifContentType, kVideoContentType;
+import '../../media/domain/video_edit.dart';
 import 'post_detail_screen.dart';
 import 'post_video_viewer.dart';
 import '../../search/domain/search_feature_flags.dart';
@@ -574,7 +575,8 @@ class _PhotoViewerState extends State<_PhotoViewer> {
     if (item.contentType == kVideoContentType) {
       // The selected video has its own vertical viewer. While swiping a
       // gallery only its poster should appear on the neighbouring page.
-      return item.thumbUrl.isEmpty
+      return item.thumbUrl.isEmpty ||
+              VideoLabel.warnings(item.videoLabels).isNotEmpty
           ? const SizedBox.expand()
           : CachedNetworkImage(imageUrl: item.thumbUrl, fit: BoxFit.contain);
     }

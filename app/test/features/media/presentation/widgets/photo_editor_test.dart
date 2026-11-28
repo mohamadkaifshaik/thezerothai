@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/features/media/domain/media_feature_flag.dart';
 import 'package:dzeroth/features/media/domain/photo_edit.dart';
+import 'package:dzeroth/features/media/domain/photo_look.dart';
 import 'package:dzeroth/features/media/presentation/widgets/photo_editor.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/semantics.dart';
@@ -98,6 +99,61 @@ void main() {
     await tester.pumpAndSettle();
     expect(closed, isTrue);
     expect(result, isNull);
+  });
+
+  testWidgets('the tools save enhancement, a filter and a sticker with crop', (
+    tester,
+  ) async {
+    await open(tester);
+    await tester.tap(find.text('Square'));
+    await tester.pump();
+    await tester.tap(find.text('Tools'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Enhance'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Filter · Original'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Filter · Warm').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Stickers'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byTooltip('Add sticker'));
+    await tester.tap(find.byTooltip('Add sticker'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Star'));
+    await tester.pumpAndSettle();
+    await done(tester);
+    expect(result!.edit.hasCrop, isTrue);
+    expect(result!.edit.enhance, isTrue);
+    expect(result!.edit.filter, PhotoFilter.warm);
+    expect(result!.edit.stickers.single.shape, StickerShape.star);
+  });
+
+  testWidgets('a drawn mark is returned as a transparent photo layer', (
+    tester,
+  ) async {
+    await open(tester);
+    await tester.tap(find.text('Tools'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Markup'));
+    await tester.pump();
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 250)),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('photo-markup-canvas')));
+    await tester.pump();
+    await tester.tap(find.text('Apply'));
+    await tester.pump();
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 250)),
+    );
+    await tester.pumpAndSettle();
+    await done(tester);
+    final markup = img.decodePng(result!.edit.markup!.png)!;
+    expect(markup.getPixel(40, 30).r, greaterThan(190));
+    expect(markup.getPixel(40, 30).a, greaterThan(190));
+    expect(markup.getPixel(0, 0).a, 0);
   });
 
   testWidgets('presets set the crop box to that shape', (tester) async {

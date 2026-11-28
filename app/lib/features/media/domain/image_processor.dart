@@ -10,6 +10,7 @@ import 'package:image/image.dart' as img;
 import 'image_preflight.dart';
 import 'image_size_plan.dart';
 import 'photo_edit.dart';
+import 'photo_look.dart';
 import 'processed_image.dart';
 import 'processing_cancellation.dart';
 
@@ -121,6 +122,57 @@ ProcessedImage processImageSync(
     // photo, the same order and pixels as the web worker path.
     if (edit.quarterTurns != 0) {
       source = img.copyRotate(source, angle: 90.0 * edit.quarterTurns);
+    }
+    if (edit.hasLook &&
+        (source.format != img.Format.uint8 || source.hasPalette)) {
+      source = source.convert(format: img.Format.uint8, numChannels: 3);
+    }
+    if (edit.filter != PhotoFilter.original || edit.enhance) {
+      final m = edit.filter.matrix(edit.enhance);
+      for (final pixel in source) {
+        final r = pixel.r;
+        final g = pixel.g;
+        final b = pixel.b;
+        pixel
+          ..r = (m[0] * r + m[1] * g + m[2] * b + m[4]).round().clamp(0, 255)
+          ..g = (m[5] * r + m[6] * g + m[7] * b + m[9]).round().clamp(0, 255)
+          ..b = (m[10] * r + m[11] * g + m[12] * b + m[14]).round().clamp(
+            0,
+            255,
+          );
+      }
+    }
+    for (final sticker in edit.stickers) {
+      final color = sticker.shape.color;
+      img.fillPolygon(
+        source,
+        vertices: [
+          for (final point in stickerOutline(
+            sticker,
+            source.width.toDouble(),
+            source.height.toDouble(),
+          ))
+            img.Point(point.x, point.y),
+        ],
+        color: img.ColorRgb8(
+          (color >> 16) & 255,
+          (color >> 8) & 255,
+          color & 255,
+        ),
+      );
+    }
+    if (edit.markup case final markup?) {
+      var layer = img.decodePng(markup.png);
+      if (layer == null) throw const UnsupportedImageException();
+      if (edit.markupRotation != 0) {
+        layer = img.copyRotate(layer, angle: edit.markupRotation * 90);
+      }
+      img.compositeImage(
+        source,
+        layer,
+        dstW: source.width,
+        dstH: source.height,
+      );
     }
     if (edit.hasCrop) {
       final crop = editCropRect(edit, source.width, source.height);

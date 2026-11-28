@@ -234,6 +234,7 @@ type MediaRef struct {
 	// ContentType is the full object's type (common.MediaRef.content_type), copied from the media claim.
 	// Empty on refs stored before W6 (a still JPEG or WebP).
 	ContentType string
+	VideoLabels uint32
 }
 
 // Position is a (createdAt, postId) point in the createdAt-descending order every post query uses.

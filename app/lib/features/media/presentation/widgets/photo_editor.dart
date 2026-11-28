@@ -11,8 +11,11 @@ import '../../../../core/widgets/tablet_modal.dart';
 import '../../../../shared/widgets/primitives/app_form_header.dart';
 import '../../../../shared/widgets/primitives/app_sheet.dart';
 import '../../../../shared/widgets/primitives/character_counter.dart';
+import '../../data/photo_gallery.dart';
 import '../../domain/media_feature_flag.dart';
 import '../../domain/photo_edit.dart';
+import '../../domain/photo_look.dart';
+import 'photo_markup_editor.dart';
 
 /// What the editor returns on Done.
 @immutable
@@ -38,6 +41,7 @@ Future<PhotoEditResult?> showPhotoEditor(
   String initialAlt = '',
   bool isGif = false,
   String? warning,
+  Future<void> Function(PhotoEdit)? onSaveToGallery,
 }) {
   final inDialog = TabletModalHost.of(context) != null;
   return showAppSheet<PhotoEditResult>(
@@ -59,6 +63,7 @@ Future<PhotoEditResult?> showPhotoEditor(
       initialAlt: initialAlt,
       isGif: isGif,
       warning: warning,
+      onSaveToGallery: onSaveToGallery,
       expand: !inDialog,
     ),
   );
@@ -77,6 +82,7 @@ class PhotoEditorView extends StatefulWidget {
     this.isGif = false,
     this.warning,
     this.expand = false,
+    this.onSaveToGallery,
   });
 
   /// The unusual-shape line for the photo being edited, shown at the top.
@@ -87,6 +93,7 @@ class PhotoEditorView extends StatefulWidget {
   final PhotoEdit initialEdit;
   final String initialAlt;
   final bool isGif;
+  final Future<void> Function(PhotoEdit)? onSaveToGallery;
 
   /// Fill the height the host gives (the phone sheet); else a fixed photo
   /// height (dialogs size to their content).
@@ -102,6 +109,11 @@ class _PhotoEditorViewState extends State<PhotoEditorView> {
   );
   late PhotoEdit _edit = widget.initialEdit;
   CropPreset _preset = CropPreset.original;
+  bool _showTools = false;
+  bool _arrangingStickers = false;
+  int? _selectedSticker;
+  bool _savingCopy = false;
+  late final _galleryAvailable = canSavePhotoToGallery();
 
   ImageProvider? _provider;
   ImageStream? _stream;
@@ -176,7 +188,7 @@ class _PhotoEditorViewState extends State<PhotoEditorView> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (_cropping && _size != null && !_failed) ...[
-            _presets(),
+            if (_showTools) _lookControls() else _presets(),
             const SizedBox(height: AppSpacing.sm),
           ],
           ValueListenableBuilder<TextEditingValue>(
@@ -231,6 +243,13 @@ class _PhotoEditorViewState extends State<PhotoEditorView> {
             AppFormHeader(
               title: widget.isGif ? 'Edit GIF' : 'Edit photo',
               onCancel: () => Navigator.of(context).pop(),
+              secondaryLabel: _cropping && _size != null && !_failed
+                  ? (_showTools ? 'Crop' : 'Tools')
+                  : null,
+              onSecondary: () => setState(() {
+                _showTools = !_showTools;
+                _arrangingStickers = false;
+              }),
               actionLabel: 'Done',
               onAction: over
                   ? null
@@ -309,6 +328,137 @@ class _PhotoEditorViewState extends State<PhotoEditorView> {
     );
   }
 
+  void _changeSticker(int index, PhotoSticker sticker) {
+    final stickers = [..._edit.stickers]..[index] = sticker;
+    setState(() => _edit = _edit.withLook(stickers: stickers));
+  }
+
+  Future<void> _saveCopy() async {
+    setState(() => _savingCopy = true);
+    var message = 'Saved to gallery.';
+    try {
+      await widget.onSaveToGallery!(_edit);
+    } catch (_) {
+      message = 'Could not save the photo to your gallery.';
+    }
+    if (!mounted) return;
+    setState(() => _savingCopy = false);
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Widget _lookControls() {
+    final index = _selectedSticker;
+    return Wrap(
+      spacing: AppSpacing.sm,
+      runSpacing: AppSpacing.xs,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        FilterChip(
+          label: const Text('Enhance'),
+          selected: _edit.enhance,
+          onSelected: (value) =>
+              setState(() => _edit = _edit.withLook(enhance: value)),
+        ),
+        DropdownButton<PhotoFilter>(
+          value: _edit.filter,
+          onChanged: (filter) =>
+              setState(() => _edit = _edit.withLook(filter: filter)),
+          items: [
+            for (final filter in PhotoFilter.values)
+              DropdownMenuItem(
+                value: filter,
+                child: Text('Filter · ${filter.label}'),
+              ),
+          ],
+        ),
+        FilterChip(
+          label: const Text('Stickers'),
+          selected: _arrangingStickers,
+          onSelected: (value) => setState(() => _arrangingStickers = value),
+        ),
+        ActionChip(
+          avatar: const Icon(Icons.draw_outlined, size: 18),
+          label: const Text('Markup'),
+          onPressed: () async {
+            final result = await showPhotoMarkupEditor(
+              context,
+              widget.source!,
+              _edit,
+            );
+            if (result == null || !mounted) return;
+            setState(() {
+              _edit = _edit.withLook(
+                markup: result.markup,
+                clearMarkup: result.markup == null,
+              );
+            });
+          },
+        ),
+        if (widget.onSaveToGallery != null)
+          FutureBuilder<bool>(
+            future: _galleryAvailable,
+            builder: (context, availability) => availability.data != true
+                ? const SizedBox.shrink()
+                : ActionChip(
+                    avatar: const Icon(Icons.download_outlined, size: 18),
+                    label: Text(
+                      _savingCopy ? 'Saving copy…' : 'Save to gallery',
+                    ),
+                    onPressed: _savingCopy ? null : _saveCopy,
+                  ),
+          ),
+        if (_arrangingStickers) ...[
+          PopupMenuButton<StickerShape>(
+            tooltip: 'Add sticker',
+            icon: const Icon(Icons.add_reaction_outlined),
+            enabled: _edit.stickers.length < 25,
+            onSelected: (shape) => setState(() {
+              final box = _edit.box;
+              _selectedSticker = _edit.stickers.length;
+              _edit = _edit.withLook(
+                stickers: [
+                  ..._edit.stickers,
+                  (
+                    shape: shape,
+                    x: (box.left + box.right) / 2,
+                    y: (box.top + box.bottom) / 2,
+                    size: 0.24,
+                    angle: 0,
+                  ),
+                ],
+              );
+            }),
+            itemBuilder: (_) => [
+              for (final shape in StickerShape.values)
+                PopupMenuItem(value: shape, child: Text(shape.label)),
+            ],
+          ),
+          if (index != null)
+            IconButton(
+              tooltip: 'Remove selected sticker',
+              icon: const Icon(Icons.delete_outline),
+              onPressed: () => setState(() {
+                _selectedSticker = null;
+                _edit = _edit.withLook(
+                  stickers: [..._edit.stickers]..removeAt(index),
+                );
+              }),
+            ),
+        ],
+        if (!_edit.isIdentity)
+          ActionChip(
+            label: const Text('Reset edits'),
+            onPressed: () => setState(() {
+              _edit = PhotoEdit.none;
+              _preset = CropPreset.original;
+              _selectedSticker = null;
+            }),
+          ),
+      ],
+    );
+  }
+
   Widget _photo() {
     if (_cropping) {
       if (_failed) {
@@ -330,6 +480,24 @@ class _PhotoEditorViewState extends State<PhotoEditorView> {
         box: _edit.box,
         lockRatio: _preset.ratio,
         onChanged: _box,
+        colorMatrix: _edit.filter == PhotoFilter.original && !_edit.enhance
+            ? null
+            : _edit.filter.matrix(_edit.enhance),
+        stickers: _edit.stickers,
+        markup: _edit.markup == null
+            ? null
+            : RotatedBox(
+                quarterTurns: _edit.markupRotation,
+                child: Image.memory(
+                  _edit.markup!.png,
+                  fit: BoxFit.fill,
+                  gaplessPlayback: true,
+                ),
+              ),
+        arrangingStickers: _arrangingStickers,
+        selectedSticker: _selectedSticker,
+        onStickerSelected: (index) => setState(() => _selectedSticker = index),
+        onStickerChanged: _changeSticker,
       );
     }
     final preview = widget.preview;
@@ -362,6 +530,13 @@ class CropCanvas extends StatelessWidget {
     required this.box,
     required this.onChanged,
     this.lockRatio,
+    this.colorMatrix,
+    this.stickers = const [],
+    this.markup,
+    this.arrangingStickers = false,
+    this.selectedSticker,
+    this.onStickerSelected,
+    this.onStickerChanged,
   });
 
   final ImageProvider image;
@@ -370,6 +545,13 @@ class CropCanvas extends StatelessWidget {
   final CropFractions box;
   final double? lockRatio;
   final ValueChanged<CropFractions> onChanged;
+  final List<double>? colorMatrix;
+  final List<PhotoSticker> stickers;
+  final Widget? markup;
+  final bool arrangingStickers;
+  final int? selectedSticker;
+  final ValueChanged<int>? onStickerSelected;
+  final void Function(int, PhotoSticker)? onStickerChanged;
 
   /// How far one move / size action shifts the box (fraction of the photo).
   static const double actionStep = 0.05;
@@ -381,9 +563,9 @@ class CropCanvas extends StatelessWidget {
         // Room around the photo for the corner handles, so their whole
         // target can be hit.
         const pad = _Interactive.inset * 2;
-        final maxW = constraints.maxWidth - pad;
+        final maxW = math.max(0.0, constraints.maxWidth - pad);
         final maxH = constraints.maxHeight.isFinite
-            ? constraints.maxHeight - pad
+            ? math.max(0.0, constraints.maxHeight - pad)
             : maxW / aspect;
         var w = maxW;
         var h = w / aspect;
@@ -404,6 +586,13 @@ class CropCanvas extends StatelessWidget {
               box: box,
               lockRatio: lockRatio,
               onChanged: onChanged,
+              colorMatrix: colorMatrix,
+              stickers: stickers,
+              markup: markup,
+              arrangingStickers: arrangingStickers,
+              selectedSticker: selectedSticker,
+              onStickerSelected: onStickerSelected,
+              onStickerChanged: onStickerChanged,
             ),
           ),
         );
@@ -422,6 +611,13 @@ class _Interactive extends StatelessWidget {
     required this.box,
     required this.lockRatio,
     required this.onChanged,
+    required this.colorMatrix,
+    required this.stickers,
+    required this.markup,
+    required this.arrangingStickers,
+    required this.selectedSticker,
+    required this.onStickerSelected,
+    required this.onStickerChanged,
   });
 
   final double width;
@@ -432,6 +628,13 @@ class _Interactive extends StatelessWidget {
   final CropFractions box;
   final double? lockRatio;
   final ValueChanged<CropFractions> onChanged;
+  final List<double>? colorMatrix;
+  final List<PhotoSticker> stickers;
+  final Widget? markup;
+  final bool arrangingStickers;
+  final int? selectedSticker;
+  final ValueChanged<int>? onStickerSelected;
+  final void Function(int, PhotoSticker)? onStickerChanged;
 
   static const double _handle = AppSpacing.minTapTarget;
 
@@ -490,6 +693,10 @@ class _Interactive extends StatelessWidget {
     }
 
     final shift = const Offset(inset, inset);
+    final photo = RotatedBox(
+      quarterTurns: quarterTurns,
+      child: Image(image: image, fit: BoxFit.fill, gaplessPlayback: true),
+    );
     return Stack(
       children: [
         Positioned(
@@ -503,16 +710,25 @@ class _Interactive extends StatelessWidget {
               children: [
                 Positioned.fill(
                   child: ExcludeSemantics(
-                    child: RotatedBox(
-                      quarterTurns: quarterTurns,
-                      child: Image(
-                        image: image,
-                        fit: BoxFit.fill,
-                        gaplessPlayback: true,
-                      ),
-                    ),
+                    child: colorMatrix == null
+                        ? photo
+                        : ColorFiltered(
+                            colorFilter: ColorFilter.matrix(colorMatrix!),
+                            child: photo,
+                          ),
                   ),
                 ),
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: CustomPaint(painter: _StickerPainter(stickers)),
+                  ),
+                ),
+                if (markup != null)
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: ExcludeSemantics(child: markup!),
+                    ),
+                  ),
                 Positioned.fill(
                   child: IgnorePointer(
                     child: CustomPaint(
@@ -524,61 +740,172 @@ class _Interactive extends StatelessWidget {
                     ),
                   ),
                 ),
+                if (arrangingStickers)
+                  for (final (index, sticker) in stickers.indexed)
+                    _StickerTarget(
+                      sticker: sticker,
+                      width: width,
+                      height: height,
+                      selected: selectedSticker == index,
+                      onSelect: () => onStickerSelected?.call(index),
+                      onChange: (value) => onStickerChanged?.call(index, value),
+                    ),
               ],
             ),
           ),
         ),
-        // The box: drag to move, pinch to resize.
-        Positioned.fromRect(
-          rect: rect.shift(shift),
-          child: Semantics(
-            key: kCropBoxKey,
-            container: true,
-            label: 'Crop box',
-            value: '$pctW percent wide, $pctH percent tall',
-            customSemanticsActions: {
-              const CustomSemanticsAction(label: 'Move crop left'): () =>
-                  onChanged(moveCrop(box, -CropCanvas.actionStep, 0)),
-              const CustomSemanticsAction(label: 'Move crop right'): () =>
-                  onChanged(moveCrop(box, CropCanvas.actionStep, 0)),
-              const CustomSemanticsAction(label: 'Move crop up'): () =>
-                  onChanged(moveCrop(box, 0, -CropCanvas.actionStep)),
-              const CustomSemanticsAction(label: 'Move crop down'): () =>
-                  onChanged(moveCrop(box, 0, CropCanvas.actionStep)),
-              const CustomSemanticsAction(label: 'Larger crop'): () =>
-                  onChanged(zoomCrop(box, 1 + CropCanvas.actionStep * 2)),
-              const CustomSemanticsAction(label: 'Smaller crop'): () =>
-                  onChanged(zoomCrop(box, 1 - CropCanvas.actionStep * 2)),
-            },
-            child: _BoxGesture(
-              width: width,
-              height: height,
-              box: box,
-              onChanged: onChanged,
+        if (!arrangingStickers) ...[
+          Positioned.fromRect(
+            rect: rect.shift(shift),
+            child: Semantics(
+              key: kCropBoxKey,
+              container: true,
+              label: 'Crop box',
+              value: '$pctW percent wide, $pctH percent tall',
+              customSemanticsActions: {
+                const CustomSemanticsAction(label: 'Move crop left'): () =>
+                    onChanged(moveCrop(box, -CropCanvas.actionStep, 0)),
+                const CustomSemanticsAction(label: 'Move crop right'): () =>
+                    onChanged(moveCrop(box, CropCanvas.actionStep, 0)),
+                const CustomSemanticsAction(label: 'Move crop up'): () =>
+                    onChanged(moveCrop(box, 0, -CropCanvas.actionStep)),
+                const CustomSemanticsAction(label: 'Move crop down'): () =>
+                    onChanged(moveCrop(box, 0, CropCanvas.actionStep)),
+                const CustomSemanticsAction(label: 'Larger crop'): () =>
+                    onChanged(zoomCrop(box, 1 + CropCanvas.actionStep * 2)),
+                const CustomSemanticsAction(label: 'Smaller crop'): () =>
+                    onChanged(zoomCrop(box, 1 - CropCanvas.actionStep * 2)),
+              },
+              child: _BoxGesture(
+                width: width,
+                height: height,
+                box: box,
+                onChanged: onChanged,
+              ),
+            ),
+          ),
+          handle(
+            CropHandle.topLeft,
+            rect.topLeft + shift,
+            'Crop corner, top left',
+          ),
+          handle(
+            CropHandle.topRight,
+            rect.topRight + shift,
+            'Crop corner, top right',
+          ),
+          handle(
+            CropHandle.bottomLeft,
+            rect.bottomLeft + shift,
+            'Crop corner, bottom left',
+          ),
+          handle(
+            CropHandle.bottomRight,
+            rect.bottomRight + shift,
+            'Crop corner, bottom right',
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _StickerPainter extends CustomPainter {
+  const _StickerPainter(this.stickers);
+
+  final List<PhotoSticker> stickers;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.save();
+    canvas.clipRect(Offset.zero & size);
+    for (final sticker in stickers) {
+      final points = stickerOutline(sticker, size.width, size.height);
+      final path = Path()..moveTo(points.first.x, points.first.y);
+      for (final point in points.skip(1)) {
+        path.lineTo(point.x, point.y);
+      }
+      canvas.drawPath(
+        path..close(),
+        Paint()..color = Color(sticker.shape.color),
+      );
+    }
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_StickerPainter oldDelegate) =>
+      oldDelegate.stickers != stickers;
+}
+
+class _StickerTarget extends StatefulWidget {
+  const _StickerTarget({
+    required this.sticker,
+    required this.width,
+    required this.height,
+    required this.selected,
+    required this.onSelect,
+    required this.onChange,
+  });
+
+  final PhotoSticker sticker;
+  final double width;
+  final double height;
+  final bool selected;
+  final VoidCallback onSelect;
+  final ValueChanged<PhotoSticker> onChange;
+
+  @override
+  State<_StickerTarget> createState() => _StickerTargetState();
+}
+
+class _StickerTargetState extends State<_StickerTarget> {
+  late Offset _focalPoint;
+  late PhotoSticker _start;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = widget.sticker;
+    final edge = math.max(
+      AppSpacing.minTapTarget,
+      s.size * math.min(widget.width, widget.height),
+    );
+    return Positioned(
+      left: s.x * widget.width - edge / 2,
+      top: s.y * widget.height - edge / 2,
+      width: edge,
+      height: edge,
+      child: Semantics(
+        label: '${s.shape.label} sticker',
+        selected: widget.selected,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: widget.onSelect,
+          onScaleStart: (details) {
+            _start = s;
+            _focalPoint = details.focalPoint;
+            widget.onSelect();
+          },
+          onScaleUpdate: (details) {
+            if (widget.width <= 0 || widget.height <= 0) return;
+            final delta = details.focalPoint - _focalPoint;
+            widget.onChange((
+              shape: _start.shape,
+              x: (_start.x + delta.dx / widget.width).clamp(0.0, 1.0),
+              y: (_start.y + delta.dy / widget.height).clamp(0.0, 1.0),
+              size: (_start.size * details.scale).clamp(0.06, 0.85),
+              angle: _start.angle + details.rotation,
+            ));
+          },
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              border: widget.selected
+                  ? Border.all(color: Theme.of(context).colorScheme.primary)
+                  : null,
             ),
           ),
         ),
-        handle(
-          CropHandle.topLeft,
-          rect.topLeft + shift,
-          'Crop corner, top left',
-        ),
-        handle(
-          CropHandle.topRight,
-          rect.topRight + shift,
-          'Crop corner, top right',
-        ),
-        handle(
-          CropHandle.bottomLeft,
-          rect.bottomLeft + shift,
-          'Crop corner, bottom left',
-        ),
-        handle(
-          CropHandle.bottomRight,
-          rect.bottomRight + shift,
-          'Crop corner, bottom right',
-        ),
-      ],
+      ),
     );
   }
 }

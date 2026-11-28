@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:material_ui/material_ui.dart';
 
+import '../../../media/domain/video_edit.dart';
+
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/context_pane.dart';
 import '../../../../gen/dzeroth/common/v1/common.pb.dart' as common;
@@ -234,34 +236,40 @@ class _MediaTile extends StatelessWidget {
     final alt = media.altText.trim();
     final gif = media.contentType == kGifContentType;
     final blank = ColoredBox(color: colors.surfaceContainerHigh);
-    final image = LayoutBuilder(
-      builder: (context, constraints) {
-        final px =
-            (constraints.maxWidth * MediaQuery.devicePixelRatioOf(context))
-                .ceil();
-        return CachedNetworkImage(
-          imageUrl: media.thumbUrl,
-          fit: BoxFit.cover,
-          width: double.infinity,
-          height: double.infinity,
-          memCacheWidth: px > 0 ? px : null,
-          placeholder: (_, _) => blank,
-          errorWidget: (_, _, _) => ColoredBox(
-            color: colors.surfaceContainerHigh,
-            child: Icon(
-              Icons.broken_image_outlined,
-              color: colors.onSurfaceVariant,
-            ),
-          ),
-        );
-      },
-    );
+    final sensitive = VideoLabel.warnings(media.videoLabels).isNotEmpty;
+    final image = sensitive
+        ? const Center(child: Icon(Icons.visibility_off_outlined))
+        : LayoutBuilder(
+            builder: (context, constraints) {
+              final px =
+                  (constraints.maxWidth *
+                          MediaQuery.devicePixelRatioOf(context))
+                      .ceil();
+              return CachedNetworkImage(
+                imageUrl: media.thumbUrl,
+                fit: BoxFit.cover,
+                width: double.infinity,
+                height: double.infinity,
+                memCacheWidth: px > 0 ? px : null,
+                placeholder: (_, _) => blank,
+                errorWidget: (_, _, _) => ColoredBox(
+                  color: colors.surfaceContainerHigh,
+                  child: Icon(
+                    Icons.broken_image_outlined,
+                    color: colors.onSurfaceVariant,
+                  ),
+                ),
+              );
+            },
+          );
     // One node, read once: a button named for its image (no separate image
     // flag, as `post_media.dart`).
     return Semantics(
       container: true,
       button: true,
-      label: ['Open image', if (alt.isNotEmpty) alt, if (gif) 'GIF'].join(', '),
+      label: sensitive
+          ? 'Open sensitive video'
+          : ['Open image', if (alt.isNotEmpty) alt, if (gif) 'GIF'].join(', '),
       excludeSemantics: true,
       onTap: onOpen,
       child: ClipRRect(

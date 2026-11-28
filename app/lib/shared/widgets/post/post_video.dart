@@ -3,6 +3,8 @@ import 'package:material_ui/material_ui.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../../core/theme/app_theme.dart';
+import '../../../features/media/domain/video_edit.dart';
+import '../../../features/media/data/photo_gallery.dart';
 
 /// The poster is the only network asset loaded until the viewer presses play.
 class PostVideo extends StatefulWidget {
@@ -14,11 +16,13 @@ class PostVideo extends StatefulWidget {
     this.startOnOpen = false,
     this.onOpen,
     this.loop = false,
+    this.labels = 0,
   });
   final VideoPlayerController Function()? previewController;
   final VoidCallback? onOpen;
   final bool loop;
   final bool startOnOpen;
+  final int labels;
   final String url;
   final Widget poster;
   @override
@@ -49,10 +53,17 @@ class _PostVideoState extends State<PostVideo> {
     }
   }
 
+  bool _revealed = false;
+  bool _downloading = false;
+  late final _galleryAvailable = canSavePhotoToGallery();
+
   @override
   void initState() {
     super.initState();
-    if (widget.startOnOpen || widget.previewController != null) _start();
+    if (VideoLabel.warnings(widget.labels).isEmpty &&
+        (widget.startOnOpen || widget.previewController != null)) {
+      _start();
+    }
   }
 
   Future<void> _start() async {
@@ -99,6 +110,96 @@ class _PostVideoState extends State<PostVideo> {
 
   @override
   Widget build(BuildContext context) {
+    final warnings = VideoLabel.warnings(widget.labels);
+    if (warnings.isNotEmpty && !_revealed) {
+      return ColoredBox(
+        color: Theme.of(context).colorScheme.surfaceContainerHigh,
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Sensitive video'),
+                Text(
+                  warnings.map((label) => label.label).join(' · '),
+                  textAlign: TextAlign.center,
+                ),
+                TextButton(
+                  onPressed: () => setState(() => _revealed = true),
+                  child: const Text('Show video'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+    final player = _buildPlayer(context);
+    final ai = widget.labels & VideoLabel.ai.bit != 0;
+    final downloadable = widget.labels & kAllowVideoDownload != 0;
+    if (!ai && !downloadable) return player;
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        player,
+        if (ai)
+          const PositionedDirectional(
+            top: 8,
+            start: 8,
+            child: IgnorePointer(
+              child: Material(
+                color: AppColors.mediaDisclosureBackground,
+                borderRadius: BorderRadius.all(Radius.circular(6)),
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  child: Text(
+                    'Made with AI',
+                    style: TextStyle(color: AppColors.onPhotoBackground),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        if (downloadable)
+          PositionedDirectional(
+            top: 4,
+            end: 4,
+            child: FutureBuilder<bool>(
+              future: _galleryAvailable,
+              builder: (context, available) => available.data == true
+                  ? IconButton.filledTonal(
+                      tooltip: 'Save video to gallery',
+                      onPressed: _downloading ? null : _download,
+                      icon: _downloading
+                          ? const SizedBox.square(
+                              dimension: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.download_outlined),
+                    )
+                  : const SizedBox.shrink(),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Future<void> _download() async {
+    setState(() => _downloading = true);
+    var message = 'Saved to gallery.';
+    try {
+      await downloadVideoToGallery(widget.url);
+    } catch (_) {
+      message = 'Could not save the video to your gallery.';
+    }
+    if (!mounted) return;
+    setState(() => _downloading = false);
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Widget _buildPlayer(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final player = _player;
     if (player == null) {

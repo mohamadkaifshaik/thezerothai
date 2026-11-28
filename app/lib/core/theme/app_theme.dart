@@ -518,6 +518,12 @@ class AppColors extends ThemeExtension<AppColors> {
   /// Photo viewers retain a dark canvas in both light and dark themes.
   static const photoBackground = Color(0xFF000000);
   static const onPhotoBackground = Color(0xFFFFFFFF);
+  static const mediaDisclosureBackground = Color(0xb3000000);
+  static const markupRed = Color(0xfff45468);
+  static const markupYellow = Color(0xffffc547);
+  static const markupBlue = Color(0xff0878f4);
+  static const markupBlack = Color(0xff111111);
+  static const markupTextShadow = Color(0x99000000);
 
   static const AppColors dark = AppColors(
     like: AppPalette.dangerOnDark,

@@ -52,6 +52,10 @@ abstract interface class RasterSession {
   void close();
 }
 
+abstract interface class PhotoLookRasterSession implements RasterSession {
+  Future<void> setLook(PhotoEdit edit, int width, int height);
+}
+
 /// The codec could not finish this image. [FallbackImageProcessor] then uses
 /// the `package:image` path: for good when [permanent] (this browser cannot
 /// run it, or it broke the size contract), else for this image only (a
@@ -169,6 +173,16 @@ class RasterImageProcessor implements ImageProcessor {
           : PhotoEdit.none;
       final turns = edited.quarterTurns;
       final turned = rotatedSize(source.width, source.height, turns);
+      if (edited.hasLook) {
+        if (session is! PhotoLookRasterSession) {
+          throw const RasterUnavailableException('photo effects unsupported');
+        }
+        await _step(
+          session,
+          cancel,
+          session.setLook(edited, turned.width, turned.height),
+        );
+      }
       final crop = purpose == ImagePurpose.post
           ? editCropRect(edited, turned.width, turned.height)
           : cropFor(purpose, source.width, source.height);

@@ -628,6 +628,7 @@ class _MediaTile extends StatelessWidget {
           key: ValueKey(media.url),
           url: media.url,
           onOpen: onOpen,
+          labels: media.videoLabels,
           poster: media.thumbUrl.isEmpty
               ? ColoredBox(color: colors.surfaceContainerHigh)
               : _networkImage(media.thumbUrl, colors, media: media),

@@ -248,6 +248,8 @@ func (s *service) validateUploadItem(i int, p Purpose, it UploadItem) error {
 		return err
 	}
 	switch {
+	case it.VideoLabels > 31 || (it.VideoLabels != 0 && it.ContentType != ContentTypeMP4):
+		return apierr.Validation(field("video_labels"), "only defined video settings may be set on a video")
 	case it.FullBytes <= 0 || it.FullBytes > maxFull:
 		return apierr.Validation(field("full_size_bytes"), fmt.Sprintf("the image must be at most %s after compression", byteSize(maxFull)))
 	case it.ThumbBytes <= 0 || it.ThumbBytes > maxThumb:
@@ -307,6 +309,9 @@ func requestHash(purpose Purpose, items []UploadItem) string {
 		if t := storedThumbType(it); t != "" { // only when it differs, so a pre-W6 request hashes as before
 			sb.WriteString(",tt=" + t)
 		}
+		if it.VideoLabels != 0 {
+			fmt.Fprintf(&sb, ",vl=%d", it.VideoLabels)
+		}
 	}
 	return idempotency.HashRequest(sb.String())
 }
@@ -361,7 +366,8 @@ func (s *service) CreateUpload(ctx context.Context, uid string, in CreateUploadI
 		docs[i] = Doc{
 			ID: id, OwnerID: uid, Purpose: string(in.Purpose), Status: string(StatusPending),
 			ContentType: it.ContentType, ThumbContentType: storedThumbType(it), Bytes: it.FullBytes, ThumbBytes: it.ThumbBytes, Width: it.Width, Height: it.Height,
-			FullMD5: it.FullMD5, ThumbMD5: it.ThumbMD5,
+			VideoLabels: it.VideoLabels,
+			FullMD5:     it.FullMD5, ThumbMD5: it.ThumbMD5,
 			UploadPath: uploadObject(uid, id, ext), ThumbUploadPath: uploadThumbObject(uid, id, extension(thumbTypeOf(it))),
 			NameSuffix: suffix,
 			CreatedAt:  now, ExpireAt: &expire,
@@ -424,6 +430,7 @@ func (s *service) refOf(d *Doc) *Ref {
 	return &Ref{
 		ID: d.ID, URL: s.PublicBaseURL + "/" + d.PublicPath, ThumbURL: s.PublicBaseURL + "/" + d.ThumbPath,
 		Width: d.Width, Height: d.Height, Blurhash: d.Blurhash, ContentType: d.ContentType,
+		VideoLabels: d.VideoLabels,
 	}
 }
 

@@ -243,6 +243,7 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 	// FinalizeUpload has its own bucket, RATE_LIMIT_MEDIA_FINALIZE_PER_MIN, so client retries cannot starve new
 	// uploads and the reverse. The per-uid Vision-units daily cap (media_vision_units_daily) lives in the media service, counted before the claim.
 	rlMediaFinalize := ratelimit.NewLimiter(cfg.RateLimit.MediaFinalizePerMinute, idleBucketTTL)
+	rlVideoCaptions := ratelimit.NewLimiter(8, idleBucketTTL)
 
 	return ratelimit.Config{
 		Default: rlDefault,
@@ -270,6 +271,7 @@ func RateLimitConfig(cfg config.Config) ratelimit.Config {
 			engagementv1connect.EngagementServiceListLikedPostsProcedure:         rlLikesList,
 			mediav1connect.MediaServiceCreateUploadProcedure:                     rlMedia,
 			mediav1connect.MediaServiceFinalizeUploadProcedure:                   rlMediaFinalize,
+			mediav1connect.MediaServiceTranscribeVideoAudioProcedure:             rlVideoCaptions,
 			identityv1connect.IdentityServiceCheckHandleAvailabilityProcedure:    rlCheckHandle,
 			identityv1connect.IdentityServiceSuggestHandlesProcedure:             rlCheckHandle,
 			identityv1connect.IdentityServiceGetMeProcedure:                      rlGetMe,

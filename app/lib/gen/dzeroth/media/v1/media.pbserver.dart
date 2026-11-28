@@ -25,6 +25,8 @@ abstract class MediaServiceBase extends $pb.GeneratedService {
       $pb.ServerContext ctx, $2.CreateUploadRequest request);
   $async.Future<$2.FinalizeUploadResponse> finalizeUpload(
       $pb.ServerContext ctx, $2.FinalizeUploadRequest request);
+  $async.Future<$2.TranscribeVideoAudioResponse> transcribeVideoAudio(
+      $pb.ServerContext ctx, $2.TranscribeVideoAudioRequest request);
 
   $pb.GeneratedMessage createRequest($core.String methodName) {
     switch (methodName) {
@@ -32,6 +34,8 @@ abstract class MediaServiceBase extends $pb.GeneratedService {
         return $2.CreateUploadRequest();
       case 'FinalizeUpload':
         return $2.FinalizeUploadRequest();
+      case 'TranscribeVideoAudio':
+        return $2.TranscribeVideoAudioRequest();
       default:
         throw $core.ArgumentError('Unknown method: $methodName');
     }
@@ -44,6 +48,9 @@ abstract class MediaServiceBase extends $pb.GeneratedService {
         return createUpload(ctx, request as $2.CreateUploadRequest);
       case 'FinalizeUpload':
         return finalizeUpload(ctx, request as $2.FinalizeUploadRequest);
+      case 'TranscribeVideoAudio':
+        return transcribeVideoAudio(
+            ctx, request as $2.TranscribeVideoAudioRequest);
       default:
         throw $core.ArgumentError('Unknown method: $methodName');
     }

@@ -63,4 +63,14 @@ abstract final class MediaService {
     dzerothmediav1media.FinalizeUploadRequest.new,
     dzerothmediav1media.FinalizeUploadResponse.new,
   );
+
+  /// Transcribe an explicitly selected clip segment. Only its audio is sent.
+  /// A segment is mono Ogg Opus, up to 55 seconds.
+  /// The returned times are relative to the start of that audio segment.
+  static const transcribeVideoAudio = connect.Spec(
+    '/$name/TranscribeVideoAudio',
+    connect.StreamType.unary,
+    dzerothmediav1media.TranscribeVideoAudioRequest.new,
+    dzerothmediav1media.TranscribeVideoAudioResponse.new,
+  );
 }
