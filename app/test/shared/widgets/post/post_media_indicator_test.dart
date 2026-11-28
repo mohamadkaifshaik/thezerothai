@@ -105,6 +105,18 @@ void main() {
     handle.dispose();
   });
 
+  testWidgets('a large gallery shows the position with at most five dots', (
+    tester,
+  ) async {
+    await _pumpMedia(tester, 12);
+    expect(find.text('1/12'), findsOneWidget);
+    expect(_current, findsOneWidget);
+    expect(_others, findsNWidgets(4));
+    await swipeToNextMediaPage(tester);
+    expect(find.text('2/12'), findsOneWidget);
+    expect(_others, findsNWidgets(4));
+  });
+
   testWidgets('the indicator is off by default', (tester) async {
     await _pumpMedia(tester, 3, indicator: false);
     expect(_current, findsNothing);

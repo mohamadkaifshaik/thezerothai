@@ -121,7 +121,7 @@ class AuthPageLayout extends StatelessWidget {
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) =>
         switch (AuthLook.of(constraints.maxWidth)) {
-          AuthLook.phone => _phone(context),
+          AuthLook.phone => signUp ? _phone(context) : _phoneSignIn(context),
           AuthLook.tablet => _tablet(context),
           AuthLook.desktop => _desktop(context, constraints.maxWidth),
         },
@@ -246,6 +246,59 @@ class AuthPageLayout extends StatelessWidget {
       ),
     ),
   );
+
+  Widget _phoneSignIn(BuildContext context) {
+    final theme = Theme.of(context);
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Sign in'),
+        titleTextStyle: AppTextStyles.dzTitle(theme),
+        centerTitle: false,
+        leading: IconButton(
+          tooltip: _backLabel,
+          onPressed: onBack,
+          icon: const Icon(Icons.chevron_left),
+        ),
+        actions: const [AuthAppearanceControl(), _HelpButton()],
+        bottom: const PreferredSize(
+          preferredSize: Size.fromHeight(1),
+          child: Divider(height: 1),
+        ),
+      ),
+      body: SafeArea(
+        child: form(
+          fieldIcons: false,
+          dense: true,
+          builder: (context, fields, submit) => SingleChildScrollView(
+            padding: const EdgeInsets.all(AppAuthLayout.phonePaddingH),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _Headline(
+                  lead: copy.headline,
+                  accent: copy.accent,
+                  tail: ' again.',
+                  size: AppAuthLayout.phoneSignInDisplaySize,
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                Text(
+                  'Sign in with the email you used to join.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.lg),
+                fields,
+                const SizedBox(height: AppSpacing.smd),
+                submit,
+                _after(context, privacyLink: true),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   Widget _wideForm(BuildContext context, {required bool privacyLink}) => form(
     fieldIcons: true,
@@ -387,6 +440,7 @@ class AuthFrame extends StatelessWidget {
     this.mark,
     this.phoneAction,
     this.wideFooter,
+    this.phonePreview,
   });
 
   final String eyebrow;
@@ -412,6 +466,9 @@ class AuthFrame extends StatelessWidget {
 
   /// At the top end of the phone page (Sign out).
   final Widget? phoneAction;
+
+  /// Welcome's plan illustration and brand treatment on narrow screens.
+  final Widget? phonePreview;
 
   /// Under [actions] on tablet and desktop (Sign out).
   final Widget? wideFooter;
@@ -470,20 +527,35 @@ class AuthFrame extends StatelessWidget {
   Widget _phoneText() => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      _header(
-        AppAuthLayout.phoneDisplaySize,
-        fieldsTop: AppAuthLayout.phoneFieldsTop,
-      ),
+      if (phonePreview != null) ...[
+        _Eyebrow(eyebrow),
+        const SizedBox(height: AppSpacing.sm),
+        _Headline(
+          lead: heroHeadline,
+          accent: heroAccent,
+          size: AppWelcomeLayout.phoneHeadlineSize,
+        ),
+        const SizedBox(height: AppSpacing.sm),
+      ] else
+        _header(
+          AppAuthLayout.phoneDisplaySize,
+          fieldsTop: AppAuthLayout.phoneFieldsTop,
+        ),
       _body(),
     ],
   );
 
   Widget _phone(BuildContext context) => _Backdrop(
-    rings: AppAuthLayout.phoneRings,
-    ringsCentre: (size) => Offset(
-      size.width - AppAuthLayout.phoneRingsFromTopEnd.dx,
-      AppAuthLayout.phoneRingsFromTopEnd.dy,
-    ),
+    rings: phonePreview == null
+        ? AppAuthLayout.phoneRings
+        : AppWelcomeLayout.phoneRings,
+    ringsCentre: (size) => phonePreview == null
+        ? Offset(
+            size.width - AppAuthLayout.phoneRingsFromTopEnd.dx,
+            AppAuthLayout.phoneRingsFromTopEnd.dy,
+          )
+        : AppWelcomeLayout.phoneRingsCentre,
+    solidBackground: phonePreview != null,
     child: _FillScroll(
       builder: (minHeight) => ConstrainedBox(
         constraints: BoxConstraints(minHeight: minHeight),
@@ -503,11 +575,18 @@ class AuthFrame extends StatelessWidget {
                 children: [
                   Row(
                     children: [
+                      if (phonePreview != null && mark != null) ...[
+                        mark!,
+                        const SizedBox(width: AppSpacing.smd),
+                      ],
                       const Expanded(child: _Wordmark()),
                       ?phoneAction,
                     ],
                   ),
-                  if (mark != null) ...[
+                  if (phonePreview != null) ...[
+                    const SizedBox(height: AppSpacing.lg),
+                    phonePreview!,
+                  ] else if (mark != null) ...[
                     const SizedBox(height: AppWelcomeLayout.phoneMarkTop),
                     Center(child: mark),
                   ] else ...[
@@ -521,7 +600,7 @@ class AuthFrame extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    if (mark != null) ...[
+                    if (mark != null || phonePreview != null) ...[
                       _phoneText(),
                       const SizedBox(height: AppSpacing.md),
                     ],
@@ -631,11 +710,13 @@ class _Backdrop extends StatelessWidget {
     required this.rings,
     required this.ringsCentre,
     required this.child,
+    this.solidBackground = false,
   });
 
   final List<(double, double)> rings;
   final Offset Function(Size size) ringsCentre;
   final Widget child;
+  final bool solidBackground;
 
   @override
   Widget build(BuildContext context) {
@@ -645,7 +726,7 @@ class _Backdrop extends StatelessWidget {
       body: DecoratedBox(
         decoration: BoxDecoration(
           color: theme.colorScheme.surface,
-          gradient: dark ? AppGradients.hero : null,
+          gradient: dark && !solidBackground ? AppGradients.hero : null,
         ),
         child: Stack(
           children: [

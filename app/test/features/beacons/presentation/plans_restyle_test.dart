@@ -54,14 +54,23 @@ void main() {
         expectNoOverflow(tester);
 
         expect(
-          _inCard('Coffee at noon', find.text('PLAN · COFFEE')),
+          _inCard(
+            'Coffee at noon',
+            find.text(w < 600 ? 'Coffee · Public' : 'PLAN · COFFEE'),
+          ),
           findsOneWidget,
         );
         expect(
           _inCard('Coffee at noon', find.text('Organising')),
           findsOneWidget,
         );
-        expect(_inCard('Coffee at noon', find.text('1 going')), findsOneWidget);
+        expect(
+          _inCard(
+            'Coffee at noon',
+            find.text(w < 600 ? '1/3 going' : '1 going'),
+          ),
+          findsOneWidget,
+        );
         // Not the caller's: no part to say.
         expect(_inCard('Evening walk', find.text('Organising')), findsNothing);
         final pane = findPlansPane().evaluate().isNotEmpty;
@@ -201,7 +210,10 @@ void main() {
         expectNoOverflow(tester);
         expect(_hero, findsOneWidget);
         expect(
-          find.descendant(of: _hero, matching: find.text('PLAN · COFFEE')),
+          find.descendant(
+            of: _hero,
+            matching: find.text(w < 600 ? 'Coffee' : 'PLAN · COFFEE'),
+          ),
           findsOneWidget,
         );
         expect(
@@ -279,24 +291,25 @@ void main() {
       );
     });
 
-    testWidgets('RTL at 360: the eyebrow starts at the right of the hero', (
-      tester,
-    ) async {
-      final rig = PlansTabletRig();
-      await rig.pump(
-        tester,
-        location: AppRouter.planPath(kBeaconIdA),
-        width: 360,
-        height: 1400,
-        textDirection: TextDirection.rtl,
-      );
-      expect(tester.takeException(), isNull);
-      final hero = tester.getRect(_hero);
-      final eyebrow = tester.getRect(
-        find.descendant(of: _hero, matching: find.text('PLAN · COFFEE')),
-      );
-      expect(hero.right - eyebrow.right, lessThan(hero.width / 3));
-    });
+    testWidgets(
+      'RTL at 360: the activity starts at the right of the overview',
+      (tester) async {
+        final rig = PlansTabletRig();
+        await rig.pump(
+          tester,
+          location: AppRouter.planPath(kBeaconIdA),
+          width: 360,
+          height: 1400,
+          textDirection: TextDirection.rtl,
+        );
+        expect(tester.takeException(), isNull);
+        final hero = tester.getRect(_hero);
+        final eyebrow = tester.getRect(
+          find.descendant(of: _hero, matching: find.text('Coffee')),
+        );
+        expect(hero.right - eyebrow.right, lessThan(hero.width / 3));
+      },
+    );
 
     testWidgets('the preview draws the same hero', (tester) async {
       final rig = PlansTabletRig();

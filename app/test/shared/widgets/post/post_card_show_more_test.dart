@@ -1,4 +1,5 @@
 import 'package:dzeroth/features/graph/data/graph_repository.dart';
+import 'package:dzeroth/core/theme/app_theme.dart';
 import 'package:dzeroth/gen/dzeroth/common/v1/common.pb.dart' as common;
 import 'package:dzeroth/gen/dzeroth/posts/v1/posts.pb.dart' as pb;
 import 'package:dzeroth/shared/widgets/post/post_card.dart';
@@ -24,7 +25,7 @@ pb.PostView _view(String text) => pb.PostView(
   ),
 );
 
-/// List cards clamp long text to [kPostTextClampLines] lines with an
+/// List cards clamp long text by width with an
 /// in-place "Show more"; the detail view and short posts show everything.
 void main() {
   final long = List.generate(12, (i) => 'line ${i + 1}').join('\n');
@@ -58,23 +59,17 @@ void main() {
     await pumpCard(tester, env, long);
 
     expect(find.text('Show more'), findsOneWidget);
-    final clamped = tester.widget<Text>(
-      find.byWidgetPredicate(
-        (w) => w is Text && w.maxLines == kPostTextClampLines,
-      ),
+    final maxLines = env.size.width < AppBreakpoints.mobile ? 4 : 6;
+    final clamped = find.byWidgetPredicate(
+      (w) => w is Text && w.maxLines == maxLines,
     );
-    expect(clamped.maxLines, 6);
+    expect(clamped, findsOneWidget);
 
     await tester.tap(find.text('Show more'));
     await tester.pump();
 
     expect(find.text('Show more'), findsNothing);
-    expect(
-      find.byWidgetPredicate(
-        (w) => w is Text && w.maxLines == kPostTextClampLines,
-      ),
-      findsNothing,
-    );
+    expect(clamped, findsNothing);
   });
 
   forEachThemeAndWidth('a short post has no control', (tester, env) async {

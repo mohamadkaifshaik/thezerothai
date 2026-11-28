@@ -66,7 +66,11 @@ Future<void> _type(WidgetTester tester, String query) async {
 }
 
 void main() {
+  final searchPill = find.widgetWithText(OutlinedButton, kMessageSearchHint);
   for (final MapEntry(key: name, value: size) in _sizes.entries) {
+    final searchAction = name == 'phone'
+        ? searchPill
+        : find.byTooltip(kMessageSearchHint);
     group('$name (${size.width.toInt()} dp)', () {
       for (final search in [false, true]) {
         for (final brightness in Brightness.values) {
@@ -83,11 +87,15 @@ void main() {
                   textScale: scale,
                 );
                 if (!search) {
-                  expect(find.byTooltip(kMessageSearchHint), findsNothing);
+                  expect(searchAction, findsNothing);
                   expect(tester.takeException(), isNull);
                   return;
                 }
-                await tester.tap(find.byTooltip(kMessageSearchHint).first);
+                expect(
+                  searchPill,
+                  name == 'phone' ? findsOneWidget : findsNothing,
+                );
+                await tester.tap(searchAction.first);
                 await tester.pumpAndSettle();
                 expect(find.text(kMessageSearchNote), findsOneWidget);
                 await _type(tester, 'NEWER');
@@ -107,7 +115,7 @@ void main() {
         tester,
       ) async {
         final rig = await _inbox(tester, size, search: true);
-        await tester.tap(find.byTooltip(kMessageSearchHint).first);
+        await tester.tap(searchAction.first);
         await tester.pumpAndSettle();
         await _type(tester, 'older in');
         await tester.tap(_hit('older in').first);

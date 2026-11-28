@@ -114,6 +114,23 @@ class _ThreadList extends StatelessWidget {
         // the rail; the reply entry and everyone else's replies follow it.
         final selfThread = state.selfThreadLength > 0;
         final tail = state.selfThreadTail;
+        final root =
+            state.root ??
+            (focal.post.replyToPostId.isEmpty ? focal : state.parent);
+        final rootAuthorId =
+            root != null &&
+                (root.post.postId == focal.post.conversationId ||
+                    identical(root, focal))
+            ? root.post.author.userId
+            : null;
+        final last = tail.isEmpty ? focal : tail.last;
+        final canExtend =
+            selfThread &&
+            !state.hasMore &&
+            viewerUserId != null &&
+            viewerUserId == rootAuthorId &&
+            onReply != null &&
+            !replyKnownNotAllowed(last);
         final tailIds = {for (final v in tail) v.post.postId};
         final replies = tail.isEmpty
             ? state.visibleReplies
@@ -270,6 +287,19 @@ class _ThreadList extends StatelessWidget {
                             ),
                           ),
                         ),
+                      if (canExtend)
+                        Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: postCardGutterOf(context),
+                            vertical: AppSpacing.sm,
+                          ),
+                          child: AppPillButton(
+                            label: 'Add to thread',
+                            icon: Icons.add,
+                            variant: AppButtonVariant.outline,
+                            onPressed: () => unawaited(replyTo(last)),
+                          ),
+                        ),
                       if (inlineComposer case final composer?)
                         composer
                       else
@@ -317,6 +347,10 @@ class _ThreadList extends StatelessWidget {
                             child: PostCard(
                               indentBody: before || after,
                               view: view,
+                              threadAuthor:
+                                  rootAuthorId != null &&
+                                  rootAuthorId.isNotEmpty &&
+                                  view.post.author.userId == rootAuthorId,
                               viewerUserId: viewerUserId,
                               graphActionsEnabled: graphEnabled,
                               reportsEnabled: reportsEnabled,

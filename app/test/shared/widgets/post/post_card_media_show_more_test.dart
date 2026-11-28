@@ -212,7 +212,7 @@ void main() {
     expect(tester.getSize(inlineText()).height, closeTo(two, 0.01));
   });
 
-  testWidgets('without media the six-line clamp and the row below stay', (
+  testWidgets('without media the four-line phone clamp and row below stay', (
     tester,
   ) async {
     await pumpCard(tester, _view(long));
@@ -220,7 +220,7 @@ void main() {
     expect(find.text('Show more'), findsOneWidget);
     expect(
       find.byWidgetPredicate(
-        (w) => w is Text && w.maxLines == kPostTextClampLines,
+        (w) => w is Text && w.maxLines == kPostPhoneTextClampLines,
       ),
       findsOneWidget,
     );

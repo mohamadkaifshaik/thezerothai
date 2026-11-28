@@ -1,4 +1,5 @@
 import 'package:material_ui/material_ui.dart';
+import 'package:intl/intl.dart';
 
 import '../../../../core/theme/app_theme.dart';
 import '../../../../gen/dzeroth/beacons/v1/beacons.pb.dart' as pb;
@@ -74,6 +75,10 @@ class BeaconRow extends StatelessWidget {
     final spoken = [
       activityLabel(b.activity),
       b.title,
+      if (!dense &&
+          !compact &&
+          MediaQuery.sizeOf(context).width < AppBreakpoints.mobile)
+        b.communityId.isEmpty ? 'Public' : 'Community',
       when,
       b.venue,
       ?area,
@@ -159,9 +164,50 @@ class BeaconRow extends StatelessWidget {
     required bool quickJoin,
   }) {
     final radius = BorderRadius.circular(AppRadius.card);
-    final gutter = MediaQuery.sizeOf(context).width < AppBreakpoints.mobile
+    final phone = MediaQuery.sizeOf(context).width < AppBreakpoints.mobile;
+    final gutter = phone
         ? AppPlansLayout.phoneGutter
         : AppPlansLayout.wideGutter;
+    final cardPad = phone
+        ? AppPlansLayout.phoneCardPad
+        : AppPlansLayout.cardPad;
+    final body = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        spokenAs(
+          Material(
+            type: MaterialType.transparency,
+            child: InkWell(
+              onTap: onTap,
+              borderRadius: radius,
+              child: Padding(
+                padding: EdgeInsets.all(compact ? AppSpacing.md : cardPad),
+                child: compact
+                    ? _compactBody(context, badge, when)
+                    : phone
+                    ? _phoneBody(context, badge)
+                    : _cardBody(context, badge, when),
+              ),
+            ),
+          ),
+        ),
+        if (quickJoin)
+          Padding(
+            padding: EdgeInsets.fromLTRB(cardPad, 0, cardPad, AppSpacing.smd),
+            child: Align(
+              alignment: phone
+                  ? AlignmentDirectional.centerEnd
+                  : AlignmentDirectional.centerStart,
+              child: PlanQuickJoinPill(
+                key: ValueKey('quick-join-${view.beacon.beaconId}'),
+                view: view,
+              ),
+            ),
+          ),
+      ],
+    );
+    final colors = Theme.of(context).colorScheme;
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: gutter, vertical: 6),
       child: DecoratedBox(
@@ -172,47 +218,114 @@ class BeaconRow extends StatelessWidget {
               ? Border.all(color: context.appColors.selectedIndicator, width: 2)
               : null,
         ),
-        child: AppCard(
-          padding: EdgeInsets.zero,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              spokenAs(
-                Material(
-                  type: MaterialType.transparency,
-                  child: InkWell(
-                    onTap: onTap,
-                    borderRadius: radius,
-                    child: Padding(
-                      padding: EdgeInsets.all(compact ? AppSpacing.md : 20),
-                      child: compact
-                          ? _compactBody(context, badge, when)
-                          : _cardBody(context, badge, when),
-                    ),
-                  ),
+        child: phone && !compact
+            ? Material(
+                color: colors.surfaceContainer,
+                shape: RoundedRectangleBorder(
+                  borderRadius: radius,
+                  side: BorderSide(color: colors.outlineVariant),
                 ),
-              ),
-              if (quickJoin)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(
-                    AppPlansLayout.cardPad,
-                    0,
-                    AppPlansLayout.cardPad,
-                    AppSpacing.smd,
-                  ),
-                  child: Align(
-                    alignment: AlignmentDirectional.centerStart,
-                    child: PlanQuickJoinPill(
-                      key: ValueKey('quick-join-${view.beacon.beaconId}'),
-                      view: view,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
+                child: body,
+              )
+            : AppCard(padding: EdgeInsets.zero, child: body),
       ),
+    );
+  }
+
+  Widget _phoneBody(BuildContext context, String? badge) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final b = view.beacon;
+    final start = b.startAt.toDateTime().toLocal();
+    final locale = Localizations.localeOf(context).toString();
+    final scope = b.communityId.isEmpty ? 'Public' : 'Community';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              constraints: const BoxConstraints(
+                minWidth: AppPlansLayout.dateTileWidth,
+                minHeight: AppPlansLayout.dateTileHeight,
+              ),
+              padding: const EdgeInsets.all(AppSpacing.xs),
+              decoration: BoxDecoration(
+                color: theme.brightness == Brightness.dark
+                    ? AppPalette.drawerTileTealDark
+                    : AppPalette.drawerTileTeal,
+                borderRadius: BorderRadius.circular(AppRadius.card),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    DateFormat.MMM(locale).format(start),
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: context.appColors.accentText,
+                    ),
+                  ),
+                  Text(
+                    DateFormat.d(locale).format(start),
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      color: context.appColors.accentText,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: AppSpacing.smd),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Wrap(
+                    spacing: AppSpacing.xs,
+                    runSpacing: AppSpacing.xs,
+                    children: [
+                      AppStatusPill(
+                        label: '${activityLabel(b.activity)} · $scope',
+                      ),
+                      if (b.status != pb.BeaconStatus.BEACON_STATUS_OPEN)
+                        BeaconStatusPill(status: b.status),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(b.title, style: theme.textTheme.titleMedium),
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    '${MaterialLocalizations.of(context).formatTimeOfDay(TimeOfDay.fromDateTime(start), alwaysUse24HourFormat: MediaQuery.alwaysUse24HourFormatOf(context))} · ${b.venue}',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                  if (b.hasArea() && showsAreaLabel(context, b.area))
+                    AreaLabel(area: b.area, proximity: proximity),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        const Divider(height: 1),
+        const SizedBox(height: AppSpacing.sm),
+        Wrap(
+          alignment: WrapAlignment.spaceBetween,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: AppSpacing.sm,
+          runSpacing: AppSpacing.xs,
+          children: [
+            Text(
+              '${b.acceptedCount}/${b.openSpots} going',
+              style: theme.textTheme.labelMedium,
+            ),
+            if (badge != null)
+              AppStatusPill(label: badge, tone: AppStatusTone.info),
+          ],
+        ),
+      ],
     );
   }
 

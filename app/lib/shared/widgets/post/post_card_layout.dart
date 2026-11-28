@@ -18,6 +18,7 @@ Future<bool> launchPostLink(Uri uri) async {
 /// Lines of post text a list card shows before "Show more" (the post
 /// detail view shows all of it).
 const kPostTextClampLines = 6;
+const kPostPhoneTextClampLines = 4;
 
 /// The same for a post with media (images or a GIF): two lines, with
 /// "... Show more" inline at the end of the second.

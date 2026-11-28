@@ -58,22 +58,38 @@ class DataUsageBody extends StatelessWidget {
     final uploads = context.select((DataUsageCubit c) => c.state.uploads);
     final loaded = context.select((DataUsageCubit c) => c.state.loaded);
     final theme = Theme.of(context);
+    final phone = MediaQuery.sizeOf(context).width < AppBreakpoints.mobile;
+    final saver = SettingsRow(
+      icon: Icons.data_saver_on_outlined,
+      title: kDataSaverTitle,
+      subtitle: phone && !dataSaver
+          ? 'Use less mobile data when you need it.'
+          : kDataSaverSubtitle,
+      subtitleMaxLines: 4,
+      toggled: dataSaver,
+      onTap: loaded ? () => cubit.setDataSaver(!dataSaver) : null,
+    );
     return ListView(
       padding: EdgeInsets.only(
+        left: phone ? AppSpacing.md : 0,
+        right: phone ? AppSpacing.md : 0,
         top: AppSpacing.md,
         bottom: AppSpacing.lg + MediaQuery.paddingOf(context).bottom,
       ),
       children: [
-        SettingsGroup(
-          rows: [
-            SettingsRow(
-              icon: Icons.data_saver_on_outlined,
-              title: kDataSaverTitle,
-              subtitle: kDataSaverSubtitle,
-              subtitleMaxLines: 4,
-              toggled: dataSaver,
-              onTap: loaded ? () => cubit.setDataSaver(!dataSaver) : null,
+        if (phone)
+          Theme(
+            data: dataSaver ? appDarkTheme : theme,
+            child: SettingsGroup(
+              style: SettingsGroupStyle.raised,
+              rows: [saver],
             ),
+          ),
+        SettingsGroup(
+          title: phone ? 'Image quality' : null,
+          style: phone ? SettingsGroupStyle.raised : SettingsGroupStyle.plain,
+          rows: [
+            if (!phone) saver,
             SettingsChoiceRow<HighQualityImages>(
               icon: Icons.high_quality_outlined,
               title: kHighQualityImagesTitle,

@@ -766,13 +766,11 @@ class _ComposerViewState extends State<_ComposerView> {
   Widget _questionArea(
     BuildContext context,
     ComposerState state,
-    bool isQuote,
-  ) {
+    bool isQuote, {
+    required bool scrolls,
+  }) {
     final cubit = context.read<ComposerCubit>();
     final hasPoll = state.hasPoll;
-    // With a poll or a quote the field sits in a scroll view with the rest
-    // (builder / quoted post), so it keeps its own height and never expands.
-    final scrolls = hasPoll || isQuote;
     final field = TextField(
       controller: _controller,
       focusNode: _questionFocus,
@@ -782,7 +780,7 @@ class _ComposerViewState extends State<_ComposerView> {
       maxLines: null,
       minLines: hasPoll
           ? 2
-          : isQuote
+          : scrolls
           ? 3
           : null,
       textAlignVertical: TextAlignVertical.top,
@@ -1001,6 +999,7 @@ class _ComposerViewState extends State<_ComposerView> {
             ComposerPresentation.fullScreen;
         final post = AppPillButton(
           label: scheduling ? 'Schedule' : 'Post',
+          variant: phone ? AppButtonVariant.navy : AppButtonVariant.primary,
           compact: true,
           busy: state.isSubmitting,
           busySemanticsLabel: scheduling ? 'Scheduling post' : null,
@@ -1053,33 +1052,52 @@ class _ComposerViewState extends State<_ComposerView> {
                             : null,
                         post: phone ? post : null,
                       ),
+                      if (phone) const Divider(height: 1),
                       // The header announces "Scheduling post"; this bar is
                       // only the picture of it.
                       if (state.isSubmitting && scheduling)
                         const ExcludeSemantics(
                           child: LinearProgressIndicator(minHeight: 2),
                         ),
-                      if (scheduling)
-                        ScheduleLine(
-                          publishAt: state.scheduledAt!,
-                          enabled: !state.isSubmitting,
-                          onTap: () => _openSchedule(context),
-                        ),
-                      // L-9: the photos are reachable by link before the post
-                      // goes out. The dialog says so too, but photos can be
-                      // added after the time was set.
-                      if (scheduling && state.hasAttachments)
-                        const _ScheduleImagesNoteBox(),
                       Expanded(
-                        child: poll == null && !isQuote
-                            ? _questionArea(context, state, isQuote)
-                            // With a poll the question and the builder scroll
-                            // together: four choices and the length do not fit
-                            // above the keyboard on a phone.
+                        child: poll == null && !isQuote && !scheduling
+                            ? _questionArea(
+                                context,
+                                state,
+                                isQuote,
+                                scrolls: false,
+                              )
+                            // Supplemental content shares the input's viewport
+                            // when the keyboard or large text limits its height.
                             : SingleChildScrollView(
                                 child: Column(
                                   children: [
-                                    _questionArea(context, state, isQuote),
+                                    if (scheduling)
+                                      ScheduleLine(
+                                        publishAt: state.scheduledAt!,
+                                        enabled: !state.isSubmitting,
+                                        onTap: () => _openSchedule(context),
+                                      ),
+                                    // Photos can be added after the schedule
+                                    // dialog showed the link-visibility note.
+                                    if (scheduling && state.hasAttachments)
+                                      const Padding(
+                                        padding: EdgeInsetsDirectional.fromSTEB(
+                                          AppSpacing.md,
+                                          0,
+                                          AppSpacing.md,
+                                          AppSpacing.sm,
+                                        ),
+                                        child: ScheduleImagesNote(
+                                          compact: true,
+                                        ),
+                                      ),
+                                    _questionArea(
+                                      context,
+                                      state,
+                                      isQuote,
+                                      scrolls: true,
+                                    ),
                                     // The quoted post sits below the input
                                     // and scrolls with it, so the keyboard
                                     // never hides what is being typed.
@@ -1240,8 +1258,7 @@ class _ComposerViewState extends State<_ComposerView> {
 }
 
 /// Close at the start; Drafts (when kept) and, full screen, the Post pill at
-/// the end. The dialogs carry Post in the footer. [title] is only the screen
-/// reader's heading: the designs draw none.
+/// the end. The dialogs carry Post in the footer and announce the title.
 class _ComposerHeader extends StatelessWidget {
   const _ComposerHeader({
     required this.title,
@@ -1273,7 +1290,26 @@ class _ComposerHeader extends StatelessWidget {
             onPressed: onClose,
             icon: const Icon(Icons.close),
           ),
-          Semantics(header: true, label: title, child: const SizedBox.shrink()),
+          if (post == null)
+            Semantics(
+              header: true,
+              label: title,
+              child: const SizedBox.shrink(),
+            )
+          else
+            Expanded(
+              child: Semantics(
+                header: true,
+                label: title,
+                excludeSemantics: true,
+                child: Text(
+                  title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTextStyles.dzComposeTitle(Theme.of(context)),
+                ),
+              ),
+            ),
           Expanded(
             child: Align(
               alignment: AlignmentDirectional.centerEnd,
@@ -1305,33 +1341,6 @@ class _ComposerHeader extends StatelessWidget {
       ),
     ),
   );
-}
-
-/// The L-9 note under the "Will send on" line, at most two tap targets high:
-/// at very large text on a small phone it scrolls inside that box, so it can
-/// never push the text field and the bottom bar off the screen.
-class _ScheduleImagesNoteBox extends StatelessWidget {
-  const _ScheduleImagesNoteBox();
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsetsDirectional.fromSTEB(
-        AppSpacing.md,
-        0,
-        AppSpacing.md,
-        AppSpacing.sm,
-      ),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(
-          maxHeight: AppSpacing.minTapTarget * 2,
-        ),
-        child: const SingleChildScrollView(
-          child: ScheduleImagesNote(compact: true),
-        ),
-      ),
-    );
-  }
 }
 
 /// The "Add photos" action in the composer's bottom bar. Disabled while the

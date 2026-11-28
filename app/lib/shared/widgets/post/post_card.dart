@@ -50,6 +50,7 @@ import '../../format/relative_time.dart';
 import '../primitives/app_avatar.dart';
 import '../primitives/app_alert_confirm.dart';
 import '../primitives/app_menu_item_row.dart';
+import '../primitives/app_status_pill.dart';
 import 'embedded_post_card.dart';
 import 'post_action_bar.dart';
 import 'post_media.dart';
@@ -118,9 +119,13 @@ class PostCard extends StatelessWidget {
     this.focal = false,
     this.onReply,
     this.indentBody = false,
+    this.threadAuthor = false,
   });
 
   final pb.PostView view;
+
+  /// The reply was written by the author of the conversation root.
+  final bool threadAuthor;
 
   /// Keep the body (text, media, embeds, actions) in a column to the right of
   /// the avatar, so a thread rail can run down the avatar column. Only rows
@@ -318,7 +323,8 @@ class PostCard extends StatelessWidget {
       postId: isRepost ? embedded!.postId : _post.postId,
       media: media,
       useFullImage: fullContent,
-      showPageIndicator: PostMedia.hasNoText(text),
+      showPageIndicator:
+          PostMedia.hasNoText(text) || (!isRepost && _post.hasCommunity()),
       insetStart: insetStart,
       insetEnd: insetEnd,
       onOpenImage: (index) => context.push(
@@ -425,6 +431,17 @@ class PostCard extends StatelessWidget {
     );
 
     final content = <Widget>[
+      if (threadAuthor)
+        Padding(
+          padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+          child: Semantics(
+            label: 'Thread author',
+            child: const AppStatusPill(
+              label: 'Author',
+              tone: AppStatusTone.info,
+            ),
+          ),
+        ),
       // An image-only post has empty text: no empty line above the images.
       if (text.isNotEmpty &&
           !(isRepost
@@ -439,6 +456,8 @@ class PostCard extends StatelessWidget {
               ? null
               : showsMedia
               ? kPostMediaTextClampLines
+              : windowWidth < AppBreakpoints.mobile
+              ? kPostPhoneTextClampLines
               : kPostTextClampLines,
           inlineShowMore: showsMedia,
           text: text,
@@ -527,8 +546,6 @@ class PostCard extends StatelessWidget {
     // follow the canvas (the compact feed row, the spread opened post);
     // tablet and desktop keep their earlier distributed, edge-aligned
     // spacing.
-    // TODO(dz-post-screen): the opened post passes `showCounts: false` once
-    // the post screen shows its own "4 Replies 0 Reposts" line (DzPost).
     final barLayout = windowWidth >= AppBreakpoints.mobile
         ? PostActionBarLayout.distributed
         : asFocal
@@ -556,6 +573,7 @@ class PostCard extends StatelessWidget {
             bookmarkEnabled: bookmarkEnabled,
             onReply: onReply,
             focal: asFocal,
+            showFocalSummary: asFocal && !wideFocal,
             iconSize: asFocal
                 ? (wideFocal
                       ? AppFocalPost.actionIcon

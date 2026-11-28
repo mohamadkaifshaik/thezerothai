@@ -294,7 +294,13 @@ void main() {
     }, '/plans/$kBeaconIdA');
     expect(path, '/plans/$kBeaconIdA');
     expect(find.byType(BeaconScreen), findsOneWidget);
-    expect(find.text('Coffee'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('plan-title')),
+        matching: find.text('Coffee'),
+      ),
+      findsOneWidget,
+    );
     expect(beacons.calls, ['get']);
   });
 

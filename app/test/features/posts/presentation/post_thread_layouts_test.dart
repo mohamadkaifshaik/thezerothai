@@ -71,6 +71,20 @@ void main() {
     if (_screenshots) await loadAppFonts();
   });
 
+  testWidgets('the thread author can add a post at the end of the chain', (
+    tester,
+  ) async {
+    final rig = ThreadShellRig();
+    await rig.pump(tester, open: postId(1), viewerUserId: kThreadAuthor.userId);
+    final extend = find.text('Add to thread');
+    expect(extend, findsOneWidget);
+    await tester.ensureVisible(extend);
+    await tester.pumpAndSettle();
+    await tester.tap(extend);
+    await tester.pumpAndSettle();
+    expect(find.text('Reply target ${postId(4)}'), findsOneWidget);
+  });
+
   for (final MapEntry(key: name, value: size) in _sizes.entries) {
     group('$name (${size.width.toInt()} dp)', () {
       testWidgets('the root of a self-thread: one chain, entry after it', (
@@ -80,6 +94,7 @@ void main() {
         await rig.pump(tester, open: postId(1), size: size);
         expect(tester.takeException(), isNull);
         expect(find.text('Thread · 4 posts'), findsOneWidget);
+        expect(find.text('Add to thread'), findsNothing);
         // Four equal cards: none is the large open-post card.
         for (var n = 1; n <= 4; n++) {
           expect(_card(n), findsOneWidget, reason: 'post $n');
@@ -109,6 +124,7 @@ void main() {
               )
               .first,
         );
+        await tester.pumpAndSettle();
         expect(
           tester.getRect(_entry).top,
           greaterThan(tester.getRect(_card(4)).bottom),

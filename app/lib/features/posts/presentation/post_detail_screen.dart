@@ -161,9 +161,6 @@ class _ReadyPost extends StatelessWidget {
             authorId: author.userId,
             handle: author.handle,
             graphEnabled: graphEnabled,
-            // TODO(dz-post-screen): pass the focal post's action row
-            // `showCounts: false` once this screen draws its own
-            // "4 Replies 0 Reposts" line (DzPost).
             child: PostCard(
               view: view,
               focal: true,

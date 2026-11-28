@@ -263,15 +263,16 @@ class _BeaconScreenState extends State<BeaconScreen> {
   }
 
   /// The plan's menu: Report plan (reports on, not the organiser's own plan).
-  Widget? _menu(BeaconDetailState state) {
+  Widget? _menu(BeaconDetailState state, {required bool onDark}) {
     final view = state.view;
     if (view == null || view.viewer.canManage || !_flag(kFeatureReports)) {
       return null;
     }
     return _HeroButton(
+      onDark: onDark,
       child: PopupMenuButton<String>(
         tooltip: 'Plan options',
-        icon: const Icon(Icons.more_horiz, color: AppPalette.pearl),
+        icon: Icon(Icons.more_horiz, color: onDark ? AppPalette.pearl : null),
         style: IconButton.styleFrom(
           minimumSize: const Size.square(AppPlansLayout.heroButton),
         ),
@@ -291,16 +292,21 @@ class _BeaconScreenState extends State<BeaconScreen> {
 
   /// Share (the plan's link, a post or a message about it) beside the menu;
   /// null when there is nothing to offer ([planShareOptions]).
-  Widget? _share(BeaconDetailState state) {
+  Widget? _share(BeaconDetailState state, {required bool onDark}) {
     final view = state.view;
     if (view == null || planShareOptions(context, view) == null) return null;
-    return _HeroButton(child: PlanShareButton(view: view));
+    return _HeroButton(
+      onDark: onDark,
+      child: PlanShareButton(view: view, onDark: onDark),
+    );
   }
 
   /// Back, Share and the menu over the hero (the designs' PlanDetail).
   Widget _heroBar(BeaconDetailState state) {
-    final share = _share(state);
-    final menu = _menu(state);
+    final theme = Theme.of(context);
+    final phone = MediaQuery.sizeOf(context).width < AppBreakpoints.mobile;
+    final share = _share(state, onDark: !phone);
+    final menu = _menu(state, onDark: !phone);
     final trailing = share == null && menu == null
         ? null
         : Row(
@@ -320,13 +326,24 @@ class _BeaconScreenState extends State<BeaconScreen> {
           const SizedBox.shrink()
         else
           _HeroButton(
+            onDark: !phone,
             child: IconButton(
               tooltip: 'Back',
-              icon: const Icon(Icons.arrow_back, color: AppPalette.pearl),
+              icon: Icon(
+                phone ? Icons.chevron_left : Icons.arrow_back,
+                color: phone ? null : AppPalette.pearl,
+              ),
               style: IconButton.styleFrom(
                 minimumSize: const Size.square(AppPlansLayout.heroButton),
               ),
               onPressed: _back,
+            ),
+          ),
+        if (phone)
+          Expanded(
+            child: Semantics(
+              header: true,
+              child: Text('Plan', style: AppTextStyles.dzTitle(theme)),
             ),
           ),
         ?trailing,
@@ -390,16 +407,23 @@ class _BeaconScreenState extends State<BeaconScreen> {
 /// A 44 dp translucent circle on the hero (the designs' round buttons on the
 /// navy): [child] is its icon button.
 class _HeroButton extends StatelessWidget {
-  const _HeroButton({required this.child});
+  const _HeroButton({required this.child, required this.onDark});
 
   final Widget child;
+  final bool onDark;
 
   @override
   Widget build(BuildContext context) => DecoratedBox(
     decoration: BoxDecoration(
       shape: BoxShape.circle,
-      color: AppPalette.pearl.withValues(alpha: 0.08),
-      border: Border.all(color: AppPalette.pearl.withValues(alpha: 0.14)),
+      color: onDark
+          ? AppPalette.pearl.withValues(alpha: 0.08)
+          : Theme.of(context).colorScheme.surfaceContainer,
+      border: Border.all(
+        color: onDark
+            ? AppPalette.pearl.withValues(alpha: 0.14)
+            : Theme.of(context).colorScheme.outlineVariant,
+      ),
     ),
     child: child,
   );
